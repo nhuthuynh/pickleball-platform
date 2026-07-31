@@ -85,6 +85,14 @@ func (h *Handler) ListCourtBookings(ctx context.Context, req *bookingv1.ListCour
 	return &bookingv1.ListCourtBookingsResponse{Bookings: out}, nil
 }
 
+func (h *Handler) CancelBooking(ctx context.Context, req *bookingv1.CancelBookingRequest) (*bookingv1.CancelBookingResponse, error) {
+	b, err := h.svc.CancelBooking(ctx, req.GetBookingId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &bookingv1.CancelBookingResponse{Booking: toProto(b)}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, InvalidArgument ->
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking

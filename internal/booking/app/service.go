@@ -64,6 +64,23 @@ func (s *Service) ListCourtBookings(ctx context.Context, courtID string, r domai
 	return s.repo.ListActiveForCourt(ctx, courtID, r)
 }
 
+// CancelBooking transitions a booking to cancelled (HANDOFF.md T3). Once
+// cancelled, the slot it held is free — domain.EnsureNoConflict already
+// ignores cancelled bookings (T0), so no separate "free the slot" step is
+// needed here beyond persisting the status change itself.
+func (s *Service) CancelBooking(ctx context.Context, bookingID string) (domain.Booking, error) {
+	b, err := s.repo.GetByID(ctx, bookingID)
+	if err != nil {
+		return domain.Booking{}, err
+	}
+
+	if err := b.Cancel(); err != nil {
+		return domain.Booking{}, err
+	}
+
+	return s.repo.Update(ctx, b)
+}
+
 // GetQuote resolves the price a slot on courtID would cost, per the court's
 // pricing rules (HANDOFF.md T1). It is thin by design — all the actual
 // resolution logic (band matching, boundary handling, ambiguity detection)

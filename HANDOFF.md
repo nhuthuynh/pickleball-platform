@@ -65,7 +65,7 @@ when a `CreatePricingRule` use case is built.
 The proto method already exists; `repo.ListActiveForCourt` exists. Implement the
 app method + handler + tests. AC: REST GET returns bookings intersecting the range.
 
-**T3 — CancelBooking.**
+**T3 — CancelBooking. DONE (see docs/reviews/03-t3-cancel-booking.md).**
 Add status→cancelled transition; cancelled bookings free the slot (the invariant
 already ignores them). AC: test that cancelling then re-booking the same slot
 succeeds; REST endpoint added.

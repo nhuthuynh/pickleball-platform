@@ -85,4 +85,8 @@ its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly
   tests proving court scoping, range intersection, and cancelled-booking
   exclusion. See `docs/reviews/02-t2-list-court-bookings.md`. `make
   test-domain` green.
-- Next phase: see `HANDOFF.md` task backlog (T3 onward).
+- T3 complete: `CancelBooking` app method + gRPC/REST handler wired, with a
+  test proving cancelling actually frees the slot for re-booking (not just
+  that the status field flips). See `docs/reviews/03-t3-cancel-booking.md`.
+  `make test-domain` green.
+- Next phase: see `HANDOFF.md` task backlog (T4 onward).

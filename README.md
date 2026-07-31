@@ -55,6 +55,10 @@ If both hold, the vertical slice is live end to end.
 ```bash
 # List court-1's bookings for the day — expect both bookings above.
 curl -s "localhost:8080/v1/courts/11111111-1111-1111-1111-111111111111/bookings?from=2026-08-10T00:00:00Z&to=2026-08-11T00:00:00Z"
+
+# Cancel the first booking (use its id from the create response above), then
+# re-create the same slot — expect 201, not 409, now that it's freed.
+curl -i -X POST localhost:8080/v1/bookings/<booking-id>:cancel
 ```
 
 ## Repository layout
