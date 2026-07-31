@@ -81,4 +81,8 @@ its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly
   by adversarial QA + Principal Engineer passes (see
   `docs/reviews/01-t1-pricing-quote.md`); fixed a real cross-midnight
   pricing bug the QA pass found. `make test-domain` green.
-- Next phase: see `HANDOFF.md` task backlog (T2 onward).
+- T2 complete: `ListCourtBookings` app method + gRPC/REST handler wired, with
+  tests proving court scoping, range intersection, and cancelled-booking
+  exclusion. See `docs/reviews/02-t2-list-court-bookings.md`. `make
+  test-domain` green.
+- Next phase: see `HANDOFF.md` task backlog (T3 onward).

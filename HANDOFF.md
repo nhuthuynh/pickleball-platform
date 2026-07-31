@@ -44,7 +44,7 @@ Each task: write the failing test(s) first. "Done" = tests green + `make test`
 green + adapters/handlers wired + (if an architectural choice was made) an ADR
 added under `docs/adr/`.
 
-**T1 — Wire Pricing into a Quote use case.**
+**T1 — Wire Pricing into a Quote use case. DONE (see docs/reviews/01-t1-pricing-quote.md).**
 Why: prove a second slice of domain logic reaches the API.
 Do: add `pricing_rules` table + migration + sqlc queries; a
 `port.PricingRuleRepository` + Postgres adapter; an app method that resolves a
@@ -61,7 +61,7 @@ seeded via migration only; Pricing/Facilities CRUD doesn't exist. Add the
 write-time guard (an app-level pre-check at minimum, ideally a DB constraint)
 when a `CreatePricingRule` use case is built.
 
-**T2 — ListCourtBookings.**
+**T2 — ListCourtBookings. DONE (see docs/reviews/02-t2-list-court-bookings.md).**
 The proto method already exists; `repo.ListActiveForCourt` exists. Implement the
 app method + handler + tests. AC: REST GET returns bookings intersecting the range.
 

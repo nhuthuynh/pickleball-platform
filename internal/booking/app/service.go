@@ -55,6 +55,15 @@ func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (dom
 	return s.repo.Create(ctx, candidate)
 }
 
+// ListCourtBookings returns the active (non-cancelled) bookings on courtID
+// that intersect r, regardless of source (HANDOFF.md T2). All the actual
+// filtering lives in the repository (mirroring the query the Postgres
+// adapter runs); this method exists so the API layer depends on the app
+// layer rather than the repository port directly.
+func (s *Service) ListCourtBookings(ctx context.Context, courtID string, r domain.TimeRange) ([]domain.Booking, error) {
+	return s.repo.ListActiveForCourt(ctx, courtID, r)
+}
+
 // GetQuote resolves the price a slot on courtID would cost, per the court's
 // pricing rules (HANDOFF.md T1). It is thin by design — all the actual
 // resolution logic (band matching, boundary handling, ambiguity detection)
