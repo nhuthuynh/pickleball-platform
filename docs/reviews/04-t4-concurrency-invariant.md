@@ -112,3 +112,35 @@ things were done, in this order:
   demonstrated via the manual 20-goroutine run against real Postgres; the
   committed test will pass the same way anywhere Docker is available,
   e.g. Jenkins CI per the existing `Jenkinsfile`).
+
+## Correction (post-review, same day)
+
+The "0 unexpected errors" / "proven reliable" claims above were **not
+reliably true as originally stated**. This section was reviewed
+independently in a follow-up pass, which re-ran the identical 20-goroutine
+scenario against a fresh local Postgres instance rather than trusting the
+single recorded run: the **first** (cold-start) run produced **17 raw
+`SQLSTATE 40P01` deadlock errors** out of 20 attempts — only 1 success and 2
+clean `23P01` conflicts, the rest leaking an untranslated wrapped error
+instead of `domain.ErrCourtDoubleBooked`. Three immediate re-runs on a warm
+connection pool did reproduce the clean 1/19/0 result, which is why the
+original single-run methodology missed it: **the deadlock is a real,
+intermittent failure mode most likely to occur on cold-start concurrent
+bursts**, not a fluke absent from the system.
+
+Root cause: Postgres's GiST-index EXCLUDE constraint can abort a competing
+transaction with `deadlock_detected` (40P01) or `serialization_failure`
+(40001) under lock contention, instead of the clean `23P01` exclusion
+violation the original adapter code only handled. Fix: `Repository.Create`
+now retries up to 3 attempts on 40P01/40001 before giving up (see
+`internal/booking/adapter/postgres/repository.go`,
+`isRetryableConflict`/`retryBackoff`, and the accompanying
+`retry_test.go`). Re-verified: 7 consecutive runs post-fix, including two
+true cold starts (fresh DB + fresh Postgres restart), all produced the clean
+1 success / 19 conflicts / 0 unexpected-errors result.
+
+This also means the process that produced the original claim was itself the
+problem, not just the missing retry logic: a single successful run was
+recorded as proof of reliability without being repeated or independently
+reproduced. See `docs/LESSONS.md` "T4 — the concurrency claim that wasn't
+reliable" for the process fix.
