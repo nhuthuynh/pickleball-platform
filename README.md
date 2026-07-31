@@ -28,7 +28,9 @@ With `make up` running (Postgres seeded with two courts, see
 `db/migrations/0002_seed.sql`):
 
 ```bash
-# Create a booking — expect 201.
+# Create a booking — expect 200 (grpc-gateway's default status for a
+# successful POST; wiring a ForwardResponseOption for a semantic 201 is a
+# cross-cutting follow-up, not done yet — see HANDOFF.md).
 curl -i -X POST localhost:8080/v1/bookings \
   -H 'Content-Type: application/json' \
   -d '{
@@ -56,10 +58,23 @@ If both hold, the vertical slice is live end to end.
 # List court-1's bookings for the day — expect both bookings above.
 curl -s "localhost:8080/v1/courts/11111111-1111-1111-1111-111111111111/bookings?from=2026-08-10T00:00:00Z&to=2026-08-11T00:00:00Z"
 
+# Get a quote for the same slot — expect 200 with a priceCents/band body.
+curl -i -X POST localhost:8080/v1/quotes \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "court_id": "11111111-1111-1111-1111-111111111111",
+    "starts_at": "2026-08-10T09:00:00Z",
+    "ends_at": "2026-08-10T10:00:00Z"
+  }'
+
 # Cancel the first booking (use its id from the create response above), then
-# re-create the same slot — expect 201, not 409, now that it's freed.
+# re-create the same slot — expect success (200), not 409, now that it's freed.
 curl -i -X POST localhost:8080/v1/bookings/<booking-id>:cancel
 ```
+
+All of the above was verified live against a real Postgres 16 instance
+during development (not just unit-tested) — see
+`docs/reviews/04-t4-concurrency-invariant.md`.
 
 ## Repository layout
 

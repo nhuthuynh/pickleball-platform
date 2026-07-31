@@ -29,13 +29,19 @@ with the ubiquitous language + role briefs, design review, technology options).
 - Auth, real migration tooling, integration/concurrency tests, observability.
 
 ## First actions on resume (T0 — do this before anything else)
-1. Install tools: `buf`, `sqlc`, `gotestsum`, `golangci-lint`, Docker.
+1. Install tools: `buf`, `sqlc`, `gotestsum`, `golangci-lint`, Docker — all
+   four of the Go-based ones (`buf`, `sqlc`, `gotestsum`, `golangci-lint`)
+   install via plain `go install .../cmd/...@latest` even without BSR
+   (`buf.build`) access; see the buf.build gotcha below if `make generate`
+   fails with "the server hosted at that remote is unavailable."
 2. `make test-domain` → must be **green**. This confirms the pure core compiles
    and the TDD baseline holds with zero external deps.
 3. `make generate && make tidy` → resolve any dependency-version drift in
    `go.mod` until it builds.
-4. `make up`, then smoke-test with the `curl` in `README.md`: creating a booking
-   returns 201, an overlapping one returns 409. If both hold, the slice is live.
+4. `make up` (or run Postgres another way + `go run ./cmd/server` if Docker
+   isn't available — both were exercised during T4), then smoke-test with the
+   `curl`s in `README.md`: creating a booking returns 200, an overlapping one
+   returns 409. If both hold, the slice is live.
 5. Only then start the backlog below.
 
 ## Task backlog (ordered, TDD-first)
@@ -70,7 +76,7 @@ Add status→cancelled transition; cancelled bookings free the slot (the invaria
 already ignores them). AC: test that cancelling then re-booking the same slot
 succeeds; REST endpoint added.
 
-**T4 — Concurrency/integration test for the invariant.**
+**T4 — Concurrency/integration test for the invariant. DONE (see docs/reviews/04-t4-concurrency-invariant.md).**
 Use testcontainers-go (real Postgres) to fire N simultaneous CreateBooking calls
 on the same court/slot; assert exactly one succeeds and the rest get
 ErrCourtDoubleBooked. This is the test that actually proves the EXCLUDE guard.

@@ -71,7 +71,26 @@ its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly
 - docker compose applies `db/migrations/*.sql` via initdb.d **only on a fresh
   volume**. After a schema change run `make down` (drops the volume) then `make up`.
   Prototype-only; adopt golang-migrate/goose for production migrations.
-- Verify current `buf.build/...` remote plugin names when generating.
+- `buf generate` uses **local plugins**, not `buf.build/...` remotes — the BSR
+  isn't reachable from every environment this repo is developed in. `go
+  install` these four once (`protoc-gen-go`, `protoc-gen-go-grpc` from
+  `google.golang.org/grpc/cmd/...`, `protoc-gen-grpc-gateway` and
+  `protoc-gen-openapiv2` from `github.com/grpc-ecosystem/grpc-gateway/v2/...`)
+  and make sure `$(go env GOPATH)/bin` is on `PATH`. `google/api/*.proto` are
+  vendored under `proto/google/api/` for the same reason — don't replace them
+  with a `buf.build/googleapis/googleapis` dependency without confirming BSR
+  access first.
+- sqlc generates a **distinct `...Row` struct per query**, not a shared table
+  model, whenever a query's column list doesn't exactly match `SELECT *` on
+  that table (e.g. the booking queries omit the generated `during` column).
+  Don't write adapter code assuming one row type across queries — see
+  `fromFields` in `internal/booking/adapter/postgres/repository.go` for the
+  pattern (convert from the shared columns, not a shared struct).
+- The `internal/booking/adapter/postgres` concurrency test
+  (`concurrency_integration_test.go`) is gated behind `//go:build integration`
+  and needs Docker (testcontainers-go). Run it with `go test
+  -tags=integration ./...` or `make test`; it's intentionally excluded from
+  `make test-domain` and plain `go test ./...`.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +
@@ -89,4 +108,14 @@ its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly
   test proving cancelling actually frees the slot for re-booking (not just
   that the status field flips). See `docs/reviews/03-t3-cancel-booking.md`.
   `make test-domain` green.
-- Next phase: see `HANDOFF.md` task backlog (T4 onward).
+- T4 complete: unblocked the full toolchain (buf/sqlc installed, local
+  codegen plugins since the BSR isn't reachable here, vendored
+  `google/api/*.proto`), fixed the Postgres adapter's row-type mismatch
+  against real generated code, and proved the no-double-booking invariant
+  under real concurrency (20 simultaneous `CreateBooking` calls, exactly 1
+  success) both manually against a local Postgres and via a committed
+  `testcontainers-go` test gated behind `-tags=integration`. `go build ./...`
+  and `go vet ./...` now succeed for the **entire** repository, and the full
+  README smoke test was re-verified live against a real database. See
+  `docs/reviews/04-t4-concurrency-invariant.md`.
+- Next phase: see `HANDOFF.md` task backlog (T5 onward).

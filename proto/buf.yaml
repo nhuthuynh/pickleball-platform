@@ -1,8 +1,11 @@
 version: v2
 modules:
   - path: .
-deps:
-  - buf.build/googleapis/googleapis
+# No buf.build dependency on googleapis/googleapis: the BSR isn't reachable
+# from every environment this repo is developed in (see CLAUDE.md gotchas).
+# google/api/annotations.proto and http.proto are vendored locally instead
+# (sourced from grpc-gateway's third_party/googleapis, Apache 2.0) so
+# `buf generate` works fully offline against this module.
 lint:
   use:
     - STANDARD

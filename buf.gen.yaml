@@ -3,15 +3,22 @@ managed:
   enabled: true
 inputs:
   - directory: proto
+# Local plugin binaries, not buf.build remotes: the BSR isn't reachable from
+# every environment this repo is developed in (see CLAUDE.md gotchas).
+# `go install` each of these ($(go env GOPATH)/bin must be on PATH):
+#   google.golang.org/protobuf/cmd/protoc-gen-go@latest
+#   google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+#   github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
+#   github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
 plugins:
-  - remote: buf.build/protocolbuffers/go
+  - local: protoc-gen-go
     out: internal/gen
     opt: paths=source_relative
-  - remote: buf.build/grpc/go
+  - local: protoc-gen-go-grpc
     out: internal/gen
     opt: paths=source_relative
-  - remote: buf.build/grpc-ecosystem/gateway
+  - local: protoc-gen-grpc-gateway
     out: internal/gen
     opt: paths=source_relative
-  - remote: buf.build/grpc-ecosystem/openapiv2
+  - local: protoc-gen-openapiv2
     out: openapi

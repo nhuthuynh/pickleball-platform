@@ -14,10 +14,11 @@ generate:
 tidy:
 	go mod tidy
 
-# Full suite: everything, including packages that depend on generated code.
-# Requires `make generate` to have been run first.
+# Full suite: everything, including packages that depend on generated code
+# and the testcontainers-based concurrency integration test (T4), which
+# needs Docker. Requires `make generate` to have been run first.
 test:
-	gotestsum --junitfile build/junit.xml -- -race -coverprofile=build/coverage.out ./...
+	gotestsum --junitfile build/junit.xml -- -race -tags=integration -coverprofile=build/coverage.out ./...
 
 up:
 	docker compose up --build -d

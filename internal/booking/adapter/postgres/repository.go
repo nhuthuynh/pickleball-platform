@@ -45,7 +45,7 @@ func (r *Repository) Create(ctx context.Context, b domain.Booking) (domain.Booki
 	if err != nil {
 		return domain.Booking{}, translateErr(err)
 	}
-	return fromRow(row), nil
+	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID), nil
 }
 
 func (r *Repository) ListActiveForCourt(ctx context.Context, courtID string, rng domain.TimeRange) ([]domain.Booking, error) {
@@ -59,7 +59,7 @@ func (r *Repository) ListActiveForCourt(ctx context.Context, courtID string, rng
 	}
 	out := make([]domain.Booking, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, fromRow(row))
+		out = append(out, fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID))
 	}
 	return out, nil
 }
@@ -69,7 +69,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domain.Booking, er
 	if err != nil {
 		return domain.Booking{}, translateErr(err)
 	}
-	return fromRow(row), nil
+	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID), nil
 }
 
 func (r *Repository) Update(ctx context.Context, b domain.Booking) (domain.Booking, error) {
@@ -80,7 +80,7 @@ func (r *Repository) Update(ctx context.Context, b domain.Booking) (domain.Booki
 	if err != nil {
 		return domain.Booking{}, translateErr(err)
 	}
-	return fromRow(row), nil
+	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID), nil
 }
 
 // translateErr maps infrastructure failures onto domain errors — the only
@@ -96,17 +96,23 @@ func translateErr(err error) error {
 	return fmt.Errorf("booking postgres adapter: %w", err)
 }
 
-func fromRow(row bookingdb.Booking) domain.Booking {
+// fromFields builds a domain.Booking from the 7 columns every booking query
+// selects. sqlc generates a distinct Row struct per query (CreateBookingRow,
+// ListActiveForCourtRow, ...) rather than reusing the bookingdb.Booking table
+// model, because none of the queries select the generated `during` column —
+// see the CLAUDE.md gotcha on why they can't. A shared field-level converter
+// avoids duplicating this mapping four times.
+func fromFields(id, courtID pgtype.UUID, source, status string, startsAt, endsAt pgtype.Timestamptz, referenceID pgtype.Text) domain.Booking {
 	return domain.Booking{
-		ID:      row.ID.String(),
-		CourtID: row.CourtID.String(),
-		Source:  domain.Source(row.Source),
-		Status:  domain.Status(row.Status),
+		ID:      id.String(),
+		CourtID: courtID.String(),
+		Source:  domain.Source(source),
+		Status:  domain.Status(status),
 		Range: domain.TimeRange{
-			Start: row.StartsAt.Time,
-			End:   row.EndsAt.Time,
+			Start: startsAt.Time,
+			End:   endsAt.Time,
 		},
-		ReferenceID: row.ReferenceID.String,
+		ReferenceID: referenceID.String,
 	}
 }
 

@@ -39,6 +39,44 @@ repeat them. Append, don't rewrite history — each entry is a small postmortem.
   HANDOFF.md T1 rather than silently skipped, to be closed when
   `CreatePricingRule` is built.
 
+## T4 — Unblocking codegen and proving the concurrency invariant
+
+- **Mistake (T0-era):** `buf.gen.yaml` used `remote:` BSR plugins and
+  `proto/buf.yaml` depended on `buf.build/googleapis/googleapis`, written
+  without ever confirming BSR (`buf.build`) reachability. When T4 actually
+  needed `make generate` to work, both failed with "the server hosted at
+  that remote is unavailable." **Fix:** vendored `google/api/annotations.proto`
+  and `http.proto` locally (sourced from a Go module already in the
+  dependency graph) and switched to `local:` plugins installed via plain
+  `go install`. **Lesson:** for a solo/CI-portable project, prefer local
+  `go install`-able tools over a registry dependency unless BSR access is
+  confirmed in every environment the project will actually be built in —
+  don't assume network reachability of a specific vendor's registry.
+- **Mistake (T0-era):** `internal/booking/adapter/postgres/repository.go`'s
+  `fromRow(bookingdb.Booking)` assumed sqlc would reuse one shared row type
+  across all four booking queries. It doesn't — sqlc generates a distinct
+  `...Row` struct per query whenever the column list doesn't exactly match
+  `SELECT *` (here, because the queries correctly omit the generated
+  `during` column per an existing gotcha). This was invisible until `make
+  generate` actually ran, because the file was written and reviewed without
+  ever compiling against real generated code. **Fix:** `fromFields`,
+  converting from the shared columns instead of a shared struct. **Lesson:**
+  code written against generated code that hasn't actually been generated
+  yet is a real risk, not just a formality — get the toolchain unblocked and
+  compile against the real thing as early as possible rather than deferring
+  it across multiple phases (T1-T3 all had this exposure and it only
+  surfaced in T4).
+- **Not a mistake, a methodology note:** T4's committed `testcontainers-go`
+  test could not actually run in this authoring environment (no Docker
+  daemon). Rather than accept "trust the code," the same invariant was
+  proven manually against a real local Postgres 16 instance (installed as a
+  system package) using the identical application code path, with the
+  numeric result (20 attempts, 1 success, 19 conflicts) recorded in
+  `docs/reviews/04-t4-concurrency-invariant.md`. **Lesson:** when the
+  "correct" test tool isn't available, look for an equivalent way to get
+  real evidence rather than either skipping verification or writing an
+  untested test and calling it done.
+
 - **Mistake to avoid going forward:** `internal/gen/**` (buf/sqlc output) is
   gitignored per the design, so adapters that import it will not compile in
   any environment without `buf`/`sqlc` installed. Don't treat "doesn't compile
