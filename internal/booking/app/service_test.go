@@ -1,0 +1,178 @@
+package app_test
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"testing"
+	"time"
+
+	"github.com/nhuthuynh/white-label/internal/booking/app"
+	"github.com/nhuthuynh/white-label/internal/booking/domain"
+)
+
+// inMemoryRepo is a minimal port.Repository fake — no persistence, no
+// concurrency guarantees (that's the Postgres EXCLUDE constraint's job, see
+// T4). It exists purely to let the app-layer orchestration be tested without
+// a database.
+type inMemoryRepo struct {
+	bookings map[string]domain.Booking
+}
+
+func newInMemoryRepo() *inMemoryRepo {
+	return &inMemoryRepo{bookings: make(map[string]domain.Booking)}
+}
+
+func (r *inMemoryRepo) Create(_ context.Context, b domain.Booking) (domain.Booking, error) {
+	r.bookings[b.ID] = b
+	return b, nil
+}
+
+func (r *inMemoryRepo) ListActiveForCourt(_ context.Context, courtID string, rng domain.TimeRange) ([]domain.Booking, error) {
+	var out []domain.Booking
+	for _, b := range r.bookings {
+		if b.CourtID != courtID || b.Status == domain.StatusCancelled {
+			continue
+		}
+		if b.Range.Overlaps(rng) {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}
+
+func (r *inMemoryRepo) GetByID(_ context.Context, id string) (domain.Booking, error) {
+	b, ok := r.bookings[id]
+	if !ok {
+		return domain.Booking{}, domain.ErrBookingNotFound
+	}
+	return b, nil
+}
+
+func (r *inMemoryRepo) Update(_ context.Context, b domain.Booking) (domain.Booking, error) {
+	if _, ok := r.bookings[b.ID]; !ok {
+		return domain.Booking{}, domain.ErrBookingNotFound
+	}
+	r.bookings[b.ID] = b
+	return b, nil
+}
+
+// sequentialIDs is a deterministic port.IDGenerator fake so test assertions
+// don't depend on real UUID generation.
+type sequentialIDs struct{ n int }
+
+func (g *sequentialIDs) NewID() string {
+	g.n++
+	return fmt.Sprintf("booking-%d", g.n)
+}
+
+func mustTimeRange(t *testing.T, start, end string) domain.TimeRange {
+	t.Helper()
+	s, err := time.Parse(time.RFC3339, start)
+	if err != nil {
+		t.Fatalf("bad fixture time: %v", err)
+	}
+	e, err := time.Parse(time.RFC3339, end)
+	if err != nil {
+		t.Fatalf("bad fixture time: %v", err)
+	}
+	r, err := domain.NewTimeRange(s, e)
+	if err != nil {
+		t.Fatalf("bad fixture range: %v", err)
+	}
+	return r
+}
+
+// TestCreateBooking_RejectsCrossSourceOverlap is the app-level proof
+// (HANDOFF.md "Done and runnable now") that the no-double-booking invariant
+// is enforced across all four Booking sources, not just within one — a
+// Competition already holding a court blocks a Game trying to book the same
+// court/time, exactly the scenario docs/spec-design-review.md Topic 2 (F1)
+// required a test for.
+func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	competitionRange := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T11:00:00Z")
+	_, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-1", Source: domain.SourceCompetition, Range: competitionRange, ReferenceID: "competition-1",
+	})
+	if err != nil {
+		t.Fatalf("competition booking should succeed, got %v", err)
+	}
+
+	gameRange := mustTimeRange(t, "2026-08-03T10:00:00Z", "2026-08-03T12:00:00Z")
+	_, err = svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-1", Source: domain.SourceGame, Range: gameRange, ReferenceID: "game-1",
+	})
+	if !errors.Is(err, domain.ErrCourtDoubleBooked) {
+		t.Fatalf("overlapping game booking should be rejected, got %v", err)
+	}
+}
+
+func TestCreateBooking_AllowsDifferentCourts(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-1", Source: domain.SourceIndividual, Range: rng,
+	}); err != nil {
+		t.Fatalf("first booking should succeed, got %v", err)
+	}
+
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-2", Source: domain.SourceIndividual, Range: rng,
+	}); err != nil {
+		t.Fatalf("booking on a different court at the same time should succeed, got %v", err)
+	}
+}
+
+func TestCreateBooking_AllowsBackToBack(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	first := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	second := mustTimeRange(t, "2026-08-03T10:00:00Z", "2026-08-03T11:00:00Z")
+
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-1", Source: domain.SourceIndividual, Range: first,
+	}); err != nil {
+		t.Fatalf("first booking should succeed, got %v", err)
+	}
+
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-1", Source: domain.SourceGame, Range: second, ReferenceID: "game-1",
+	}); err != nil {
+		t.Fatalf("back-to-back booking should succeed, got %v", err)
+	}
+}
+
+func TestCreateBooking_InvalidSourceRejectedBeforeTouchingRepo(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+
+	_, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+		CourtID: "court-1", Source: domain.Source("bogus"), Range: rng,
+	})
+	if !errors.Is(err, domain.ErrInvalidSource) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrInvalidSource)
+	}
+	if len(repo.bookings) != 0 {
+		t.Fatalf("invalid booking must not be persisted, repo has %d entries", len(repo.bookings))
+	}
+}

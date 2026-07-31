@@ -1,0 +1,114 @@
+syntax = "proto3";
+
+package pickleball.booking.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1;bookingv1";
+
+// Source mirrors internal/booking/domain.Source (D3b, locked): every court
+// reservation is one of these four, all resolving to the same Booking
+// aggregate so the no-double-booking invariant covers them all.
+enum Source {
+  SOURCE_UNSPECIFIED = 0;
+  SOURCE_RECURRING_HIRE = 1;
+  SOURCE_INDIVIDUAL = 2;
+  SOURCE_GAME = 3;
+  SOURCE_COMPETITION = 4;
+}
+
+enum Status {
+  STATUS_UNSPECIFIED = 0;
+  STATUS_CONFIRMED = 1;
+  STATUS_CANCELLED = 2;
+}
+
+message Booking {
+  string id = 1;
+  string court_id = 2;
+  Source source = 3;
+  Status status = 4;
+  google.protobuf.Timestamp starts_at = 5;
+  google.protobuf.Timestamp ends_at = 6;
+  string reference_id = 7;
+}
+
+message CreateBookingRequest {
+  string court_id = 1;
+  Source source = 2;
+  google.protobuf.Timestamp starts_at = 3;
+  google.protobuf.Timestamp ends_at = 4;
+  string reference_id = 5;
+}
+
+message CreateBookingResponse {
+  Booking booking = 1;
+}
+
+message ListCourtBookingsRequest {
+  string court_id = 1;
+  google.protobuf.Timestamp from = 2;
+  google.protobuf.Timestamp to = 3;
+}
+
+message ListCourtBookingsResponse {
+  repeated Booking bookings = 1;
+}
+
+message CancelBookingRequest {
+  string booking_id = 1;
+}
+
+message CancelBookingResponse {
+  Booking booking = 1;
+}
+
+message GetQuoteRequest {
+  string court_id = 1;
+  google.protobuf.Timestamp starts_at = 2;
+  google.protobuf.Timestamp ends_at = 3;
+}
+
+message GetQuoteResponse {
+  int64 price_cents = 1;
+  string band = 2;
+}
+
+// BookingService is the API contract for the Booking bounded context. buf
+// generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this file —
+// it is the single source of truth for the Go server, the Vue client, and
+// the Swift/Kotlin native clients (see docs/technology-options.md §4).
+service BookingService {
+  rpc CreateBooking(CreateBookingRequest) returns (CreateBookingResponse) {
+    option (google.api.http) = {
+      post: "/v1/bookings"
+      body: "*"
+    };
+  }
+
+  // ListCourtBookings is defined in the contract now; the handler is wired
+  // in HANDOFF.md T2 — see internal/booking/adapter/grpcapi.
+  rpc ListCourtBookings(ListCourtBookingsRequest) returns (ListCourtBookingsResponse) {
+    option (google.api.http) = {
+      get: "/v1/courts/{court_id}/bookings"
+    };
+  }
+
+  // CancelBooking is defined in the contract now; the handler is wired in
+  // HANDOFF.md T3.
+  rpc CancelBooking(CancelBookingRequest) returns (CancelBookingResponse) {
+    option (google.api.http) = {
+      post: "/v1/bookings/{booking_id}:cancel"
+    };
+  }
+
+  // GetQuote is defined in the contract now; the handler is wired in
+  // HANDOFF.md T1, once pricing_rules exists as a table.
+  rpc GetQuote(GetQuoteRequest) returns (GetQuoteResponse) {
+    option (google.api.http) = {
+      post: "/v1/quotes"
+      body: "*"
+    };
+  }
+}

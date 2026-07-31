@@ -1,4 +1,11 @@
-dist/
-node_modules
 .env
 *.sqlite
+
+# Generated code (buf + sqlc). Never hand-edited, never committed —
+# regenerate with `make generate`. See CLAUDE.md.
+/internal/gen/
+/openapi/
+
+/build/
+/bin/
+/clients/
