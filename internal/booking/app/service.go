@@ -11,12 +11,13 @@ import (
 // domain and the repository port, but holds no business rules itself — those
 // live in internal/booking/domain.
 type Service struct {
-	repo port.Repository
-	ids  port.IDGenerator
+	repo        port.Repository
+	pricingRepo port.PricingRuleRepository
+	ids         port.IDGenerator
 }
 
-func NewService(repo port.Repository, ids port.IDGenerator) *Service {
-	return &Service{repo: repo, ids: ids}
+func NewService(repo port.Repository, pricingRepo port.PricingRuleRepository, ids port.IDGenerator) *Service {
+	return &Service{repo: repo, pricingRepo: pricingRepo, ids: ids}
 }
 
 // CreateBookingInput is the use-case input for creating any of the four
@@ -52,4 +53,17 @@ func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (dom
 	}
 
 	return s.repo.Create(ctx, candidate)
+}
+
+// GetQuote resolves the price a slot on courtID would cost, per the court's
+// pricing rules (HANDOFF.md T1). It is thin by design — all the actual
+// resolution logic (band matching, boundary handling, ambiguity detection)
+// lives in domain.ResolvePrice; this method's only job is the repository
+// round trip.
+func (s *Service) GetQuote(ctx context.Context, courtID string, r domain.TimeRange) (domain.PricingRule, error) {
+	rules, err := s.pricingRepo.ListForCourt(ctx, courtID)
+	if err != nil {
+		return domain.PricingRule{}, err
+	}
+	return domain.ResolvePrice(rules, courtID, r)
 }

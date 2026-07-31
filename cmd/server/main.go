@@ -52,7 +52,8 @@ func run(logger *slog.Logger) error {
 	defer pool.Close()
 
 	repo := bookingpg.NewRepository(pool)
-	svc := bookingapp.NewService(repo, idgen.UUID{})
+	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
+	svc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
 	handler := bookinggrpc.NewHandler(svc)
 
 	grpcServer := grpc.NewServer()

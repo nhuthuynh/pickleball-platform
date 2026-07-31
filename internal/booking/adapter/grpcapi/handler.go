@@ -53,6 +53,20 @@ func (h *Handler) CreateBooking(ctx context.Context, req *bookingv1.CreateBookin
 	return &bookingv1.CreateBookingResponse{Booking: toProto(b)}, nil
 }
 
+func (h *Handler) GetQuote(ctx context.Context, req *bookingv1.GetQuoteRequest) (*bookingv1.GetQuoteResponse, error) {
+	rng, err := domain.NewTimeRange(req.GetStartsAt().AsTime(), req.GetEndsAt().AsTime())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+
+	rule, err := h.svc.GetQuote(ctx, req.GetCourtId(), rng)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &bookingv1.GetQuoteResponse{PriceCents: rule.PriceCents, Band: string(rule.Band)}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, InvalidArgument ->
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking
@@ -61,8 +75,10 @@ func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrCourtDoubleBooked):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, domain.ErrBookingNotFound):
+	case errors.Is(err, domain.ErrBookingNotFound), errors.Is(err, domain.ErrNoPricingRule):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, domain.ErrAmbiguousPricingRule):
+		return status.Error(codes.Internal, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidSource),
 		errors.Is(err, domain.ErrEmptyCourtID),
