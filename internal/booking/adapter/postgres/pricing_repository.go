@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -24,7 +25,7 @@ func NewPricingRuleRepository(pool *pgxpool.Pool) *PricingRuleRepository {
 func (r *PricingRuleRepository) ListForCourt(ctx context.Context, courtID string) ([]domain.PricingRule, error) {
 	rows, err := r.q.ListPricingRulesForCourt(ctx, mustUUID(courtID))
 	if err != nil {
-		return nil, translateErr(err)
+		return nil, translatePricingErr(err)
 	}
 
 	out := make([]domain.PricingRule, 0, len(rows))
@@ -40,6 +41,18 @@ func (r *PricingRuleRepository) ListForCourt(ctx context.Context, courtID string
 		})
 	}
 	return out, nil
+}
+
+// translatePricingErr is deliberately separate from translateErr in
+// repository.go: that function maps pgx.ErrNoRows to
+// domain.ErrBookingNotFound, which is Booking-specific and wrong for
+// Pricing. ListForCourt is a sqlc `:many` query so it never returns
+// pgx.ErrNoRows today (a no-match is an empty slice), but reusing the
+// Booking-flavored translator would silently mismap errors the moment a
+// `:one` pricing query (e.g. a future GetRuleByID) is added — this keeps
+// that failure mode from being possible by construction.
+func translatePricingErr(err error) error {
+	return fmt.Errorf("pricing postgres adapter: %w", err)
 }
 
 func toWeekdays(days []int16) []time.Weekday {

@@ -78,7 +78,10 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrBookingNotFound), errors.Is(err, domain.ErrNoPricingRule):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrAmbiguousPricingRule):
-		return status.Error(codes.Internal, err.Error())
+		// FailedPrecondition (-> HTTP 400 via grpc-gateway), not Internal:
+		// this is a pricing-data misconfiguration (ADR-0002), distinguishable
+		// from an actual server bug so ops/clients can tell them apart.
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidSource),
 		errors.Is(err, domain.ErrEmptyCourtID),
