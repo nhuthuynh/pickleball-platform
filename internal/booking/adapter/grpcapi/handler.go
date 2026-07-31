@@ -85,7 +85,8 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidSource),
 		errors.Is(err, domain.ErrEmptyCourtID),
-		errors.Is(err, domain.ErrIllegalStatusTransition):
+		errors.Is(err, domain.ErrIllegalStatusTransition),
+		errors.Is(err, domain.ErrPricingSlotSpansMultipleDays):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())

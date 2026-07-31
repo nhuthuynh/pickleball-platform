@@ -52,6 +52,14 @@ price for a (court, slot); expose via a `GetQuote` rpc (new proto method) and/or
 attach the price to CreateBooking.
 AC: table-driven quote tests pass; REST `GetQuote` returns the correct band price;
 no-rule case returns a clear error.
+Known gap, deliberately deferred: `pricing_rules` has no DB-level guard against
+overlapping rule windows (no EXCLUDE-style constraint), so CLAUDE.md rule 4's
+"invariant in Postgres AND the domain" only holds on the domain side today
+(`domain.ErrAmbiguousPricingRule`, detected at read time in `ResolvePrice`).
+Accepted for T1 because there is no write path yet — `pricing_rules` is
+seeded via migration only; Pricing/Facilities CRUD doesn't exist. Add the
+write-time guard (an app-level pre-check at minimum, ideally a DB constraint)
+when a `CreatePricingRule` use case is built.
 
 **T2 — ListCourtBookings.**
 The proto method already exists; `repo.ListActiveForCourt` exists. Implement the
@@ -85,6 +93,20 @@ AC: state-transition tests (incl. illegal transitions rejected); offline
 mark-paid path; one `payments` row per payable action.
 
 ## Cross-cutting / later
+- `app.Service.NewService`'s constructor has grown to 3 positional args
+  (repo, pricingRepo, ids) after T1; Principal Engineer review flagged this
+  as fine for now but worth revisiting (options struct or split services)
+  if a 4th dependency lands — likely in T5/T6.
+- `GetQuote` currently lives on Booking's `app.Service` rather than a
+  standalone Pricing bounded context, since Pricing has no aggregate/CRUD of
+  its own yet. Reasonable for T1 (trivially extractable — it's a thin
+  ListForCourt + domain.ResolvePrice pass-through); revisit if/when Pricing
+  grows real CRUD and its own lifecycle.
+- Pricing rule weekday encoding uses Go's `time.Weekday` numbering
+  (Sunday=0..Saturday=6) directly in the `pricing_rules.weekdays` column —
+  fine for a solo Go shop, but leaks a language convention into the schema.
+  Consider ISO-8601 numbering (Mon=1..Sun=7) if/when non-Go tooling reads
+  this table directly.
 - Swap docker initdb.d for **golang-migrate** or **goose** before production.
 - Auth (JWT) + per-context authorization; wire into gRPC interceptors.
 - Observability: Sentry + slog + uptime.

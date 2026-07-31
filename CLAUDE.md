@@ -76,4 +76,9 @@ its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +
   proto + docker/Jenkins scaffolding in place, `make test-domain` green.
-- Next phase: see `HANDOFF.md` task backlog (T1 onward).
+- T1 complete: `Service.GetQuote` wired to a `pricing_rules` table, sqlc
+  query, Postgres adapter, and the `GetQuote` gRPC/REST endpoint. Reviewed
+  by adversarial QA + Principal Engineer passes (see
+  `docs/reviews/01-t1-pricing-quote.md`); fixed a real cross-midnight
+  pricing bug the QA pass found. `make test-domain` green.
+- Next phase: see `HANDOFF.md` task backlog (T2 onward).

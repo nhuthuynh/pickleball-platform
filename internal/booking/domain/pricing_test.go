@@ -132,6 +132,70 @@ func TestResolvePrice_BandsAndBoundaries(t *testing.T) {
 	}
 }
 
+// TestResolvePrice_RejectsCrossMidnightSlot proves the precondition
+// documented on PricingRule.covers ("the slot must not cross midnight") is
+// actually enforced, not just assumed. Without the guard, a 2-hour slot
+// spanning midnight (Mon 23:00 -> Tue 01:00) would satisfy a 1-hour
+// "23:00-24:00 Monday only" rule's covers() check, because clock-time
+// comparison alone can't tell "01:00 the same day" from "01:00 the next
+// day" — silently pricing two hours of court time as if they were both
+// covered by a rule that should apply to Monday night only.
+func TestResolvePrice_RejectsCrossMidnightSlot(t *testing.T) {
+	t.Parallel()
+
+	nightStart, _ := domain.NewClockTime(23, 0)
+	nightEnd := domain.ClockTime(1440) // 24:00 — only reachable via a DB-sourced rule, see clockTimeOfEnd.
+	rules := []domain.PricingRule{
+		{ID: "night-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: []time.Weekday{time.Monday}, Start: nightStart, End: nightEnd, PriceCents: 5000},
+	}
+
+	// Monday 23:00 -> Tuesday 01:00: genuinely crosses midnight.
+	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 23, 0), dt(t, 2024, 1, 2, 1, 0))
+
+	_, err := domain.ResolvePrice(rules, "court-1", slot)
+	if !errors.Is(err, domain.ErrPricingSlotSpansMultipleDays) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrPricingSlotSpansMultipleDays)
+	}
+}
+
+func TestResolvePrice_RejectsMultiDaySlot(t *testing.T) {
+	t.Parallel()
+
+	rules := weekdayRules(t)
+	// Monday 09:00 -> Wednesday 09:00: spans multiple full days.
+	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 9, 0), dt(t, 2024, 1, 3, 9, 0))
+
+	_, err := domain.ResolvePrice(rules, "court-1", slot)
+	if !errors.Is(err, domain.ErrPricingSlotSpansMultipleDays) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrPricingSlotSpansMultipleDays)
+	}
+}
+
+// TestResolvePrice_SlotEndingExactlyAtMidnightStillResolves is the
+// regression guard for the exact-midnight case the cross-midnight fix must
+// not break: a slot ending precisely at 00:00 the next day is still a
+// same-day slot (clockTimeOfEnd's whole reason for existing).
+func TestResolvePrice_SlotEndingExactlyAtMidnightStillResolves(t *testing.T) {
+	t.Parallel()
+
+	lateStart, _ := domain.NewClockTime(22, 0)
+	lateEnd := domain.ClockTime(1440)
+	rules := []domain.PricingRule{
+		{ID: "late-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: []time.Weekday{time.Monday}, Start: lateStart, End: lateEnd, PriceCents: 4000},
+	}
+
+	// Monday 22:00 -> Tuesday 00:00 (exactly midnight): still a same-day slot.
+	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 22, 0), dt(t, 2024, 1, 2, 0, 0))
+
+	got, err := domain.ResolvePrice(rules, "court-1", slot)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got.PriceCents != 4000 {
+		t.Errorf("resolved price = %d, want 4000", got.PriceCents)
+	}
+}
+
 func TestResolvePrice_AmbiguousRulesRejected(t *testing.T) {
 	t.Parallel()
 

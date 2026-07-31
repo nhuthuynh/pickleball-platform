@@ -7,7 +7,10 @@ CREATE TABLE pricing_rules (
     id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     court_id    uuid NOT NULL REFERENCES courts (id),
     band        text NOT NULL CHECK (band IN ('weekday', 'peak', 'weekend')),
-    weekdays    smallint[] NOT NULL,
+    weekdays    smallint[] NOT NULL CHECK (
+        cardinality(weekdays) > 0
+        AND weekdays <@ ARRAY[0,1,2,3,4,5,6]::smallint[]
+    ),
     start_min   smallint NOT NULL CHECK (start_min >= 0 AND start_min <= 1440),
     end_min     smallint NOT NULL CHECK (end_min >= 0 AND end_min <= 1440),
     price_cents bigint NOT NULL CHECK (price_cents > 0),

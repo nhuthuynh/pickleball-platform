@@ -2,6 +2,8 @@ package domain
 
 import "time"
 
+const oneDay = 24 * time.Hour
+
 // Band names the kind of pricing window a PricingRule represents. Purely
 // descriptive — matching is driven by Weekdays/Start/End, not by Band itself,
 // but the name is part of the ubiquitous language (see the operating
@@ -61,6 +63,26 @@ func clockTimeOfEnd(slot TimeRange) ClockTime {
 	return end
 }
 
+// fitsSingleCalendarDay reports whether slot lies within one calendar day —
+// clock-time comparison (ClockTimeOf) is only meaningful within a single
+// day, so this is the guard that makes PricingRule.covers's documented
+// precondition actually hold rather than just assumed. A slot ending
+// exactly at midnight the next day still counts (that's the same case
+// clockTimeOfEnd exists to handle); anything else spanning into a second
+// calendar day does not.
+func fitsSingleCalendarDay(slot TimeRange) bool {
+	if slot.Duration() > oneDay {
+		return false
+	}
+	y1, m1, d1 := slot.Start.Date()
+	y2, m2, d2 := slot.End.Date()
+	if y1 == y2 && m1 == m2 && d1 == d2 {
+		return true
+	}
+	startOfNextDay := time.Date(y1, m1, d1, 0, 0, 0, 0, slot.Start.Location()).Add(oneDay)
+	return slot.End.Equal(startOfNextDay)
+}
+
 // ResolvePrice finds the single PricingRule (scoped to courtID) whose window
 // fully contains slot. Returns ErrNoPricingRule if none match (a slot
 // straddling two rule windows, e.g. spanning a weekday/peak boundary, is a
@@ -69,6 +91,10 @@ func clockTimeOfEnd(slot TimeRange) ClockTime {
 // misconfigured (overlapping windows) — the caller must fix the data, the
 // domain won't silently pick one.
 func ResolvePrice(rules []PricingRule, courtID string, slot TimeRange) (PricingRule, error) {
+	if !fitsSingleCalendarDay(slot) {
+		return PricingRule{}, ErrPricingSlotSpansMultipleDays
+	}
+
 	var matches []PricingRule
 	for _, r := range rules {
 		if r.CourtID != courtID {
