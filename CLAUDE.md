@@ -28,6 +28,15 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
    a `Booking` everywhere. See glossary in `docs/agent-operating-handbook.md`.
 8. **Run `make test` green before calling any task done.** Add/adjust tests for
    every change; turn every bug into a regression test.
+9. **No direct commits/pushes to the shared branch — PR only.** Every change,
+   including subagent/review work, lands via a branch + PR that is reviewed,
+   tested, and explicitly approved before merge. A reviewer/QA/PE agent's job
+   is to *report* findings, never to commit or push itself. (Added after an
+   incident where a review-only subagent pushed unreviewed work directly —
+   see `docs/LESSONS.md`.)
+10. **A single successful run is not proof of reliability**, especially for
+    concurrency claims. Re-run non-deterministic tests (cold start + several
+    repeats) before writing "proven" or "reliable" anywhere.
 
 ## Commands
 - `make test-domain` — run the dependency-free domain + app tests (no DB/codegen).
@@ -115,7 +124,14 @@ its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly
   under real concurrency (20 simultaneous `CreateBooking` calls, exactly 1
   success) both manually against a local Postgres and via a committed
   `testcontainers-go` test gated behind `-tags=integration`. `go build ./...`
-  and `go vet ./...` now succeed for the **entire** repository, and the full
-  README smoke test was re-verified live against a real database. See
-  `docs/reviews/04-t4-concurrency-invariant.md`.
+  and `go vet ./...` now succeed for the **entire** repository. **Follow-up
+  correction (same day):** the initial single-run verification missed an
+  intermittent Postgres deadlock (`40P01`) on cold-start concurrent bursts —
+  reproduced independently, then fixed with bounded retry in
+  `Repository.Create`, and re-verified clean across 7 runs incl. 2 cold
+  starts. See `docs/reviews/04-t4-concurrency-invariant.md` (with its
+  correction section) and `docs/LESSONS.md`.
+- Process change (same day): background/reviewer subagents are report-only
+  — they must never commit or push. All changes land via a PR reviewed and
+  approved before merging into this branch. See `docs/LESSONS.md`.
 - Next phase: see `HANDOFF.md` task backlog (T5 onward).

@@ -76,11 +76,16 @@ Add status→cancelled transition; cancelled bookings free the slot (the invaria
 already ignores them). AC: test that cancelling then re-booking the same slot
 succeeds; REST endpoint added.
 
-**T4 — Concurrency/integration test for the invariant. DONE (see docs/reviews/04-t4-concurrency-invariant.md).**
+**T4 — Concurrency/integration test for the invariant. DONE, with a
+follow-up fix (see docs/reviews/04-t4-concurrency-invariant.md and its
+"Correction" section, and docs/LESSONS.md).**
 Use testcontainers-go (real Postgres) to fire N simultaneous CreateBooking calls
 on the same court/slot; assert exactly one succeeds and the rest get
 ErrCourtDoubleBooked. This is the test that actually proves the EXCLUDE guard.
-AC: race test passes reliably.
+AC: race test passes reliably — this required a bounded deadlock/serialization
+retry in `Repository.Create` (Postgres can raise `40P01`/`40001` under
+concurrent EXCLUDE-index contention instead of a clean `23P01`); verified
+clean across 7 runs including 2 cold starts after the fix.
 
 **T5 — Social Play context (skeleton first).**
 New `internal/socialplay/{domain,app,port,adapter}` + `proto/pickleball/socialplay/v1`.
