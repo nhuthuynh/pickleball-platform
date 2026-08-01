@@ -1,0 +1,35 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: pickleball
+      POSTGRES_PASSWORD: pickleball
+      POSTGRES_DB: pickleball
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Applied in filename order, once, only on a fresh volume — see the
+      # CLAUDE.md gotcha (make down drops the volume, then make up reapplies).
+      - ./db/migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pickleball"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgres://pickleball:pickleball@db:5432/pickleball?sslmode=disable
+      GRPC_ADDR: ":8081"
+      HTTP_ADDR: ":8080"
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  pgdata:

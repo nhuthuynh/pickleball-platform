@@ -1,0 +1,20 @@
+version: v2
+# Generates native gRPC clients for the Swift (iOS) and Kotlin (Android)
+# clients from the same proto contract used by the Go server and the Vue
+# REST client (docs/technology-options.md §4). Run explicitly, not part of
+# `make generate`, since most day-to-day backend work doesn't need it:
+#   buf generate --template buf.gen.mobile.yaml
+#
+# Verify current buf.build/... remote plugin names before relying on this —
+# see the gotcha in CLAUDE.md.
+inputs:
+  - directory: proto
+plugins:
+  - remote: buf.build/grpc/swift
+    out: clients/swift/Sources/PickleballAPI
+  - remote: buf.build/apple/swift
+    out: clients/swift/Sources/PickleballAPI
+  - remote: buf.build/grpc/kotlin
+    out: clients/kotlin/pickleball-api/src/main/kotlin
+  - remote: buf.build/community/java
+    out: clients/kotlin/pickleball-api/src/main/kotlin

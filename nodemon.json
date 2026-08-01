@@ -1,6 +1,0 @@
-{
-  "watch": ["src", "bin", "forest", "test", "scripts"],
-  "ext": ".ts,.js,.pug,.css",
-  "ignore": [],
-  "exec": "ts-node ./bin/www.ts"
-}
