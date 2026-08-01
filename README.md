@@ -1,8 +1,49 @@
 # Pickleball Platform — Backend
 
-A Go backend for a pickleball court-management + community platform. See
-`CLAUDE.md` for the durable engineering rulebook and `HANDOFF.md` for current
-state and the task backlog. Planning docs live in `docs/`.
+> A Go backend for a pickleball court-management and community platform —
+> booking, social games, and payments on one polymorphic invariant that
+> guarantees a court is never double-booked, no matter which feature reserved it.
+
+## What this is
+
+Court owners list facilities and courts. Players book a court directly, a
+host runs a social game on booked courts, a club hires courts on a recurring
+schedule, or an organiser runs a competition — **four different reasons to
+reserve a court, one aggregate underneath.** Every reservation, regardless of
+source, is the same `Booking`, so the no-double-booking rule only has to be
+correct once and it covers all four (see `docs/adr/0001-dual-invariant-enforcement.md`).
+
+Domain logic — booking rules, pricing resolution, matchmaking, the payment
+state machine — lives entirely in this Go backend. The web app (Vue), iOS app
+(Swift), and Android app (Kotlin) are planned as thin clients generated from
+the same `proto/` contract; no business rule is duplicated across them.
+
+**Goal:** a solo-buildable spine (facilities → courts → pricing → booking)
+that a community/social layer, clubs, competitions, and payments all sit on
+top of, without becoming three different apps that happen to share a
+database. See `docs/pickleball-platform-spec.md` for the full product spec
+and `docs/technology-options.md` for why this stack.
+
+### How it's built
+
+| | |
+|---|---|
+| **Domain-Driven Design** | one bounded context per package (`internal/booking`, more to follow), a pure domain layer with zero framework imports, ubiquitous language shared across DB/Go/proto — see `docs/agent-operating-handbook.md` |
+| **Test-Driven Development** | every invariant starts as a failing table-driven test; `make test-domain` is the fast, dependency-free gate that must stay green |
+| **API contract-first** | one `.proto` per context generates gRPC, a REST mapping (grpc-gateway), and OpenAPI — the single source of truth for the Go server *and* every client |
+| **Invariants enforced twice** | a Postgres `EXCLUDE` constraint is authoritative under concurrency; a pure-Go domain check gives the same answer instantly in unit tests |
+
+### Stack
+
+Go (stdlib `net/http`/Chi + pgx + sqlc) · Postgres + PostGIS · gRPC + grpc-gateway + OpenAPI · Vue 3 (planned) · Swift/SwiftUI (planned) · Kotlin (planned) · Docker · Jenkins
+
+### Status
+
+This is an actively developed vertical slice, not a finished product. `CLAUDE.md`
+("Current state") and `HANDOFF.md` (task backlog) are the living source of
+truth for what's built versus planned — check those rather than this README
+for the current phase, since they're updated every increment and this section
+isn't.
 
 ## Quick start
 
