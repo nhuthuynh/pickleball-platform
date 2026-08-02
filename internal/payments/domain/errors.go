@@ -23,4 +23,23 @@ var (
 	// both layers, mirroring how booking.ErrCourtDoubleBooked is returned
 	// by both EnsureNoConflict and the EXCLUDE-constraint translation.
 	ErrPaymentAlreadyRecorded = errors.New("payments: a payment already exists for this payable action")
+
+	// ErrPaymentProcessorUnavailable is returned by a port.PaymentProcessor
+	// implementation (T6.2) when the processor itself could not complete
+	// the request — a network/infra failure, an unknown intent reference,
+	// or (for the stripestub adapter) a seeded outage — as opposed to
+	// ErrPaymentDeclined, which means the processor was reachable and
+	// affirmatively rejected the payment. Adapters must translate whatever
+	// infra-specific error they hit into one of these two sentinels
+	// (CLAUDE.md rule 5); app/domain never see a processor-specific error
+	// type.
+	ErrPaymentProcessorUnavailable = errors.New("payments: payment processor unavailable")
+
+	// ErrPaymentDeclined is returned by a port.PaymentProcessor
+	// implementation when a card/payment method was declined. This is not
+	// an ErrIllegalStatusTransition: a decline is an ordinary, expected
+	// outcome of attempting to capture a payment, and app.ConfirmOnlinePayment
+	// must leave the Payment unchanged (still unpaid) rather than treat a
+	// decline as a domain state-machine error.
+	ErrPaymentDeclined = errors.New("payments: payment was declined")
 )
