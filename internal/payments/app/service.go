@@ -54,6 +54,15 @@ func NewService(opts ServiceOptions) *Service {
 	return &Service{payments: opts.Payments, ids: opts.IDs, processor: opts.Processor}
 }
 
+// Payments exposes the persistence port so a caller (e.g.
+// internal/payments/adapter/grpcapi's ConfirmOnlinePayment handler) can do
+// the id -> Payment lookup a payment_id-only wire request needs before
+// calling ConfirmOnlinePayment, without internal/payments/adapter/grpcapi
+// needing its own separate handle on port.Repository wired in cmd/server.
+func (s *Service) Payments() port.Repository {
+	return s.payments
+}
+
 // CreateOnlinePaymentInput is the use-case input for starting an online
 // Payment.
 type CreateOnlinePaymentInput struct {

@@ -37,6 +37,12 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
 10. **A single successful run is not proof of reliability**, especially for
     concurrency claims. Re-run non-deterministic tests (cold start + several
     repeats) before writing "proven" or "reliable" anywhere.
+11. **PCI guardrail: never accept a raw PAN/card-number/CVV/track-data field
+    on any request DTO, in proto or REST.** Card data is tokenized
+    client-side (Stripe.js/Elements/Checkout or the mobile SDKs) and never
+    reaches this backend (SAQ A scope). Review every proto change touching
+    payment flows against `docs/checklists/proto-review.md` before merging.
+    (Added T6.4, `docs/process/t6-sprint-plan.md` kickoff note P1 #13.)
 
 ## Commands
 - `make test-domain` — run the dependency-free domain + app tests (no DB/codegen).
