@@ -113,6 +113,50 @@ produces zero findings is treated as suspicious, not a clean bill of health
 (mirrors QA's "an invariant with no test that could fail is untested, not
 proven" heuristic, applied to process).
 
+## Execution loop mechanics (within a sprint)
+
+Per-ticket execution (the "Execution" section above) runs as a bounded,
+self-correcting loop rather than a single implement-and-hope pass:
+
+1. **Loop cap: 5.** Each ticket gets at most 5 implement→review loops
+   within the sprint. A loop is: an implementer subagent does TDD-first
+   work on the ticket's branch and opens/updates its PR, then **PM +
+   Principal Engineer review it together** — PM checks the result against
+   the ticket's story/AC and the sprint goal, PE checks technical
+   correctness, architecture fit, and test quality. Findings go back to
+   the implementer for the next loop; each loop must **improve** quality
+   and alignment to the sprint goal, not just churn — a loop that makes no
+   measurable improvement is itself a finding for the retro, not something
+   to quietly repeat.
+2. **Learn within the sprint, not just at the end.** A mistake caught
+   during a loop (not just at sprint retro) gets a line in
+   `docs/LESSONS.md` immediately if it's the kind of mistake that could
+   recur on a different ticket in the *same* sprint — don't wait for
+   Ceremony 3 to write down something the very next loop needs to avoid
+   repeating.
+3. **Exhausting 5 loops without a mergeable result is not a silent
+   failure.** It gets flagged explicitly in the sprint's tracking (ticket
+   comment + sprint kickoff/retro note) as either mis-scoped (split the
+   ticket) or a genuine open technical question (escalate to the user) —
+   never left to quietly stall.
+4. **Sprints auto-proceed to the next sprint's planning.** Once a sprint's
+   Definition of Done is met (all in-scope tickets merged, retro held,
+   `docs/LESSONS.md` updated), Ceremony 1 (backlog refinement) and
+   Ceremony 2 (sprint planning) for the *next* sprint start automatically
+   — the team does not wait for a prompt to begin planning the next
+   sprint. **PE and PM jointly own defining each sprint's goal and scope**,
+   checked against the project's overall goal (the locked decisions in
+   `CLAUDE.md`/spec, not just the immediately preceding sprint) before the
+   full six-role team ceremony.
+5. **What "auto-proceed" does NOT change: CLAUDE.md rule 9 still applies
+   in full.** Auto-proceeding to the *next sprint's planning* is not the
+   same thing as auto-*merging*. Every PR — regardless of how many loops
+   it took or how confident the implementer/reviewer roles are — still
+   requires human review and explicit approval before merge. No subagent,
+   including a PM/PE review pass that approves a ticket's content, may
+   merge a PR itself. The loop above governs how work gets *ready* for
+   human review, not a way around it.
+
 ## Label taxonomy
 
 - `sprint:t5`, `sprint:t6`, … — one per HANDOFF.md task/sprint.
