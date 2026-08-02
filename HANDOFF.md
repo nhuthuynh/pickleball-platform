@@ -128,6 +128,21 @@ mark-paid path; one `payments` row per payable action.
   a request-supplied `actor_player_id` field, not a verified identity — this
   is *not* a real authorization boundary (anyone can claim to be anyone)
   until the JWT/Auth0 item above lands. Don't mistake it for one.
+- T6.4 PR review finding (non-blocking, logged not fixed): the claimed
+  20-way concurrent-duplicate-recording burst against the `payments`
+  `UNIQUE(payable_type, payable_id)` guard (1 success, 19 clean conflicts,
+  3 runs incl. a cold start) was only run via an uncommitted throwaway
+  program, not a committed test — unlike T4's committed concurrency test,
+  nothing guards this invariant against regression. Port it into a
+  committed `-tags=integration` test (lower risk than T4's exclusion
+  constraint, since a unique index doesn't have the same deadlock-prone
+  failure mode, but still worth a permanent regression proof).
+- T6.4's `ServiceOptions` deliberately omits `RegistrationUpdater`
+  (`socialplayport.RegistrationPaymentUpdater`) because `internal/socialplay`
+  isn't merged into the T6 lineage yet — T6.5 is the ticket that first
+  merges Social Play (T5) into the same branch as Payments (T6), and needs
+  to add `RegistrationUpdater` to `ServiceOptions` at that point, not
+  invent a second constructor path.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).
