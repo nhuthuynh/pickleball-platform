@@ -36,6 +36,7 @@ import (
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 	paymentsgrpc "github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
 	paymentspg "github.com/nhuthuynh/white-label/internal/payments/adapter/postgres"
+	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	paymentsapp "github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
@@ -90,14 +91,20 @@ func run(logger *slog.Logger) error {
 	// (internal/payments/adapter/stripe, not yet built — T6.2's ACL is
 	// designed so that swap is adapter-only, see port.PaymentProcessor's
 	// doc comment) — there is no real Stripe SDK dependency this sprint.
-	// TODO(T6.5, WIP): wire RegistrationUpdater once internal/payments/
-	// adapter/socialplay exists (verifying the plain T6.4+T5.5 merge builds
-	// clean first, per CLAUDE.md rule 1 / the T4 discipline).
+	// RegistrationUpdater (T6.5) is the mirror image of Social Play's own
+	// internal/socialplay/adapter/booking: it lets Payments push a
+	// Registration's PaymentStatus forward without Social Play importing
+	// anything under internal/payments (CLAUDE.md rule 3, context-map
+	// direction in docs/process/t6-sprint-plan.md's kickoff note). It's
+	// built against the same, real socialplaySvc instance Social Play's own
+	// gRPC handler uses above, not a second/separate Social Play stack.
 	paymentsRepo := paymentspg.NewRepository(pool)
+	registrationUpdater := paymentssocialplay.NewRegistrationUpdater(socialplaySvc)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
-		Payments:  paymentsRepo,
-		IDs:       idgen.UUID{},
-		Processor: stripestub.NewProcessor(),
+		Payments:            paymentsRepo,
+		IDs:                 idgen.UUID{},
+		Processor:           stripestub.NewProcessor(),
+		RegistrationUpdater: registrationUpdater,
 	})
 	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
 

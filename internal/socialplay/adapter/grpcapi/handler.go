@@ -133,6 +133,8 @@ func toProtoPaymentStatus(s domain.PaymentStatus) socialplayv1.PaymentStatus {
 		return socialplayv1.PaymentStatus_PAYMENT_STATUS_UNPAID
 	case domain.PaymentStatusPaid:
 		return socialplayv1.PaymentStatus_PAYMENT_STATUS_PAID
+	case domain.PaymentStatusRefunded:
+		return socialplayv1.PaymentStatus_PAYMENT_STATUS_REFUNDED
 	default:
 		return socialplayv1.PaymentStatus_PAYMENT_STATUS_UNSPECIFIED
 	}

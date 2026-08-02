@@ -113,6 +113,16 @@ func (f *fakeRegistrationRepo) Update(_ context.Context, r domain.Registration) 
 	return r, nil
 }
 
+func (f *fakeRegistrationRepo) UpdatePaymentStatus(_ context.Context, id string, status domain.PaymentStatus) (domain.Registration, error) {
+	r, ok := f.regs[id]
+	if !ok {
+		return domain.Registration{}, domain.ErrRegistrationNotFound
+	}
+	r.PaymentStatus = status
+	f.regs[id] = r
+	return r, nil
+}
+
 // fakeIDs is a deterministic, dependency-free port.IDGenerator stand-in
 // (mirrors why internal/platform/idgen exists for production — tests get a
 // predictable sequence instead of random UUIDs).

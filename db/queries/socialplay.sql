@@ -34,3 +34,16 @@ UPDATE registrations
 SET status = $2
 WHERE id = $1
 RETURNING id, game_id, player_id, source, status, payment_status;
+
+-- name: UpdateRegistrationPaymentStatus :one
+-- Dedicated single-column update for PaymentStatus (T6.5), mirroring
+-- UpdateRegistrationStatus's shape: a separate query per updatable field
+-- rather than one generic "update everything" statement, so this write
+-- path can never accidentally touch status (or vice versa). The sole
+-- caller is app.Service.MarkRegistrationPaymentStatus, itself only called
+-- through port.RegistrationPaymentUpdater by
+-- internal/payments/adapter/socialplay.
+UPDATE registrations
+SET payment_status = $2
+WHERE id = $1
+RETURNING id, game_id, player_id, source, status, payment_status;

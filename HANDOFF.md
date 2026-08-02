@@ -177,6 +177,86 @@ mark-paid path; one `payments` row per payable action.
   "Add `CancelGame` with HostID-scoped authorization + regression test",
   same shape as T5.1/T5.4/T5.5 combined) should cover it; raise at the next
   backlog refinement.
+- T6.5 (branch `sprint/t6.5-registration-payment-reconciliation`, closes
+  #16-#20, depends on #11-#15 merging) did the two-way merge of
+  `sprint/t6.4-postgres-proto-grpc` and `sprint/t5.5-authz-regression-tests`
+  T6.4's own PR description predicted ("T6.5 is the ticket that first
+  merges Social Play (T5) into the same branch as Payments (T6)"), added
+  `RegistrationUpdater` to the *existing* `payments/app.ServiceOptions`
+  (not a second constructor), and wired
+  `ConfirmOnlinePayment`/`RecordOfflinePayment` to push a registration's
+  `PaymentStatus` to `paid` via the new
+  `internal/socialplay/port.RegistrationPaymentUpdater` port ->
+  `internal/payments/adapter/socialplay` adapter (mirror image of
+  `internal/socialplay/adapter/booking`, dependency arrow pointed the
+  direction the context map requires). `no_show_fee`-payable Payments
+  deliberately do NOT trigger this update (only `registration`, per the
+  ticket's literal wording) — a no-show fee is a separate charge, not the
+  seat's own payment status.
+  **Refund modelling decision:** extended `socialplay/domain.PaymentStatus`
+  with a third value, `refunded`, mirroring `payments/domain.Status`'s own
+  `unpaid -> paid -> refunded` machine exactly, rather than collapsing a
+  refund back to `unpaid` — Registration.PaymentStatus is meant to be a
+  faithful projection of the real Payment, and "never paid" vs. "paid, then
+  refunded" are different facts a Game Admin needs to tell apart.
+  **Known gap, not built here**: `payments/app.Service` has no
+  `RefundPayment` method at all yet — `domain.Payment.Refund()` (T6.1) and
+  `port.PaymentProcessor.RefundPayment` (T6.2) exist, but nothing in `app`
+  or the proto/gRPC layer calls either one. There is therefore no real call
+  site today to push `PaymentStatusRefunded` through the new port; Social
+  Play's `refunded` value and `MarkPaymentStatus`/`UpdatePaymentStatus`
+  already accept it and are ready for when that method is built, but wiring
+  it now would mean inventing a new Payments feature outside T6.5's stated
+  scope (mirrors T5.5's own CancelGame split-to-follow-up reasoning).
+  Proposed follow-up ticket: "Wire `Service.RefundPayment` (online via
+  `PaymentProcessor.RefundPayment`, offline as a Host/Game-Admin action) and
+  push `PaymentStatusRefunded` through `RegistrationPaymentUpdater` on
+  success" — raise at the next backlog refinement.
+  **No other Social Play writer of `PaymentStatus`**: confirmed by
+  inspection — `proto/pickleball/socialplay/v1/socialplay.proto` only has
+  `CreateGame`/`RegisterForGame`/`CancelRegistration` RPCs (none accept a
+  `PaymentStatus` field), and the only pre-T6.5 writer was
+  `domain.Register`'s hardcoded `unpaid` default at construction. T6.5 adds
+  exactly one more writer (`Registration.MarkPaymentStatus` ->
+  `Service.MarkRegistrationPaymentStatus`, called only by
+  `internal/payments/adapter/socialplay`). Caveat: `PaymentStatus` remains
+  an exported Go struct field, so nothing at the language level stops
+  future Social Play code from assigning it directly in-process — full
+  encapsulation would mean unexporting the field and adding
+  constructor/getter methods repo-wide, a larger refactor judged out of
+  scope for a 3-point reconciliation ticket. Logged here so it isn't
+  mistaken for an enforced invariant.
+  **Merge**: `sprint/t6.4-postgres-proto-grpc` and
+  `sprint/t5.5-authz-regression-tests` touch disjoint packages
+  (`internal/payments/**` vs `internal/socialplay/**`); merge conflicts
+  were confined to shared wiring/doc files (`cmd/server/main.go`,
+  `sqlc.yaml`, `HANDOFF.md`) and were resolved by keeping both sides'
+  additions. Noted, not fixed: both lineages independently numbered a
+  migration `0005` (`0005_payments.sql`, `0005_socialplay.sql`) — harmless
+  today (`docker-compose`'s initdb.d and this repo's own
+  `applyMigrations` test helpers apply files in filename-sorted order,
+  and "payments" sorts before "socialplay" alphabetically, and the two
+  migrations touch disjoint tables with no ordering dependency between
+  them), but a real migration tool (the `golang-migrate`/`goose` swap
+  already tracked above) would need distinct sequence numbers — worth
+  renumbering whenever that swap happens, not urgent before then.
+  **Cross-context integration test**: this environment has no Docker
+  daemon (same T4/T5.4/T6.4 gap), so the committed
+  `-tags=integration` testcontainers-based test
+  (`internal/payments/adapter/socialplay/cross_context_integration_test.go`)
+  could not itself be executed here. The identical scenario (create a live
+  Game + Registration via the real Social Play stack, record an offline
+  Payment via the real Payments stack, `GetRegistrationByID` observes
+  `paid`, plus a negative control proving a booking-payable Payment leaves
+  an unrelated Registration untouched) was verified manually against a
+  real local Postgres 16 instance (system package, already running in this
+  environment; the missing `0005_socialplay.sql`/
+  `0006_socialplay_capacity_guard.sql` migrations were applied to it) via a
+  throwaway `cmd/t65verify` program — same T4 LESSONS.md fallback
+  methodology T6.4 used, run twice for consistency, output confirmed with a
+  direct `psql` read against `registrations.payment_status` too, then
+  deleted before committing (not part of this PR). See the T6.5 PR
+  description for the exact commands/output.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).

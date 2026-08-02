@@ -8,6 +8,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	"github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
+	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 )
 
 func fixtureAmount() domain.Money {
@@ -573,5 +574,249 @@ func TestRecordOfflinePayment_DuplicateForSamePayableRejected(t *testing.T) {
 	_, err := svc.RecordOfflinePayment(context.Background(), in)
 	if !errors.Is(err, domain.ErrPaymentAlreadyRecorded) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentAlreadyRecorded)
+	}
+}
+
+// --- T6.5: Registration.PaymentStatus reconciliation -----------------------
+//
+// These are the ticket's required tests: an in-memory fake
+// RegistrationPaymentUpdater proves ConfirmOnlinePayment/RecordOfflinePayment
+// call it exactly once with the right registration id and status on
+// success, and not at all when PayableType == booking.
+
+// TestConfirmOnlinePayment_RegistrationPayable_UpdatesRegistration proves a
+// successful online capture for a registration-payable Payment calls
+// RegistrationUpdater.UpdatePaymentStatus exactly once, with PayableID as
+// the registration id and PaymentStatusPaid as the status.
+func TestConfirmOnlinePayment_RegistrationPayable_UpdatesRegistration(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	updater := &fakeRegistrationUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:            repo,
+		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
+		Processor:           proc,
+		RegistrationUpdater: updater,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   "reg-1",
+		Amount:      fixtureAmount(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming: %v", err)
+	}
+
+	if len(updater.calls) != 1 {
+		t.Fatalf("RegistrationUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
+	}
+	if updater.calls[0].registrationID != "reg-1" {
+		t.Fatalf("registrationID = %q, want reg-1", updater.calls[0].registrationID)
+	}
+	if updater.calls[0].status != socialplaydomain.PaymentStatusPaid {
+		t.Fatalf("status = %v, want paid", updater.calls[0].status)
+	}
+}
+
+// TestConfirmOnlinePayment_BookingPayable_DoesNotUpdateRegistration is the
+// ticket's required negative case: a booking-payable Payment must never
+// trigger a Registration update.
+func TestConfirmOnlinePayment_BookingPayable_DoesNotUpdateRegistration(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	updater := &fakeRegistrationUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:            repo,
+		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
+		Processor:           proc,
+		RegistrationUpdater: updater,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeBooking,
+		PayableID:   "booking-1",
+		Amount:      fixtureAmount(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming: %v", err)
+	}
+
+	if len(updater.calls) != 0 {
+		t.Fatalf("RegistrationUpdater called %d times, want 0 for a booking-payable Payment: %+v", len(updater.calls), updater.calls)
+	}
+}
+
+// TestConfirmOnlinePayment_Declined_DoesNotUpdateRegistration proves a
+// declined capture (MarkPaid never called) never reaches the
+// RegistrationUpdater either — only a genuinely successful MarkPaid may
+// trigger the reconciliation call.
+func TestConfirmOnlinePayment_Declined_DoesNotUpdateRegistration(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	proc.SeedDecline("reg-1")
+	repo := newFakeRepository()
+	updater := &fakeRegistrationUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:            repo,
+		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
+		Processor:           proc,
+		RegistrationUpdater: updater,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   "reg-1",
+		Amount:      fixtureAmount(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); !errors.Is(err, domain.ErrPaymentDeclined) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentDeclined)
+	}
+
+	if len(updater.calls) != 0 {
+		t.Fatalf("RegistrationUpdater called %d times, want 0 on a decline: %+v", len(updater.calls), updater.calls)
+	}
+}
+
+// TestRecordOfflinePayment_RegistrationPayable_UpdatesRegistration mirrors
+// TestConfirmOnlinePayment_RegistrationPayable_UpdatesRegistration for the
+// offline path: RecordOfflinePayment's immediate MarkPaid must also
+// reconcile the Registration.
+func TestRecordOfflinePayment_RegistrationPayable_UpdatesRegistration(t *testing.T) {
+	t.Parallel()
+
+	updater := &fakeRegistrationUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:            newFakeRepository(),
+		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationUpdater: updater,
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   "reg-1",
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "host-1",
+		GameHostID:  "host-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(updater.calls) != 1 {
+		t.Fatalf("RegistrationUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
+	}
+	if updater.calls[0].registrationID != "reg-1" {
+		t.Fatalf("registrationID = %q, want reg-1", updater.calls[0].registrationID)
+	}
+	if updater.calls[0].status != socialplaydomain.PaymentStatusPaid {
+		t.Fatalf("status = %v, want paid", updater.calls[0].status)
+	}
+}
+
+// TestRecordOfflinePayment_BookingPayable_DoesNotUpdateRegistration is the
+// ticket's required negative case for the offline path.
+func TestRecordOfflinePayment_BookingPayable_DoesNotUpdateRegistration(t *testing.T) {
+	t.Parallel()
+
+	updater := &fakeRegistrationUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:            newFakeRepository(),
+		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationUpdater: updater,
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType:   domain.PayableTypeBooking,
+		PayableID:     "booking-1",
+		Amount:        offlineFixtureAmount(),
+		ActorUserID:   "host-1",
+		BookingHostID: "host-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(updater.calls) != 0 {
+		t.Fatalf("RegistrationUpdater called %d times, want 0 for a booking-payable Payment: %+v", len(updater.calls), updater.calls)
+	}
+}
+
+// TestRecordOfflinePayment_NoShowFeePayable_DoesNotUpdateRegistration
+// proves PayableTypeNoShowFee — despite also targeting a Registration's
+// Game — deliberately does NOT trigger a Registration.PaymentStatus update
+// either: the ticket's instructions scope the reconciliation to "PayableType
+// == registration" specifically (see the PR description's judgment-call
+// note), since a no-show fee is a separate charge, not the seat's own
+// payment status.
+func TestRecordOfflinePayment_NoShowFeePayable_DoesNotUpdateRegistration(t *testing.T) {
+	t.Parallel()
+
+	updater := &fakeRegistrationUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:            newFakeRepository(),
+		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationUpdater: updater,
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeNoShowFee,
+		PayableID:   "reg-1",
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "host-1",
+		GameHostID:  "host-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(updater.calls) != 0 {
+		t.Fatalf("RegistrationUpdater called %d times, want 0 for a no_show_fee-payable Payment: %+v", len(updater.calls), updater.calls)
+	}
+}
+
+// TestConfirmOnlinePayment_NilRegistrationUpdater_DoesNotPanic proves a
+// Service constructed without a RegistrationUpdater (e.g. every pre-T6.5
+// test above, and any caller that only exercises the Booking-payable path)
+// still works — RegistrationUpdater is optional, not a hard dependency
+// every ServiceOptions must supply.
+func TestConfirmOnlinePayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:  newFakeRepository(),
+		IDs:       &fixedIDs{ids: []string{"pay-1"}},
+		Processor: proc,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   "reg-1",
+		Amount:      fixtureAmount(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming with a nil RegistrationUpdater: %v", err)
 	}
 }

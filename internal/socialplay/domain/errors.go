@@ -39,4 +39,10 @@ var (
 	// errors.Is(err, ErrCourtUnavailable) when the requested court/time
 	// already has a confirmed Booking of any source.
 	ErrCourtUnavailable = errors.New("socialplay: court unavailable for the requested time range")
+
+	// ErrInvalidPaymentStatus is returned by Registration.MarkPaymentStatus
+	// (T6.5) for a status value outside PaymentStatus's closed enum — the
+	// domain-side guard keeping Registration.PaymentStatus a projection of
+	// internal/payments/domain.Status's own values, never arbitrary input.
+	ErrInvalidPaymentStatus = errors.New("socialplay: invalid payment status")
 )

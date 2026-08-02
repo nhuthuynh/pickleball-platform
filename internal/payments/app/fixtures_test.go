@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
+	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 )
 
 // fixedIDs is a deterministic port.IDGenerator test double: it returns
@@ -73,4 +74,29 @@ func (r *fakeRepository) Update(_ context.Context, p domain.Payment) (domain.Pay
 	}
 	r.byID[p.ID] = p
 	return p, nil
+}
+
+// registrationUpdateCall records one call to
+// fakeRegistrationUpdater.UpdatePaymentStatus, for asserting exact
+// call-count/argument expectations (T6.5's required test).
+type registrationUpdateCall struct {
+	registrationID string
+	status         socialplaydomain.PaymentStatus
+}
+
+// fakeRegistrationUpdater is an in-memory
+// socialplayport.RegistrationPaymentUpdater test double (T6.5's required
+// test): it records every call it receives rather than talking to a real
+// (or fake) Social Play repository, so tests can assert exactly how many
+// times it was called and with what arguments — including the "not called
+// at all for a booking-payable Payment" negative case, which a
+// state-mutating fake alone couldn't prove as directly.
+type fakeRegistrationUpdater struct {
+	calls []registrationUpdateCall
+	err   error // optional: simulate the port call itself failing
+}
+
+func (u *fakeRegistrationUpdater) UpdatePaymentStatus(_ context.Context, registrationID string, status socialplaydomain.PaymentStatus) error {
+	u.calls = append(u.calls, registrationUpdateCall{registrationID: registrationID, status: status})
+	return u.err
 }
