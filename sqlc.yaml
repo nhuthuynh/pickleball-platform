@@ -3,7 +3,7 @@ sql:
   # Booking context (bookings + pricing_rules). Queries are listed
   # explicitly (not the whole db/queries dir) so adding a new bounded
   # context's .sql file under db/queries doesn't silently get swept into
-  # this package too — see the payments entry below.
+  # this package too — see the payments/socialplay entries below.
   - engine: "postgresql"
     queries:
       - "db/queries/booking.sql"
@@ -27,6 +27,20 @@ sql:
       go:
         package: "paymentsdb"
         out: "internal/gen/paymentsdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true
+  # Social Play context (games + registrations), T5.4. Its own generated
+  # package (socialplaydb) mirrors bookingdb's shape but stays a separate
+  # Go package, keeping the context boundary visible in generated code too.
+  - engine: "postgresql"
+    queries:
+      - "db/queries/socialplay.sql"
+    schema: "db/migrations"
+    gen:
+      go:
+        package: "socialplaydb"
+        out: "internal/gen/socialplaydb"
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_interface: true

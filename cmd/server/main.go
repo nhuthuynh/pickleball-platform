@@ -1,18 +1,16 @@
-// Command server wires the Booking and Payments contexts' gRPC services and
-// their grpc-gateway REST mappings into one process, backed by Postgres. It
-// only compiles after `make generate` (see CLAUDE.md gotchas) since it
-// depends on internal/gen/pickleball/booking/v1 and internal/gen/
-// pickleball/payments/v1.
+// Command server wires the Booking, Social Play, and Payments contexts'
+// gRPC services and their grpc-gateway REST mappings into one process,
+// backed by Postgres. It only compiles after `make generate` (see CLAUDE.md
+// gotchas) since it depends on internal/gen/pickleball/booking/v1,
+// internal/gen/pickleball/socialplay/v1, and internal/gen/pickleball/
+// payments/v1.
 //
-// Social Play (T5) is not registered here: internal/socialplay does not
-// exist on this branch — T5 has not yet been merged into
-// claude/go-backend-pickleball-7up34j (see the T6.4 PR description's
-// judgment-call note on why app.ServiceOptions also omits the T6.5
-// RegistrationPaymentUpdater field for the same reason). The T5 sprint
-// branches' cmd/server (see sprint/t5.5-authz-regression-tests) show the
-// pattern this file will extend once Social Play lands: one grpc.Server,
-// one grpc-gateway mux, one RegisterXServiceServer/
-// RegisterXServiceHandlerFromEndpoint pair per context.
+// Social Play was merged into this lineage by T6.5 (which also merged T6.4)
+// so that Payments' RegistrationUpdater dependency (socialplayport.
+// RegistrationPaymentUpdater, satisfied by internal/payments/adapter/
+// socialplay) can be wired for real: one grpc.Server, one grpc-gateway mux,
+// one RegisterXServiceServer/RegisterXServiceHandlerFromEndpoint pair per
+// context.
 package main
 
 import (
@@ -35,12 +33,17 @@ import (
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
+	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 	paymentsgrpc "github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
 	paymentspg "github.com/nhuthuynh/white-label/internal/payments/adapter/postgres"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	paymentsapp "github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
 	"github.com/nhuthuynh/white-label/internal/platform/pg"
+	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
+	socialplaygrpc "github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
+	socialplaypg "github.com/nhuthuynh/white-label/internal/socialplay/adapter/postgres"
+	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -72,10 +75,24 @@ func run(logger *slog.Logger) error {
 	bookingSvc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
 	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
 
+	// Social Play (T5.4): its GameRepository/RegistrationRepository are
+	// Postgres-backed like Booking's; its CourtReservation port is
+	// implemented against the real Booking app.Service (the one place
+	// Social Play code is allowed to import internal/booking/*, per
+	// CLAUDE.md rule 5 — see internal/socialplay/adapter/booking).
+	gameRepo := socialplaypg.NewGameRepository(pool)
+	registrationRepo := socialplaypg.NewRegistrationRepository(pool)
+	reservation := socialplaybooking.NewReservation(bookingSvc)
+	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo)
+	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation)
+
 	// Payments (T6.4). stripestub stands in for a real Stripe adapter
 	// (internal/payments/adapter/stripe, not yet built — T6.2's ACL is
 	// designed so that swap is adapter-only, see port.PaymentProcessor's
 	// doc comment) — there is no real Stripe SDK dependency this sprint.
+	// TODO(T6.5, WIP): wire RegistrationUpdater once internal/payments/
+	// adapter/socialplay exists (verifying the plain T6.4+T5.5 merge builds
+	// clean first, per CLAUDE.md rule 1 / the T4 discipline).
 	paymentsRepo := paymentspg.NewRepository(pool)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments:  paymentsRepo,
@@ -86,6 +103,7 @@ func run(logger *slog.Logger) error {
 
 	grpcServer := grpc.NewServer()
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
+	socialplayv1.RegisterSocialPlayServiceServer(grpcServer, socialplayHandler)
 	paymentsv1.RegisterPaymentsServiceServer(grpcServer, paymentsHandler)
 
 	lis, err := net.Listen("tcp", grpcAddr)
@@ -103,6 +121,9 @@ func run(logger *slog.Logger) error {
 	mux := runtime.NewServeMux()
 	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
 	if err := bookingv1.RegisterBookingServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
+		return err
+	}
+	if err := socialplayv1.RegisterSocialPlayServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
 		return err
 	}
 	if err := paymentsv1.RegisterPaymentsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
