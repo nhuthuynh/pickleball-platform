@@ -162,6 +162,23 @@ mark-paid path; one `payments` row per payable action.
   "Add `CancelGame` with HostID-scoped authorization + regression test",
   same shape as T5.1/T5.4/T5.5 combined) should cover it; raise at the next
   backlog refinement.
+- T6.6 (closes issue #21, fulfils ADR-0006) added the Game waitlist:
+  `domain.WaitlistEntry`/`JoinWaitlist` (`internal/socialplay/domain/
+  waitlist.go`), app-layer auto-promotion on `CancelRegistration` +
+  `ExpireWaitlistPromotion` (`internal/socialplay/app/service.go`), and the
+  DB-level promotion-ordering guard (`db/migrations/
+  0007_socialplay_waitlist.sql`, `0008_socialplay_waitlist_promotion.sql`,
+  `promote_next_waiting`). See the PR description for the full race
+  analysis (ordering-shaped, not distinctness-shaped) and repeated-run
+  concurrency evidence (CLAUDE.md rule 10). `socialplayapp.NewService` is
+  now at 4 positional args (`ids, games, registrations, waitlist`) — the
+  exact threshold the T1/T5 cross-cutting note above already flagged as
+  "worth revisiting... if a 4th dependency lands"; left positional in T6.6
+  (out of this ticket's scope to refactor), but the next dependency added
+  to Social Play's `Service` should switch it to an options struct instead
+  of growing further, same reasoning T6's own sprint plan applied to
+  Payments' `Service` from the start. Standalone (non-Game) court/slot
+  waitlists remain deferred with no ticket — see ADR-0006's Status section.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).

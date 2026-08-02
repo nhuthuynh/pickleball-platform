@@ -34,3 +34,44 @@ UPDATE registrations
 SET status = $2
 WHERE id = $1
 RETURNING id, game_id, player_id, source, status, payment_status;
+
+-- name: CreateWaitlistEntry :one
+INSERT INTO waitlist_entries (id, game_id, player_id, position, status)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, game_id, player_id, position, status, promoted_at;
+
+-- name: GetWaitlistEntryByID :one
+SELECT id, game_id, player_id, position, status, promoted_at
+FROM waitlist_entries
+WHERE id = $1;
+
+-- name: ListWaitlistEntriesForGame :many
+-- Every entry for game_id, any status, oldest (by position) first -- the
+-- read path app.Service.JoinWaitlist and RegisterForGame use to derive the
+-- next Position, the duplicate-join check, and the
+-- reserved-by-promotion check (domain.SlotReservedByPromotion).
+SELECT id, game_id, player_id, position, status, promoted_at
+FROM waitlist_entries
+WHERE game_id = $1
+ORDER BY position;
+
+-- name: PromoteNextWaiting :one
+-- The DB-level race-closing operation (db/migrations/
+-- 0008_socialplay_waitlist_promotion.sql) -- see that migration's doc
+-- comment for the full race analysis. Returns zero rows (sql.ErrNoRows via
+-- :one) when the game has no waiting entry to promote; the adapter
+-- translates that into domain.ErrNoWaitingEntries.
+SELECT id, game_id, player_id, position, status, promoted_at
+FROM promote_next_waiting($1, $2);
+
+-- name: ExpireWaitlistPromotion :one
+-- Compare-and-swap: only actually transitions a row that is still
+-- 'promoted' at the moment this runs, so a concurrent confirm (the
+-- promoted player registering) or a second expiry sweep can't double-act on
+-- the same entry. Zero rows back (sql.ErrNoRows via :one) means either the
+-- id doesn't exist or it's no longer promoted -- the adapter disambiguates
+-- via a follow-up existence check (see translateWaitlistErr's caller).
+UPDATE waitlist_entries
+SET status = 'expired'
+WHERE id = $1 AND status = 'promoted'
+RETURNING id, game_id, player_id, position, status, promoted_at;

@@ -54,6 +54,27 @@ message Registration {
   PaymentStatus payment_status = 5;
 }
 
+// WaitlistStatus mirrors internal/socialplay/domain.WaitlistStatus (T6.6).
+enum WaitlistStatus {
+  WAITLIST_STATUS_UNSPECIFIED = 0;
+  WAITLIST_STATUS_WAITING = 1;
+  WAITLIST_STATUS_PROMOTED = 2;
+  WAITLIST_STATUS_EXPIRED = 3;
+  WAITLIST_STATUS_CANCELLED = 4;
+}
+
+// WaitlistEntry mirrors internal/socialplay/domain.WaitlistEntry (T6.6,
+// ADR-0006). promoted_at is unset (default Timestamp) until the entry is
+// actually promoted.
+message WaitlistEntry {
+  string id = 1;
+  string game_id = 2;
+  string player_id = 3;
+  int32 position = 4;
+  WaitlistStatus status = 5;
+  google.protobuf.Timestamp promoted_at = 6;
+}
+
 message CreateGameRequest {
   string host_id = 1;
   string facility_id = 2;
@@ -95,6 +116,18 @@ message CancelRegistrationResponse {
   Registration registration = 1;
 }
 
+// JoinWaitlistRequest.player_id is a claimed identity, not a verified one —
+// same known gap as RegisterForGameRequest/CancelRegistrationRequest above
+// (no JWT/session layer yet, HANDOFF.md cross-cutting Auth backlog).
+message JoinWaitlistRequest {
+  string game_id = 1;
+  string player_id = 2;
+}
+
+message JoinWaitlistResponse {
+  WaitlistEntry entry = 1;
+}
+
 // SocialPlayService is the API contract for the Social Play bounded
 // context, mirroring BookingService's style (proto/pickleball/booking/v1) —
 // buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
@@ -125,6 +158,21 @@ service SocialPlayService {
   rpc CancelRegistration(CancelRegistrationRequest) returns (CancelRegistrationResponse) {
     option (google.api.http) = {
       post: "/v1/registrations/{registration_id}:cancel"
+      body: "*"
+    };
+  }
+
+  // JoinWaitlist queues a player for a full Game (T6.6, ADR-0006): only
+  // legal when the Game is actually full (domain.JoinWaitlist). Automatic
+  // promotion on a Registration cancelling, and the response-timeout
+  // expiry/cascade, are app-layer/DB-level mechanisms
+  // (app.Service.CancelRegistration / ExpireWaitlistPromotion) with no
+  // dedicated RPCs of their own in this ticket — a promotion is confirmed
+  // simply by the promoted player calling RegisterForGame like anyone else
+  // (see that method's doc comment).
+  rpc JoinWaitlist(JoinWaitlistRequest) returns (JoinWaitlistResponse) {
+    option (google.api.http) = {
+      post: "/v1/games/{game_id}/waitlist"
       body: "*"
     };
   }

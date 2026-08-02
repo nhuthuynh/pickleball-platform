@@ -75,6 +75,17 @@ func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.Canc
 	return &socialplayv1.CancelRegistrationResponse{Registration: toProtoRegistration(reg)}, nil
 }
 
+func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitlistRequest) (*socialplayv1.JoinWaitlistResponse, error) {
+	entry, err := h.svc.JoinWaitlist(ctx, app.JoinWaitlistInput{
+		GameID:   req.GetGameId(),
+		PlayerID: req.GetPlayerId(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &socialplayv1.JoinWaitlistResponse{Entry: toProtoWaitlistEntry(entry)}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes; grpc-gateway then maps
 // those onto HTTP statuses (AlreadyExists -> 409, InvalidArgument -> 400,
 // NotFound -> 404, PermissionDenied -> 403) — mirrors
@@ -84,21 +95,40 @@ func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.Canc
 // per the ticket's smoke-test AC. ErrNotRegistrationOwner maps to
 // PermissionDenied/403 — the BOLA-shaped rejection T5.2/T5.5 require ("a
 // clear rejection, not a 500").
+//
+// T6.6 additions: ErrAlreadyOnWaitlist and ErrGameNotFull join the
+// AlreadyExists/InvalidArgument groups respectively (mirroring
+// ErrAlreadyRegistered's and the validation-error group's own reasoning —
+// "not full" is a precondition violation on the request, not a conflict).
+// ErrNotWaitlistEntryOwner joins ErrNotRegistrationOwner's PermissionDenied
+// group. ErrWaitlistEntryNotFound joins the NotFound group.
+// ErrWaitlistPromotionNotExpired and ErrNoWaitingEntries are deliberately
+// NOT mapped here: neither is reachable from a client-facing RPC in this
+// ticket (JoinWaitlist is the only new RPC; promotion/expiry are
+// app-layer-internal, triggered by CancelRegistration and a future
+// sweep/admin path, not exposed directly) — falling through to Internal for
+// either would be a signal something upstream called an app method it
+// shouldn't have, not a case this handler needs to translate for a client.
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrGameFull),
 		errors.Is(err, domain.ErrAlreadyRegistered),
-		errors.Is(err, domain.ErrCourtUnavailable):
+		errors.Is(err, domain.ErrCourtUnavailable),
+		errors.Is(err, domain.ErrAlreadyOnWaitlist):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, domain.ErrNotRegistrationOwner):
+	case errors.Is(err, domain.ErrNotRegistrationOwner),
+		errors.Is(err, domain.ErrNotWaitlistEntryOwner):
 		return status.Error(codes.PermissionDenied, err.Error())
-	case errors.Is(err, domain.ErrGameNotFound), errors.Is(err, domain.ErrRegistrationNotFound):
+	case errors.Is(err, domain.ErrGameNotFound),
+		errors.Is(err, domain.ErrRegistrationNotFound),
+		errors.Is(err, domain.ErrWaitlistEntryNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidCapacity),
 		errors.Is(err, domain.ErrEmptyCourtIDs),
 		errors.Is(err, domain.ErrEmptyPlayerID),
-		errors.Is(err, domain.ErrIllegalStatusTransition):
+		errors.Is(err, domain.ErrIllegalStatusTransition),
+		errors.Is(err, domain.ErrGameNotFull):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -159,4 +189,33 @@ func toProtoRegistration(r domain.Registration) *socialplayv1.Registration {
 		Status:        toProtoRegistrationStatus(r.Status),
 		PaymentStatus: toProtoPaymentStatus(r.PaymentStatus),
 	}
+}
+
+func toProtoWaitlistStatus(s domain.WaitlistStatus) socialplayv1.WaitlistStatus {
+	switch s {
+	case domain.WaitlistStatusWaiting:
+		return socialplayv1.WaitlistStatus_WAITLIST_STATUS_WAITING
+	case domain.WaitlistStatusPromoted:
+		return socialplayv1.WaitlistStatus_WAITLIST_STATUS_PROMOTED
+	case domain.WaitlistStatusExpired:
+		return socialplayv1.WaitlistStatus_WAITLIST_STATUS_EXPIRED
+	case domain.WaitlistStatusCancelled:
+		return socialplayv1.WaitlistStatus_WAITLIST_STATUS_CANCELLED
+	default:
+		return socialplayv1.WaitlistStatus_WAITLIST_STATUS_UNSPECIFIED
+	}
+}
+
+func toProtoWaitlistEntry(e domain.WaitlistEntry) *socialplayv1.WaitlistEntry {
+	out := &socialplayv1.WaitlistEntry{
+		Id:       e.ID,
+		GameId:   e.GameID,
+		PlayerId: e.PlayerID,
+		Position: int32(e.Position),
+		Status:   toProtoWaitlistStatus(e.Status),
+	}
+	if !e.PromotedAt.IsZero() {
+		out.PromotedAt = timestamppb.New(e.PromotedAt)
+	}
+	return out
 }

@@ -78,6 +78,15 @@ UI copy. If a new term is needed, add it here in the same PR that introduces it.
   signup, used as the matchmaking input until real rating history accrues.
 - **Competition** — an Organiser-run tournament/bracket format; reserves
   courts the same way a Game does (`competition`-source Booking).
+- **Waitlist Entry** — a Player's queued position (`waiting | promoted |
+  expired | cancelled`) for a Game that was full when they tried to join
+  (T6.6, fulfilling ADR-0006). Ordered FIFO per Game. A cancelled
+  Registration auto-promotes the oldest `waiting` entry; a promoted entry
+  reserves its freed slot for a bounded response window
+  (`domain.PromotionResponseWindow`) before expiring and cascading the
+  promotion to the next entry. Scoped to Games only in T6 — a standalone
+  court/slot waitlist is a distinct, deferred concept (see ADR-0006's
+  Status section).
 - **Club** — an entity that can hire specific Courts on a recurring schedule
   (`recurring_hire`-source Booking generated from a recurring template).
 - **Payment** — the single aggregate recording money for any payable action

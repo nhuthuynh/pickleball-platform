@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
 	"github.com/nhuthuynh/white-label/internal/socialplay/port"
@@ -13,18 +15,30 @@ import (
 // in internal/socialplay/domain. Mirrors internal/booking/app.Service's
 // shape.
 //
-// games/registrations are persistence ports (T5.4); CourtReservation is
-// deliberately NOT stored here (unlike games/registrations) because it's
-// passed per-call to ScheduleGame — see that method's doc comment for why
-// (T5.3's original design, unchanged by T5.4's persistence wiring).
+// games/registrations/waitlist are persistence ports (T5.4/T6.6);
+// CourtReservation is deliberately NOT stored here (unlike
+// games/registrations/waitlist) because it's passed per-call to
+// ScheduleGame — see that method's doc comment for why (T5.3's original
+// design, unchanged since).
+//
+// NewService is now at 4 positional constructor args (T6.6 adds waitlist).
+// docs/process/t6-sprint-plan.md's kickoff note flags this exact threshold
+// ("worth revisiting... if a 4th dependency lands") for Payments' own
+// Service and has it switch to an options struct from the start; Social
+// Play's constructor is left positional here rather than folded into that
+// refactor, since this ticket is not the one that raised it and doing so
+// would be an unrelated, ticket-widening change to every existing call
+// site. Flagged in the PR description as a candidate for the same
+// options-struct treatment if a 5th dependency ever lands.
 type Service struct {
 	ids           port.IDGenerator
 	games         port.GameRepository
 	registrations port.RegistrationRepository
+	waitlist      port.WaitlistRepository
 }
 
-func NewService(ids port.IDGenerator, games port.GameRepository, registrations port.RegistrationRepository) *Service {
-	return &Service{ids: ids, games: games, registrations: registrations}
+func NewService(ids port.IDGenerator, games port.GameRepository, registrations port.RegistrationRepository, waitlist port.WaitlistRepository) *Service {
+	return &Service{ids: ids, games: games, registrations: registrations, waitlist: waitlist}
 }
 
 // ScheduleGameInput is the use-case input for scheduling a Game.
@@ -120,10 +134,29 @@ type RegisterForGameInput struct {
 // registrations remains the authoritative guard under concurrency; this
 // pre-check exists to fail fast with a clear domain error, mirroring
 // CreateBooking's relationship with EnsureNoConflict/the EXCLUDE constraint.
+//
+// T6.6 addition: before touching domain.Register, this also checks whether
+// the freed slot is currently reserved by another player's unexpired
+// waitlist promotion (domain.SlotReservedByPromotion) — a promoted entry
+// doesn't consume a Registration row, so Register's own count can't see it.
+// A mismatched, non-promoted player during that window gets the same
+// ErrGameFull a real capacity conflict would — from their point of view the
+// slot genuinely isn't available yet. The promoted player's own call is
+// exempted (SlotReservedByPromotion never blocks them), so this is also how
+// a promotion gets "confirmed": the promoted player simply calls
+// RegisterForGame like anyone else, no separate confirm RPC needed.
 func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) (domain.Registration, error) {
 	game, err := s.games.GetByID(ctx, in.GameID)
 	if err != nil {
 		return domain.Registration{}, err
+	}
+
+	entries, err := s.waitlist.ListForGame(ctx, in.GameID)
+	if err != nil {
+		return domain.Registration{}, err
+	}
+	if domain.SlotReservedByPromotion(entries, in.PlayerID, time.Now()) {
+		return domain.Registration{}, domain.ErrGameFull
 	}
 
 	existing, err := s.registrations.ListActiveForGame(ctx, in.GameID)
@@ -148,6 +181,19 @@ func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) 
 // domain.Register already ignores cancelled registrations when counting
 // capacity, so no separate "free the slot" step is needed here beyond
 // persisting the status change itself.
+//
+// T6.6 auto-promotion: a successful cancellation is exactly the event
+// ADR-0006 names as the promotion trigger ("the same event CancelBooking
+// (T3) already produces"), so once the cancellation itself is durably
+// persisted, this offers the freed slot to the Game's oldest waiting entry
+// via promoteNextWaiting. This is a side effect of the cancellation, not a
+// precondition for it: the cancellation has already succeeded by the time
+// promotion is attempted, and a promotion-side failure is surfaced as an
+// error from this call (so it isn't silently swallowed) but does not and
+// cannot roll back the cancellation that already committed — mirrored
+// return of the now-cancelled Registration either way so a caller who
+// checks the error can still see what happened to the thing they asked to
+// cancel.
 func (s *Service) CancelRegistration(ctx context.Context, registrationID, actorPlayerID string) (domain.Registration, error) {
 	reg, err := s.registrations.GetByID(ctx, registrationID)
 	if err != nil {
@@ -158,5 +204,105 @@ func (s *Service) CancelRegistration(ctx context.Context, registrationID, actorP
 		return domain.Registration{}, err
 	}
 
-	return s.registrations.Update(ctx, reg)
+	cancelled, err := s.registrations.Update(ctx, reg)
+	if err != nil {
+		return domain.Registration{}, err
+	}
+
+	if _, err := s.promoteNextWaiting(ctx, cancelled.GameID); err != nil {
+		return cancelled, fmt.Errorf("socialplay: promoting next waitlist entry for game %s: %w", cancelled.GameID, err)
+	}
+
+	return cancelled, nil
+}
+
+// promoteNextWaiting offers the Game's oldest waiting entry a promotion via
+// port.WaitlistRepository.PromoteNext — the DB-level race-closing operation
+// (see db/migrations/0008_socialplay_waitlist_promotion.sql). An empty
+// waitlist (domain.ErrNoWaitingEntries) is an expected, non-error outcome —
+// most cancellations happen on Games with no one waiting — so it is
+// swallowed here rather than propagated; any other error is a real failure
+// and is returned to the caller.
+func (s *Service) promoteNextWaiting(ctx context.Context, gameID string) (domain.WaitlistEntry, error) {
+	promoted, err := s.waitlist.PromoteNext(ctx, gameID, time.Now())
+	if err != nil {
+		if errors.Is(err, domain.ErrNoWaitingEntries) {
+			return domain.WaitlistEntry{}, nil
+		}
+		return domain.WaitlistEntry{}, err
+	}
+	return promoted, nil
+}
+
+// JoinWaitlistInput is the use-case input for joining a Game's waitlist.
+type JoinWaitlistInput struct {
+	GameID   string
+	PlayerID string
+}
+
+// JoinWaitlist looks up the Game and its current active registrations and
+// waitlist entries, then applies domain.JoinWaitlist's checks before
+// persisting the new WaitlistEntry — mirrors RegisterForGame's shape
+// exactly. The Postgres adapter's unique constraint on (game_id, player_id)
+// for active waitlist entries remains the authoritative guard under
+// concurrency; this pre-check exists to fail fast with a clear domain
+// error, same relationship domain.Register has with its own DB backstop
+// (CLAUDE.md rule 4).
+func (s *Service) JoinWaitlist(ctx context.Context, in JoinWaitlistInput) (domain.WaitlistEntry, error) {
+	game, err := s.games.GetByID(ctx, in.GameID)
+	if err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+
+	existingRegs, err := s.registrations.ListActiveForGame(ctx, in.GameID)
+	if err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+
+	existingEntries, err := s.waitlist.ListForGame(ctx, in.GameID)
+	if err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+
+	entry, err := domain.JoinWaitlist(game, existingRegs, existingEntries, in.PlayerID)
+	if err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+	entry.ID = s.ids.NewID()
+
+	return s.waitlist.Create(ctx, entry)
+}
+
+// ExpireWaitlistPromotion transitions a promoted WaitlistEntry to expired —
+// but only once its PromotionResponseWindow has actually elapsed
+// (domain.WaitlistEntry.HasExpired), rejecting a premature call with
+// domain.ErrWaitlistPromotionNotExpired rather than silently honouring it —
+// and then promotes the Game's next waiting entry in its place, the
+// "cascades to the next waiter" requirement (ADR-0006 / T6.6). There is no
+// scheduler/cron infrastructure in this codebase yet (HANDOFF.md); this
+// method is the unit the future sweep job (or an on-demand check triggered
+// by, e.g., a stale promotion being noticed at read time) calls per entry —
+// building that scheduler itself is out of scope for this ticket, same as
+// T6.3's no-show automation being deferred pending a real trigger.
+func (s *Service) ExpireWaitlistPromotion(ctx context.Context, entryID string) (domain.WaitlistEntry, error) {
+	entry, err := s.waitlist.GetByID(ctx, entryID)
+	if err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+
+	now := time.Now()
+	if !entry.HasExpired(now) {
+		return domain.WaitlistEntry{}, domain.ErrWaitlistPromotionNotExpired
+	}
+
+	expired, err := s.waitlist.ExpirePromotion(ctx, entryID, now)
+	if err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+
+	if _, err := s.promoteNextWaiting(ctx, expired.GameID); err != nil {
+		return expired, fmt.Errorf("socialplay: promoting next waitlist entry for game %s after expiry: %w", expired.GameID, err)
+	}
+
+	return expired, nil
 }
