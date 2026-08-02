@@ -1,3 +1,20 @@
+> **Round 1 resolutions (see `review-round-1.md` for full reasoning):** all
+> seven §7 questions answered; two of them are provisional defaults pending
+> explicit user sign-off, not fully settled — `Registration.GuestCount` is
+> assumed **set-once** (change of mind = cancel and re-register, not an
+> in-place edit) because a mutable guest count would silently bypass the
+> capacity-guard trigger's UPDATE-path guard; and the camera-link field is
+> assumed to require a **facility-onboarding consent/signage attestation
+> checkbox**, not just an informational note. Both were put to the user
+> directly and not yet confirmed — treat as the working assumption for round
+> 2's artifact and this doc's §3, revisit if the user answers differently.
+> Also: the discount `EndCondition` stays the three mutually-exclusive
+> variants in §3.2 (no compound "date OR occurrence count" condition for
+> v1) — the round-1 artifact's compound example was a mockup-only mismatch,
+> now fixed. And: **T5's Social Play code is not yet merged into this
+> branch** — anything below describing it as "already built"/"shipped"
+> means "built on an unmerged sprint branch," not "on `HEAD`."
+
 # Pickleball Platform — System Design v1 (round 0, pre-review draft)
 
 **Status:** draft, round 0 — written before Designer/PM/Principal Engineer/PO
@@ -89,7 +106,22 @@ or does the user want camera *footage* surfaced inside the app (materially
 bigger scope — storage, privacy/consent implications under the GDPR/CCPA
 findings already in `docs/requirements/research-security-compliance.md`)?
 Defaulting to "store a URL/reference, embed the vendor's own player" as the
-v1 assumption pending round-1 confirmation.
+v1 assumption — **confirmed in round 1** by all four review roles.
+
+**Round 1 addition:** storing a reference instead of footage sidesteps this
+platform's own storage/processing obligations, but not the facility
+operator's obligation to have lawful basis and adequate notice (signage,
+sometimes explicit consent depending on jurisdiction) for recording real,
+identifiable people at their venue. **Working assumption (put to the user,
+not yet confirmed): facility onboarding requires a consent/signage
+attestation checkbox** ("I confirm this facility has appropriate
+signage/consent for any security cameras linked here") before the
+camera-URL field can be saved — cheap now, expensive to retrofit once many
+facilities have live links. This is additive to the "store a URL" answer,
+not a change to it. Also: the camera field is host-facing only in this
+design (facility settings), with no player-facing surface — stated here as
+an explicit requirement, not left implicit in what a mockup happens to
+show.
 
 ### 3.2 Discount rules with end-after conditions (requirements #3, #8)
 A new `discount_rules` concept layered on top of the existing `pricing_rules`
@@ -110,15 +142,31 @@ the same way overlapping pricing rules already do.
 ### 3.3 Friend / plus-one registration (requirement #11)
 Extend `Registration` (T5.2) with a `GuestCount int` field, bounded by a new
 `Game.MaxGuestsPerRegistration int` the host sets (default 0). Capacity
-counting (already built, T5.4's DB-enforced guard) must count
-`1 + GuestCount` per registration, not 1 — **this is a direct, material
-change to the capacity invariant T5 just built and verified**, not a
-cosmetic addition; flag explicitly for the Principal Engineer round: does
-this require revisiting the `registrations_capacity_guard` trigger
-(`db/migrations/0006_socialplay_capacity_guard.sql`), which currently counts
-rows, not seats? (It does — the trigger's `count(*)` needs to become
-`sum(1 + guest_count)`.) Log as a concrete T7+ ticket candidate, not
-something to silently patch in this design doc.
+counting (built on an unmerged T5 sprint branch, T5.4's DB-enforced guard —
+not yet on `HEAD`) must count `1 + GuestCount` per registration, not 1 —
+**this is a direct, material change to the capacity invariant T5 just built
+and verified**, not a cosmetic addition.
+
+**Round 1 correction:** the fix is *not* a one-line `count(*)` →
+`sum(1 + guest_count)` swap, as this section originally (wrongly) claimed.
+The actual trigger (`enforce_game_capacity()`) only re-checks capacity on
+`INSERT` or a `cancelled → active` `UPDATE` — an `UPDATE` that leaves
+`status` unchanged is deliberately skipped today, correctly, because
+nothing else about a registration can currently change its seat
+consumption after the fact. Once `GuestCount` exists, that stops being
+safe **if** it's editable post-registration: an existing registrant
+raising their own guest count is exactly the skipped `UPDATE` path, so a
+naive aggregate-function swap would miss a real capacity overrun.
+**Working assumption (put to the user, not yet confirmed): `GuestCount` is
+set-once at registration time** — change of mind means cancel and
+re-register, the same pattern already used elsewhere in this domain —
+which keeps the fix scoped to the aggregate-function swap, because the
+only paths that ever consume new seats stay `INSERT` and
+`cancelled → active`, both already guarded. If the answer turns out to be
+"must be editable in place," the trigger's UPDATE-branching logic needs to
+change too, not just its aggregate function — a materially bigger ticket
+than this section originally implied. Log as a concrete T7+ ticket
+candidate either way, not something to silently patch in this design doc.
 
 ### 3.4 Skill level and gender in matchmaking (requirements #14, #15)
 See §5 — deliberately separated out because it interacts with an existing
@@ -236,6 +284,17 @@ consistent with the above.
 ---
 
 ## 7. Open questions for round 1 (Designer + PM + Principal Engineer + PO)
+
+**All seven answered in round 1 — see `review-round-1.md` for full
+reasoning.** Short answers: (1) store-a-URL, confirmed, plus a new
+consent-attestation requirement; (2) modify (percent/fixed-off), confirmed;
+(3) per-Game total, confirmed; (4) proceed, but the fix is bigger than
+originally described here (see §3.3's round-1 correction above); (5) the
+in-app-RSVP alternative confirmed accurate against the spec; (6) additive to
+D2 (a public "Level" label backed by the existing rating), not a reopening;
+(7) additive, confirmed, self-reported/optional. Two of these (1 and 4) have
+a provisional-default answer pending explicit user sign-off — see the note
+at the top of this document.
 
 1. Security camera integration: store-a-reference-URL (cheap) vs.
    surface-footage-in-app (real scope, real privacy implications) — §3.1.
