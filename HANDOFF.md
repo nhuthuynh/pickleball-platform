@@ -120,6 +120,14 @@ mark-paid path; one `payments` row per payable action.
   this table directly.
 - Swap docker initdb.d for **golang-migrate** or **goose** before production.
 - Auth (JWT) + per-context authorization; wire into gRPC interceptors.
+- T5.2 PR review finding (non-blocking, logged not fixed): `domain.Register`
+  never checks `Game.Status`, so nothing currently stops registering into a
+  cancelled Game. Not in T5.2's AC; close this when Game-cancellation
+  cascading (also flagged in T5.1, see PR #11) is built.
+- T5.5's actor-scoped authorization checks (Registration/Game ownership) use
+  a request-supplied `actor_player_id` field, not a verified identity — this
+  is *not* a real authorization boundary (anyone can claim to be anyone)
+  until the JWT/Auth0 item above lands. Don't mistake it for one.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).
