@@ -143,6 +143,20 @@ mark-paid path; one `payments` row per payable action.
   merges Social Play (T5) into the same branch as Payments (T6), and needs
   to add `RegistrationUpdater` to `ServiceOptions` at that point, not
   invent a second constructor path.
+- T6.5 found `payments/app.Service` has no `RefundPayment` method at all —
+  `domain.Payment.Refund()` and the `PaymentProcessor.RefundPayment` port
+  method both exist, but nothing calls them, so there's no live path that
+  would ever push Social Play's new `refunded` `PaymentStatus` (T6.5) end
+  to end today. Needs its own ticket: wire `RefundPayment` on
+  `payments/app.Service`, call `RegistrationUpdater.UpdatePaymentStatus`
+  with `refunded` from it, and prove it with a test — don't assume T6.5's
+  plumbing makes this automatic.
+- Both the T6.4 and T5 migration lineages independently used migration
+  number `0005` for different files (payments table vs. an earlier T5
+  migration) — harmless today under the initdb.d alphabetical-apply
+  approach once merged, but a landmine for the eventual golang-migrate/
+  goose swap (Gotchas already flags initdb.d as prototype-only). Renumber
+  when that swap happens, not before.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).
