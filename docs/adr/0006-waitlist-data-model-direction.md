@@ -1,7 +1,12 @@
 # ADR-0006: Waitlists are a first-class entity with an ordered queue and a response timeout
 
 ## Status
-Accepted in direction; full schema/ticket detail deferred to T5/T6 backlog refinement
+Accepted in direction. T5 sprint planning (`docs/process/t5-sprint-plan.md`)
+resolved a genuine PM/PE disagreement on timing: T5 ships `Game`/
+`Registration` with capacity enforcement that rejects overflow via a
+stable `domain.ErrGameFull` error (a deliberate hook), but the actual
+`waitlist_entries` entity, queue ordering, promotion trigger, and response
+timeout described below are deferred to **T6**, not built in T5.
 
 ## Context
 Spec §3.4 lists "waitlists" as a feature in the same breath as
