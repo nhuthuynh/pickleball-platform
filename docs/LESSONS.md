@@ -133,3 +133,40 @@ Two separate incidents, found and fixed in the same follow-up pass:
   happen, don't grant the tool that would let it happen, or require a
   separate approval gate (a PR) that doesn't depend on the subagent's own
   compliance.
+
+## T5 (in progress) — a capacity invariant with no DB-level backstop
+
+- **Mistake:** T5.4's first pass (PR #14) implemented `RegisterForGame` as
+  a get-active-registrations-then-count-then-insert sequence in
+  `app.Service`, with only a domain-level check
+  (`count >= game.Capacity -> ErrGameFull`) and a Postgres unique index on
+  `(game_id, player_id)` — which correctly prevents the *same* player
+  double-registering, but does nothing to stop two *different* players
+  both passing the in-process count check for the last open slot and both
+  succeeding. This is exactly the class of bug CLAUDE.md rule 4 exists to
+  prevent ("invariants are enforced in Postgres AND expressed in the
+  domain"), and unlike booking's `EXCLUDE` constraint (ADR-0001), there
+  was no unconditional DB-level guard on capacity at all — only
+  uniqueness. It was also the sprint goal's own headline invariant
+  ("capacity... enforced"), not an edge case.
+  **Fix:** loop 2 of T5.4 (PM+PE review caught it before merge, per the
+  sprint's execution-loop mechanics) added a `BEFORE INSERT/UPDATE`
+  trigger on `registrations` that locks the `games` row (`SELECT ... FOR
+  UPDATE`) and counts non-cancelled registrations against `games.capacity`
+  before allowing the insert, translated to `domain.ErrGameFull` in the
+  adapter per rule 5. Verified with a real concurrency test (20 concurrent
+  `RegisterForGame` calls, capacity 5) run 6 times including 2 cold
+  starts, consistently 5 successes / 15 `ErrGameFull` / 0 unexpected
+  errors — not a single run, per rule 10.
+  **Lesson:** a domain-level "count existing rows, then insert" check is
+  not an invariant under concurrency, no matter how correct the counting
+  logic looks in a unit test with a fake repository — it has a TOCTOU
+  window the moment two real requests interleave. Any future "N of these,
+  capped at M" invariant (this project's waitlist work in T6 is a likely
+  next case, per ADR-0006) needs to ask the same question this review
+  asked: what actually closes the race at the database level, not just in
+  application code? A unique index closes a *distinctness* race; it does
+  not by itself close a *counting* race — those need a lock, a trigger, or
+  an equivalent DB-enforced check, and this is worth checking explicitly
+  every time a ticket introduces a capacity-style limit, not just the
+  first time.
