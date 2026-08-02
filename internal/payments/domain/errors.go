@@ -42,4 +42,19 @@ var (
 	// must leave the Payment unchanged (still unpaid) rather than treat a
 	// decline as a domain state-machine error.
 	ErrPaymentDeclined = errors.New("payments: payment was declined")
+
+	// ErrNotPaymentRecorder is T6.3's actor-scoped authorization sentinel:
+	// returned by app.Service.RecordOfflinePayment when the caller-supplied
+	// ActorUserID does not match the Host/Game-Admin ownership facts the
+	// caller supplied for the payable being recorded against. A distinct,
+	// stable sentinel (not folded into ErrIllegalStatusTransition) so a
+	// mismatched actor is distinguishable by type from a legal-but-wrong-
+	// state transition, mirroring socialplay.domain.ErrNotRegistrationOwner
+	// (T5.2/T5.5) exactly.
+	ErrNotPaymentRecorder = errors.New("payments: actor is not authorized to record an offline payment for this payable action")
+
+	// ErrPaymentNotFound is returned by port.Repository.GetByID (T6.4) when
+	// no Payment exists with the given id, mirroring
+	// booking.ErrBookingNotFound.
+	ErrPaymentNotFound = errors.New("payments: payment not found")
 )
