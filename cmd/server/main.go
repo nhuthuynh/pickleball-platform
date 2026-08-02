@@ -23,8 +23,13 @@ import (
 	bookingpg "github.com/nhuthuynh/white-label/internal/booking/adapter/postgres"
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
+	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
 	"github.com/nhuthuynh/white-label/internal/platform/pg"
+	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
+	socialplaygrpc "github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
+	socialplaypg "github.com/nhuthuynh/white-label/internal/socialplay/adapter/postgres"
+	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -53,11 +58,23 @@ func run(logger *slog.Logger) error {
 
 	repo := bookingpg.NewRepository(pool)
 	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
-	svc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
-	handler := bookinggrpc.NewHandler(svc)
+	bookingSvc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
+	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
+
+	// Social Play (T5.4): its GameRepository/RegistrationRepository are
+	// Postgres-backed like Booking's; its CourtReservation port is
+	// implemented against the real Booking app.Service (the one place
+	// Social Play code is allowed to import internal/booking/*, per
+	// CLAUDE.md rule 5 — see internal/socialplay/adapter/booking).
+	gameRepo := socialplaypg.NewGameRepository(pool)
+	registrationRepo := socialplaypg.NewRegistrationRepository(pool)
+	reservation := socialplaybooking.NewReservation(bookingSvc)
+	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo)
+	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation)
 
 	grpcServer := grpc.NewServer()
-	bookingv1.RegisterBookingServiceServer(grpcServer, handler)
+	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
+	socialplayv1.RegisterSocialPlayServiceServer(grpcServer, socialplayHandler)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -72,10 +89,12 @@ func run(logger *slog.Logger) error {
 	}()
 
 	mux := runtime.NewServeMux()
-	err = bookingv1.RegisterBookingServiceHandlerFromEndpoint(
-		ctx, mux, grpcAddr,
-		[]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())},
-	)
+	dialOpts := []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}
+	err = bookingv1.RegisterBookingServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts)
+	if err != nil {
+		return err
+	}
+	err = socialplayv1.RegisterSocialPlayServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts)
 	if err != nil {
 		return err
 	}
