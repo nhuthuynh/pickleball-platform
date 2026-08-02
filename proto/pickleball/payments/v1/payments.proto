@@ -1,0 +1,160 @@
+syntax = "proto3";
+
+package pickleball.payments.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1;paymentsv1";
+
+// PayableType mirrors internal/payments/domain.PayableType — extensible by
+// design (T6.1): booking, registration, and no_show_fee are the values T6
+// produces. See domain.PayableType's doc comment for why recurring_hire /
+// subscription are named as future values but not added as enum values
+// yet.
+enum PayableType {
+  PAYABLE_TYPE_UNSPECIFIED = 0;
+  PAYABLE_TYPE_BOOKING = 1;
+  PAYABLE_TYPE_REGISTRATION = 2;
+  PAYABLE_TYPE_NO_SHOW_FEE = 3;
+}
+
+// PaymentMethod mirrors internal/payments/domain.Method.
+enum PaymentMethod {
+  PAYMENT_METHOD_UNSPECIFIED = 0;
+  PAYMENT_METHOD_ONLINE = 1;
+  PAYMENT_METHOD_OFFLINE = 2;
+}
+
+// PaymentStatus mirrors internal/payments/domain.Status.
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_UNPAID = 1;
+  PAYMENT_STATUS_PAID = 2;
+  PAYMENT_STATUS_REFUNDED = 3;
+}
+
+// Money mirrors internal/payments/domain.Money (ADR-0005: amount and
+// currency are coupled in the same type, never a bare cents value).
+// currency_code is an ISO 4217 3-letter code (e.g. "USD").
+//
+// PCI guardrail (docs/checklists/proto-review.md): this message, and every
+// other message in this file, carries only an amount + currency + opaque
+// identifiers — never a card number, CVV/CVC, or track-data field. Card
+// data is tokenized client-side and never reaches this backend (SAQ A
+// scope).
+message Money {
+  int64 amount_cents = 1;
+  string currency_code = 2;
+}
+
+// Payment mirrors internal/payments/domain.Payment. stripe_reference is an
+// opaque processor reference (a Stripe PaymentIntent id in a real
+// adapter — internal/payments/port.PaymentProcessor is processor-agnostic
+// by design, T6.2) — never a card-shaped field, per the PCI guardrail
+// above. It is empty for an offline Payment. recorded_by_user_id is empty
+// for an online, Stripe-driven Payment.
+message Payment {
+  string id = 1;
+  PayableType payable_type = 2;
+  string payable_id = 3;
+  Money amount = 4;
+  PaymentMethod method = 5;
+  PaymentStatus status = 6;
+  string stripe_reference = 7;
+  string recorded_by_user_id = 8;
+}
+
+// RecordOfflinePaymentRequest is the offline-recording use case (T6.3):
+// actor_user_id is a claimed identity, not a verified one — there is no
+// JWT/session layer yet (HANDOFF.md cross-cutting Auth backlog), the same
+// known gap CancelRegistrationRequest.actor_player_id documents in
+// socialplay.proto. The object-level check this enables (only the
+// Booking's Host, or the Registration's Game's Host/an assigned Game
+// Admin, may record a payment for that payable action) is real; the
+// identity behind actor_user_id is not authenticated yet.
+//
+// booking_host_id / game_host_id / assigned_game_admin_user_ids are the
+// caller-supplied ownership/assignment facts app.RecordOfflinePaymentInput
+// needs — internal/payments has no live join to Booking's or Social
+// Play's database yet (T6.5 wires the Social Play projection), see
+// internal/payments/app/service.go's doc comment for the full reasoning.
+message RecordOfflinePaymentRequest {
+  PayableType payable_type = 1;
+  string payable_id = 2;
+  Money amount = 3;
+  string actor_user_id = 4;
+
+  string booking_host_id = 5;
+
+  string game_host_id = 6;
+  repeated string assigned_game_admin_user_ids = 7;
+}
+
+message RecordOfflinePaymentResponse {
+  Payment payment = 1;
+}
+
+// CreateOnlinePaymentRequest starts the online/Stripe path (T6.2): builds
+// an unpaid Payment and authorizes an intent against
+// port.PaymentProcessor. No card data ever appears on this request — see
+// the PCI guardrail on the Money message above; the client tokenizes the
+// card directly with Stripe before this call, and confirms via
+// ConfirmOnlinePayment below.
+message CreateOnlinePaymentRequest {
+  PayableType payable_type = 1;
+  string payable_id = 2;
+  Money amount = 3;
+}
+
+message CreateOnlinePaymentResponse {
+  Payment payment = 1;
+}
+
+// ConfirmOnlinePaymentRequest captures funds for a previously created
+// intent (payment_id refers to the Payment CreateOnlinePayment returned).
+message ConfirmOnlinePaymentRequest {
+  string payment_id = 1;
+}
+
+message ConfirmOnlinePaymentResponse {
+  Payment payment = 1;
+}
+
+// PaymentsService is the API contract for the Payments bounded context,
+// mirroring BookingService's/SocialPlayService's style
+// (proto/pickleball/booking/v1, proto/pickleball/socialplay/v1) — buf
+// generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this file.
+//
+// Reviewed against docs/checklists/proto-review.md's PCI guardrail before
+// merging (T6.4 PR description confirms this explicitly): no message in
+// this file carries a PAN/card-number/CVV/track-data field.
+service PaymentsService {
+  // RecordOfflinePayment records a cash/bank-transfer/manually-charged
+  // payment (T6.3). Returns 409 (AlreadyExists) on a duplicate
+  // (payable_type, payable_id), and 403-shaped (PermissionDenied) on an
+  // actor/ownership mismatch — see internal/payments/adapter/grpcapi's
+  // toStatus.
+  rpc RecordOfflinePayment(RecordOfflinePaymentRequest) returns (RecordOfflinePaymentResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments:recordOffline"
+      body: "*"
+    };
+  }
+
+  // CreateOnlinePayment starts the Stripe path: builds an unpaid Payment
+  // and authorizes an intent (T6.2).
+  rpc CreateOnlinePayment(CreateOnlinePaymentRequest) returns (CreateOnlinePaymentResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments:createOnline"
+      body: "*"
+    };
+  }
+
+  // ConfirmOnlinePayment captures funds for a previously created intent
+  // and transitions the Payment to paid (T6.2).
+  rpc ConfirmOnlinePayment(ConfirmOnlinePaymentRequest) returns (ConfirmOnlinePaymentResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments/{payment_id}:confirmOnline"
+    };
+  }
+}
