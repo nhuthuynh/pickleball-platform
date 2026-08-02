@@ -23,4 +23,14 @@ var (
 	// both layers, mirroring how booking.ErrCourtDoubleBooked is returned
 	// by both EnsureNoConflict and the EXCLUDE-constraint translation.
 	ErrPaymentAlreadyRecorded = errors.New("payments: a payment already exists for this payable action")
+
+	// ErrNotPaymentRecorder is T6.3's actor-scoped authorization sentinel:
+	// returned by app.Service.RecordOfflinePayment when the caller-supplied
+	// ActorUserID does not match the Host/Game-Admin ownership facts the
+	// caller supplied for the payable being recorded against. A distinct,
+	// stable sentinel (not folded into ErrIllegalStatusTransition) so a
+	// mismatched actor is distinguishable by type from a legal-but-wrong-
+	// state transition, mirroring socialplay.domain.ErrNotRegistrationOwner
+	// (T5.2/T5.5) exactly.
+	ErrNotPaymentRecorder = errors.New("payments: actor is not authorized to record an offline payment for this payable action")
 )
