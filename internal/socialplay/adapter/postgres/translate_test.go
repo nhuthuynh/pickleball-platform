@@ -13,9 +13,11 @@ import (
 // TestTranslateRegistrationErr proves the DB-level half of CLAUDE.md rule 4
 // (invariants enforced in Postgres AND expressed in the domain): a 23505
 // unique_violation on registrations_active_player_per_game_idx (db/migrations/
-// 0005_socialplay.sql) must translate to domain.ErrAlreadyRegistered, not
-// leak as a raw pgconn.PgError — the adapter boundary CLAUDE.md rule 5
-// requires. Runs without internal/gen or a real database.
+// 0005_socialplay.sql) must translate to domain.ErrAlreadyRegistered, and a
+// P0001 raised by the registrations_capacity_guard trigger (db/migrations/
+// 0006_socialplay_capacity_guard.sql) must translate to domain.ErrGameFull
+// — neither may leak as a raw pgconn.PgError, per the adapter boundary
+// CLAUDE.md rule 5 requires. Runs without internal/gen or a real database.
 func TestTranslateRegistrationErr(t *testing.T) {
 	t.Parallel()
 
@@ -25,6 +27,7 @@ func TestTranslateRegistrationErr(t *testing.T) {
 		wantErr error
 	}{
 		{"unique violation (23505) becomes ErrAlreadyRegistered", &pgconn.PgError{Code: "23505"}, domain.ErrAlreadyRegistered},
+		{"capacity guard trigger (P0001) becomes ErrGameFull", &pgconn.PgError{Code: "P0001"}, domain.ErrGameFull},
 		{"no rows becomes ErrRegistrationNotFound", pgx.ErrNoRows, domain.ErrRegistrationNotFound},
 		{"unrelated pg error is wrapped, not silently mapped", &pgconn.PgError{Code: "42601"}, nil},
 	}
@@ -40,7 +43,7 @@ func TestTranslateRegistrationErr(t *testing.T) {
 				}
 				return
 			}
-			if errors.Is(got, domain.ErrAlreadyRegistered) || errors.Is(got, domain.ErrRegistrationNotFound) {
+			if errors.Is(got, domain.ErrAlreadyRegistered) || errors.Is(got, domain.ErrRegistrationNotFound) || errors.Is(got, domain.ErrGameFull) {
 				t.Fatalf("translateRegistrationErr(%v) = %v, an unrelated pg error must not be mismapped to a specific domain sentinel", tt.err, got)
 			}
 		})

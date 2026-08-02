@@ -24,8 +24,15 @@ import (
 // Postgres error codes this adapter cares about. 23505 is the unique
 // violation on registrations_active_player_per_game_idx (db/migrations/
 // 0005_socialplay.sql) firing — the DB-level mirror of
-// domain.ErrAlreadyRegistered per CLAUDE.md rule 4.
-const pgUniqueViolation = "23505"
+// domain.ErrAlreadyRegistered per CLAUDE.md rule 4. P0001 is the
+// registrations_capacity_guard trigger's RAISE EXCEPTION (db/migrations/
+// 0006_socialplay_capacity_guard.sql) firing — the DB-level mirror of
+// domain.ErrGameFull, closing the race domain.Register's in-process count
+// check alone can't (PR #14 loop-1 review finding).
+const (
+	pgUniqueViolation  = "23505"
+	pgCapacityExceeded = "P0001"
+)
 
 // GameRepository implements port.GameRepository.
 type GameRepository struct {
@@ -151,11 +158,22 @@ func (r *RegistrationRepository) Update(ctx context.Context, reg domain.Registra
 // — the only errors allowed to cross out of this package (CLAUDE.md rule
 // 5). A 23505 unique_violation on registrations_active_player_per_game_idx
 // becomes domain.ErrAlreadyRegistered, the DB-level guard's counterpart to
-// domain.Register's own pre-check (CLAUDE.md rule 4).
+// domain.Register's own pre-check (CLAUDE.md rule 4). A P0001 from the
+// registrations_capacity_guard trigger (db/migrations/
+// 0006_socialplay_capacity_guard.sql) becomes domain.ErrGameFull — the
+// same sentinel domain.Register's own pre-check returns, so a caller sees
+// one error type regardless of which layer caught the capacity conflict
+// (mirrors translateErr's ErrCourtDoubleBooked handling in
+// internal/booking/adapter/postgres/repository.go).
 func translateRegistrationErr(err error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == pgUniqueViolation {
-		return domain.ErrAlreadyRegistered
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgUniqueViolation:
+			return domain.ErrAlreadyRegistered
+		case pgCapacityExceeded:
+			return domain.ErrGameFull
+		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrRegistrationNotFound
