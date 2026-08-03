@@ -21,13 +21,20 @@ enum RegistrationStatus {
   REGISTRATION_STATUS_CANCELLED = 2;
 }
 
-// PaymentStatus mirrors internal/socialplay/domain.PaymentStatus. T5 does
-// not wire real Payments (Stripe/offline entry is T6, CLAUDE.md) — this is
-// modelling only, exposed read-only through Registration for now.
+// PaymentStatus mirrors internal/socialplay/domain.PaymentStatus. T5 wired
+// this read-only; T6.5 is what actually keeps it accurate, via
+// internal/payments/adapter/socialplay pushing updates through
+// port.RegistrationPaymentUpdater — this field remains read-only on the
+// wire (no RPC sets it directly), it just now reflects a real Payment
+// instead of always being "unpaid".
 enum PaymentStatus {
   PAYMENT_STATUS_UNSPECIFIED = 0;
   PAYMENT_STATUS_UNPAID = 1;
   PAYMENT_STATUS_PAID = 2;
+  // PAYMENT_STATUS_REFUNDED (T6.5) mirrors internal/payments/domain.Status's
+  // three-state machine exactly rather than collapsing a refund back to
+  // unpaid — see the T6.5 PR description's refund-modelling decision.
+  PAYMENT_STATUS_REFUNDED = 3;
 }
 
 // Game mirrors internal/socialplay/domain.Game. court_ids is repeated

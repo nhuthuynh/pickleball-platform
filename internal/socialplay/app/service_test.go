@@ -137,6 +137,16 @@ func (r *fakeRegistrationRepository) Update(_ context.Context, reg domain.Regist
 	return reg, nil
 }
 
+func (r *fakeRegistrationRepository) UpdatePaymentStatus(_ context.Context, id string, status domain.PaymentStatus) (domain.Registration, error) {
+	reg, ok := r.registrations[id]
+	if !ok {
+		return domain.Registration{}, domain.ErrRegistrationNotFound
+	}
+	reg.PaymentStatus = status
+	r.registrations[id] = reg
+	return reg, nil
+}
+
 // fakeWaitlistRepository is a minimal in-memory port.WaitlistRepository
 // fake, mirroring fakeRegistrationRepository's shape. PromoteNext and
 // ExpirePromotion are implemented as straightforward in-memory
@@ -564,6 +574,99 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 	}
 	if stored.Status != domain.RegistrationStatusRegistered {
 		t.Fatalf("registration must be untouched by the rejected cancel, status = %v", stored.Status)
+	}
+}
+
+// --- T6.5: MarkRegistrationPaymentStatus (port.RegistrationPaymentUpdater's
+// real implementation calls this) --------------------------------------
+
+// TestMarkRegistrationPaymentStatus_Succeeds proves the happy path: an
+// existing Registration's PaymentStatus is updated and the change is
+// actually persisted (not just returned in-memory) — mirrors
+// TestCancelRegistration_OwnerSucceeds's "prove it via a fresh GetByID"
+// standard.
+func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	fixtureIn := validInput("court-1")
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+	reg, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-a"})
+	if err != nil {
+		t.Fatalf("fixture registration should succeed, got %v", err)
+	}
+	if reg.PaymentStatus != domain.PaymentStatusUnpaid {
+		t.Fatalf("fixture PaymentStatus = %v, want unpaid", reg.PaymentStatus)
+	}
+
+	if err := svc.MarkRegistrationPaymentStatus(ctx, reg.ID, domain.PaymentStatusPaid); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	stored, err := registrations.GetByID(ctx, reg.ID)
+	if err != nil {
+		t.Fatalf("GetByID err: %v", err)
+	}
+	if stored.PaymentStatus != domain.PaymentStatusPaid {
+		t.Fatalf("persisted PaymentStatus = %v, want paid", stored.PaymentStatus)
+	}
+}
+
+// TestMarkRegistrationPaymentStatus_NotFound proves a bogus registration id
+// surfaces domain.ErrRegistrationNotFound, the sentinel
+// port.RegistrationPaymentUpdater's doc comment promises callers.
+func TestMarkRegistrationPaymentStatus_NotFound(t *testing.T) {
+	t.Parallel()
+
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
+
+	err := svc.MarkRegistrationPaymentStatus(context.Background(), "no-such-registration", domain.PaymentStatusPaid)
+	if !errors.Is(err, domain.ErrRegistrationNotFound) {
+		t.Fatalf("got err %v, want ErrRegistrationNotFound", err)
+	}
+}
+
+// TestMarkRegistrationPaymentStatus_InvalidStatusRejected proves the
+// domain's closed-enum guard (Registration.MarkPaymentStatus) is actually
+// wired, not bypassed, at the app layer.
+func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	fixtureIn := validInput("court-1")
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+	reg, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-a"})
+	if err != nil {
+		t.Fatalf("fixture registration should succeed, got %v", err)
+	}
+
+	err = svc.MarkRegistrationPaymentStatus(ctx, reg.ID, domain.PaymentStatus("not-a-real-status"))
+	if !errors.Is(err, domain.ErrInvalidPaymentStatus) {
+		t.Fatalf("got err %v, want ErrInvalidPaymentStatus", err)
+	}
+
+	stored, getErr := registrations.GetByID(ctx, reg.ID)
+	if getErr != nil {
+		t.Fatalf("GetByID err: %v", getErr)
+	}
+	if stored.PaymentStatus != domain.PaymentStatusUnpaid {
+		t.Fatalf("registration must be untouched by the rejected update, PaymentStatus = %v", stored.PaymentStatus)
 	}
 }
 

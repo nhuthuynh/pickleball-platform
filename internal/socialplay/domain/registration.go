@@ -25,15 +25,40 @@ const (
 )
 
 // PaymentStatus tracks whether a Registration's spot has been paid for.
-// T5 does not wire real Payments (Stripe/offline entry is T6 per
-// CLAUDE.md) — this is modelling only; a later app-layer method lets a
-// Game Admin flip it once offline/Stripe payment recording exists.
+// T5 shipped this as modelling only ("a later app-layer method lets a Game
+// Admin flip it once offline/Stripe payment recording exists"); T6.5 is
+// that method (Service.MarkRegistrationPaymentStatus, called only through
+// port.RegistrationPaymentUpdater by internal/payments/adapter/socialplay).
+//
+// PaymentStatusRefunded (T6.5) mirrors internal/payments/domain.Status's
+// three-state unpaid -> paid -> refunded machine exactly, rather than
+// collapsing "refunded" back into "unpaid": Registration.PaymentStatus is
+// documented (docs/process/t6-sprint-plan.md T6.5) as becoming "a
+// projection of" the real Payment aggregate, and a projection that can't
+// represent one of its source's states loses real information a Game
+// Admin needs — "this player never paid" and "this player paid, then got
+// refunded" are different facts a support/admin view must be able to tell
+// apart, even though Social Play itself never decides when either applies
+// (Payments is the only writer, via UpdatePaymentStatus).
 type PaymentStatus string
 
 const (
-	PaymentStatusUnpaid PaymentStatus = "unpaid"
-	PaymentStatusPaid   PaymentStatus = "paid"
+	PaymentStatusUnpaid   PaymentStatus = "unpaid"
+	PaymentStatusPaid     PaymentStatus = "paid"
+	PaymentStatusRefunded PaymentStatus = "refunded"
 )
+
+// IsValid reports whether s is one of the PaymentStatus values Social Play
+// recognises. MarkPaymentStatus uses this to keep the field a closed enum;
+// mirrors internal/payments/domain.PayableType.IsValid's role.
+func (s PaymentStatus) IsValid() bool {
+	switch s {
+	case PaymentStatusUnpaid, PaymentStatusPaid, PaymentStatusRefunded:
+		return true
+	default:
+		return false
+	}
+}
 
 // Registration is a Player's claim on one of a Game's capacity slots.
 type Registration struct {
@@ -130,5 +155,31 @@ func (r *Registration) Cancel(actorPlayerID string) error {
 		return ErrIllegalStatusTransition
 	}
 	r.Status = RegistrationStatusCancelled
+	return nil
+}
+
+// MarkPaymentStatus sets PaymentStatus to a new value reported by the
+// Payments context (T6.5), via port.RegistrationPaymentUpdater ->
+// internal/payments/adapter/socialplay ->
+// Service.MarkRegistrationPaymentStatus. This is the only path, besides
+// Register's initial "unpaid" default, that may change PaymentStatus — see
+// that method's doc comment for why the field must not have any other
+// writer once T6.5 merges.
+//
+// Deliberately does NOT re-enforce Payment's own unpaid -> paid -> refunded
+// transition legality (contrast with Cancel, which does own its
+// transition): domain.Payment (internal/payments/domain) is the single
+// source of truth for whether a transition is legal, and duplicating that
+// state machine here would let the two contexts silently disagree about
+// what's legal — if a future bug ever allowed Payments to report an
+// impossible transition, that is a Payments-side bug to fix at the source,
+// not something Social Play should also validate against. The only check
+// here is that status is a recognised value at all (IsValid), so garbage
+// input can never be written to the field.
+func (r *Registration) MarkPaymentStatus(status PaymentStatus) error {
+	if !status.IsValid() {
+		return ErrInvalidPaymentStatus
+	}
+	r.PaymentStatus = status
 	return nil
 }

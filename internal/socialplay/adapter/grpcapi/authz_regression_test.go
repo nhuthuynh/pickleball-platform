@@ -113,6 +113,16 @@ func (f *fakeRegistrationRepo) Update(_ context.Context, r domain.Registration) 
 	return r, nil
 }
 
+func (f *fakeRegistrationRepo) UpdatePaymentStatus(_ context.Context, id string, status domain.PaymentStatus) (domain.Registration, error) {
+	r, ok := f.regs[id]
+	if !ok {
+		return domain.Registration{}, domain.ErrRegistrationNotFound
+	}
+	r.PaymentStatus = status
+	f.regs[id] = r
+	return r, nil
+}
+
 // fakeWaitlistRepo is a minimal, empty-always port.WaitlistRepository stand-in
 // — neither RegisterForGame nor CancelRegistration's BOLA behaviour under
 // test here depends on waitlist state, so this only needs to satisfy the

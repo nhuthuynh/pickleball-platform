@@ -204,6 +204,56 @@ func TestRegistration_Cancel_WrongActor(t *testing.T) {
 	}
 }
 
+// TestRegistration_MarkPaymentStatus_Valid proves MarkPaymentStatus (T6.5)
+// accepts every recognised PaymentStatus value and actually updates the
+// field — this is the only path, besides Register's initial "unpaid"
+// default, allowed to change PaymentStatus, so
+// internal/payments/adapter/socialplay's RegistrationUpdater routes through
+// it rather than mutating the exported field directly.
+func TestRegistration_MarkPaymentStatus_Valid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.PaymentStatus
+	}{
+		{"unpaid", domain.PaymentStatusUnpaid},
+		{"paid", domain.PaymentStatusPaid},
+		{"refunded", domain.PaymentStatusRefunded},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			reg := domain.Registration{ID: "r1", GameID: "g1", PlayerID: "player-1", PaymentStatus: domain.PaymentStatusUnpaid}
+			if err := reg.MarkPaymentStatus(tt.status); err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if reg.PaymentStatus != tt.status {
+				t.Fatalf("PaymentStatus = %v, want %v", reg.PaymentStatus, tt.status)
+			}
+		})
+	}
+}
+
+// TestRegistration_MarkPaymentStatus_InvalidRejected proves an unrecognised
+// PaymentStatus value is rejected rather than silently written — the field
+// is a closed enum, mirroring PayableType.IsValid's role in
+// internal/payments/domain.
+func TestRegistration_MarkPaymentStatus_InvalidRejected(t *testing.T) {
+	t.Parallel()
+
+	reg := domain.Registration{ID: "r1", GameID: "g1", PlayerID: "player-1", PaymentStatus: domain.PaymentStatusUnpaid}
+	err := reg.MarkPaymentStatus(domain.PaymentStatus("not-a-real-status"))
+	if !errors.Is(err, domain.ErrInvalidPaymentStatus) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrInvalidPaymentStatus)
+	}
+	if reg.PaymentStatus != domain.PaymentStatusUnpaid {
+		t.Fatalf("PaymentStatus = %v, want unchanged (unpaid)", reg.PaymentStatus)
+	}
+}
+
 // TestRegister_CancelFreesCapacitySlot proves cancelling a Registration
 // actually frees a capacity slot for a subsequent Register call — the same
 // "prove it via the real re-booking path, not just the status field"

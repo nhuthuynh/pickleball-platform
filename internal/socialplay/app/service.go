@@ -306,3 +306,27 @@ func (s *Service) ExpireWaitlistPromotion(ctx context.Context, entryID string) (
 
 	return expired, nil
 }
+
+// MarkRegistrationPaymentStatus updates a Registration's PaymentStatus
+// (T6.5). This is the sole app-layer entry point for changing that field
+// outside of RegisterForGame's initial "unpaid" default —
+// internal/payments/adapter/socialplay.RegistrationUpdater is the only
+// caller, invoked through port.RegistrationPaymentUpdater after a Payment
+// for that Registration transitions in the Payments context. Social Play
+// itself never decides when a payment is made; it only records what
+// Payments (the source of truth) reports, which is why this method does no
+// authorization check of its own — the caller crossing the context
+// boundary is Payments' own app.Service, not an end user request.
+func (s *Service) MarkRegistrationPaymentStatus(ctx context.Context, registrationID string, status domain.PaymentStatus) error {
+	reg, err := s.registrations.GetByID(ctx, registrationID)
+	if err != nil {
+		return err
+	}
+
+	if err := reg.MarkPaymentStatus(status); err != nil {
+		return err
+	}
+
+	_, err = s.registrations.UpdatePaymentStatus(ctx, reg.ID, reg.PaymentStatus)
+	return err
+}

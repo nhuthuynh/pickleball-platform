@@ -154,6 +154,21 @@ func (r *RegistrationRepository) Update(ctx context.Context, reg domain.Registra
 	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus), nil
 }
 
+// UpdatePaymentStatus persists a PaymentStatus change (T6.5) via its own
+// dedicated query — UpdateRegistrationStatus above only ever touches the
+// status column, so it cannot be reused here without silently leaving
+// PaymentStatus unpersisted (the exact gap this method exists to close).
+func (r *RegistrationRepository) UpdatePaymentStatus(ctx context.Context, id string, status domain.PaymentStatus) (domain.Registration, error) {
+	row, err := r.q.UpdateRegistrationPaymentStatus(ctx, socialplaydb.UpdateRegistrationPaymentStatusParams{
+		ID:            mustUUID(id),
+		PaymentStatus: string(status),
+	})
+	if err != nil {
+		return domain.Registration{}, translateRegistrationErr(err)
+	}
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus), nil
+}
+
 // translateRegistrationErr maps infrastructure failures onto domain errors
 // — the only errors allowed to cross out of this package (CLAUDE.md rule
 // 5). A 23505 unique_violation on registrations_active_player_per_game_idx

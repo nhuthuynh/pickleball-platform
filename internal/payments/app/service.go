@@ -5,6 +5,8 @@ import (
 
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 	"github.com/nhuthuynh/white-label/internal/payments/port"
+	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
+	socialplayport "github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
 
 // Service is the Payments context's application layer: it orchestrates the
@@ -12,35 +14,39 @@ import (
 // live in internal/payments/domain.
 //
 // T6.2 gave Service just enough to drive the online path against
-// port.PaymentProcessor; T6.3 added the offline-recording path. T6.4 adds
-// port.Repository (persistence) and switches the constructor to an
+// port.PaymentProcessor; T6.3 added the offline-recording path. T6.4 added
+// port.Repository (persistence) and switched the constructor to an
 // options struct rather than growing positional args past three, per the
-// sprint plan's kickoff note ("Payments' own app.Service is projected to
-// need at least 4 [dependencies]... T6.4 should introduce an options-struct
-// constructor for Payments' Service from the start"). The sprint plan's
-// "Constructor shape" bullet also names a fourth field,
-// RegistrationUpdater socialplayport.RegistrationPaymentUpdater — that
-// field is intentionally NOT added yet: internal/socialplay does not exist
-// on this branch (T5 has not been merged into claude/go-backend-
-// pickleball-7up34j), so there is no socialplayport package to reference.
-// T6.5 ("Reconcile Social Play's Registration.PaymentStatus with the
-// Payment aggregate") is the ticket that both merges Social Play's
-// existence into this lineage and adds that field; adding a field that
-// references a nonexistent package now would not compile. See the T6.4 PR
-// description for this judgment call.
+// sprint plan's kickoff note. T6.5 adds the fourth field the same kickoff
+// note named up front, RegistrationUpdater socialplayport.
+// RegistrationPaymentUpdater — T6.4 deliberately left it out because
+// internal/socialplay didn't exist on that branch yet (see T6.4's PR
+// description); T6.5 is the ticket that both merges Social Play into this
+// lineage and adds the field, exactly as T6.4 predicted, to the *existing*
+// ServiceOptions struct rather than a second constructor path. Payments
+// importing internal/socialplay/port (and, transitively,
+// internal/socialplay/domain for the PaymentStatus enum) is the expected,
+// allowed direction per the context map
+// (docs/agent-operating-handbook.md A1): Payments depends on Social Play,
+// never the reverse — internal/socialplay/domain and internal/socialplay/app
+// must never import anything under internal/payments.
 type Service struct {
-	payments  port.Repository
-	ids       port.IDGenerator
-	processor port.PaymentProcessor
+	payments            port.Repository
+	ids                 port.IDGenerator
+	processor           port.PaymentProcessor
+	registrationUpdater socialplayport.RegistrationPaymentUpdater
 }
 
-// ServiceOptions is the dependency bundle for NewService (T6.4). Payments
-// is the persistence port (new in T6.4); IDs and Processor carry over
-// unchanged from T6.2/T6.3's positional constructors.
+// ServiceOptions is the dependency bundle for NewService (T6.4).
+// RegistrationUpdater (T6.5) is optional: leaving it nil is fine for any
+// caller/test that only exercises the Booking-payable path, or doesn't care
+// about the Social Play reconciliation side effect — see
+// reconcileRegistrationPaymentStatus's nil guard.
 type ServiceOptions struct {
-	Payments  port.Repository
-	IDs       port.IDGenerator
-	Processor port.PaymentProcessor
+	Payments            port.Repository
+	IDs                 port.IDGenerator
+	Processor           port.PaymentProcessor
+	RegistrationUpdater socialplayport.RegistrationPaymentUpdater
 }
 
 // NewService constructs a Service from opts. IDs is required by every use
@@ -51,7 +57,12 @@ type ServiceOptions struct {
 // see fixtures_test.go's fixedIDs and stripestub.NewProcessor for the
 // deterministic test doubles used in place of Processor/IDs.
 func NewService(opts ServiceOptions) *Service {
-	return &Service{payments: opts.Payments, ids: opts.IDs, processor: opts.Processor}
+	return &Service{
+		payments:            opts.Payments,
+		ids:                 opts.IDs,
+		processor:           opts.Processor,
+		registrationUpdater: opts.RegistrationUpdater,
+	}
 }
 
 // Payments exposes the persistence port so a caller (e.g.
@@ -123,7 +134,15 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment) (d
 		return p, err
 	}
 
-	return s.payments.Update(ctx, p)
+	updated, err := s.payments.Update(ctx, p)
+	if err != nil {
+		return updated, err
+	}
+
+	if err := s.reconcileRegistrationPaymentStatus(ctx, updated); err != nil {
+		return updated, err
+	}
+	return updated, nil
 }
 
 // RecordOfflinePaymentInput is the use-case input for recording an offline
@@ -209,7 +228,47 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 		return domain.Payment{}, err
 	}
 
-	return s.payments.Create(ctx, p)
+	created, err := s.payments.Create(ctx, p)
+	if err != nil {
+		return domain.Payment{}, err
+	}
+
+	if err := s.reconcileRegistrationPaymentStatus(ctx, created); err != nil {
+		return created, err
+	}
+	return created, nil
+}
+
+// reconcileRegistrationPaymentStatus pushes a successfully-paid Payment's
+// status through to Social Play (T6.5), when, and only when, it pays for a
+// Registration's own seat: PayableTypeBooking never calls this (required
+// test), and PayableTypeNoShowFee is deliberately excluded too even though
+// it also targets a Registration's Game — a no-show fee is a separate
+// charge, not the Registration's own payment status, and the ticket's
+// instructions scope the reconciliation to "PayableType == registration"
+// specifically (see the PR description's judgment-call note).
+//
+// registrationUpdater is optional (ServiceOptions doc comment) — a Service
+// built without one (e.g. most pre-T6.5 tests, or a deployment that hasn't
+// wired Social Play for some reason) simply skips this step rather than
+// panicking on a nil interface call.
+//
+// A failure here is returned to the caller rather than swallowed: the
+// Payment itself is already correctly persisted as paid (the source of
+// truth is not at risk), but the Social Play projection is now stale until
+// the caller retries or a background reconciliation job picks it up — this
+// method deliberately does not attempt to undo the already-persisted
+// Payment transition, since that failure mode (a successful payment that
+// gets un-recorded because an unrelated read-model update failed) would be
+// worse than a stale projection.
+func (s *Service) reconcileRegistrationPaymentStatus(ctx context.Context, p domain.Payment) error {
+	if p.PayableType != domain.PayableTypeRegistration {
+		return nil
+	}
+	if s.registrationUpdater == nil {
+		return nil
+	}
+	return s.registrationUpdater.UpdatePaymentStatus(ctx, p.PayableID, socialplaydomain.PaymentStatusPaid)
 }
 
 // authorizeOfflineRecording is the actor-scoped (BOLA-shaped) check T6.3
