@@ -178,6 +178,40 @@ collision).
   a request-supplied `actor_player_id` field, not a verified identity — this
   is *not* a real authorization boundary (anyone can claim to be anyone)
   until the JWT/Auth0 item above lands. Don't mistake it for one.
+- T5.5 (see PR stacked on #11-#14, closes issue #10) added a full-stack
+  regression test — `internal/socialplay/adapter/grpcapi/authz_regression_test.go`
+  — proving `Registration.Cancel`'s object-level ownership check (Player A
+  cannot cancel Player B's registration) survives the real path
+  (`grpcapi.Handler.CancelRegistration` -> `app.Service.CancelRegistration`
+  -> `domain.Registration.Cancel`), not just the domain-level unit test
+  T5.2 already had. It is a handler-level test against in-memory
+  `port.GameRepository`/`port.RegistrationRepository` fakes rather than a
+  `-tags=integration` Postgres round trip: the ownership check has no SQL
+  involved, so a real DB adds infrastructure, not proof (ticket text
+  explicitly allows this), and this environment had no Docker daemon
+  available to actually execute a testcontainers-based version (only the
+  `docker` CLI, `docker ps` fails to dial the socket — the same gap
+  `internal/socialplay/adapter/postgres/concurrency_integration_test.go`'s
+  package comment already documents for this context). Verified as a real
+  regression test, not a decorative one, by temporarily commenting out the
+  ownership check in `domain.Registration.Cancel` and confirming the new
+  test fails, then restoring it and confirming green again (CLAUDE.md rule
+  10). **Still reiterating the caveat above**: this proves the object-level
+  check given a claimed `actor_player_id`; it does not and cannot prove
+  that identity itself without real auth.
+  **Split to a follow-up, not silently skipped**: the ticket also asked for
+  the equivalent on `CreateGame`/`Game.Cancel()` (only a Game's `HostID`
+  may cancel it, T5.1). This did not fit T5.5's scope because it doesn't
+  exist yet to test — there is no `CancelGame` RPC in
+  `proto/pickleball/socialplay/v1/socialplay.proto`, no
+  `app.Service.CancelGame` method, and `domain.Game.Cancel()`
+  (`internal/socialplay/domain/game.go`) takes no actor parameter at all
+  (unlike `Registration.Cancel`, it isn't even ownership-checked at the
+  domain level yet). Building one is proto + app + handler + regression-test
+  work, not an extension of an existing pattern — a new ticket (proposed:
+  "Add `CancelGame` with HostID-scoped authorization + regression test",
+  same shape as T5.1/T5.4/T5.5 combined) should cover it; raise at the next
+  backlog refinement.
 - T6.4 PR review finding (non-blocking, logged not fixed): the claimed
   20-way concurrent-duplicate-recording burst against the `payments`
   `UNIQUE(payable_type, payable_id)` guard (1 success, 19 clean conflicts,
