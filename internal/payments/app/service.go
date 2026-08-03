@@ -1,0 +1,256 @@
+package app
+
+import (
+	"context"
+
+	"github.com/nhuthuynh/white-label/internal/payments/domain"
+	"github.com/nhuthuynh/white-label/internal/payments/port"
+)
+
+// Service is the Payments context's application layer: it orchestrates the
+// domain and its outbound ports, but holds no business rules itself — those
+// live in internal/payments/domain.
+//
+// T6.2 gave Service just enough to drive the online path against
+// port.PaymentProcessor; T6.3 added the offline-recording path. T6.4 adds
+// port.Repository (persistence) and switches the constructor to an
+// options struct rather than growing positional args past three, per the
+// sprint plan's kickoff note ("Payments' own app.Service is projected to
+// need at least 4 [dependencies]... T6.4 should introduce an options-struct
+// constructor for Payments' Service from the start"). The sprint plan's
+// "Constructor shape" bullet also names a fourth field,
+// RegistrationUpdater socialplayport.RegistrationPaymentUpdater — that
+// field is intentionally NOT added yet: internal/socialplay does not exist
+// on this branch (T5 has not been merged into claude/go-backend-
+// pickleball-7up34j), so there is no socialplayport package to reference.
+// T6.5 ("Reconcile Social Play's Registration.PaymentStatus with the
+// Payment aggregate") is the ticket that both merges Social Play's
+// existence into this lineage and adds that field; adding a field that
+// references a nonexistent package now would not compile. See the T6.4 PR
+// description for this judgment call.
+type Service struct {
+	payments  port.Repository
+	ids       port.IDGenerator
+	processor port.PaymentProcessor
+}
+
+// ServiceOptions is the dependency bundle for NewService (T6.4). Payments
+// is the persistence port (new in T6.4); IDs and Processor carry over
+// unchanged from T6.2/T6.3's positional constructors.
+type ServiceOptions struct {
+	Payments  port.Repository
+	IDs       port.IDGenerator
+	Processor port.PaymentProcessor
+}
+
+// NewService constructs a Service from opts. IDs is required by every use
+// case; Processor is required for the online path (CreateOnlinePayment,
+// ConfirmOnlinePayment); Payments is required once persistence is wired
+// (T6.4's Postgres adapter, cmd/server). Tests that only exercise
+// domain/orchestration logic without persistence may leave Payments nil —
+// see fixtures_test.go's fixedIDs and stripestub.NewProcessor for the
+// deterministic test doubles used in place of Processor/IDs.
+func NewService(opts ServiceOptions) *Service {
+	return &Service{payments: opts.Payments, ids: opts.IDs, processor: opts.Processor}
+}
+
+// Payments exposes the persistence port so a caller (e.g.
+// internal/payments/adapter/grpcapi's ConfirmOnlinePayment handler) can do
+// the id -> Payment lookup a payment_id-only wire request needs before
+// calling ConfirmOnlinePayment, without internal/payments/adapter/grpcapi
+// needing its own separate handle on port.Repository wired in cmd/server.
+func (s *Service) Payments() port.Repository {
+	return s.payments
+}
+
+// CreateOnlinePaymentInput is the use-case input for starting an online
+// Payment.
+type CreateOnlinePaymentInput struct {
+	PayableType domain.PayableType
+	PayableID   string
+	Amount      domain.Money
+}
+
+// CreateOnlinePayment builds an unpaid, online Payment (domain.NewPayment),
+// authorizes it with the payment processor (port.PaymentProcessor.
+// CreateIntent), and persists it (port.Repository.Create, T6.4). On
+// success, the returned Payment carries the processor's intent reference
+// as StripeReference but is still unpaid — creating an intent authorizes
+// funds, it does not capture them.
+//
+// The Postgres adapter's UNIQUE (payable_type, payable_id) constraint is
+// the authoritative guard against recording two Payments for the same
+// payable action (CLAUDE.md rule 4); Create translates a 23505 violation
+// into domain.ErrPaymentAlreadyRecorded (CLAUDE.md rule 5).
+func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymentInput) (domain.Payment, error) {
+	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOnline, "")
+	if err != nil {
+		return domain.Payment{}, err
+	}
+
+	intentRef, err := s.processor.CreateIntent(ctx, in.Amount, in.PayableID)
+	if err != nil {
+		return domain.Payment{}, err
+	}
+	p.StripeReference = intentRef
+
+	return s.payments.Create(ctx, p)
+}
+
+// ConfirmOnlinePayment captures funds for p (an online Payment previously
+// returned by CreateOnlinePayment, typically reloaded from persistence by
+// the caller — see internal/payments/adapter/grpcapi's ConfirmOnlinePayment
+// handler, T6.4) via port.PaymentProcessor.CapturePayment, then transitions
+// p to paid (domain.Payment.MarkPaid) and persists the transition
+// (port.Repository.Update, T6.4) on success.
+//
+// A declined card (domain.ErrPaymentDeclined) or any other processor
+// failure (domain.ErrPaymentProcessorUnavailable) is not an illegal state
+// transition — it's a capture that simply didn't happen — so p is
+// returned unchanged (still whatever status it was passed in as,
+// typically unpaid) alongside the error, and nothing is persisted, rather
+// than mutating into or persisting some half-applied state.
+func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment) (domain.Payment, error) {
+	// Any processor-side failure (declined or otherwise unavailable) means
+	// no capture happened, so p is returned exactly as it was passed in —
+	// there is nothing to roll back because MarkPaid was never called, and
+	// nothing is persisted.
+	if err := s.processor.CapturePayment(ctx, p.StripeReference); err != nil {
+		return p, err
+	}
+
+	if err := p.MarkPaid(domain.MethodOnline, p.StripeReference); err != nil {
+		return p, err
+	}
+
+	return s.payments.Update(ctx, p)
+}
+
+// RecordOfflinePaymentInput is the use-case input for recording an offline
+// Payment (cash, bank transfer, or a manually-charged no-show fee) — the
+// offline half of HANDOFF.md's T6 AC. There is no separate "intent" step
+// the way the online/Stripe path has one (T6.2's CreateOnlinePayment /
+// ConfirmOnlinePayment): recording the Payment *is* the payment event.
+//
+// Authorization is actor-scoped (T6.3), mirroring T5.2/T5.5's
+// ErrNotRegistrationOwner pattern exactly, including its known-gap
+// caveat: ActorUserID is a request-supplied field, not a verified
+// identity — there is no JWT yet (HANDOFF.md's existing Auth cross-cutting
+// note, which T5.5 already established and this ticket does not
+// contradict). This proves an *object-level* check given a claimed actor,
+// not real authentication.
+//
+// internal/payments has no live join to Social Play's or Booking's
+// database (T6.5 wires the Social Play projection) — so the caller
+// supplies the ownership/assignment facts the authorization check needs
+// directly, rather than this package querying another context's
+// repository:
+//
+//   - BookingHostID is the user id of the Host who owns the Booking's
+//     Game/Competition, required for a PayableTypeBooking payable. A
+//     Booking with no Host at all (a direct court hire —
+//     SourceIndividual/SourceRecurringHire) is explicitly out of scope for
+//     offline recording in T6 (narrower-than-spec scope cut, see the PR
+//     description): leave BookingHostID empty and RecordOfflinePayment
+//     rejects with ErrNotPaymentRecorder rather than silently allowing it.
+//   - GameHostID and AssignedGameAdminUserIDs are, for a
+//     PayableTypeRegistration or PayableTypeNoShowFee payable, the
+//     Registration's Game's Host id and the set of user ids currently
+//     assigned as a Game Admin for that Game — the glossary's own
+//     definition of Game Admin's scope (agent-operating-handbook.md A2:
+//     "may record offline Payments... scoped to the specific
+//     Game/Competition they are assigned to"). The actor must be the Host
+//     or one of the assigned admins. T5 did not build a persisted
+//     Game-Admin-assignment mechanism, so this is the minimal version
+//     needed to test this ticket's authorization rule: a caller-supplied
+//     list, not a new socialplay feature (see the PR description's
+//     judgment-call note).
+//
+// PayableTypeNoShowFee is authorized identically to PayableTypeRegistration
+// (Host-or-assigned-Game-Admin) — deliberately not a third branch, since a
+// no-show fee is, per the T6 kickoff note, "structurally just another
+// payable action" against the same Registration/Game, and the required
+// test (P1 #8) is that recording one takes zero new code paths.
+type RecordOfflinePaymentInput struct {
+	PayableType domain.PayableType
+	PayableID   string
+	Amount      domain.Money
+	ActorUserID string
+
+	BookingHostID string
+
+	GameHostID               string
+	AssignedGameAdminUserIDs []string
+}
+
+// RecordOfflinePayment builds a Payment (domain.NewPayment, Method:
+// offline, RecordedByUserID: in.ActorUserID), immediately marks it paid
+// (domain.Payment.MarkPaid) — an offline recording is the payment event,
+// there is no separate confirmation step — and persists it
+// (port.Repository.Create, T6.4). Authorization is checked first, before
+// any domain construction, so an unauthorized actor never learns anything
+// about why the input would otherwise be invalid.
+//
+// The Postgres adapter's UNIQUE (payable_type, payable_id) constraint
+// (T6.4) is the authoritative guard against recording a duplicate Payment
+// for the same payable action; Create translates a 23505 violation into
+// domain.ErrPaymentAlreadyRecorded.
+func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaymentInput) (domain.Payment, error) {
+	if err := authorizeOfflineRecording(in); err != nil {
+		return domain.Payment{}, err
+	}
+
+	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOffline, in.ActorUserID)
+	if err != nil {
+		return domain.Payment{}, err
+	}
+
+	if err := p.MarkPaid(domain.MethodOffline, ""); err != nil {
+		return domain.Payment{}, err
+	}
+
+	return s.payments.Create(ctx, p)
+}
+
+// authorizeOfflineRecording is the actor-scoped (BOLA-shaped) check T6.3
+// requires, mirroring socialplay.domain.Registration.Cancel's ownership
+// check but living in the app layer rather than the domain: unlike
+// Registration.Cancel, this check needs facts (Host id, Game Admin
+// assignments) that come from outside the Payment aggregate itself, so it
+// can't be expressed as a method on domain.Payment the way Cancel is a
+// method on Registration.
+//
+//   - PayableTypeBooking: legal only when ActorUserID matches
+//     BookingHostID, and BookingHostID must be non-empty (a Host-less
+//     Booking is out of scope for T6.3, see RecordOfflinePaymentInput's
+//     doc comment).
+//   - Everything else (PayableTypeRegistration, PayableTypeNoShowFee):
+//     legal when ActorUserID matches GameHostID, or appears in
+//     AssignedGameAdminUserIDs.
+//
+// A mismatched or missing actor always returns ErrNotPaymentRecorder, the
+// same sentinel regardless of which branch rejected it — a caller does not
+// get to distinguish "wrong payable type" from "wrong actor" from this
+// error alone, matching ErrNotRegistrationOwner's equally flat shape.
+func authorizeOfflineRecording(in RecordOfflinePaymentInput) error {
+	if in.ActorUserID == "" {
+		return domain.ErrNotPaymentRecorder
+	}
+
+	if in.PayableType == domain.PayableTypeBooking {
+		if in.BookingHostID == "" || in.ActorUserID != in.BookingHostID {
+			return domain.ErrNotPaymentRecorder
+		}
+		return nil
+	}
+
+	if in.GameHostID != "" && in.ActorUserID == in.GameHostID {
+		return nil
+	}
+	for _, adminID := range in.AssignedGameAdminUserIDs {
+		if adminID != "" && adminID == in.ActorUserID {
+			return nil
+		}
+	}
+	return domain.ErrNotPaymentRecorder
+}
