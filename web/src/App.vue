@@ -1,11 +1,14 @@
 <script setup lang="ts">
-// Minimal root layout for T7.1 (docs/process/t7-sprint-plan.md). No product
-// screens ship in this ticket — T7.4/T7.5/T7.6 build Facility
-// onboarding/browse/booking against this shell. This file exists to prove
-// the design tokens, breakpoint composable, and role-indicator nav
-// component all work together end to end.
+// Root layout, bootstrapped by T7.1 (docs/process/t7-sprint-plan.md) as a
+// screen-free shell. T7.4 (this change) is the first product screen to
+// build on it: Facility onboarding (Owner/Host). No routing library is
+// added yet — there is exactly one screen and no auth to gate it behind,
+// so this mounts FacilityOnboarding directly rather than introducing
+// vue-router ahead of an actual second-screen need (T7.5/T7.6 build the
+// next ones; add real routing then, not speculatively here).
 import { useBreakpoint } from './composables/useBreakpoint'
 import RoleIndicator from './components/RoleIndicator.vue'
+import FacilityOnboarding from './views/FacilityOnboarding.vue'
 
 const { breakpoint } = useBreakpoint()
 </script>
@@ -20,12 +23,7 @@ const { breakpoint } = useBreakpoint()
     </header>
 
     <main class="app-shell__main">
-      <p class="app-shell__placeholder">
-        Web client scaffold (T7.1). Current breakpoint:
-        <strong>{{ breakpoint }}</strong>
-        . No product screens ship in this ticket — see
-        <code>docs/process/t7-sprint-plan.md</code> for T7.4-T7.6.
-      </p>
+      <FacilityOnboarding />
     </main>
   </div>
 </template>
@@ -59,11 +57,6 @@ const { breakpoint } = useBreakpoint()
 .app-shell__main {
   flex: 1;
   padding: 1rem;
-}
-
-.app-shell__placeholder {
-  font-size: var(--font-size-base);
-  color: var(--ink-soft);
 }
 
 /* Single-column stacked layout on iPhone (<600px), per the external
