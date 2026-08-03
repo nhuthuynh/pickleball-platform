@@ -34,7 +34,17 @@ constrained format, but scraping/monitoring public replies on
 WhatsApp/Facebook/X/Instagram is not being built. Two independent passes
 landing on the same "this needs to stay in-app, not become reply-scraping"
 answer is corroboration, not new information — carried forward as the
-sprint's working assumption below, not re-litigated.
+sprint's working assumption below, not re-litigated. One nuance worth
+naming rather than smoothing over: the attachment's own wireframe
+(README.md screen 5, `06-competitions-social.png`) shows a registrations
+list literally labeled "via WhatsApp reply" / "via Facebook reply" — a more
+literal depiction of the rejected reply-scraping approach than the hedged
+open question its own `DESIGN_CONTEXT.md` asks. The attachment is
+internally inconsistent on this point (its prose is appropriately unsure,
+its wireframe draws the unsure option as if already built); the resolution
+above still stands, but sprint planning should draw the "via WhatsApp
+reply" wireframe label as "via WhatsApp — owned-channel bot" or similar,
+not copy the wireframe's phrasing verbatim.
 
 ## New: things the attachment raises that the prior 10 rounds didn't
 `DESIGN_CONTEXT.md`'s "Where brainstorming is most valuable" section names
@@ -64,15 +74,26 @@ as **inputs to sprint planning below**, not resolved unilaterally:
    "ambiguity is a domain error, not silently prioritized" precedent for
    pricing rules) — recommended, not yet decided by a review round.
 5. **Club as an explicit account type.** The attachment's domain model
-   names **Club** as a fourth contextual role/account type (alongside
-   Player/Host/Owner), not just "a recurring-hire relationship" as the
-   existing docs implied. Worth adopting explicitly — it clarifies who can
-   *request* a recurring discounted slot (a Club account) versus who
-   *approves* it (the Facility Owner), which the existing design left
-   implicit.
+   (`README.md`) names **Club** as a fourth contextual role/account type
+   alongside Player/Host/Owner, but its own `DESIGN_CONTEXT.md` states
+   roles are "contextual on one account — not separate account types" —
+   the attachment doesn't fully agree with itself here, not just a gap in
+   the existing docs. Both readings are defensible (Club could be its own
+   account entity that *also* has contextual Player/Host capability, same
+   as everything else; or Club could be a non-personal profile type that's
+   structurally different from the other three). Worth adopting the
+   concept explicitly either way — it clarifies who can *request* a
+   recurring discounted slot (a Club) versus who *approves* it (the
+   Facility Owner) — but which reading is correct is a sprint-planning
+   decision, not settled by either source document.
 
 ## Where this goes next
 These five items are exactly the kind of open question a PM+PE backlog
 refinement ceremony resolves into ticket-shaped decisions, not something
-this reconciliation note should decide alone. See the T7 sprint plan
-(`docs/process/t7-sprint-plan.md`) for how each was actually scoped.
+this reconciliation note should decide alone. A PM+PE ceremony covering
+UI/UX, mobile, and social-media integration is the next planned phase as
+of this note — once it runs, its output (expected at
+`docs/process/t7-sprint-plan.md`, per this project's naming convention)
+should record how each of these five items was actually scoped, and
+`HANDOFF.md`'s Docs index should gain a T7 row pointing to it. Neither
+exists yet at the time this note was written.
