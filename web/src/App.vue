@@ -1,11 +1,12 @@
 <script setup lang="ts">
-// Minimal root layout for T7.1 (docs/process/t7-sprint-plan.md). No product
-// screens ship in this ticket — T7.4/T7.5/T7.6 build Facility
-// onboarding/browse/booking against this shell. This file exists to prove
-// the design tokens, breakpoint composable, and role-indicator nav
-// component all work together end to end.
+// Root layout, bootstrapped minimal by T7.1 (docs/process/t7-sprint-plan.md)
+// to prove the design tokens, breakpoint composable, and role-indicator nav
+// component work together end to end. T7.5 adds the first real product
+// screen (DiscoverFacilities, Player-facing browse/search) as this shell's
+// main content; T7.4/T7.6 build Facility onboarding/booking the same way.
 import { useBreakpoint } from './composables/useBreakpoint'
 import RoleIndicator from './components/RoleIndicator.vue'
+import DiscoverFacilities from './components/discover/DiscoverFacilities.vue'
 
 const { breakpoint } = useBreakpoint()
 </script>
@@ -20,12 +21,10 @@ const { breakpoint } = useBreakpoint()
     </header>
 
     <main class="app-shell__main">
-      <p class="app-shell__placeholder">
-        Web client scaffold (T7.1). Current breakpoint:
-        <strong>{{ breakpoint }}</strong>
-        . No product screens ship in this ticket — see
-        <code>docs/process/t7-sprint-plan.md</code> for T7.4-T7.6.
-      </p>
+      <!-- T7.5: Discover & browse facilities/courts (Player-facing,
+           read-only). See docs/process/t7-sprint-plan.md's T7.5 section
+           and src/components/discover/DiscoverFacilities.vue. -->
+      <DiscoverFacilities />
     </main>
   </div>
 </template>
@@ -59,11 +58,6 @@ const { breakpoint } = useBreakpoint()
 .app-shell__main {
   flex: 1;
   padding: 1rem;
-}
-
-.app-shell__placeholder {
-  font-size: var(--font-size-base);
-  color: var(--ink-soft);
 }
 
 /* Single-column stacked layout on iPhone (<600px), per the external
