@@ -45,9 +45,14 @@ func NewService(ids port.IDGenerator, games port.GameRepository, registrations p
 type ScheduleGameInput struct {
 	HostID     string
 	FacilityID string
-	CourtIDs   []string
-	Range      domain.TimeRange
-	Capacity   int
+	// VenueFacilityID is a real Facilities-context Facility ID (T8.3) —
+	// see domain.Game.VenueFacilityID's doc comment. Optional: an empty
+	// value skips the port.FacilityLookup existence check entirely (see
+	// ScheduleGame's doc comment).
+	VenueFacilityID string
+	CourtIDs        []string
+	Range           domain.TimeRange
+	Capacity        int
 }
 
 // ScheduleGame builds a Game (domain.NewGame, T5.1) and, once it validates,
@@ -85,7 +90,22 @@ type ScheduleGameInput struct {
 // reservation conflict is — a Game that failed to persist must not leave
 // dangling Bookings behind, for the same "no half-scheduled Game" reason
 // T5.3 rolls back on a reservation conflict.
-func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reservation port.CourtReservation) (domain.Game, error) {
+//
+// T8.3 adds a venue Facility existence check: once domain.NewGame's own
+// invariants pass, but before any court is reserved or the Game is
+// persisted, a non-empty game.VenueFacilityID is validated against the real
+// Facilities context via the facilities port.FacilityLookup argument
+// (mirrors reservation's per-call, not stored-on-Service, shape — see
+// Service's doc comment on why CourtReservation is passed this way). An
+// unknown VenueFacilityID returns domain.ErrFacilityNotFound *before*
+// touching reservation at all, so — same "no half-scheduled Game"
+// requirement as an invalid domain.NewGame input, or a mid-loop reservation
+// conflict — a bogus VenueFacilityID can never leave a dangling Booking or
+// a persisted Game behind. An empty VenueFacilityID skips this check
+// entirely (domain.Game.VenueFacilityID's doc comment): most Games today
+// don't set one, and the underlying column is nullable by design (db/
+// migrations/0011_socialplay_facility_fk.sql).
+func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reservation port.CourtReservation, facilities port.FacilityLookup) (domain.Game, error) {
 	// domain.NewGame's PaymentMethod/GuestAllowance parameters (T8.6) are not
 	// yet exposed on ScheduleGameInput — wiring them through the app/proto
 	// surface is T8.7's job, not this ticket's (domain-only). Until then,
@@ -93,9 +113,15 @@ func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reserv
 	// PaymentMethod ("either") and no guest allowance (0), which is exactly
 	// the pre-T8.6 behavior: no caller of this method could previously
 	// express a payment-method preference or guests at all.
-	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.CourtIDs, in.Range, in.Capacity, domain.PaymentMethodEither, 0)
+	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.VenueFacilityID, in.CourtIDs, in.Range, in.Capacity, domain.PaymentMethodEither, 0)
 	if err != nil {
 		return domain.Game{}, err
+	}
+
+	if game.VenueFacilityID != "" {
+		if err := facilities.FacilityExists(ctx, game.VenueFacilityID); err != nil {
+			return domain.Game{}, fmt.Errorf("socialplay: validating venue facility %s for game %s: %w", game.VenueFacilityID, game.ID, err)
+		}
 	}
 
 	reservedBookingIDs := make([]string, 0, len(game.CourtIDs))

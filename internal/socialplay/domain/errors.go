@@ -99,4 +99,23 @@ var (
 	ErrInvalidPaymentMethod   = errors.New("socialplay: invalid payment method")
 	ErrInvalidGuestAllowance  = errors.New("socialplay: guest allowance must not be negative")
 	ErrGuestAllowanceExceeded = errors.New("socialplay: guest count exceeds this game's guest allowance")
+
+	// ErrFacilityNotFound is Social Play's own, context-local sentinel
+	// (T8.3) for a Game.VenueFacilityID that doesn't refer to any real
+	// Facility — the translated equivalent of
+	// facilitiesdomain.ErrFacilityNotFound, but never that type itself, so
+	// internal/socialplay/domain and internal/socialplay/app never need to
+	// import internal/facilities/domain (CLAUDE.md rule 2/3, mirrors
+	// ErrCourtUnavailable's relationship with bookingdomain.
+	// ErrCourtDoubleBooked). A distinct symbol from facilities' own
+	// same-named sentinel is intentional and safe: each bounded context
+	// owns its own errors (this file's own top-of-block comment) and the
+	// two are never compared against each other — only
+	// internal/socialplay/adapter/facilities ever sees both, and its job
+	// is precisely to translate one into the other, never let
+	// facilitiesdomain.ErrFacilityNotFound cross this boundary directly.
+	// app.Service.ScheduleGame returns this (via port.FacilityLookup) when
+	// VenueFacilityID is non-empty but unknown; grpcapi.toStatus maps it to
+	// codes.NotFound (404), not a 500 or a silent accept.
+	ErrFacilityNotFound = errors.New("socialplay: venue facility not found")
 )
