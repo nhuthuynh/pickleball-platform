@@ -13,7 +13,22 @@
 // Keyed by `game.id` at the call site (GameDetailPanel.vue) so switching
 // the selected Game always mounts a fresh instance — no stale guest count
 // or leftover success/error state from a previously viewed Game.
-import { computed } from 'vue'
+//
+// T8.10 addition: once registered, offers a payment choice driven by the
+// Game's declared PaymentMethod (kickoff note decision #3) —
+// - online: a "Pay online now" button, which only *emits* `payOnline`
+//   (this component makes no Payments network call itself; the actual
+//   checkout, T8.10 requirement #1, lives at `/games/:id/checkout` —
+//   GameDetailPanel.vue/DiscoverGames.vue forward this event to a real
+//   `router.push`, keeping this component router-free and independently
+//   mountable in tests, the same reasoning `emit('retry')` already follows
+//   for GameDetailPanel.vue).
+// - cash: no button, no network call at all (T8.10 requirement #2's
+//   explicit "no Payment created client-side" rule) — just the
+//   "pending (cash at facility)" text.
+// - either: both options; choosing cash sets local `cashChosen` state only
+//   (still no network call) and swaps to the same pending text.
+import { computed, ref } from 'vue'
 import { useJoinGame, MOCK_PLAYER_ID } from '../../composables/useJoinGame'
 import type { GameSummary } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
@@ -33,6 +48,13 @@ const props = defineProps<{
    * 409 -> gameFull path this prop just pre-seeds, not bypassed by it.
    */
   startFull?: boolean
+}>()
+
+const emit = defineEmits<{
+  /** Emitted when the Player chooses to pay online now, carrying the
+   * confirmed Registration's id (the Payment's payableId, T8.10). This
+   * component never navigates itself — see the file header comment. */
+  payOnline: [registrationId: string]
 }>()
 
 const {
@@ -58,6 +80,24 @@ if (props.startFull) {
 const canIncrement = computed(() => guestCount.value < props.game.guestAllowance)
 const canDecrement = computed(() => guestCount.value > 0)
 
+// T8.10: which payment option(s) to offer after a successful registration.
+// PAYMENT_METHOD_UNSPECIFIED (an old/unaware Game, or a field simply left
+// unset) is folded into 'either' — the least restrictive option — mirroring
+// internal/socialplay/adapter/grpcapi.fromProtoPaymentMethod's identical
+// "closest thing to unspecified" resolution server-side.
+const paymentMode = computed<'online' | 'cash' | 'either'>(() => {
+  if (props.game.paymentMethod === 'PAYMENT_METHOD_ONLINE') return 'online'
+  if (props.game.paymentMethod === 'PAYMENT_METHOD_CASH') return 'cash'
+  return 'either'
+})
+
+// Set once the Player picks "Pay cash at facility" on an 'either' Game — no
+// network call, just switches the choice UI to the same pending-cash text
+// a cash-only Game shows immediately (T8.10 requirement #2).
+const cashChosen = ref(false)
+
+const showPendingCashText = computed(() => paymentMode.value === 'cash' || cashChosen.value)
+
 function onIncrement(): void {
   incrementGuests(props.game.guestAllowance)
 }
@@ -68,6 +108,16 @@ function onJoin(): void {
 
 function onJoinWaitlist(): void {
   void joinWaitlist(MOCK_PLAYER_ID)
+}
+
+function onPayOnline(): void {
+  if (confirmedRegistration.value) {
+    emit('payOnline', confirmedRegistration.value.id)
+  }
+}
+
+function onPayCash(): void {
+  cashChosen.value = true
 }
 </script>
 
@@ -84,6 +134,31 @@ function onJoinWaitlist(): void {
         You're in! Registered with {{ confirmedRegistration.guestCount }}
         {{ confirmedRegistration.guestCount === 1 ? 'guest' : 'guests' }}.
       </p>
+
+      <!-- T8.10 requirement #1/#2: payment choice, driven by the Game's
+           declared PaymentMethod. WCAG 1.4.1: the pending-cash label is
+           text, never color-only. -->
+      <p v-if="showPendingCashText" class="game-join__payment-status">
+        Payment: pending (cash at facility)
+      </p>
+      <div v-else class="game-join__payment-choice">
+        <button
+          v-if="paymentMode === 'online' || paymentMode === 'either'"
+          type="button"
+          class="game-join__primary"
+          @click="onPayOnline"
+        >
+          Pay online now
+        </button>
+        <button
+          v-if="paymentMode === 'either'"
+          type="button"
+          class="game-join__secondary"
+          @click="onPayCash"
+        >
+          Pay cash at facility
+        </button>
+      </div>
     </div>
 
     <!-- WAITLIST SUCCESS -->
@@ -256,5 +331,31 @@ function onJoinWaitlist(): void {
 
 .game-join__success {
   color: var(--ink-success);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.game-join__payment-status {
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.game-join__payment-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.game-join__secondary {
+  font: inherit;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--hs-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
 }
 </style>

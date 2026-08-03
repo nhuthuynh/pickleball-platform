@@ -7,6 +7,8 @@ import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import GameCreation from '../views/GameCreation.vue'
+import GameCheckout from '../views/GameCheckout.vue'
+import HostPayments from '../views/HostPayments.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 // jsdom doesn't implement matchMedia — same minimal always-"no match" stub
@@ -74,8 +76,6 @@ describe('App routing', () => {
   })
 
   it.each([
-    ['/games/abc-123/checkout', 'Checkout'],
-    ['/host/payments', 'Payments'],
     ['/bookings', 'Bookings'],
     ['/profile', 'Profile'],
   ])('renders the "Coming soon" placeholder at %s', async (path, expectedTitle) => {
@@ -111,6 +111,29 @@ describe('App routing', () => {
     const wrapper = await mountAppAt('/games/new')
 
     expect(wrapper.findComponent(GameCreation).exists()).toBe(true)
+    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
+    expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverGames).exists()).toBe(false)
+  })
+
+  // T8.10 (Payments UI) replaces the /games/:id/checkout and /host/payments
+  // placeholders with real screens — same "only the matched route's screen
+  // renders" regression check every other real screen above gets.
+  it('renders only GameCheckout at /games/:id/checkout', async () => {
+    const wrapper = await mountAppAt('/games/abc-123/checkout')
+
+    expect(wrapper.findComponent(GameCheckout).exists()).toBe(true)
+    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
+    expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverGames).exists()).toBe(false)
+  })
+
+  it('renders only HostPayments at /host/payments', async () => {
+    const wrapper = await mountAppAt('/host/payments')
+
+    expect(wrapper.findComponent(HostPayments).exists()).toBe(true)
     expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
     expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
     expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
