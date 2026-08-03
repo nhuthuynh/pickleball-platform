@@ -122,6 +122,24 @@ func (h *Handler) ListGames(ctx context.Context, req *socialplayv1.ListGamesRequ
 	return &socialplayv1.ListGamesResponse{Games: out}, nil
 }
 
+// ListRegistrationsForGame serves the Host pending-cash-payments dashboard's
+// read (T8.10 — see ListRegistrationsForGameRequest's proto doc comment for
+// why this RPC exists). No error mapping beyond toStatus's default is
+// needed: this is a pure read with no domain-error-producing invariant to
+// violate, mirroring ListGames' identical reasoning.
+func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv1.ListRegistrationsForGameRequest) (*socialplayv1.ListRegistrationsForGameResponse, error) {
+	regs, err := h.svc.ListRegistrationsForGame(ctx, req.GetGameId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*socialplayv1.Registration, 0, len(regs))
+	for _, r := range regs {
+		out = append(out, toProtoRegistration(r))
+	}
+	return &socialplayv1.ListRegistrationsForGameResponse{Registrations: out}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes; grpc-gateway then maps
 // those onto HTTP statuses (AlreadyExists -> 409, InvalidArgument -> 400,
 // NotFound -> 404, PermissionDenied -> 403) — mirrors

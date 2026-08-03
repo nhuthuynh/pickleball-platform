@@ -233,6 +233,24 @@ message ListGamesResponse {
   repeated GameListing games = 1;
 }
 
+// ListRegistrationsForGameRequest/Response (T8.10, Payments UI): added as a
+// disclosed backend finding, not part of that ticket's original "pure
+// frontend" scope — the Host pending-cash-payments dashboard (Flow 6) needs
+// to enumerate a Game's Registrations to find which are still
+// PaymentStatus == unpaid, and no RPC on this service exposed that read
+// before (confirmed by inspection: RegistrationRepository.ListActiveForGame
+// was reachable only internally, from RegisterForGame's own capacity
+// pre-check). Mirrors ListGamesRequest/Response's "migration-free-read-path"
+// shape (T8.2, T8.9 set the same precedent for an analogous missing-list-RPC
+// gap) — no schema change, no new domain type.
+message ListRegistrationsForGameRequest {
+  string game_id = 1;
+}
+
+message ListRegistrationsForGameResponse {
+  repeated Registration registrations = 1;
+}
+
 // SocialPlayService is the API contract for the Social Play bounded
 // context, mirroring BookingService's style (proto/pickleball/booking/v1) —
 // buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
@@ -288,6 +306,17 @@ service SocialPlayService {
   rpc ListGames(ListGamesRequest) returns (ListGamesResponse) {
     option (google.api.http) = {
       get: "/v1/games"
+    };
+  }
+
+  // ListRegistrationsForGame is the Host pending-cash-payments dashboard's
+  // read (T8.10) — see ListRegistrationsForGameRequest's doc comment for
+  // why this RPC exists (there was no way to list a Game's Registrations
+  // before it). A GET on the same path RegisterForGame POSTs to (standard
+  // REST: GET lists a collection, POST creates into it).
+  rpc ListRegistrationsForGame(ListRegistrationsForGameRequest) returns (ListRegistrationsForGameResponse) {
+    option (google.api.http) = {
+      get: "/v1/games/{game_id}/registrations"
     };
   }
 }

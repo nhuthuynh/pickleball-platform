@@ -1344,3 +1344,42 @@ func mustGame(t *testing.T, id, venueFacilityID string, r domain.TimeRange) doma
 	}
 	return g
 }
+
+// TestListRegistrationsForGame_ReturnsActiveOnly proves
+// ListRegistrationsForGame (T8.10, added as a disclosed backend finding —
+// see that ticket's PR description) is a thin passthrough to
+// RegistrationRepository.ListActiveForGame: it returns every non-cancelled
+// registration for the given game and none for an unrelated game, so the
+// Host pending-payments dashboard (T8.10) can enumerate Registrations —
+// something no RPC on this service exposed before this ticket (confirmed
+// by inspection: RegistrationRepository.ListActiveForGame was previously
+// only reachable internally, from RegisterForGame's own capacity
+// pre-check).
+func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
+	t.Parallel()
+
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	registrations.registrations["r-active"] = domain.Registration{
+		ID: "r-active", GameID: "g-1", PlayerID: "player-1",
+		Status: domain.RegistrationStatusRegistered, PaymentStatus: domain.PaymentStatusUnpaid,
+	}
+	registrations.registrations["r-cancelled"] = domain.Registration{
+		ID: "r-cancelled", GameID: "g-1", PlayerID: "player-2",
+		Status: domain.RegistrationStatusCancelled, PaymentStatus: domain.PaymentStatusUnpaid,
+	}
+	registrations.registrations["r-other-game"] = domain.Registration{
+		ID: "r-other-game", GameID: "g-2", PlayerID: "player-3",
+		Status: domain.RegistrationStatusRegistered, PaymentStatus: domain.PaymentStatusUnpaid,
+	}
+
+	got, err := svc.ListRegistrationsForGame(ctx, "g-1")
+	if err != nil {
+		t.Fatalf("ListRegistrationsForGame err: %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "r-active" {
+		t.Fatalf("ListRegistrationsForGame(g-1) = %+v, want only r-active", got)
+	}
+}

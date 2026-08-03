@@ -363,6 +363,25 @@ func (s *Service) ListGames(ctx context.Context, filter port.GameListingFilter) 
 	return s.games.ListGames(ctx, filter)
 }
 
+// ListRegistrationsForGame returns the active (non-cancelled) registrations
+// for gameID. Added by T8.10 (Payments UI) as a disclosed backend finding,
+// not part of that ticket's original "pure frontend" scope: the Host
+// pending-cash-payments dashboard needs to enumerate a Game's Registrations
+// (to find which ones are PaymentStatus == unpaid), and no RPC exposed
+// RegistrationRepository.ListActiveForGame before this — it was previously
+// reachable only from inside RegisterForGame's own capacity pre-check (see
+// that method's doc comment). This is a pure read with no invariant to
+// enforce (CLAUDE.md rule 2: no business rule belongs here, only the
+// query), following the same "migration-free-read-path" pattern T8.2
+// (ListFacilityCourts) and T8.9 (ListGames) already established this sprint
+// for an analogous missing-list-RPC gap — no schema change, no new domain
+// type, same object-level-read openness ListGames already has (any caller
+// may list a Game's registrations, same as any caller may browse Games;
+// see internal/socialplay/adapter/grpcapi's handler doc comment).
+func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID string) ([]domain.Registration, error) {
+	return s.registrations.ListActiveForGame(ctx, gameID)
+}
+
 // MarkRegistrationPaymentStatus updates a Registration's PaymentStatus
 // (T6.5). This is the sole app-layer entry point for changing that field
 // outside of RegisterForGame's initial "unpaid" default —
