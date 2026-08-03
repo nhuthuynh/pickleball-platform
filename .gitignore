@@ -9,3 +9,14 @@
 /build/
 /bin/
 /clients/
+
+# Generated TypeScript API client (openapi-typescript output from
+# openapi/**/*.swagger.json). Never hand-edited, never committed — same
+# convention as /internal/gen/ above. Regenerate with
+# `npm --prefix web run generate:client`. See web/README.md.
+/web/src/api/generated/
+
+# Node.js
+/web/node_modules/
+/web/dist/
+/web/.vite/
