@@ -264,10 +264,96 @@ it.
 See "Tests (Vitest)" above for this ticket's test coverage and the
 Facilities-API courts-listing gap this screen currently works around.
 
+## Get a quote and book a court (T7.6, Player-facing)
+
+`src/components/booking/CourtBookingFlow.vue` — the first write path in
+this app: date/time picker -> `GetQuote` -> review/confirm -> `CreateBooking`
+(always `source: SOURCE_INDIVIDUAL`, the only source a bare Player-initiated
+booking can legitimately use — `booking.proto`'s `Source` doc comment).
+
+- `src/api/bookingClient.ts` already existed (T7.1); this ticket only added
+  a `BookingClient` type export, mirroring `facilitiesClient.ts`'s
+  `FacilitiesClient`, so composables/components can declare an
+  injectable-for-tests `client?: BookingClient` prop.
+- `src/models/booking.ts` — view models + mapping (`Quote`,
+  `ConfirmedBooking`), `formatPriceCents` (display formatting only — see
+  the file header for why this is not the "client-side price computation"
+  the ticket forbids), and `computeNextAvailableSlots`, the client-side
+  next-available-slot search used by the double-booking conflict path
+  below (`ListCourtBookings`, live since T2, doesn't itself suggest a
+  slot).
+- `src/composables/useCourtBooking.ts` — owns the quote -> review ->
+  book/success state machine and all three network calls (`GetQuote`,
+  `CreateBooking`, and — only on a 409 conflict — `ListCourtBookings`). The
+  **confirm-step gate** (WCAG 3.3.4 Error Prevention) is enforced here, not
+  just in the UI: `confirmBooking()` is a no-op unless a quote has already
+  been fetched and reviewed, so `CreateBooking` cannot fire out of order
+  regardless of what a calling component does.
+  - **Double-booking conflict handling** (WCAG 3.3.3 Error Suggestion): a
+    409 (`ErrCourtDoubleBooked`) surfaces the specific message "This slot
+    was just booked — pick another time" plus up to 3 computed
+    next-available slots, rendered as one-click "try this instead" buttons
+    — not just a rejection.
+  - **Stale-quote protection:** if more than `QUOTE_STALE_MS` (60s) has
+    elapsed since the displayed quote was fetched, confirming re-fetches
+    the quote instead of booking, and requires an explicit second confirm
+    against the fresh price — never submits a price the server hasn't just
+    confirmed.
+- `src/components/booking/CourtBookingFlow.vue` — the presentational flow:
+  a date/start-time/duration form, a review/confirm screen (court, time,
+  price — WCAG 3.3.4), and a success step whose confirmation text is in a
+  `role="status"` live region (WCAG 4.1.3). Responsive across all three
+  breakpoints (single-column form on iPhone, a widened 3-column field row
+  from iPad up).
+
+**How court selection works given the Facilities courts-listing gap:**
+`FacilityDetailPanel.vue` (T7.5) always renders `facility.courts` as `[]`
+today (see "Known gap" above), so `CourtBookingFlow` is designed to accept
+a bare `courtId` prop rather than requiring a real court object.
+`FacilityDetailPanel.vue` now emits a `book-court` event two ways: a
+"Book this court" button per court in `facility.courts` (works once that
+gap is closed and the list is ever non-empty — untested against real data
+today, but the wiring is real) and a manual "Court ID" entry field, which
+is the only way to reach this flow today and is what this ticket's own
+tests exercise end to end. `DiscoverFacilities.vue` owns whether/which
+booking flow is currently shown (same split as the rest of this screen:
+panels are presentational, `DiscoverFacilities` owns the state), rendering
+`CourtBookingFlow` below the browse layout — there's still no routing
+library (T7.1's scope note), so this is the simplest way to keep browse and
+book both reachable at once.
+
+Test coverage added by this ticket:
+- `src/models/__tests__/booking.spec.ts` — quote/booking mapping
+  (including the `priceCents` int64-as-string parsing), price formatting,
+  and `computeNextAvailableSlots` (overlap skipping, chronological
+  ordering, cancelled-booking exclusion, a fully-booked window returning
+  no suggestions).
+- `src/composables/__tests__/useCourtBooking.spec.ts` — the full state
+  machine: quote success/failure, the confirm-step gate (`CreateBooking`
+  never called without a reviewed quote), the happy path booking with
+  `SOURCE_INDIVIDUAL`, the stale-quote re-fetch-instead-of-book behavior
+  (via `vi.useFakeTimers`), the double-booking conflict path (specific
+  message + real suggestions, and that the suggestion lookup failing still
+  surfaces the conflict message), and a generic non-409 booking failure.
+- `src/components/booking/__tests__/CourtBookingFlow.spec.ts` —
+  component-level happy path (quote -> confirm -> booked, asserting
+  `SOURCE_INDIVIDUAL` and the `role="status"` success region), the
+  confirm-step gate at the UI level (no "Confirm booking" control exists
+  before a quote is fetched), and the conflict path's rendered message +
+  suggestion buttons.
+- `src/components/discover/__tests__/FacilityDetailPanel.spec.ts` — new
+  cases for both `book-court` emission paths (a listed court's button, and
+  the manual entry field, including that a blank manual entry emits
+  nothing).
+- `src/components/discover/__tests__/DiscoverFacilities.spec.ts` — one
+  integration case proving the manual-entry -> `CourtBookingFlow` wiring
+  end to end (submit a court id, see the flow appear; close it, see it
+  disappear).
+
 ## What this ticket does NOT do
 
 Per `docs/process/t7-sprint-plan.md`'s T7.1 scope (and its own "no product
 screens" instruction): no Facility onboarding/browse/booking screens (T7.4
 -T7.6), no Facilities backend (T7.2/T7.3), no routing/state-management
 library, no real authentication. (T7.5, added later, is the first
-exception to "no product screens" — see the section above.)
+exception to "no product screens"; T7.6, above, is the second.)
