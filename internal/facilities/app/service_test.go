@@ -220,7 +220,7 @@ func TestAddCourt_InsertsIntoExistingCourtsTable(t *testing.T) {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	c, err := svc.AddCourt(ctx, f.ID, "Court 1")
+	c, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 1")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -254,8 +254,35 @@ func TestAddCourt_SucceedsWithoutCameraConsent(t *testing.T) {
 		t.Fatalf("fixture CameraConsentAttested = true, want false")
 	}
 
-	if _, err := svc.AddCourt(ctx, f.ID, "Court 1"); err != nil {
+	if _, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 1"); err != nil {
 		t.Fatalf("AddCourt should succeed regardless of camera consent, got %v", err)
+	}
+}
+
+// TestAddCourt_RejectsNonOwner is T7.7's app-level proof that AddCourt
+// rejects an actor who does not own the target Facility: it fetches the
+// Facility first (which it previously never did at all) and calls
+// domain.Facility.EnsureOwner before ever touching Repository.AddCourt —
+// so a mismatched actorUserID returns domain.ErrNotFacilityOwner and the
+// repo's court map is left untouched, not silently populated.
+func TestAddCourt_RejectsNonOwner(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	_, err = svc.AddCourt(ctx, f.ID, "attacker", "Court 1")
+	if !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+	if len(repo.courts) != 0 {
+		t.Fatalf("court must not be persisted for a rejected non-owner AddCourt, repo has %d entries", len(repo.courts))
 	}
 }
 
@@ -277,7 +304,7 @@ func TestAddCameraLink_RequiresConsent(t *testing.T) {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	_, err = svc.AddCameraLink(ctx, f.ID, "https://example.com/cam1.m3u8")
+	_, err = svc.AddCameraLink(ctx, f.ID, "owner-1", "https://example.com/cam1.m3u8")
 	if !errors.Is(err, domain.ErrCameraConsentRequired) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrCameraConsentRequired)
 	}
@@ -310,7 +337,7 @@ func TestAddCameraLink_SucceedsOnceConsentAttested(t *testing.T) {
 		t.Fatalf("unexpected err updating fixture consent: %v", err)
 	}
 
-	if _, err := svc.AddCameraLink(ctx, f.ID, "https://example.com/cam1.m3u8"); err != nil {
+	if _, err := svc.AddCameraLink(ctx, f.ID, "owner-1", "https://example.com/cam1.m3u8"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
@@ -330,8 +357,43 @@ func TestAddCameraLink_UnknownFacilityReturnsNotFound(t *testing.T) {
 	svc := app.NewService(repo, &sequentialIDs{})
 	ctx := context.Background()
 
-	_, err := svc.AddCameraLink(ctx, "does-not-exist", "https://example.com/cam1.m3u8")
+	_, err := svc.AddCameraLink(ctx, "does-not-exist", "owner-1", "https://example.com/cam1.m3u8")
 	if !errors.Is(err, domain.ErrFacilityNotFound) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrFacilityNotFound)
+	}
+}
+
+// TestAddCameraLink_RejectsNonOwner is T7.7's app-level proof that
+// AddCameraLink rejects an actor who does not own the target Facility —
+// even when CameraConsentAttested is already true, so this test can't be
+// confused with TestAddCameraLink_RequiresConsent above. The rejected call
+// must not persist a link via Repository.AddCameraLink.
+func TestAddCameraLink_RejectsNonOwner(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	f.CameraConsentAttested = true
+	if _, err := repo.CreateFacility(ctx, f); err != nil {
+		t.Fatalf("unexpected err updating fixture consent: %v", err)
+	}
+
+	_, err = svc.AddCameraLink(ctx, f.ID, "attacker", "https://example.com/cam1.m3u8")
+	if !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+
+	stored, err := svc.GetFacility(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(stored.CameraLinks) != 0 {
+		t.Fatalf("CameraLinks = %v, want empty after rejected non-owner AddCameraLink", stored.CameraLinks)
 	}
 }

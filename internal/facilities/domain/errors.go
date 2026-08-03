@@ -40,6 +40,20 @@ var (
 	// pgx.ErrNoRows) into a domain sentinel like this one, not let the raw
 	// infra error cross into app/grpcapi.
 	ErrFacilityNotFound = errors.New("facilities: facility not found")
+
+	// ErrNotFacilityOwner is T7.7's object-level (BOLA) authorization
+	// sentinel: returned by Facility.EnsureOwner/AddCameraLink when a
+	// caller-supplied actor_user_id does not match the Facility's OwnerID.
+	// Mirrors internal/socialplay/domain.ErrNotRegistrationOwner (T5.2/
+	// T5.5) and internal/payments/domain.ErrNotPaymentRecorder (T6.3): a
+	// distinct sentinel (not a generic "unauthorized" string) so
+	// grpcapi.toStatus can map it to codes.PermissionDenied (-> HTTP 403)
+	// rather than a 500, and so a mismatched actor is distinguishable by
+	// type from any other rejection. As with those two precedents, this
+	// only proves the *object-level* check given a claimed actor_user_id —
+	// it is not itself authentication; see HANDOFF.md's Auth cross-cutting
+	// item.
+	ErrNotFacilityOwner = errors.New("facilities: actor is not authorized to modify this facility")
 )
 
 // FieldError wraps one of the Err*Field sentinels above with the specific

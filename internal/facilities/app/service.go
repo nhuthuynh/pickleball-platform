@@ -61,7 +61,26 @@ func (s *Service) ListFacilities(ctx context.Context, nameFilter string) ([]doma
 // *existing* courts table (HANDOFF.md T7.3 AC 5), so a Court created here
 // is immediately usable by Booking's CreateBooking/ListCourtBookings
 // against the same courts.id value, unmodified.
-func (s *Service) AddCourt(ctx context.Context, facilityID, name string) (domain.Court, error) {
+//
+// T7.7 adds the object-level (BOLA) ownership check here: unlike
+// AddCameraLink (which already loaded the Facility to check
+// CameraConsentAttested), AddCourt previously never looked the Facility up
+// at all, so this method now fetches it first and calls
+// domain.Facility.EnsureOwner(actorUserID) before constructing or
+// persisting the Court — a mismatched actorUserID returns
+// domain.ErrNotFacilityOwner (-> codes.PermissionDenied via grpcapi.
+// toStatus) and never reaches Repository.AddCourt. As with T5.5/T6.7,
+// actorUserID is a caller-supplied claim, not a verified identity — see
+// domain.ErrNotFacilityOwner's doc comment.
+func (s *Service) AddCourt(ctx context.Context, facilityID, actorUserID, name string) (domain.Court, error) {
+	f, err := s.repo.GetFacilityByID(ctx, facilityID)
+	if err != nil {
+		return domain.Court{}, err
+	}
+	if err := f.EnsureOwner(actorUserID); err != nil {
+		return domain.Court{}, err
+	}
+
 	c, err := domain.NewCourt(s.ids.NewID(), facilityID, name)
 	if err != nil {
 		return domain.Court{}, err
@@ -70,21 +89,24 @@ func (s *Service) AddCourt(ctx context.Context, facilityID, name string) (domain
 }
 
 // AddCameraLink adds a facility-wide camera link to facilityID, but only
-// once that Facility's CameraConsentAttested is true. The consent check
-// itself lives entirely in domain.Facility.AddCameraLink (T7.2) — this
-// method's only job is to fetch the Facility, delegate to that domain
-// method (which returns domain.ErrCameraConsentRequired and leaves the
-// Facility untouched when consent hasn't been attested, before this method
-// ever calls the repository), and persist the newly appended link when it
-// succeeds. grpcapi maps ErrCameraConsentRequired to a 4xx, never a 500 —
-// see HANDOFF.md T7.3's smoke-test AC.
-func (s *Service) AddCameraLink(ctx context.Context, facilityID, url string) (domain.Facility, error) {
+// once the caller owns the Facility (T7.7: domain.Facility.EnsureOwner,
+// checked first, returns domain.ErrNotFacilityOwner for a mismatched
+// actorUserID -> codes.PermissionDenied via grpcapi.toStatus) and once
+// that Facility's CameraConsentAttested is true. Both checks live entirely
+// in domain.Facility.AddCameraLink (T7.2 for consent, T7.7 for ownership)
+// — this method's only job is to fetch the Facility, delegate to that
+// domain method (which leaves the Facility untouched and never calls the
+// repository when either check fails), and persist the newly appended
+// link when it succeeds. grpcapi maps both ErrCameraConsentRequired and
+// ErrNotFacilityOwner to non-500 statuses — see HANDOFF.md T7.3's
+// smoke-test AC and T7.7's authz regression test.
+func (s *Service) AddCameraLink(ctx context.Context, facilityID, actorUserID, url string) (domain.Facility, error) {
 	f, err := s.repo.GetFacilityByID(ctx, facilityID)
 	if err != nil {
 		return domain.Facility{}, err
 	}
 
-	if err := f.AddCameraLink(url); err != nil {
+	if err := f.AddCameraLink(actorUserID, url); err != nil {
 		return domain.Facility{}, err
 	}
 
