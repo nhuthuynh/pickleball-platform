@@ -23,6 +23,13 @@ var (
 	ErrAlreadyRegistered    = errors.New("socialplay: player is already registered for this game")
 	ErrNotRegistrationOwner = errors.New("socialplay: only the registering player may cancel this registration")
 
+	// ErrGameNotFound and ErrRegistrationNotFound are returned by
+	// port.GameRepository/port.RegistrationRepository implementations
+	// (T5.4) when the requested aggregate doesn't exist — mirrors
+	// bookingdomain.ErrBookingNotFound's role.
+	ErrGameNotFound         = errors.New("socialplay: game not found")
+	ErrRegistrationNotFound = errors.New("socialplay: registration not found")
+
 	// ErrCourtUnavailable is Social Play's own, context-local conflict
 	// error (T5.3) — the translated equivalent of
 	// bookingdomain.ErrCourtDoubleBooked, but never that type itself, so

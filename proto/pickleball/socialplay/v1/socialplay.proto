@@ -1,0 +1,131 @@
+syntax = "proto3";
+
+package pickleball.socialplay.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1;socialplayv1";
+
+// GameStatus mirrors internal/socialplay/domain.Status.
+enum GameStatus {
+  GAME_STATUS_UNSPECIFIED = 0;
+  GAME_STATUS_SCHEDULED = 1;
+  GAME_STATUS_CANCELLED = 2;
+}
+
+// RegistrationStatus mirrors internal/socialplay/domain.RegistrationStatus.
+enum RegistrationStatus {
+  REGISTRATION_STATUS_UNSPECIFIED = 0;
+  REGISTRATION_STATUS_REGISTERED = 1;
+  REGISTRATION_STATUS_CANCELLED = 2;
+}
+
+// PaymentStatus mirrors internal/socialplay/domain.PaymentStatus. T5 does
+// not wire real Payments (Stripe/offline entry is T6, CLAUDE.md) — this is
+// modelling only, exposed read-only through Registration for now.
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_UNPAID = 1;
+  PAYMENT_STATUS_PAID = 2;
+}
+
+// Game mirrors internal/socialplay/domain.Game. court_ids is repeated
+// (not a single court_id like Booking) because a Game can span multiple
+// courts — each one becomes its own game-source Booking via
+// internal/socialplay/adapter/booking (T5.3/T5.4).
+message Game {
+  string id = 1;
+  string host_id = 2;
+  string facility_id = 3;
+  repeated string court_ids = 4;
+  google.protobuf.Timestamp starts_at = 5;
+  google.protobuf.Timestamp ends_at = 6;
+  int32 capacity = 7;
+  GameStatus status = 8;
+}
+
+// Registration mirrors internal/socialplay/domain.Registration.
+message Registration {
+  string id = 1;
+  string game_id = 2;
+  string player_id = 3;
+  RegistrationStatus status = 4;
+  PaymentStatus payment_status = 5;
+}
+
+message CreateGameRequest {
+  string host_id = 1;
+  string facility_id = 2;
+  repeated string court_ids = 3;
+  google.protobuf.Timestamp starts_at = 4;
+  google.protobuf.Timestamp ends_at = 5;
+  int32 capacity = 6;
+}
+
+message CreateGameResponse {
+  Game game = 1;
+}
+
+// RegisterForGameRequest's actor is player_id — there is no JWT/session
+// layer yet (HANDOFF.md cross-cutting Auth backlog), so the acting player
+// is necessarily just a request field, the same known gap
+// CancelRegistrationRequest.actor_player_id documents below.
+message RegisterForGameRequest {
+  string game_id = 1;
+  string player_id = 2;
+}
+
+message RegisterForGameResponse {
+  Registration registration = 1;
+}
+
+// CancelRegistrationRequest.actor_player_id is a claimed identity, not a
+// verified one — there is no JWT/session layer yet (HANDOFF.md cross-cutting
+// Auth backlog). The object-level check this enables (only the registering
+// player may cancel their own registration, domain.Registration.Cancel) is
+// real; the identity behind actor_player_id is not authenticated yet. See
+// the T5.4 PR description and HANDOFF.md's Auth item.
+message CancelRegistrationRequest {
+  string registration_id = 1;
+  string actor_player_id = 2;
+}
+
+message CancelRegistrationResponse {
+  Registration registration = 1;
+}
+
+// SocialPlayService is the API contract for the Social Play bounded
+// context, mirroring BookingService's style (proto/pickleball/booking/v1) —
+// buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
+// file.
+service SocialPlayService {
+  // CreateGame schedules a Game and reserves one Booking per court via the
+  // Booking context (internal/socialplay/adapter/booking).
+  rpc CreateGame(CreateGameRequest) returns (CreateGameResponse) {
+    option (google.api.http) = {
+      post: "/v1/games"
+      body: "*"
+    };
+  }
+
+  // RegisterForGame registers a player into a Game, enforcing the capacity
+  // and no-double-registration invariants.
+  rpc RegisterForGame(RegisterForGameRequest) returns (RegisterForGameResponse) {
+    option (google.api.http) = {
+      post: "/v1/games/{game_id}/registrations"
+      body: "*"
+    };
+  }
+
+  // CancelRegistration cancels a registration, but only when
+  // actor_player_id matches the registration's own player (object-level
+  // check — see CancelRegistrationRequest's doc comment on what this does
+  // and does not prove without real auth).
+  rpc CancelRegistration(CancelRegistrationRequest) returns (CancelRegistrationResponse) {
+    option (google.api.http) = {
+      post: "/v1/registrations/{registration_id}:cancel"
+      body: "*"
+    };
+  }
+}
