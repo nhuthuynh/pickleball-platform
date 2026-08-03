@@ -4,7 +4,7 @@
 URL, republished — `https://claude.ai/code/artifact/bcfb62bc-d157-44dc-95da-5166f4480ab9`),
 verified against the artifact's actual HTML/CSS source (fetched directly,
 not inferred from its own "Changed since round 1" callout), plus a second
-pass over `docs/design/pickleball-system-design-v1.md` and a
+pass over `docs/design/v1-system-design.md` and a
 cross-reference check against `docs/process/t6-sprint-plan.md`.
 **Roles played:** UX/UI Designer, Product Manager, Principal Engineer,
 Product Owner — same four dossiers as round 1.
@@ -96,7 +96,7 @@ lighter/more saturated than dark theme's), which would pass both.**
   (computed ≈7.24:1 light, comfortably higher dark) — no accessibility
   problem in the callout itself. **Recorded disagreement (Designer vs.
   PM), not resolved:** Designer would trim it to a one-line pointer
-  ("4 fixes landed, 2 open — see `review-round-1.md`") since it adds
+  ("4 fixes landed, 2 open — see `v1-review-round-1.md`") since it adds
   ~80 words above the fold before the actual open-questions grid, which
   is exactly the kind of "extra unit of information competing with the
   relevant units" the Designer dossier's §3.1 (*Refactoring UI*)

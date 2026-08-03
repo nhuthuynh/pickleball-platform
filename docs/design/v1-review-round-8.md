@@ -8,7 +8,7 @@ round 7's own quoted HTML — confirmed identical, so this is a genuinely
 independent re-read of the same content, not a reaction to any new edit —
 plus a from-scratch, whole-page pass rather than a re-run of any prior
 round's checklist, plus a full fresh end-to-end read of
-`docs/design/pickleball-system-design-v1.md` cross-checked against the
+`docs/design/v1-system-design.md` cross-checked against the
 artifact specifically for doc-vs-artifact mismatches (a class this review
 has repeatedly found *within* the artifact but never checked across the two
 documents), plus a dedicated accessibility pass deliberately scoped away
@@ -68,7 +68,7 @@ sits.
 
 This review has repeatedly found the "fix lands on one surface, stale
 claim survives on another" bug *within* the artifact (rounds 2, 4, 5) but
-had never checked it **across** `pickleball-system-design-v1.md` and the
+had never checked it **across** `v1-system-design.md` and the
 artifact until this round, per the task's explicit instruction. Read the
 doc fully, end to end, then checked every claim it makes about what the
 artifact shows against the artifact's actual markup.

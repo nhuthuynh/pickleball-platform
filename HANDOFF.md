@@ -4,6 +4,31 @@ Read this once when picking the project up, then follow `CLAUDE.md` for the
 durable rules. Companion planning docs are in `docs/` (spec, operating handbook
 with the ubiquitous language + role briefs, design review, technology options).
 
+## Docs index
+
+Read the row for whatever phase you're touching *before* starting a task —
+this is the map CLAUDE.md's "Docs index & naming convention" section points
+to. Don't duplicate a decision, ADR, or finding that already lives in one of
+these; add to or supersede it explicitly instead (see `docs/LESSONS.md`'s
+own append-only convention). File-naming rules are in CLAUDE.md.
+
+| Phase | Sprint plan | Retro | Reviews | Key ADRs | Design |
+|---|---|---|---|---|---|
+| T0 | — | — | `docs/reviews/00-bootstrap.md` | — | — |
+| T1 | — | — | `docs/reviews/01-t1-pricing-quote.md` | `adr/0002` (pricing ambiguity) | — |
+| T2 | — | — | `docs/reviews/02-t2-list-court-bookings.md` | — | — |
+| T3 | — | — | `docs/reviews/03-t3-cancel-booking.md` | — | — |
+| T4 | — | — | `docs/reviews/04-t4-concurrency-invariant.md` | `adr/0001` (dual invariant), `adr/0003` (local codegen) | — |
+| T5 | `docs/process/t5-sprint-plan.md` | `docs/process/t5-retro.md` | PRs #11–#15 (GitHub review comments, not files — see naming convention) | `adr/0006` (waitlist direction), `adr/0007`, `adr/0008` | — |
+| T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #24, #25, #26, #27, #28 (GitHub review comments) — **#25 (T6.6 Game waitlist) had no review dispatched until a PO+PE review of PR #29 caught the omission; still needs one** | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by PR #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
+
+Requirements research (not phase-tied, referenced across T5/T6 planning):
+`docs/requirements/README.md` (synthesis) +
+`research-{functional,performance-availability,security-compliance,accessibility-i18n}.md`.
+
+Process mechanics (ceremonies, loop caps, this doc-naming convention's origin
+incident): `docs/process/sprint-process.md`, `docs/LESSONS.md`.
+
 ## Current state
 
 **Done and runnable now**
@@ -22,11 +47,28 @@ with the ubiquitous language + role briefs, design review, technology options).
 **Generated on the developer's machine (gitignored)**
 - `internal/gen/**` from `make generate` (needs `buf` + `sqlc` installed).
 
+**T5 (Social Play) and T6 (Payments): all tickets implemented, none merged yet**
+(T5: PRs #11–#15, all review-approved; T6: PRs #23, #24, #26, #27, #28, all
+review-approved, plus **#25 (T6.6, Game waitlist) — implemented, NOT yet
+reviewed**, found unreviewed only when a PO+PE review of the docs-governance
+PR #29 spot-checked this table against the actual PR list instead of trusting
+an earlier draft of it. #27 and #28 are sequential merges that fold T6.1–T6.4
+and T5.1–T5.5+T6.1–T6.4 together respectively, so merging #28 first, or #27
+then #28, brings in the whole Payments+Social-Play stack; #25 stacks on T5
+only and is independent of the Payments chain. T6.7 (QA auth regression
+tests, depends on #26/#27) is the one T6 ticket not yet implemented at all —
+check `docs/process/t6-sprint-plan.md` and GitHub issue #22. **Before trusting
+any status claim in this file, spot-check it against the actual PR/issue list
+— this file has already been wrong about this once.** **Merging this backlog
+is a real, undone task** — see the `docs/process/t5-retro.md` finding #2
+self-approval gap this repeats if left unaddressed
+again.
+
 **Not yet built**
-- Pricing is modelled + tested but not wired into a use case or the API.
-- ListCourtBookings/CancelBooking handlers.
-- Social Play, Payments, Facilities, Competitions, Statements contexts.
-- Auth, real migration tooling, integration/concurrency tests, observability.
+- Facilities, Competitions, Statements contexts.
+- QA object-level-auth regression tests for Payments (T6.7) — not implemented.
+- Game waitlist (T6.6) — implemented (PR #25), not yet reviewed.
+- Auth, real migration tooling, observability.
 
 ## First actions on resume (T0 — do this before anything else)
 1. Install tools: `buf`, `sqlc`, `gotestsum`, `golangci-lint`, Docker — all
@@ -87,21 +129,29 @@ retry in `Repository.Create` (Postgres can raise `40P01`/`40001` under
 concurrent EXCLUDE-index contention instead of a clean `23P01`); verified
 clean across 7 runs including 2 cold starts after the fix.
 
-**T5 — Social Play context (skeleton first).**
-New `internal/socialplay/{domain,app,port,adapter}` + `proto/pickleball/socialplay/v1`.
-Start with the Game aggregate (capacity invariant) and Registration. Crucially:
-scheduling a game reserves courts by creating **`game`-source Bookings**, so it
-inherits the no-overlap invariant — add a test proving a game cannot be scheduled
-onto a court already booked. Defer matchmaking to a follow-up task.
-AC: capacity invariant tested; game scheduling creates bookings and respects
-overlap; registration paid/unpaid status modelled.
+**T5 — Social Play context. All 5 tickets (T5.1–T5.5) implemented and
+review-approved (PRs #11–#15); NOT MERGED — see the note above.** Full
+ticket breakdown, kickoff note, and PM/PE disagreements:
+`docs/process/t5-sprint-plan.md`. Retro: `docs/process/t5-retro.md`.
+Original scope (for reference): `internal/socialplay/{domain,app,port,adapter}` +
+`proto/pickleball/socialplay/v1`, Game aggregate (capacity invariant) +
+Registration, game scheduling reserves courts as `game`-source Bookings
+(inherits the no-overlap invariant). Matchmaking deferred past T5.
 
-**T6 — Payments context.**
-`Payment` aggregate with a `PaymentStatus` state machine (unpaid→paid→refunded);
-online path behind a Stripe **anti-corruption layer** (interface + stub adapter
-first, real Stripe later); offline path where Host/Game Admin records the amount.
-AC: state-transition tests (incl. illegal transitions rejected); offline
-mark-paid path; one `payments` row per payable action.
+**T6 — Payments context (+ Game waitlist, T6.6, technically a Social Play
+ticket scheduled in this sprint). T6.1–T6.5 implemented and review-approved
+(PRs #23, #24, #26, #27, #28). T6.6 implemented but NOT YET REVIEWED (PR
+#25) — dispatch a PM+PE review before treating it as done. T6.7 (QA auth
+tests) not yet implemented — check issue #22. NOT MERGED — see the note
+above.** Full ticket breakdown, kickoff note, and PM/PE disagreements:
+`docs/process/t6-sprint-plan.md`. Original scope (for reference):
+`Payment` aggregate with a `PaymentStatus` state machine
+(unpaid→paid→refunded); online path behind a Stripe **anti-corruption
+layer** (interface + stub adapter first, real Stripe later); offline
+path where Host/Game Admin records the amount. See "Cross-cutting /
+later" below for follow-ups T6's own reviews surfaced (uncommitted
+concurrency proof, missing `RefundPayment` wiring, migration-number
+collision).
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
