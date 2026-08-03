@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
 	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
@@ -81,6 +82,31 @@ func (f *fakeRegistrations) UpdatePaymentStatus(_ context.Context, id string, st
 	return r, nil
 }
 
+// fakeWaitlist is a minimal, empty-always port.WaitlistRepository stub,
+// mirroring internal/socialplay/adapter/grpcapi/authz_regression_test.go's
+// fakeWaitlistRepo: MarkRegistrationPaymentStatus (this package's own
+// surface, exercised via socialplayapp.Service.UpdateRegistrationPaymentStatus)
+// never touches the waitlist, but socialplayapp.NewService has required a
+// port.WaitlistRepository argument since T6.6 — required only to satisfy
+// that constructor signature, not exercised by any test in this file.
+type fakeWaitlist struct{}
+
+func (fakeWaitlist) Create(context.Context, socialplaydomain.WaitlistEntry) (socialplaydomain.WaitlistEntry, error) {
+	return socialplaydomain.WaitlistEntry{}, nil
+}
+func (fakeWaitlist) GetByID(context.Context, string) (socialplaydomain.WaitlistEntry, error) {
+	return socialplaydomain.WaitlistEntry{}, socialplaydomain.ErrWaitlistEntryNotFound
+}
+func (fakeWaitlist) ListForGame(context.Context, string) ([]socialplaydomain.WaitlistEntry, error) {
+	return nil, nil
+}
+func (fakeWaitlist) PromoteNext(context.Context, string, time.Time) (socialplaydomain.WaitlistEntry, error) {
+	return socialplaydomain.WaitlistEntry{}, socialplaydomain.ErrNoWaitingEntries
+}
+func (fakeWaitlist) ExpirePromotion(context.Context, string, time.Time) (socialplaydomain.WaitlistEntry, error) {
+	return socialplaydomain.WaitlistEntry{}, socialplaydomain.ErrWaitlistEntryNotFound
+}
+
 // TestRegistrationUpdater_ImplementsPort is a compile-time proof that
 // *paymentssocialplay.RegistrationUpdater satisfies
 // socialplayport.RegistrationPaymentUpdater — the whole point of this
@@ -100,7 +126,7 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 		Status:        socialplaydomain.RegistrationStatusRegistered,
 		PaymentStatus: socialplaydomain.PaymentStatusUnpaid,
 	})
-	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, regs)
+	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, regs, fakeWaitlist{})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
 	if err := updater.UpdatePaymentStatus(context.Background(), "reg-1", socialplaydomain.PaymentStatusPaid); err != nil {
@@ -123,7 +149,7 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 func TestUpdatePaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, newFakeRegistrations())
+	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, newFakeRegistrations(), fakeWaitlist{})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
 	err := updater.UpdatePaymentStatus(context.Background(), "no-such-registration", socialplaydomain.PaymentStatusPaid)
