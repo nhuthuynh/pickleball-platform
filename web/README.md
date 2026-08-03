@@ -72,6 +72,49 @@ Current coverage from this ticket:
 - `src/components/__tests__/RoleIndicator.spec.ts` — the placeholder role
   nav's mock-data rendering and role-switching.
 
+Added by T7.5 (Discover & browse facilities/courts, Player-facing —
+`src/components/discover/DiscoverFacilities.vue`, mounted as `App.vue`'s
+main content):
+- `src/models/__tests__/facility.spec.ts` — the API-response-to-view-model
+  mapping, including the regression test that camera-link data present on
+  the raw API response never survives the mapping.
+- `src/composables/__tests__/useFacilityList.spec.ts` /
+  `useFacilityDetail.spec.ts` — loading/empty/error state transitions
+  against an injectable fake client (network-unreachable and non-2xx
+  cases both covered).
+- `src/components/discover/__tests__/FacilityListPanel.spec.ts` /
+  `FacilityDetailPanel.spec.ts` — the empty/loading/error UI for each
+  panel (incl. the zero-courts empty state), plus a second,
+  render-output-level camera-link assertion.
+- `src/components/discover/__tests__/DiscoverFacilities.spec.ts` — the
+  end-to-end integration test T7.5 specifically asks for: a mocked API
+  response that includes camera-link data, asserted to never appear
+  anywhere in this screen's rendered output; plus the iPhone
+  (list-then-detail-on-selection) vs. iPad/web
+  (always-two-column-with-placeholder) layout behavior.
+
+**Known gap, not fixed by this ticket:** the merged Facilities API (T7.3)
+has `AddCourt` to create a Court but no endpoint that returns a Facility's
+Courts (`GetFacility`/`ListFacilities`'s `Facility` message has no
+`courts` field — confirmed against the generated OpenAPI types, not
+assumed). `models/facility.ts`'s `mapToFacilityDetail` therefore always
+maps `courts: []`, so every facility shows the "zero courts" empty state
+today regardless of what a Facility Owner has actually added via
+`AddCourt`. The view model and components already have a real `courts`
+list end to end (`FacilityCourt[]`, rendered by
+`FacilityDetailPanel.vue`), so a follow-up ticket that adds a
+courts-listing capability to the Facilities API only needs to change the
+one line in `mapToFacilityDetail` that currently hardcodes `[]` — see that
+function's doc comment.
+
+**`facilitiesClient.ts`:** no `facilitiesClient.ts`-style wrapper existed
+on the base branch (`claude/go-backend-pickleball-7up34j`) when this
+ticket was implemented, so `src/api/facilitiesClient.ts` was written fresh
+here, mirroring `bookingClient.ts`'s pattern exactly. T7.4 (Facility
+onboarding UI), developed concurrently on a separate branch, may add its
+own — if so, reconciling the two is a later ticket/PR-review concern, not
+blocking for this one (per this ticket's own instructions).
+
 ## Typed client generation
 
 ```sh
@@ -194,9 +237,37 @@ must not be treated as an authorization boundary (same caveat class as
 `ActorUserID` elsewhere in this codebase). See the component's own header
 comment before wiring it to a real account/session store.
 
+## Discover & browse facilities/courts (T7.5, Player-facing, read-only)
+
+`src/components/discover/DiscoverFacilities.vue` — the first real product
+screen mounted into `App.vue`. A read-only consumer of the Facilities
+API's `ListFacilities`/`GetFacility` (T7.3): a facility list/search view
+(name filter) plus a facility detail view (description, photos, address,
+courts). No routing library yet (per "What this ticket does NOT do"
+below) — this is the app's sole screen for now, T7.6 adds booking against
+it.
+
+- `src/api/facilitiesClient.ts` — thin typed client, mirrors
+  `bookingClient.ts`.
+- `src/models/facility.ts` — API-response-to-view-model mapping.
+  **Camera links are deliberately never mapped onto the view models here**
+  (Facility-owned camera links must not appear on this player-facing
+  screen, T7.5's requirement #3) — see the file's header comment for why
+  that's structural (no field to render), not just a template omission.
+- `src/composables/useFacilityList.ts` / `useFacilityDetail.ts` — fetch +
+  loading/error state, with an injectable client for tests.
+- `src/components/discover/FacilityListPanel.vue` /
+  `FacilityDetailPanel.vue` — presentational panels with real
+  empty/loading/error UI (not a blank screen) for: no facilities yet, API
+  unreachable, and a facility with zero courts.
+
+See "Tests (Vitest)" above for this ticket's test coverage and the
+Facilities-API courts-listing gap this screen currently works around.
+
 ## What this ticket does NOT do
 
 Per `docs/process/t7-sprint-plan.md`'s T7.1 scope (and its own "no product
 screens" instruction): no Facility onboarding/browse/booking screens (T7.4
 -T7.6), no Facilities backend (T7.2/T7.3), no routing/state-management
-library, no real authentication.
+library, no real authentication. (T7.5, added later, is the first
+exception to "no product screens" — see the section above.)

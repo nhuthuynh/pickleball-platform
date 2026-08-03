@@ -1,14 +1,17 @@
 <script setup lang="ts">
 // Root layout, bootstrapped by T7.1 (docs/process/t7-sprint-plan.md) as a
-// screen-free shell. T7.4 (this change) is the first product screen to
-// build on it: Facility onboarding (Owner/Host). No routing library is
-// added yet — there is exactly one screen and no auth to gate it behind,
-// so this mounts FacilityOnboarding directly rather than introducing
-// vue-router ahead of an actual second-screen need (T7.5/T7.6 build the
-// next ones; add real routing then, not speculatively here).
+// screen-free shell. T7.4 and T7.5 each added their own first product
+// screen on top of it (Facility onboarding for Owner/Host, and
+// DiscoverFacilities browse/search for Players) on separate branches with
+// no routing library in between, so both ended up wired to the same mount
+// point. Rather than have this merge silently drop one ticket's screen,
+// both are rendered here (stacked) until a real router lands — T7.6+
+// should replace this with actual routing rather than growing this list
+// further.
 import { useBreakpoint } from './composables/useBreakpoint'
 import RoleIndicator from './components/RoleIndicator.vue'
 import FacilityOnboarding from './views/FacilityOnboarding.vue'
+import DiscoverFacilities from './components/discover/DiscoverFacilities.vue'
 
 const { breakpoint } = useBreakpoint()
 </script>
@@ -23,7 +26,13 @@ const { breakpoint } = useBreakpoint()
     </header>
 
     <main class="app-shell__main">
+      <!-- T7.4: Facility onboarding (Owner/Host). -->
       <FacilityOnboarding />
+
+      <!-- T7.5: Discover & browse facilities/courts (Player-facing,
+           read-only). See docs/process/t7-sprint-plan.md's T7.5 section
+           and src/components/discover/DiscoverFacilities.vue. -->
+      <DiscoverFacilities />
     </main>
   </div>
 </template>

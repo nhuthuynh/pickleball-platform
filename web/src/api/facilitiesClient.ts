@@ -8,6 +8,11 @@
 // bookingClient.ts — this module is safe to import from component code that
 // Vitest exercises on a fresh clone before `generate:client` has ever run;
 // only `npm run build`'s type-check step needs the generated file present.
+//
+// This file was independently written on both T7.4 and T7.5 (parallel
+// branches, neither aware of the other); the two versions were materially
+// identical (same wrapper shape, same exports), so this merge just keeps
+// one rather than carrying a duplicate.
 import type { paths as FacilitiesPaths } from './generated/facilities'
 import { createTypedClient, type CreateTypedClientOptions } from './client'
 

@@ -1,0 +1,75 @@
+import { describe, it, expect } from 'vitest'
+import { mapToFacilitySummary, mapToFacilityDetail, type RawFacility } from '../facility'
+
+/**
+ * A raw Facility as the API actually returns it — including camera-link
+ * data, per T7.5's instructions ("even if the API response includes
+ * camera-link data ... this screen must never render it"). URL/CourtID
+ * values are distinctive so a leak is easy to spot in a failure message.
+ */
+const rawFacilityWithCameraLinks: RawFacility = {
+  id: 'facility-1',
+  ownerId: 'owner-1',
+  name: 'Riverside Courts',
+  description: 'Six outdoor courts by the river.',
+  address: '100 River Rd, Springfield',
+  photoUrls: ['https://cdn.example.test/riverside-1.jpg'],
+  cameraConsentAttested: true,
+  cameraLinks: [{ url: 'https://cameras.example.test/riverside/secret-feed', courtId: '' }],
+}
+
+describe('mapToFacilitySummary', () => {
+  it('maps the list-row fields', () => {
+    expect(mapToFacilitySummary(rawFacilityWithCameraLinks)).toEqual({
+      id: 'facility-1',
+      name: 'Riverside Courts',
+      description: 'Six outdoor courts by the river.',
+      address: '100 River Rd, Springfield',
+    })
+  })
+
+  it('never carries camera-link data onto the view model, even when present on the raw response', () => {
+    const summary = mapToFacilitySummary(rawFacilityWithCameraLinks)
+    expect(summary).not.toHaveProperty('cameraLinks')
+    expect(summary).not.toHaveProperty('cameraConsentAttested')
+    expect(JSON.stringify(summary)).not.toContain('cameras.example.test')
+  })
+
+  it('defaults missing optional fields to empty strings', () => {
+    expect(mapToFacilitySummary({})).toEqual({ id: '', name: '', description: '', address: '' })
+  })
+})
+
+describe('mapToFacilityDetail', () => {
+  it('maps description/photos/address', () => {
+    const detail = mapToFacilityDetail(rawFacilityWithCameraLinks)
+    expect(detail.id).toBe('facility-1')
+    expect(detail.name).toBe('Riverside Courts')
+    expect(detail.description).toBe('Six outdoor courts by the river.')
+    expect(detail.address).toBe('100 River Rd, Springfield')
+    expect(detail.photoUrls).toEqual(['https://cdn.example.test/riverside-1.jpg'])
+  })
+
+  it('never carries camera-link data onto the view model, even when present on the raw response', () => {
+    const detail = mapToFacilityDetail(rawFacilityWithCameraLinks)
+    expect(detail).not.toHaveProperty('cameraLinks')
+    expect(detail).not.toHaveProperty('cameraConsentAttested')
+    expect(JSON.stringify(detail)).not.toContain('cameras.example.test')
+  })
+
+  it('returns an empty courts list (no Facilities API endpoint lists a facility\'s courts yet)', () => {
+    const detail = mapToFacilityDetail(rawFacilityWithCameraLinks)
+    expect(detail.courts).toEqual([])
+  })
+
+  it('defaults missing optional fields to empty strings/arrays', () => {
+    expect(mapToFacilityDetail({})).toEqual({
+      id: '',
+      name: '',
+      description: '',
+      address: '',
+      photoUrls: [],
+      courts: [],
+    })
+  })
+})
