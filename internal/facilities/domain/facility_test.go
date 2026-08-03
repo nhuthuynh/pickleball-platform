@@ -1,0 +1,179 @@
+package domain_test
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/nhuthuynh/white-label/internal/facilities/domain"
+)
+
+// TestNewFacility_Valid proves the happy path: a valid NewFacility call
+// produces a Facility carrying exactly what was passed in, with
+// CameraConsentAttested defaulting to false and CameraLinks empty.
+func TestNewFacility_Valid(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "Nice courts by the river", "123 Main St", []string{"https://example.com/photo1.jpg"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if f.ID != "f1" {
+		t.Fatalf("ID = %q, want f1", f.ID)
+	}
+	if f.OwnerID != "owner-1" {
+		t.Fatalf("OwnerID = %q, want owner-1", f.OwnerID)
+	}
+	if f.Name != "Riverside Courts" {
+		t.Fatalf("Name = %q, want Riverside Courts", f.Name)
+	}
+	if f.Description != "Nice courts by the river" {
+		t.Fatalf("Description = %q, want Nice courts by the river", f.Description)
+	}
+	if f.Address != "123 Main St" {
+		t.Fatalf("Address = %q, want 123 Main St", f.Address)
+	}
+	if len(f.PhotoURLs) != 1 || f.PhotoURLs[0] != "https://example.com/photo1.jpg" {
+		t.Fatalf("PhotoURLs = %v, want [https://example.com/photo1.jpg]", f.PhotoURLs)
+	}
+	// CameraConsentAttested must default to false: the round-10 design
+	// review's finding was specifically that the consent checkbox must
+	// default to unchecked, not just be checkable. A domain default of
+	// true would silently defeat that finding.
+	if f.CameraConsentAttested {
+		t.Fatalf("CameraConsentAttested = true, want false by default")
+	}
+	if len(f.CameraLinks) != 0 {
+		t.Fatalf("CameraLinks = %v, want empty", f.CameraLinks)
+	}
+}
+
+// TestNewFacility_Validation is the required boundary coverage: empty
+// OwnerID, Name, and Address must each be rejected via the single
+// ErrEmptyFacilityField sentinel, with a *domain.FieldError identifying
+// which field failed — mirroring payments.ErrInvalidAmount's
+// single-sentinel-plus-context pattern rather than three stringly-typed
+// sentinels.
+func TestNewFacility_Validation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		ownerID   string
+		fname     string
+		address   string
+		wantErr   error
+		wantField string
+	}{
+		{
+			name:    "valid facility",
+			ownerID: "owner-1",
+			fname:   "Riverside Courts",
+			address: "123 Main St",
+			wantErr: nil,
+		},
+		{
+			name:      "empty owner id is rejected",
+			ownerID:   "",
+			fname:     "Riverside Courts",
+			address:   "123 Main St",
+			wantErr:   domain.ErrEmptyFacilityField,
+			wantField: "OwnerID",
+		},
+		{
+			name:      "empty name is rejected",
+			ownerID:   "owner-1",
+			fname:     "",
+			address:   "123 Main St",
+			wantErr:   domain.ErrEmptyFacilityField,
+			wantField: "Name",
+		},
+		{
+			name:      "empty address is rejected",
+			ownerID:   "owner-1",
+			fname:     "Riverside Courts",
+			address:   "",
+			wantErr:   domain.ErrEmptyFacilityField,
+			wantField: "Address",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := domain.NewFacility("f1", tt.ownerID, tt.fname, "", tt.address, nil)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("got err %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr != nil {
+				var fieldErr *domain.FieldError
+				if !errors.As(err, &fieldErr) {
+					t.Fatalf("err %v is not a *domain.FieldError", err)
+				}
+				if fieldErr.Field != tt.wantField {
+					t.Fatalf("Field = %q, want %q", fieldErr.Field, tt.wantField)
+				}
+			}
+		})
+	}
+}
+
+// TestFacility_AddCameraLink_RequiresConsent is the explicitly-required
+// test for this ticket's one concrete finding (round-10 review §2b): a
+// camera link may only be added once CameraConsentAttested is true. This
+// is the test that would fail if that check were subtly removed or
+// inverted — it asserts both the rejection *and* that CameraLinks is left
+// untouched by the rejected call, then proves the same call succeeds once
+// consent is attested.
+func TestFacility_AddCameraLink_RequiresConsent(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+	if f.CameraConsentAttested {
+		t.Fatalf("fixture CameraConsentAttested = true, want false")
+	}
+
+	err = f.AddCameraLink("https://example.com/cam1.m3u8")
+	if !errors.Is(err, domain.ErrCameraConsentRequired) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrCameraConsentRequired)
+	}
+	if len(f.CameraLinks) != 0 {
+		t.Fatalf("CameraLinks = %v, want empty after rejected AddCameraLink", f.CameraLinks)
+	}
+
+	f.CameraConsentAttested = true
+	if err := f.AddCameraLink("https://example.com/cam1.m3u8"); err != nil {
+		t.Fatalf("unexpected err after consent attested: %v", err)
+	}
+	if len(f.CameraLinks) != 1 || f.CameraLinks[0].URL != "https://example.com/cam1.m3u8" {
+		t.Fatalf("CameraLinks = %v, want one link with the added URL", f.CameraLinks)
+	}
+	if f.CameraLinks[0].CourtID != "" {
+		t.Fatalf("CourtID = %q, want empty (facility-wide link)", f.CameraLinks[0].CourtID)
+	}
+}
+
+// TestFacility_AddCameraLink_MultipleLinksAppend proves repeated calls
+// append rather than overwrite, once consent is attested.
+func TestFacility_AddCameraLink_MultipleLinksAppend(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+	f.CameraConsentAttested = true
+
+	if err := f.AddCameraLink("https://example.com/cam1.m3u8"); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if err := f.AddCameraLink("https://example.com/cam2.m3u8"); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(f.CameraLinks) != 2 {
+		t.Fatalf("CameraLinks len = %d, want 2", len(f.CameraLinks))
+	}
+}

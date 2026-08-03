@@ -1,0 +1,61 @@
+package domain
+
+import (
+	"errors"
+	"fmt"
+)
+
+// Domain errors. Mirrors the sentinel-error pattern used across the other
+// bounded contexts (internal/booking/domain/errors.go,
+// internal/payments/domain/errors.go) — deliberately not shared with them;
+// each bounded context owns its own errors (CLAUDE.md rule 3).
+var (
+	// ErrEmptyFacilityField is returned by NewFacility when OwnerID, Name,
+	// or Address is empty. One sentinel covers all three fields rather than
+	// three separate stringly-typed sentinels, mirroring
+	// payments.ErrInvalidAmount's single-sentinel-plus-context pattern
+	// (T6.1 kickoff note). Use errors.As to recover a *FieldError and
+	// inspect its Field member for which field failed.
+	ErrEmptyFacilityField = errors.New("facilities: required facility field is empty")
+
+	// ErrEmptyCourtField is NewCourt's equivalent of ErrEmptyFacilityField,
+	// for FacilityID/Name. A distinct sentinel from ErrEmptyFacilityField
+	// so a caller can tell which aggregate's validation failed via
+	// errors.Is, even though both wrap the same *FieldError shape.
+	ErrEmptyCourtField = errors.New("facilities: required court field is empty")
+
+	// ErrCameraConsentRequired is returned by Facility.AddCameraLink when
+	// CameraConsentAttested is false. This is the round-10 design review's
+	// §2b finding ("the consent checkbox must default to unchecked...
+	// saving is blocked until the user actively checks it",
+	// docs/design/v1-review-round-10-final.md) encoded as a domain
+	// invariant rather than left as a UI-only concern — see
+	// Facility.AddCameraLink's doc comment.
+	ErrCameraConsentRequired = errors.New("facilities: camera consent must be attested before adding a camera link")
+)
+
+// FieldError wraps one of the Err*Field sentinels above with the specific
+// field name that failed validation, so callers get exactly one sentinel to
+// errors.Is against (via Unwrap) while still being able to recover which
+// field was empty via errors.As. This mirrors the "single sentinel plus
+// context" pattern payments.domain already uses for ErrInvalidAmount (T6.1)
+// rather than a sprawling per-field enum of sentinels.
+type FieldError struct {
+	Field string
+	err   error
+}
+
+func (e *FieldError) Error() string {
+	return fmt.Sprintf("%v: %s", e.err, e.Field)
+}
+
+func (e *FieldError) Unwrap() error {
+	return e.err
+}
+
+// newFieldError constructs a *FieldError wrapping sentinel and naming
+// field, returned as a plain error so call sites don't need to know the
+// concrete type.
+func newFieldError(sentinel error, field string) error {
+	return &FieldError{Field: field, err: sentinel}
+}
