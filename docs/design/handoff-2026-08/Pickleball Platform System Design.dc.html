@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  body{margin:0;box-sizing:border-box;}
+  *{box-sizing:border-box;}
+  a{color:var(--accent,#2f7a52);text-decoration:none;}
+  a:hover{color:var(--accent2,#b3552a);}
+</style>
+</helmet>
+
+<div style="--bg:oklch(98% 0.006 95);--surface:#ffffff;--text:oklch(22% 0.01 95);--muted:oklch(48% 0.012 95);--border:oklch(89% 0.012 95);--accent:oklch(56% 0.135 155);--accent-soft:oklch(94% 0.035 155);--accent2:oklch(58% 0.135 45);--accent2-soft:oklch(94% 0.035 45);font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);display:flex;min-height:100vh;align-items:flex-start;">
+
+<nav style="position:sticky;top:0;height:100vh;width:264px;flex:none;background:var(--surface);border-right:1px solid var(--border);padding:36px 24px;overflow-y:auto;">
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:28px;">
+    <div style="width:28px;height:28px;border-radius:8px;background:var(--accent);flex:none;"></div>
+    <div style="font-size:14px;font-weight:800;line-height:1.2;">Court&amp;Play<br><span style="font-weight:500;color:var(--muted);font-size:11px;">System Design</span></div>
+  </div>
+  <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin:20px 0 8px;">Contents</div>
+  <div style="display:flex;flex-direction:column;gap:2px;font-size:13.5px;">
+    <a href="#overview" style="padding:7px 8px;border-radius:6px;color:var(--text);font-weight:600;">Overview</a>
+    <a href="#roles" style="padding:7px 8px;border-radius:6px;color:var(--text);">Roles &amp; Permissions</a>
+    <a href="#entities" style="padding:7px 8px;border-radius:6px;color:var(--text);">Domain Model</a>
+    <a href="#onboarding" style="padding:7px 8px;border-radius:6px;color:var(--text);">Facility Onboarding</a>
+    <a href="#pricing" style="padding:7px 8px;border-radius:6px;color:var(--text);">Court &amp; Pricing Config</a>
+    <a href="#games" style="padding:7px 8px;border-radius:6px;color:var(--text);">Social Games &amp; Matching</a>
+    <a href="#competitions" style="padding:7px 8px;border-radius:6px;color:var(--text);">Competitions &amp; Social Media</a>
+    <a href="#payments" style="padding:7px 8px;border-radius:6px;color:var(--text);">Payments</a>
+    <a href="#clubs" style="padding:7px 8px;border-radius:6px;color:var(--text);">Club Rentals</a>
+    <a href="#platforms" style="padding:7px 8px;border-radius:6px;color:var(--text);">Platform Notes</a>
+    <a href="#assumptions" style="padding:7px 8px;border-radius:6px;color:var(--text);">Assumptions</a>
+  </div>
+  <div style="margin-top:32px;padding-top:20px;border-top:1px solid var(--border);display:flex;flex-direction:column;gap:8px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;">Role legend</div>
+    <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:oklch(94% 0.006 95);color:var(--text);width:fit-content;">Player</div>
+    <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:var(--accent-soft);color:var(--accent);width:fit-content;">Host</div>
+    <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:var(--accent2-soft);color:var(--accent2);width:fit-content;">Facility Owner</div>
+    <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid var(--muted);color:var(--muted);width:fit-content;">Club</div>
+  </div>
+</nav>
+
+<main style="flex:1;max-width:900px;margin:0 auto;padding:64px 56px 140px;min-width:0;">
+
+  <section id="overview" style="scroll-margin-top:32px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--accent);text-transform:uppercase;margin-bottom:12px;">System Design &middot; v1 &middot; Aug 2026</div>
+    <h1 style="font-size:38px;font-weight:800;margin:0 0 14px;line-height:1.15;letter-spacing:-.01em;">Pickleball Court &amp; Social Play Platform</h1>
+    <p style="font-size:16px;line-height:1.65;color:var(--muted);max-width:640px;margin:0 0 20px;">A marketplace connecting facility owners, hosts and players: book courts, configure pricing and discounts, run social games with automatic skill/gender matching, and promote competitions through linked social channels. One account, contextual roles.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--muted);">
+      <div style="border:1px solid var(--border);border-radius:8px;padding:8px 14px;">Audience: Product &amp; Design</div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:8px 14px;">Depth: High-level</div>
+      <div style="border:1px solid var(--border);border-radius:8px;padding:8px 14px;">Platforms: Web &middot; iPad &middot; iPhone</div>
+    </div>
+  </section>
+
+  <section id="roles" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">01</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Roles &amp; Permissions</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 0 24px;">Role is contextual, not a fixed account type. The same person can be a Player in one game, Host of another, and Owner of the facility both take place in.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:oklch(94% 0.006 95);margin-bottom:10px;">Player</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--muted);">Books courts, finds and joins social games, brings guests, builds a level from play history.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:var(--accent-soft);color:var(--accent);margin-bottom:10px;">Host</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--muted);">Rents courts to run social games/competitions, sets rules &amp; payment method, advertises via social media.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:var(--accent2-soft);color:var(--accent2);margin-bottom:10px;">Facility Owner</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--muted);">Lists the facility, configures court pricing &amp; discounts, links cameras, can also host games directly.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px;">
+        <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;border:1px solid var(--muted);color:var(--muted);margin-bottom:10px;">Club</div>
+        <div style="font-size:13px;line-height:1.55;color:var(--muted);">Organization account that hires courts on recurring days/times at owner-configured discount rates.</div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;">
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);background:oklch(96% 0.006 95);font-size:11.5px;font-weight:700;letter-spacing:.02em;color:var(--muted);text-transform:uppercase;">
+        <div style="padding:10px 16px;">Capability</div>
+        <div style="padding:10px 8px;text-align:center;">Player</div>
+        <div style="padding:10px 8px;text-align:center;">Host</div>
+        <div style="padding:10px 8px;text-align:center;">Owner</div>
+        <div style="padding:10px 8px;text-align:center;">Club</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Browse &amp; book courts</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003; discounted</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Join social games</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Create &amp; host social games</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Add a new facility (if none exists)</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Configure court pricing, discounts &amp; cameras</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Organize competitions &amp; link social accounts</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+      </div>
+      <div style="display:grid;grid-template-columns:2fr repeat(4,0.8fr);border-top:1px solid var(--border);font-size:13px;">
+        <div style="padding:10px 16px;">Approve club rental requests</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--accent);">&#10003;</div>
+        <div style="padding:10px 8px;text-align:center;color:var(--border);">&#8212;</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="entities" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">02</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Domain Model</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 0 24px;">High-level entity clusters and how they connect — not a schema, a map of what the product needs to track.</p>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:24px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="font-size:14px;font-weight:800;margin-bottom:10px;">Identity</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div><b>Account</b> — one profile, holds Player/Host/Owner capability per context</div>
+          <div><b>Player Level</b> — derived from tenure &amp; win record; feeds auto-matching</div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="font-size:14px;font-weight:800;margin-bottom:10px;">Facility &amp; Courts</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div><b>Facility</b> — description, photos, address, camera links, owner</div>
+          <div><b>Court</b> — belongs to a facility</div>
+          <div><b>Pricing Rule</b> — date/time price, monthly price, discount period + end condition, per court</div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="font-size:14px;font-weight:800;margin-bottom:10px;">Games &amp; Bookings</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div><b>Booking</b> — a court reserved for a date/time, by a player, host, or club</div>
+          <div><b>Social Game</b> — rules (cancellation, capacity, payment method), matching config, sits on a booking</div>
+          <div><b>Participant</b> — a player + guest count joined to a game</div>
+          <div><b>Payment</b> — online or cash, tied to a booking/game</div>
+        </div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="font-size:14px;font-weight:800;margin-bottom:10px;">Growth</div>
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div><b>Competition</b> — organized by a host, reserves courts across dates</div>
+          <div><b>Social Account Link</b> — WhatsApp, Facebook Group, X, Instagram connected once per host</div>
+          <div><b>Ad Post</b> — auto-generated promo published to linked accounts; replies become registrations</div>
+          <div><b>Club</b> — recurring bookings at owner-configured discount</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Core spine</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div style="background:var(--accent-soft);color:var(--accent);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Account (Owner)</div>
+      <div style="color:var(--muted);font-size:16px;">&rarr;</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Facility</div>
+      <div style="color:var(--muted);font-size:16px;">&rarr;</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Court</div>
+      <div style="color:var(--muted);font-size:16px;">&rarr;</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Booking</div>
+      <div style="color:var(--muted);font-size:16px;">&rarr;</div>
+      <div style="background:var(--accent2-soft);color:var(--accent2);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Social Game or Payment</div>
+    </div>
+  </section>
+
+  <section id="onboarding" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">03</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Facility Onboarding</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 0 24px;">Any host or owner can add a facility that doesn't yet exist on the platform — it becomes bookable once courts are added.</p>
+
+    <div style="display:flex;align-items:flex-start;margin-bottom:28px;">
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">1</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Search &amp; add</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">If the facility isn't found, host/owner creates it</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">2</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Details</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Name, description, address</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">3</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Photos</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Gallery shown to players</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">4</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Cameras</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Optional security camera link</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">5</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Courts &amp; go live</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Add courts, facility becomes bookable</div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Wireframe — Add Facility (Owner)</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;grid-template-columns:1.1fr 1fr;gap:22px;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">FACILITY NAME</div>
+          <div style="height:36px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--muted);">Riverside Pickleball Club</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">DESCRIPTION</div>
+          <div style="height:56px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);padding:10px 12px;font-size:12.5px;color:var(--muted);">4 outdoor courts, lights, pro shop on-site...</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">ADDRESS</div>
+          <div style="height:36px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;gap:8px;padding:0 12px;font-size:12.5px;color:var(--muted);"><div style="width:8px;height:8px;border-radius:50%;background:var(--accent2);"></div>221 River Rd, Austin TX</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;">SECURITY CAMERAS</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="height:32px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;"><span>Court 1 &ndash; North Cam</span><span style="color:var(--accent);font-weight:700;">Connected</span></div>
+            <div style="height:32px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);font-weight:600;">+ Connect a camera</div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);">PHOTOS</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="height:78px;background:repeating-linear-gradient(45deg, oklch(92% 0.01 95), oklch(92% 0.01 95) 7px, oklch(97% 0.006 95) 7px, oklch(97% 0.006 95) 14px);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);">facility photo</div>
+          <div style="height:78px;background:repeating-linear-gradient(45deg, oklch(92% 0.01 95), oklch(92% 0.01 95) 7px, oklch(97% 0.006 95) 7px, oklch(97% 0.006 95) 14px);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);">facility photo</div>
+          <div style="height:78px;background:repeating-linear-gradient(45deg, oklch(92% 0.01 95), oklch(92% 0.01 95) 7px, oklch(97% 0.006 95) 7px, oklch(97% 0.006 95) 14px);border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);">facility photo</div>
+          <div style="height:78px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:20px;color:var(--muted);">+</div>
+        </div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-top:8px;">COURTS</div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="display:flex;justify-content:space-between;padding:9px 12px;font-size:12px;border-bottom:1px solid var(--border);"><span>Court 1 &middot; Outdoor</span><span style="color:var(--muted);">Priced</span></div>
+          <div style="display:flex;justify-content:space-between;padding:9px 12px;font-size:12px;"><span>Court 2 &middot; Outdoor</span><span style="color:var(--accent2);">Needs pricing</span></div>
+        </div>
+        <div style="background:var(--accent);color:#fff;border-radius:8px;padding:9px 14px;font-size:12.5px;font-weight:700;text-align:center;margin-top:4px;">+ Add court</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="pricing" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">04</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Court &amp; Pricing Configuration</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 0 24px;">Per court, an owner sets a base rate by date/time, an optional monthly rate, and discount periods that end on a date, after N bookings, or run indefinitely.</p>
+
+    <div style="display:flex;align-items:flex-start;margin-bottom:28px;">
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">1</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Base pricing</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Price by date &amp; time-of-day block</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">2</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Monthly rate</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Optional flat monthly access price</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">3</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Discount period</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Date range + price, ends on date / after N bookings / never</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">4</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Preview &amp; publish</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Calendar shows effective price per slot</div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Wireframe — Pricing Rules (Owner)</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;grid-template-columns:1.3fr 1fr;gap:22px;">
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;">DISCOUNT PERIODS</div>
+          <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="font-size:12.5px;"><b>Off-peak weekday</b> &middot; Jun 1&ndash;Aug 31 &middot; $18/hr</div>
+            <div style="font-size:11px;color:var(--muted);background:oklch(96% 0.006 95);padding:3px 8px;border-radius:6px;">Ends: on date</div>
+          </div>
+          <div style="border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="font-size:12.5px;"><b>New member intro</b> &middot; $15/hr</div>
+            <div style="font-size:11px;color:var(--muted);background:oklch(96% 0.006 95);padding:3px 8px;border-radius:6px;">Ends: after 3 bookings</div>
+          </div>
+          <div style="border:1px dashed var(--border);border-radius:8px;padding:9px 12px;text-align:center;font-size:12px;color:var(--muted);font-weight:600;">+ Add discount period</div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;">MONTHLY RATE</div>
+          <div style="height:36px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--muted);">$180 / month, unlimited off-peak hours</div>
+        </div>
+      </div>
+      <div>
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;">CALENDAR PREVIEW</div>
+        <div style="border:1px solid var(--border);border-radius:8px;padding:12px;display:grid;grid-template-columns:repeat(7,1fr);gap:4px;">
+          <div style="height:26px;border-radius:5px;background:var(--border);"></div>
+          <div style="height:26px;border-radius:5px;background:var(--border);"></div>
+          <div style="height:26px;border-radius:5px;background:var(--accent);"></div>
+          <div style="height:26px;border-radius:5px;background:var(--accent);"></div>
+          <div style="height:26px;border-radius:5px;background:var(--accent);"></div>
+          <div style="height:26px;border-radius:5px;background:var(--accent2);"></div>
+          <div style="height:26px;border-radius:5px;background:var(--border);"></div>
+        </div>
+        <div style="display:flex;gap:12px;margin-top:10px;font-size:11px;color:var(--muted);">
+          <div style="display:flex;align-items:center;gap:5px;"><div style="width:9px;height:9px;border-radius:2px;background:var(--border);"></div>Standard</div>
+          <div style="display:flex;align-items:center;gap:5px;"><div style="width:9px;height:9px;border-radius:2px;background:var(--accent);"></div>Discounted</div>
+          <div style="display:flex;align-items:center;gap:5px;"><div style="width:9px;height:9px;border-radius:2px;background:var(--accent2);"></div>Monthly holder</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="games" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">05</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Social Games &amp; Auto-Matching</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 24px;">Hosts and owners create games on courts they've rented or own. Players discover, join with guests, and get matched by level and gender when the host enables it.</p>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--accent);text-transform:uppercase;margin-bottom:10px;">Host creates a game</div>
+    <div style="display:flex;align-items:flex-start;margin-bottom:24px;">
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">1</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Court &amp; time</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Own or rented facility, same booking flow</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">2</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Capacity &amp; format</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Max players, singles/doubles</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">3</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Rules</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Cancellation cutoff, payment method</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">4</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Guests</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Max friends per registrant</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">5</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Matching &amp; publish</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Auto-match by level/gender, host can override</div>
+      </div>
+    </div>
+
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-bottom:36px;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">CANCELLATION &amp; PAYMENT</div>
+          <div style="height:34px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--muted);margin-bottom:6px;">Free cancel up to 2 hours before</div>
+          <div style="display:flex;gap:6px;">
+            <div style="flex:1;height:32px;border-radius:8px;background:var(--accent-soft);color:var(--accent);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">Online</div>
+            <div style="flex:1;height:32px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);">Cash</div>
+            <div style="flex:1;height:32px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);">Either</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">GUEST ALLOWANCE</div>
+          <div style="height:34px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12.5px;color:var(--muted);">Up to 2 guests per registrant <span style="display:flex;gap:6px;"><span style="width:20px;height:20px;border-radius:5px;border:1px solid var(--border);text-align:center;line-height:18px;">&minus;</span><span style="width:20px;height:20px;border-radius:5px;border:1px solid var(--border);text-align:center;line-height:18px;">+</span></span></div>
+        </div>
+        <div style="background:var(--accent);color:#fff;border-radius:8px;padding:10px 14px;font-size:12.5px;font-weight:700;text-align:center;">Publish game</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);">AUTO-MATCH PLAYERS</div>
+          <div style="width:36px;height:20px;border-radius:999px;background:var(--accent);position:relative;"><div style="width:16px;height:16px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;"></div></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Level range</div>
+          <div style="height:6px;background:var(--border);border-radius:999px;position:relative;">
+            <div style="position:absolute;left:30%;right:35%;height:6px;background:var(--accent);border-radius:999px;"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;"><span>Beginner</span><span>Pro</span></div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">GENDER MIX</div>
+          <div style="height:34px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--muted);">Open (host can update anytime)</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--accent2);text-transform:uppercase;margin-bottom:10px;">Player finds &amp; joins a game</div>
+    <div style="display:flex;align-items:flex-start;margin-bottom:24px;">
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent2);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">1</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Browse &amp; filter</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">By location, date, level, gender mix</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent2);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">2</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Review game</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Host, court, level range, spots left, price</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent2);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">3</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Join + guests</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Pay online or mark cash on arrival</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent2);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">4</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Play &amp; level up</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Result updates level for future matching</div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Wireframe — Discover Games (Player)</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;">
+      <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <div style="border:1px solid var(--border);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);">Riverside, 2mi</div>
+        <div style="border:1px solid var(--border);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);">This weekend</div>
+        <div style="border:1px solid var(--border);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);">Level 3.0&ndash;4.0</div>
+        <div style="border:1px solid var(--border);border-radius:999px;padding:6px 14px;font-size:12px;color:var(--muted);">Mixed</div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><b style="font-size:13.5px;">Saturday Mixer</b><span style="font-size:11px;background:var(--accent-soft);color:var(--accent);padding:3px 8px;border-radius:6px;">3 spots left</span></div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Host: Maria &middot; Court 2, Riverside &middot; Sat 9:00am &middot; Level 3.0&ndash;4.0</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12.5px;font-weight:700;">$12/player &middot; online</span>
+            <span style="background:var(--accent);color:#fff;border-radius:7px;padding:6px 14px;font-size:12px;font-weight:700;">Join</span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--border);border-radius:10px;padding:14px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:6px;"><b style="font-size:13.5px;">Beginner Round Robin</b><span style="font-size:11px;background:var(--accent-soft);color:var(--accent);padding:3px 8px;border-radius:6px;">7 spots left</span></div>
+          <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">Host: Owner &middot; Court 1, Downtown &middot; Sun 4:00pm &middot; Level 1.0&ndash;2.5</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;">
+            <span style="font-size:12.5px;font-weight:700;">Cash at facility</span>
+            <span style="background:var(--accent);color:#fff;border-radius:7px;padding:6px 14px;font-size:12px;font-weight:700;">Join</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="competitions" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">06</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Competitions &amp; Social Media Advertising</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 24px;">Hosts link social accounts once, then push competition and game ads out with one action. Replies on those platforms come back to the host as registrations.</p>
+
+    <div style="display:flex;align-items:flex-start;margin-bottom:28px;">
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">1</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Create competition</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Name, format, dates, courts, entry fee</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">2</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Link accounts</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">One-time connect, reused for every post</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">3</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Publish ad</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Auto-formatted summary + registration link</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">4</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Replies register</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Reply or tap link to register, with guest count</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:150px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">5</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Manage roster</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Host confirms, schedules, brackets</div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Wireframe — Competition &amp; Ads (Host)</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;grid-template-columns:1fr 1fr;gap:22px;">
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;">CONNECTED ACCOUNTS</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            <div style="height:32px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;"><span>WhatsApp Group</span><span style="color:var(--accent);font-weight:700;">Connected</span></div>
+            <div style="height:32px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;"><span>Facebook Group</span><span style="color:var(--accent);font-weight:700;">Connected</span></div>
+            <div style="height:32px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;color:var(--muted);"><span>X</span><span style="font-weight:700;">Connect</span></div>
+            <div style="height:32px;border:1px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;font-size:12px;color:var(--muted);"><span>Instagram</span><span style="font-weight:700;">Connect</span></div>
+          </div>
+        </div>
+        <div style="background:var(--accent);color:#fff;border-radius:8px;padding:10px 14px;font-size:12.5px;font-weight:700;text-align:center;">Publish ad to connected accounts</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:10px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);">REGISTRATIONS</div>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <div style="display:flex;justify-content:space-between;padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border);"><span>Jordan T. &middot; +1 guest</span><span style="color:var(--muted);">via WhatsApp reply</span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 12px;font-size:12px;border-bottom:1px solid var(--border);"><span>Priya S.</span><span style="color:var(--muted);">via App</span></div>
+          <div style="display:flex;justify-content:space-between;padding:8px 12px;font-size:12px;"><span>Dev M. &middot; +2 guests</span><span style="color:var(--muted);">via Facebook reply</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="payments" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">07</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Payments</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 0 24px;">Host or owner sets the accepted method per game or booking: online only, cash only, or either — the player sees this before joining.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:var(--accent-soft);color:var(--accent);margin-bottom:10px;">Online</div>
+        <div style="font-size:13px;line-height:1.6;color:var(--muted);">Charged at booking or join time through the platform. Confirmed instantly, refunded automatically if cancelled within the host's free-cancel window.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="display:inline-flex;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:700;background:oklch(94% 0.006 95);margin-bottom:10px;">Cash</div>
+        <div style="font-size:13px;line-height:1.6;color:var(--muted);">Reservation held as pending, settled in person at the facility. Host marks it paid after the game; no platform payout involved.</div>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Booking / game created</div>
+      <div style="color:var(--muted);font-size:16px;">&rarr;</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Payment method applied</div>
+      <div style="color:var(--muted);font-size:16px;">&rarr;</div>
+      <div style="background:var(--accent2-soft);color:var(--accent2);border-radius:8px;padding:10px 14px;font-size:13px;font-weight:700;">Settled &amp; recorded in host ledger</div>
+    </div>
+  </section>
+
+  <section id="clubs" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">08</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Club Rentals</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:620px;margin:0 0 24px;">A club account books recurring days and times across one or more facilities, at a discount tier the facility owner controls.</p>
+
+    <div style="display:flex;align-items:flex-start;margin-bottom:24px;">
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">1</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Request recurring slot</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Facility, courts, days, time, date range</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">2</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Discount applied</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Per the owner's club/bulk pricing config</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">3</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Owner approves</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Or auto-approves if within policy</div>
+      </div>
+      <div style="flex:1;color:var(--border);font-size:18px;margin-top:14px;text-align:center;">&rarr;</div>
+      <div style="display:flex;flex-direction:column;align-items:center;width:190px;gap:8px;">
+        <div style="width:32px;height:32px;border-radius:50%;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;">4</div>
+        <div style="font-size:13px;font-weight:700;text-align:center;">Bookings generated</div>
+        <div style="font-size:12px;color:var(--muted);text-align:center;line-height:1.4;">Recurring, discounted, club manages its own roster</div>
+      </div>
+    </div>
+
+    <div style="font-size:11.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin-bottom:10px;">Wireframe — Recurring Request (Club)</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:22px;display:grid;grid-template-columns:1.2fr 1fr;gap:22px;">
+      <div style="display:flex;flex-direction:column;gap:12px;">
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px;">DAYS</div>
+          <div style="display:flex;gap:6px;">
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);">S</div>
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--accent);color:#fff;">M</div>
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);">T</div>
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--accent);color:#fff;">W</div>
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);">T</div>
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;background:var(--accent);color:#fff;">F</div>
+            <div style="width:34px;height:34px;border-radius:8px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);">S</div>
+          </div>
+        </div>
+        <div>
+          <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px;">TIME &amp; DATE RANGE</div>
+          <div style="height:36px;border:1px solid var(--border);border-radius:8px;background:oklch(97% 0.006 95);display:flex;align-items:center;padding:0 12px;font-size:12.5px;color:var(--muted);">6:00&ndash;8:00am &middot; Sep 1 &ndash; Dec 15</div>
+        </div>
+        <div style="background:var(--accent);color:#fff;border-radius:8px;padding:10px 14px;font-size:12.5px;font-weight:700;text-align:center;">Submit request</div>
+      </div>
+      <div style="border:1px solid var(--border);border-radius:10px;padding:16px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:10px;">PRICE SUMMARY</div>
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;color:var(--muted);"><span>Standard rate</span><span>$28/hr</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px;color:var(--accent);"><span>Club discount</span><span>&minus;25%</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13.5px;font-weight:800;border-top:1px solid var(--border);padding-top:8px;margin-top:4px;"><span>Recurring rate</span><span>$21/hr</span></div>
+        <div style="margin-top:14px;font-size:11px;font-weight:700;color:var(--accent2);background:var(--accent2-soft);border-radius:6px;padding:6px 10px;display:inline-block;">Pending owner approval</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="platforms" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">09</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Platform Notes — Web, iPad, iPhone</h2>
+    <p style="font-size:14.5px;line-height:1.6;color:var(--muted);max-width:640px;margin:0 0 24px;">One shared design system and component set across platforms; layouts reflow by breakpoint rather than diverging.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;">
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="width:100%;height:60px;border:2px solid var(--text);border-radius:6px;margin-bottom:12px;"></div>
+        <div style="font-size:13.5px;font-weight:800;margin-bottom:6px;">Web &middot; &ge;1280px</div>
+        <div style="font-size:12.5px;line-height:1.55;color:var(--muted);">Multi-column dashboards; calendar and list side-by-side; persistent sidebar nav for hosts/owners.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="width:70%;height:60px;border:2px solid var(--text);border-radius:8px;margin:0 auto 12px;"></div>
+        <div style="font-size:13.5px;font-weight:800;margin-bottom:6px;">iPad &middot; 768&ndash;1180px</div>
+        <div style="font-size:12.5px;line-height:1.55;color:var(--muted);">Two-column list + detail where space allows; collapsible nav; touch targets &ge;44px.</div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px;">
+        <div style="width:38%;height:60px;border:2px solid var(--text);border-radius:10px;margin:0 auto 12px;"></div>
+        <div style="font-size:13.5px;font-weight:800;margin-bottom:6px;">iPhone &middot; &lt;600px</div>
+        <div style="font-size:12.5px;line-height:1.55;color:var(--muted);">Single-column stacked flows; bottom tab bar (Discover, Bookings, Games, Profile); full-screen modal forms.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="assumptions" style="scroll-margin-top:32px;margin-top:72px;">
+    <div style="font-size:11px;font-weight:700;letter-spacing:.08em;color:var(--muted);text-transform:uppercase;margin-bottom:8px;">10</div>
+    <h2 style="font-size:26px;font-weight:800;margin:0 0 8px;">Assumptions &amp; Open Questions</h2>
+    <div style="display:flex;flex-direction:column;gap:10px;font-size:13.5px;color:var(--muted);line-height:1.6;max-width:640px;">
+      <div>&middot; Camera integration assumes facilities connect an existing system (partner API or stream link) — not a platform-owned camera product.</div>
+      <div>&middot; Social platforms may restrict automated reading of replies; some ad flows may need the host to confirm registrations manually.</div>
+      <div>&middot; Payment processor for the "online" method is unspecified — assumed a standard card/wallet processor with platform payout to owners/hosts.</div>
+      <div>&middot; Player level formula (tenure + win rate) needs a product decision on weighting before matching logic is finalized.</div>
+    </div>
+  </section>
+
+</main>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{}"></script>
+</body>
+</html>
