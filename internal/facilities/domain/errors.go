@@ -32,6 +32,14 @@ var (
 	// invariant rather than left as a UI-only concern — see
 	// Facility.AddCameraLink's doc comment.
 	ErrCameraConsentRequired = errors.New("facilities: camera consent must be attested before adding a camera link")
+
+	// ErrFacilityNotFound is returned when a Facility lookup by ID has no
+	// match. Added in T7.3 (postgres/grpc wiring) alongside the persistence
+	// adapter, mirroring booking.ErrBookingNotFound — CLAUDE.md rule 5
+	// requires adapters to translate infra errors (e.g. a Postgres
+	// pgx.ErrNoRows) into a domain sentinel like this one, not let the raw
+	// infra error cross into app/grpcapi.
+	ErrFacilityNotFound = errors.New("facilities: facility not found")
 )
 
 // FieldError wraps one of the Err*Field sentinels above with the specific

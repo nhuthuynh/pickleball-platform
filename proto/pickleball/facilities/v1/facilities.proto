@@ -1,0 +1,146 @@
+syntax = "proto3";
+
+package pickleball.facilities.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/facilities/v1;facilitiesv1";
+
+// CameraLink mirrors internal/facilities/domain.CameraLink (T7.2). court_id
+// is empty for a facility-wide link and set to a specific Court's id for a
+// link scoped to that Court only.
+message CameraLink {
+  string url = 1;
+  string court_id = 2;
+}
+
+// Facility mirrors internal/facilities/domain.Facility (T7.2).
+// camera_consent_attested defaults to false server-side on creation
+// regardless of what a client sends — see CreateFacilityRequest's doc
+// comment — and only AddCameraLink is gated by it (round-10 design review
+// §2b, docs/design/v1-review-round-10-final.md).
+message Facility {
+  string id = 1;
+  string owner_id = 2;
+  string name = 3;
+  string description = 4;
+  string address = 5;
+  repeated string photo_urls = 6;
+  bool camera_consent_attested = 7;
+  repeated CameraLink camera_links = 8;
+}
+
+// Court mirrors internal/facilities/domain.Court (T7.2) — the same Court
+// booking.domain.Booking reserves via its CourtID (proto/pickleball/
+// booking/v1/booking.proto), and pricing_rules prices via its court_id.
+message Court {
+  string id = 1;
+  string facility_id = 2;
+  string name = 3;
+}
+
+// CreateFacilityRequest deliberately has no camera_consent_attested field:
+// domain.NewFacility has no parameter that could set it true on creation
+// (T7.2), so there is nothing here for a client to set either — consent is
+// always attested as an explicit, separate step (AddCameraLink's
+// precondition), never at creation time.
+message CreateFacilityRequest {
+  string owner_id = 1;
+  string name = 2;
+  string description = 3;
+  string address = 4;
+  repeated string photo_urls = 5;
+}
+
+message CreateFacilityResponse {
+  Facility facility = 1;
+}
+
+message GetFacilityRequest {
+  string facility_id = 1;
+}
+
+message GetFacilityResponse {
+  Facility facility = 1;
+}
+
+// ListFacilitiesRequest's name_filter is a simple case-insensitive
+// substring match (Postgres ILIKE) on Facility.Name — no real geo-search
+// (HANDOFF.md T7.3). An empty name_filter returns every Facility.
+message ListFacilitiesRequest {
+  string name_filter = 1;
+}
+
+message ListFacilitiesResponse {
+  repeated Facility facilities = 1;
+}
+
+// AddCourtRequest adds a Court to an existing Facility. The Postgres
+// adapter inserts into the *existing* courts table with facility_id set —
+// not a second courts table (HANDOFF.md T7.3 AC 5) — so the returned
+// Court.id is immediately usable as a bookings.court_id via
+// BookingService, unmodified.
+message AddCourtRequest {
+  string facility_id = 1;
+  string name = 2;
+}
+
+message AddCourtResponse {
+  Court court = 1;
+}
+
+// AddCameraLinkRequest adds a facility-wide camera link. Rejected with a
+// mapped 4xx (not a 500 — see internal/facilities/adapter/grpcapi's
+// toStatus) via domain.ErrCameraConsentRequired when the Facility's
+// camera_consent_attested is still false (HANDOFF.md T7.3 smoke-test AC).
+message AddCameraLinkRequest {
+  string facility_id = 1;
+  string url = 2;
+}
+
+message AddCameraLinkResponse {
+  Facility facility = 1;
+}
+
+// FacilitiesService is the API contract for the Facilities bounded
+// context, mirroring BookingService's/PaymentsService's style
+// (proto/pickleball/booking/v1, proto/pickleball/payments/v1) — buf
+// generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this file.
+service FacilitiesService {
+  rpc CreateFacility(CreateFacilityRequest) returns (CreateFacilityResponse) {
+    option (google.api.http) = {
+      post: "/v1/facilities"
+      body: "*"
+    };
+  }
+
+  rpc GetFacility(GetFacilityRequest) returns (GetFacilityResponse) {
+    option (google.api.http) = {
+      get: "/v1/facilities/{facility_id}"
+    };
+  }
+
+  rpc ListFacilities(ListFacilitiesRequest) returns (ListFacilitiesResponse) {
+    option (google.api.http) = {
+      get: "/v1/facilities"
+    };
+  }
+
+  rpc AddCourt(AddCourtRequest) returns (AddCourtResponse) {
+    option (google.api.http) = {
+      post: "/v1/facilities/{facility_id}/courts"
+      body: "*"
+    };
+  }
+
+  // AddCameraLink is not one of the four RPCs HANDOFF.md T7.3 names
+  // explicitly, but is required to exercise its smoke-test AC ("adding a
+  // camera link before consent is attested returns a mapped 4xx"), so it's
+  // included here alongside them.
+  rpc AddCameraLink(AddCameraLinkRequest) returns (AddCameraLinkResponse) {
+    option (google.api.http) = {
+      post: "/v1/facilities/{facility_id}/cameraLinks"
+      body: "*"
+    };
+  }
+}

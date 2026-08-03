@@ -1,9 +1,9 @@
-// Command server wires the Booking, Social Play, and Payments contexts'
-// gRPC services and their grpc-gateway REST mappings into one process,
-// backed by Postgres. It only compiles after `make generate` (see CLAUDE.md
-// gotchas) since it depends on internal/gen/pickleball/booking/v1,
-// internal/gen/pickleball/socialplay/v1, and internal/gen/pickleball/
-// payments/v1.
+// Command server wires the Booking, Social Play, Payments, and Facilities
+// contexts' gRPC services and their grpc-gateway REST mappings into one
+// process, backed by Postgres. It only compiles after `make generate` (see
+// CLAUDE.md gotchas) since it depends on internal/gen/pickleball/booking/v1,
+// internal/gen/pickleball/socialplay/v1, internal/gen/pickleball/
+// payments/v1, and internal/gen/pickleball/facilities/v1.
 //
 // Payments' RegistrationUpdater dependency (socialplayport.
 // RegistrationPaymentUpdater, satisfied by internal/payments/adapter/
@@ -31,7 +31,11 @@ import (
 	bookinggrpc "github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
 	bookingpg "github.com/nhuthuynh/white-label/internal/booking/adapter/postgres"
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
+	facilitiesgrpc "github.com/nhuthuynh/white-label/internal/facilities/adapter/grpcapi"
+	facilitiespg "github.com/nhuthuynh/white-label/internal/facilities/adapter/postgres"
+	facilitiesapp "github.com/nhuthuynh/white-label/internal/facilities/app"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
+	facilitiesv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/facilities/v1"
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 	paymentsgrpc "github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
@@ -76,6 +80,14 @@ func run(logger *slog.Logger) error {
 	bookingSvc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
 	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
 
+	// Facilities (T7.3). Its Repository is Postgres-backed like Booking's;
+	// AddCourt inserts into the *same* courts table Booking's repo above
+	// reads court_id from (0001_init.sql + 0010_facilities.sql's
+	// facility_id column) — not a second courts table.
+	facilitiesRepo := facilitiespg.NewRepository(pool)
+	facilitiesSvc := facilitiesapp.NewService(facilitiesRepo, idgen.UUID{})
+	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
+
 	// Social Play (T5.4): its GameRepository/RegistrationRepository are
 	// Postgres-backed like Booking's; its CourtReservation port is
 	// implemented against the real Booking app.Service (the one place
@@ -113,6 +125,7 @@ func run(logger *slog.Logger) error {
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
 	socialplayv1.RegisterSocialPlayServiceServer(grpcServer, socialplayHandler)
 	paymentsv1.RegisterPaymentsServiceServer(grpcServer, paymentsHandler)
+	facilitiesv1.RegisterFacilitiesServiceServer(grpcServer, facilitiesHandler)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -135,6 +148,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	if err := paymentsv1.RegisterPaymentsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
+		return err
+	}
+	if err := facilitiesv1.RegisterFacilitiesServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
 		return err
 	}
 
