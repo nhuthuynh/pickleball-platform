@@ -29,6 +29,12 @@ func (fakeGames) GetByID(context.Context, string) (socialplaydomain.Game, error)
 	return socialplaydomain.Game{}, socialplaydomain.ErrGameNotFound
 }
 
+// ListGames is a stub (T8.9): MarkRegistrationPaymentStatus never touches
+// it, but app.NewService's port.GameRepository requires it now.
+func (fakeGames) ListGames(context.Context, socialplayport.GameListingFilter) ([]socialplayport.GameListing, error) {
+	return nil, nil
+}
+
 // fakeRegistrations is a minimal in-memory port.RegistrationRepository —
 // just enough for RegistrationUpdater's own tests (this adapter's job is
 // the translation at the boundary, not re-testing app.Service's own

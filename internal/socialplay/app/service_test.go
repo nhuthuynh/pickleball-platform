@@ -10,6 +10,7 @@ import (
 
 	"github.com/nhuthuynh/white-label/internal/socialplay/app"
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
+	"github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
 
 // fakeReservation is a minimal in-memory port.CourtReservation fake — no
@@ -96,10 +97,15 @@ func (g *sequentialIDs) NewID() string {
 type fakeGameRepository struct {
 	games     map[string]domain.Game
 	createErr error
+	// registrations backs ListGames' SpotsLeft computation only (T8.9) — a
+	// direct field a test can populate, standing in for the real query's
+	// LEFT JOIN against the registrations table (this fake has no
+	// connection to fakeRegistrationRepository).
+	registrations map[string]domain.Registration
 }
 
 func newFakeGameRepository() *fakeGameRepository {
-	return &fakeGameRepository{games: make(map[string]domain.Game)}
+	return &fakeGameRepository{games: make(map[string]domain.Game), registrations: make(map[string]domain.Registration)}
 }
 
 func (r *fakeGameRepository) Create(_ context.Context, g domain.Game) (domain.Game, error) {
@@ -116,6 +122,55 @@ func (r *fakeGameRepository) GetByID(_ context.Context, id string) (domain.Game,
 		return domain.Game{}, domain.ErrGameNotFound
 	}
 	return g, nil
+}
+
+// ListGames is a minimal in-memory port.GameRepository.ListGames fake
+// (T8.9): filters by VenueFacilityID/StartsAfter/StartsBefore exactly like
+// the real sqlc query (db/queries/socialplay.sql's ListGames), and derives
+// SpotsLeft from r.registrations using the same (1 + GuestCount) weighting
+// domain.Register's own capacity check uses — see
+// countActiveRegistrationsWeight's doc comment. Only 'scheduled' Games are
+// ever returned, mirroring the real query's WHERE status = 'scheduled'.
+// Results are sorted by start time to match the real query's ORDER BY
+// starts_at, so callers (and this fake's own tests) can assert on order.
+func (r *fakeGameRepository) ListGames(_ context.Context, filter port.GameListingFilter) ([]port.GameListing, error) {
+	var out []port.GameListing
+	for _, g := range r.games {
+		if g.Status != domain.StatusScheduled {
+			continue
+		}
+		if filter.VenueFacilityID != "" && g.VenueFacilityID != filter.VenueFacilityID {
+			continue
+		}
+		if !filter.StartsAfter.IsZero() && g.Range.Start.Before(filter.StartsAfter) {
+			continue
+		}
+		if !filter.StartsBefore.IsZero() && g.Range.Start.After(filter.StartsBefore) {
+			continue
+		}
+		out = append(out, port.GameListing{
+			Game:      g,
+			SpotsLeft: g.Capacity - countActiveRegistrationsWeight(r.registrations, g.ID),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Game.Range.Start.Before(out[j].Game.Range.Start) })
+	return out, nil
+}
+
+// countActiveRegistrationsWeight sums (1 + GuestCount) across gameID's
+// active (non-cancelled) registrations — the same weighting
+// domain.Register's own capacity check uses (registration.go's
+// countActiveRegistrations), reimplemented here since this fake has no
+// access to the domain package's unexported helper.
+func countActiveRegistrationsWeight(registrations map[string]domain.Registration, gameID string) int {
+	weight := 0
+	for _, reg := range registrations {
+		if reg.GameID != gameID || reg.Status == domain.RegistrationStatusCancelled {
+			continue
+		}
+		weight += 1 + reg.GuestCount
+	}
+	return weight
 }
 
 // fakeRegistrationRepository is a minimal in-memory port.RegistrationRepository
@@ -1152,4 +1207,140 @@ func TestExpireWaitlistPromotion_RejectsPremature(t *testing.T) {
 	if stored.Status != domain.WaitlistStatusPromoted {
 		t.Fatalf("status = %v, want unchanged (still promoted)", stored.Status)
 	}
+}
+
+// TestListGames_FiltersByVenueFacility proves ListGames scopes results to
+// filter.VenueFacilityID when set, per T8.9's Discover & Join Games
+// facility filter.
+func TestListGames_FiltersByVenueFacility(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	rng1 := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
+	rng2 := mustRange(t, "2026-09-02T10:00:00Z", "2026-09-02T11:00:00Z")
+	games.games["g-a"] = mustGame(t, "g-a", "facility-a", rng1)
+	games.games["g-b"] = mustGame(t, "g-b", "facility-b", rng2)
+
+	got, err := svc.ListGames(ctx, port.GameListingFilter{VenueFacilityID: "facility-a"})
+	if err != nil {
+		t.Fatalf("ListGames err: %v", err)
+	}
+	if len(got) != 1 || got[0].Game.ID != "g-a" {
+		t.Fatalf("ListGames(facility-a) = %+v, want only g-a", got)
+	}
+}
+
+// TestListGames_FiltersByDateRange proves ListGames scopes results to
+// filter.StartsAfter/StartsBefore when set, per T8.9's Discover & Join Games
+// date filter.
+func TestListGames_FiltersByDateRange(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	early := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
+	late := mustRange(t, "2026-09-10T10:00:00Z", "2026-09-10T11:00:00Z")
+	games.games["g-early"] = mustGame(t, "g-early", "facility-a", early)
+	games.games["g-late"] = mustGame(t, "g-late", "facility-a", late)
+
+	after, err := time.Parse(time.RFC3339, "2026-09-05T00:00:00Z")
+	if err != nil {
+		t.Fatalf("bad fixture: %v", err)
+	}
+
+	got, err := svc.ListGames(ctx, port.GameListingFilter{StartsAfter: after})
+	if err != nil {
+		t.Fatalf("ListGames err: %v", err)
+	}
+	if len(got) != 1 || got[0].Game.ID != "g-late" {
+		t.Fatalf("ListGames(starts_after=%v) = %+v, want only g-late", after, got)
+	}
+}
+
+// TestListGames_ExcludesCancelled proves a cancelled Game never appears in
+// the Discover & Join Games browse list (T8.9) — it isn't joinable, so it
+// has no place there, mirroring ListCourtBookings' cancelled-exclusion
+// (internal/booking/app/list_bookings_test.go).
+func TestListGames_ExcludesCancelled(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	rng := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
+	live := mustGame(t, "g-live", "facility-a", rng)
+	cancelled := mustGame(t, "g-cancelled", "facility-a", rng)
+	if err := cancelled.Cancel(); err != nil {
+		t.Fatalf("fixture Cancel err: %v", err)
+	}
+	games.games["g-live"] = live
+	games.games["g-cancelled"] = cancelled
+
+	got, err := svc.ListGames(ctx, port.GameListingFilter{})
+	if err != nil {
+		t.Fatalf("ListGames err: %v", err)
+	}
+	if len(got) != 1 || got[0].Game.ID != "g-live" {
+		t.Fatalf("ListGames() = %+v, want only g-live (cancelled excluded)", got)
+	}
+}
+
+// TestListGames_ComputesSpotsLeft proves each returned GameListing's
+// SpotsLeft reflects the Game's Capacity minus the *weighted* sum of
+// (1 + GuestCount) across its active registrations — the same weighting
+// domain.Register's own capacity check uses (T8.9's requirement that the
+// detail view show a real "spots left", not a static Capacity).
+func TestListGames_ComputesSpotsLeft(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	rng := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
+	g := mustGame(t, "g-1", "facility-a", rng)
+	g.Capacity = 6
+	games.games["g-1"] = g
+
+	// One registration with 2 guests occupies 3 of the 6 slots.
+	games.registrations["r-1"] = domain.Registration{
+		ID: "r-1", GameID: "g-1", PlayerID: "player-1",
+		Status: domain.RegistrationStatusRegistered, GuestCount: 2,
+	}
+	// A cancelled registration must not count against capacity.
+	games.registrations["r-2"] = domain.Registration{
+		ID: "r-2", GameID: "g-1", PlayerID: "player-2",
+		Status: domain.RegistrationStatusCancelled, GuestCount: 5,
+	}
+
+	got, err := svc.ListGames(ctx, port.GameListingFilter{})
+	if err != nil {
+		t.Fatalf("ListGames err: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("ListGames() returned %d listings, want 1", len(got))
+	}
+	if got[0].SpotsLeft != 3 {
+		t.Fatalf("SpotsLeft = %d, want 3 (6 capacity - 3 weight)", got[0].SpotsLeft)
+	}
+}
+
+// mustGame builds a minimal valid, scheduled domain.Game fixture for
+// ListGames tests, bypassing app.Service.ScheduleGame (which requires a
+// working CourtReservation/FacilityLookup this suite of tests has no need
+// for) by calling domain.NewGame directly and seeding it straight into the
+// fake repository.
+func mustGame(t *testing.T, id, venueFacilityID string, r domain.TimeRange) domain.Game {
+	t.Helper()
+	g, err := domain.NewGame(id, "host-1", "", venueFacilityID, []string{"court-1"}, r, 4, domain.PaymentMethodEither, 0)
+	if err != nil {
+		t.Fatalf("fixture NewGame err: %v", err)
+	}
+	return g
 }

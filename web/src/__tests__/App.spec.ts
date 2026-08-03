@@ -4,6 +4,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { routes } from '../router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
+import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
@@ -72,7 +73,6 @@ describe('App routing', () => {
   })
 
   it.each([
-    ['/games', 'Games'],
     ['/games/new', 'Create a game'],
     ['/games/abc-123/checkout', 'Checkout'],
     ['/host/payments', 'Payments'],
@@ -86,6 +86,19 @@ describe('App routing', () => {
     expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
     expect(wrapper.text()).toContain(expectedTitle)
     expect(wrapper.text()).toContain('Coming soon.')
+  })
+
+  // T8.9 (Discover & Join Games) replaces the /games placeholder with a
+  // real screen — this is the same "only the matched route's screen
+  // renders" regression T8.1's own tests above already guard for
+  // /facilities and /facilities/onboard.
+  it('renders only DiscoverGames at /games', async () => {
+    const wrapper = await mountAppAt('/games')
+
+    expect(wrapper.findComponent(DiscoverGames).exists()).toBe(true)
+    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
+    expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
   })
 
   it('redirects / to /facilities', async () => {

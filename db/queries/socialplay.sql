@@ -17,6 +17,42 @@ SELECT id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_a
 FROM games
 WHERE id = $1;
 
+-- name: ListGames :many
+-- The Discover & Join Games browse/filter read path (T8.9). Only
+-- 'scheduled' Games are ever returned — a cancelled Game isn't joinable, so
+-- it has no place in a player-facing browse list (mirrors
+-- ListActiveRegistrationsForGame's "status <> 'cancelled'" filtering
+-- reasoning, just against Game.Status instead of Registration.Status).
+--
+-- venue_facility_id/starts_after/starts_before are all optional filters:
+-- sqlc.narg generates nullable params (pgtype.UUID / pgtype.Timestamptz
+-- with Valid: false for "unset"), mirroring ListFacilities' name_filter
+-- empty-string convention but for columns where an empty string isn't a
+-- meaningful sentinel.
+--
+-- spots_left is computed here (capacity minus the *weighted* sum of
+-- (1 + guest_count) across this Game's active, non-cancelled
+-- registrations) rather than requiring the caller to separately fetch and
+-- sum registrations per Game (which would be an N+1 query per Game in the
+-- list) — the exact same weighting domain.Register's own capacity check
+-- uses (db/queries's ListActiveRegistrationsForGame is that check's own
+-- read path; this aggregate mirrors its weighting rule, not a second,
+-- independently-maintained one). GREATEST(...,0) is a defensive floor only
+-- — the capacity guard trigger (0006/0012) should make a negative value
+-- unreachable in practice, but a list/read path shouldn't ever surface a
+-- negative "spots left" to a Player even if that invariant were ever
+-- violated some other way.
+SELECT g.id, g.host_id, g.facility_id, g.venue_facility_id, g.court_ids, g.starts_at, g.ends_at, g.capacity, g.status, g.payment_method, g.guest_allowance,
+       GREATEST(g.capacity - COALESCE(SUM(CASE WHEN r.status <> 'cancelled' THEN 1 + r.guest_count ELSE 0 END), 0), 0)::int AS spots_left
+FROM games g
+LEFT JOIN registrations r ON r.game_id = g.id
+WHERE g.status = 'scheduled'
+  AND (sqlc.narg(venue_facility_id)::uuid IS NULL OR g.venue_facility_id = sqlc.narg(venue_facility_id))
+  AND (sqlc.narg(starts_after)::timestamptz IS NULL OR g.starts_at >= sqlc.narg(starts_after))
+  AND (sqlc.narg(starts_before)::timestamptz IS NULL OR g.starts_at <= sqlc.narg(starts_before))
+GROUP BY g.id
+ORDER BY g.starts_at;
+
 -- name: CreateRegistration :one
 INSERT INTO registrations (id, game_id, player_id, source, status, payment_status, guest_count)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

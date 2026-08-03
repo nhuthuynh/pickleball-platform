@@ -41,6 +41,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/socialplay/app"
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
+	"github.com/nhuthuynh/white-label/internal/socialplay/port"
 
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 )
@@ -72,6 +73,13 @@ func (f *fakeGameRepo) GetByID(_ context.Context, id string) (domain.Game, error
 		return domain.Game{}, domain.ErrGameNotFound
 	}
 	return g, nil
+}
+
+// ListGames is a minimal stub (T8.9): this suite's tests don't exercise the
+// Discover & Join Games browse/filter read, but port.GameRepository now
+// requires it.
+func (f *fakeGameRepo) ListGames(_ context.Context, _ port.GameListingFilter) ([]port.GameListing, error) {
+	return nil, nil
 }
 
 type fakeRegistrationRepo struct {

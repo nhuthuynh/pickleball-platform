@@ -19,6 +19,7 @@ import (
 
 	socialplaydb "github.com/nhuthuynh/white-label/internal/gen/socialplaydb"
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
+	"github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
 
 // Postgres error codes this adapter cares about. 23505 is the unique
@@ -70,6 +71,33 @@ func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, e
 		return domain.Game{}, translateGameErr(err)
 	}
 	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
+}
+
+// ListGames implements port.GameRepository.ListGames (T8.9): the Discover &
+// Join Games browse/filter read. venue_facility_id/starts_after/
+// starts_before are all optional (nullableUUID/nullableTimestamptz below
+// convert an unset domain filter value into the explicitly-invalid,
+// Valid: false zero value the sqlc.narg-generated params expect for "no
+// filter on this dimension" — see socialplaydb.sql's ListGames query). The
+// query itself computes SpotsLeft, so this adapter has nothing left to do
+// beyond mapping columns onto port.GameListing.
+func (r *GameRepository) ListGames(ctx context.Context, filter port.GameListingFilter) ([]port.GameListing, error) {
+	rows, err := r.q.ListGames(ctx, socialplaydb.ListGamesParams{
+		VenueFacilityID: nullableUUID(filter.VenueFacilityID),
+		StartsAfter:     nullableTimestamptz(filter.StartsAfter),
+		StartsBefore:    nullableTimestamptz(filter.StartsBefore),
+	})
+	if err != nil {
+		return nil, translateGameErr(err)
+	}
+	out := make([]port.GameListing, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, port.GameListing{
+			Game:      gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance),
+			SpotsLeft: int(row.SpotsLeft),
+		})
+	}
+	return out, nil
 }
 
 func translateGameErr(err error) error {
@@ -267,4 +295,17 @@ func fromNullableUUID(u pgtype.UUID) string {
 
 func toTimestamptz(t time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Time: t, Valid: true}
+}
+
+// nullableTimestamptz converts an optional filter bound (T8.9's
+// GameListingFilter.StartsAfter/StartsBefore: time.Time's zero value means
+// "no bound on this side") into a pgtype.Timestamptz suitable for the
+// ListGames query's sqlc.narg params — an explicitly-invalid zero value
+// (Valid: false), mirroring nullableUUID's identical convention for
+// VenueFacilityID.
+func nullableTimestamptz(t time.Time) pgtype.Timestamptz {
+	if t.IsZero() {
+		return pgtype.Timestamptz{}
+	}
+	return toTimestamptz(t)
 }
