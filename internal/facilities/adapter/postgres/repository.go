@@ -110,6 +110,17 @@ func (r *Repository) AddCameraLink(ctx context.Context, facilityID string, link 
 	return domain.CameraLink{URL: row.Url, CourtID: uuidOrEmpty(row.CourtID)}, nil
 }
 
+// AttestCameraConsent persists CameraConsentAttested = true for facilityID
+// (T8.4). Callers must have already run domain.Facility.
+// AttestCameraConsent's EnsureOwner check before calling this — see
+// port.Repository.AttestCameraConsent's doc comment.
+func (r *Repository) AttestCameraConsent(ctx context.Context, facilityID string) error {
+	if _, err := r.q.AttestCameraConsent(ctx, mustUUID(facilityID)); err != nil {
+		return translateErr(err)
+	}
+	return nil
+}
+
 func (r *Repository) cameraLinksFor(ctx context.Context, facilityID string) ([]domain.CameraLink, error) {
 	rows, err := r.q.ListCameraLinksForFacility(ctx, mustUUID(facilityID))
 	if err != nil {

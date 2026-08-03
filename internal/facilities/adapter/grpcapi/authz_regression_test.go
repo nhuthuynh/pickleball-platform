@@ -115,6 +115,16 @@ func (r *fakeRepo) AddCameraLink(_ context.Context, facilityID string, link doma
 	return link, nil
 }
 
+func (r *fakeRepo) AttestCameraConsent(_ context.Context, facilityID string) error {
+	f, ok := r.facilities[facilityID]
+	if !ok {
+		return domain.ErrFacilityNotFound
+	}
+	f.CameraConsentAttested = true
+	r.facilities[facilityID] = f
+	return nil
+}
+
 // fakeIDs is a deterministic, dependency-free port.IDGenerator stand-in,
 // mirroring internal/socialplay/adapter/grpcapi/authz_regression_test.go's
 // fakeIDs.
@@ -280,6 +290,112 @@ func TestAddCameraLink_AllowsOwningActor(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatalf("AddCameraLink(owner-1) (the owner) should succeed, got: %v", err)
+	}
+	if len(resp.GetFacility().GetCameraLinks()) != 1 {
+		t.Errorf("CameraLinks = %v, want one link", resp.GetFacility().GetCameraLinks())
+	}
+}
+
+// --- AttestCameraConsent: object-level (BOLA) regression -------------------
+//
+// T8.4's required regression test: mirrors TestAddCourt_RejectsMismatchedActor
+// and TestAddCameraLink_RejectsMismatchedActor exactly, for the new
+// AttestCameraConsent RPC. Verified per CLAUDE.md rule 10 / T7.7's own
+// verification pattern: temporarily commented out the EnsureOwner call
+// inside domain.Facility.AttestCameraConsent, confirmed
+// TestAttestCameraConsent_RejectsMismatchedActor failed (the attacker's
+// call succeeded and CameraConsentAttested flipped to true), then restored
+// the check and confirmed the test passes again.
+
+// TestAttestCameraConsent_RejectsMismatchedActor is the ticket's required
+// test: create a Facility owned by owner-1, then attempt
+// AttestCameraConsent as a different actor_user_id, through the real
+// handler -> app -> domain path, and assert the request is rejected with
+// the correctly mapped status — not a 500, not a silent success — and that
+// CameraConsentAttested is left untouched.
+func TestAttestCameraConsent_RejectsMismatchedActor(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHandler()
+
+	facility := seedFacility(t, h, "owner-1")
+
+	_, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
+		FacilityId:  facility.GetId(),
+		ActorUserId: "attacker",
+	})
+	if err == nil {
+		t.Fatal("AttestCameraConsent(attacker) succeeded silently — a non-owner was able to attest consent on owner-1's facility (BOLA regression)")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("AttestCameraConsent(attacker) returned a non-gRPC-status error: %v (a client can't map this to a clean HTTP status)", err)
+	}
+	if st.Code() == codes.Internal {
+		t.Fatalf("AttestCameraConsent(attacker) mapped to Internal (500-shaped) — want PermissionDenied (403-shaped): %v", err)
+	}
+	if st.Code() != codes.PermissionDenied {
+		t.Fatalf("AttestCameraConsent(attacker) status code = %v, want PermissionDenied (403-shaped)", st.Code())
+	}
+
+	// Belt-and-braces, per the ticket's "not a silent success": prove
+	// CameraConsentAttested is still false, not just that an error came
+	// back on the wire.
+	if repo.facilities[facility.GetId()].CameraConsentAttested {
+		t.Error("CameraConsentAttested = true after a rejected AttestCameraConsent, want false (the attacker's rejected attempt must not have any side effect)")
+	}
+}
+
+// TestAttestCameraConsent_AllowsOwningActor is the symmetric positive-path
+// case: without it, TestAttestCameraConsent_RejectsMismatchedActor alone
+// couldn't tell "the ownership check correctly rejects a mismatched actor"
+// apart from "AttestCameraConsent is broken and rejects everyone."
+func TestAttestCameraConsent_AllowsOwningActor(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHandler()
+
+	facility := seedFacility(t, h, "owner-1")
+
+	resp, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
+		FacilityId:  facility.GetId(),
+		ActorUserId: "owner-1",
+	})
+	if err != nil {
+		t.Fatalf("AttestCameraConsent(owner-1) (the owner) should succeed, got: %v", err)
+	}
+	if !resp.GetFacility().GetCameraConsentAttested() {
+		t.Error("CameraConsentAttested = false in response, want true")
+	}
+	if !repo.facilities[facility.GetId()].CameraConsentAttested {
+		t.Error("CameraConsentAttested = false in repo after the owner's successful AttestCameraConsent, want true")
+	}
+}
+
+// TestAttestCameraConsent_ThenAddCameraLink_EndToEnd is the ticket's
+// headline acceptance criterion, exercised through the full real handler
+// stack: attesting consent as the owner, then adding a camera link, both
+// succeed — proving the previously-dead-ended AddCameraLink flow is now
+// reachable end-to-end by a real user for the first time.
+func TestAttestCameraConsent_ThenAddCameraLink_EndToEnd(t *testing.T) {
+	ctx := context.Background()
+	h, _ := newTestHandler()
+
+	facility := seedFacility(t, h, "owner-1")
+
+	if _, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
+		FacilityId:  facility.GetId(),
+		ActorUserId: "owner-1",
+	}); err != nil {
+		t.Fatalf("AttestCameraConsent: unexpected err: %v", err)
+	}
+
+	resp, err := h.AddCameraLink(ctx, &facilitiesv1.AddCameraLinkRequest{
+		FacilityId:  facility.GetId(),
+		Url:         "https://example.com/cam1.m3u8",
+		ActorUserId: "owner-1",
+	})
+	if err != nil {
+		t.Fatalf("AddCameraLink after AttestCameraConsent should succeed, got: %v", err)
 	}
 	if len(resp.GetFacility().GetCameraLinks()) != 1 {
 		t.Errorf("CameraLinks = %v, want one link", resp.GetFacility().GetCameraLinks())

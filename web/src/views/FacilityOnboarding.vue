@@ -15,18 +15,17 @@
 // so the message renders next to the field it's about — see
 // `applyCreateFacilityError` below.
 //
-// KNOWN BACKEND GAP (out of scope for this ticket, flagged not hidden):
-// there is currently no API path that ever sets a Facility's
-// `cameraConsentAttested` to true (CreateFacilityRequest deliberately omits
-// it per the round-10 finding, and AddCameraLinkRequest doesn't carry it
-// either — see facilities.proto's own doc comments). So even when this
-// screen's own consent checkbox is checked and `AddCameraLink` is called,
-// the server will currently still reject it with
-// `domain.ErrCameraConsentRequired` (mapped to a 4xx). This screen still
-// implements the checkbox default + client-side gate correctly (the load-
-// bearing acceptance criterion for this ticket) and surfaces whatever the
-// server returns like any other error; wiring an actual "attest consent"
-// endpoint is a follow-up ticket, not this one.
+// T8.4 CLOSES A PREVIOUSLY-FLAGGED BACKEND GAP: T7.4 originally shipped this
+// screen with no API path that could ever set a Facility's
+// `cameraConsentAttested` to true, so `submitCameraLink` below always got
+// rejected server-side with `domain.ErrCameraConsentRequired` even once the
+// checkbox was checked. T8.4 added a dedicated `AttestCameraConsent` RPC
+// (proto/pickleball/facilities/v1/facilities.proto) — deliberately separate
+// from `AddCameraLink`, per the round-10 design review's requirement that
+// consent not be settable at creation time. `submitCameraLink` now calls
+// `AttestCameraConsent` first and only proceeds to `AddCameraLink` once that
+// succeeds, making the checkbox + form actually work end-to-end for the
+// first time.
 import { reactive, ref } from 'vue'
 import { facilitiesClient, type FacilitiesClient } from '../api/facilitiesClient'
 import { useBreakpoint } from '../composables/useBreakpoint'
@@ -194,6 +193,14 @@ async function submitFacility() {
  * false, so even a caller that bypasses the disabled button (e.g. a
  * programmatic call) cannot submit a camera link while consent is
  * unchecked. This is the T7.4 / round-10 §2b acceptance criterion.
+ *
+ * T8.4: once past that client-side gate, this now calls the real
+ * `AttestCameraConsent` RPC first, and only proceeds to `AddCameraLink` once
+ * that succeeds — attesting consent and adding a link are two explicit
+ * server-side steps (matching `AddCameraLinkRequest`'s own doc comment on
+ * why consent isn't a field on that request), not one combined call. A
+ * failure attesting consent surfaces inline and never reaches the
+ * `AddCameraLink` call.
  */
 async function submitCameraLink() {
   cameraError.value = ''
@@ -211,6 +218,23 @@ async function submitCameraLink() {
 
   addingCamera.value = true
   try {
+    const attestResult = await props.client.POST(
+      '/v1/facilities/{facilityId}/attestCameraConsent',
+      {
+        params: { path: { facilityId: facility.value.id } },
+        body: { actorUserId: MOCK_OWNER_ID },
+      },
+    )
+
+    if (attestResult.error || !attestResult.data?.facility) {
+      cameraError.value =
+        (attestResult.error as { message?: string } | undefined)?.message ??
+        'Could not confirm camera consent.'
+      return
+    }
+
+    facility.value = attestResult.data.facility as FacilityDTO
+
     const { data, error } = await props.client.POST('/v1/facilities/{facilityId}/cameraLinks', {
       params: { path: { facilityId: facility.value.id } },
       body: { url, actorUserId: MOCK_OWNER_ID },

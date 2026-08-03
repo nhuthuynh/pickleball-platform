@@ -79,6 +79,14 @@ func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCamera
 	return &facilitiesv1.AddCameraLinkResponse{Facility: toProto(f)}, nil
 }
 
+func (h *Handler) AttestCameraConsent(ctx context.Context, req *facilitiesv1.AttestCameraConsentRequest) (*facilitiesv1.AttestCameraConsentResponse, error) {
+	f, err := h.svc.AttestCameraConsent(ctx, req.GetFacilityId(), req.GetActorUserId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &facilitiesv1.AttestCameraConsentResponse{Facility: toProto(f)}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: NotFound -> 404, InvalidArgument -> 400,
 // FailedPrecondition -> 400, PermissionDenied -> 403 — this is what makes

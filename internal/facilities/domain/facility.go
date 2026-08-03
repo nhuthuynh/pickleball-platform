@@ -95,3 +95,23 @@ func (f *Facility) AddCameraLink(actorUserID, url string) error {
 	f.CameraLinks = append(f.CameraLinks, CameraLink{URL: url})
 	return nil
 }
+
+// AttestCameraConsent sets CameraConsentAttested to true, but only once the
+// caller has been proven to own the Facility (EnsureOwner, T7.7's pattern,
+// checked first — a non-owner is rejected with ErrNotFacilityOwner without
+// ever learning the Facility's current consent state, the same ordering
+// AddCameraLink uses). This is T8.4's write path for the field: T7.2/T7.3
+// shipped no way to ever set it to true server-side, so every correct
+// client submission to AddCameraLink was rejected with
+// ErrCameraConsentRequired regardless of what the caller intended — see
+// AddCameraLink's doc comment and HANDOFF.md's Cross-cutting section.
+// Idempotent: attesting an already-attested Facility is not an error, it
+// just confirms the same state (consent isn't a one-way ratchet with
+// side effects beyond the boolean itself).
+func (f *Facility) AttestCameraConsent(actorUserID string) error {
+	if err := f.EnsureOwner(actorUserID); err != nil {
+		return err
+	}
+	f.CameraConsentAttested = true
+	return nil
+}
