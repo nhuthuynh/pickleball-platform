@@ -353,6 +353,16 @@ func (s *Service) ExpireWaitlistPromotion(ctx context.Context, entryID string) (
 	return expired, nil
 }
 
+// ListGames returns scheduled Games matching filter (T8.9's Discover & Join
+// Games browse/search read), each paired with a server-computed SpotsLeft.
+// All the actual filtering/aggregation lives in the repository — this
+// method just delegates, mirroring facilities' app.Service.ListFacilities'
+// "no business rules for a read-only filter/list" shape (CLAUDE.md rule 2:
+// there is no domain invariant here to enforce, only a query).
+func (s *Service) ListGames(ctx context.Context, filter port.GameListingFilter) ([]port.GameListing, error) {
+	return s.games.ListGames(ctx, filter)
+}
+
 // MarkRegistrationPaymentStatus updates a Registration's PaymentStatus
 // (T6.5). This is the sole app-layer entry point for changing that field
 // outside of RegisterForGame's initial "unpaid" default —

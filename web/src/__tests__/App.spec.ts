@@ -4,6 +4,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { routes } from '../router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
+import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import GameCreation from '../views/GameCreation.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
@@ -73,7 +74,6 @@ describe('App routing', () => {
   })
 
   it.each([
-    ['/games', 'Games'],
     ['/games/abc-123/checkout', 'Checkout'],
     ['/host/payments', 'Payments'],
     ['/bookings', 'Bookings'],
@@ -89,6 +89,20 @@ describe('App routing', () => {
     expect(wrapper.text()).toContain('Coming soon.')
   })
 
+  // T8.9 (Discover & Join Games) replaces the /games placeholder with a
+  // real screen — this is the same "only the matched route's screen
+  // renders" regression T8.1's own tests above already guard for
+  // /facilities and /facilities/onboard.
+  it('renders only DiscoverGames at /games', async () => {
+    const wrapper = await mountAppAt('/games')
+
+    expect(wrapper.findComponent(DiscoverGames).exists()).toBe(true)
+    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
+    expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
+    expect(wrapper.findComponent(GameCreation).exists()).toBe(false)
+  })
+
   // T8.8 (docs/process/t8-sprint-plan.md) replaces the /games/new
   // placeholder with the real GameCreation screen — this is the ticket's
   // own version of the same stacked-siblings regression check every other
@@ -100,6 +114,7 @@ describe('App routing', () => {
     expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
     expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
     expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverGames).exists()).toBe(false)
   })
 
   it('redirects / to /facilities', async () => {

@@ -92,6 +92,36 @@ func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitli
 	return &socialplayv1.JoinWaitlistResponse{Entry: toProtoWaitlistEntry(entry)}, nil
 }
 
+// ListGames serves the Discover & Join Games browse/filter read (T8.9).
+// starts_after/starts_before are only converted to a real time.Time when
+// present on the wire (protobuf's Timestamp field presence, via
+// GetStartsAfter()/GetStartsBefore() returning nil for an unset field) —
+// otherwise the zero value flows through, which
+// port.GameListingFilter/nullableTimestamptz (internal/socialplay/adapter/
+// postgres) already treat as "no bound on this side". No error mapping
+// beyond toStatus's default is needed: this is a pure read with no
+// domain-error-producing invariant to violate.
+func (h *Handler) ListGames(ctx context.Context, req *socialplayv1.ListGamesRequest) (*socialplayv1.ListGamesResponse, error) {
+	filter := port.GameListingFilter{VenueFacilityID: req.GetVenueFacilityId()}
+	if req.GetStartsAfter() != nil {
+		filter.StartsAfter = req.GetStartsAfter().AsTime()
+	}
+	if req.GetStartsBefore() != nil {
+		filter.StartsBefore = req.GetStartsBefore().AsTime()
+	}
+
+	listings, err := h.svc.ListGames(ctx, filter)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*socialplayv1.GameListing, 0, len(listings))
+	for _, l := range listings {
+		out = append(out, toProtoGameListing(l))
+	}
+	return &socialplayv1.ListGamesResponse{Games: out}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes; grpc-gateway then maps
 // those onto HTTP statuses (AlreadyExists -> 409, InvalidArgument -> 400,
 // NotFound -> 404, PermissionDenied -> 403) — mirrors
@@ -255,6 +285,16 @@ func toProtoGame(g domain.Game) *socialplayv1.Game {
 		Status:          toProtoGameStatus(g.Status),
 		PaymentMethod:   toProtoPaymentMethod(g.PaymentMethod),
 		GuestAllowance:  int32(g.GuestAllowance),
+	}
+}
+
+// toProtoGameListing converts a port.GameListing to its wire message (T8.9)
+// — see GameListing's proto doc comment for why SpotsLeft is a sibling
+// field on this wrapper rather than a Game field.
+func toProtoGameListing(l port.GameListing) *socialplayv1.GameListing {
+	return &socialplayv1.GameListing{
+		Game:      toProtoGame(l.Game),
+		SpotsLeft: int32(l.SpotsLeft),
 	}
 }
 

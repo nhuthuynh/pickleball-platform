@@ -193,6 +193,46 @@ message JoinWaitlistResponse {
   WaitlistEntry entry = 1;
 }
 
+// GameListing pairs a Game with SpotsLeft, a server-computed field (T8.9,
+// Discover & Join Games): capacity minus the weighted sum of
+// (1 + guest_count) across this Game's active (non-cancelled)
+// registrations — the same weighting domain.Register's own capacity check
+// uses (internal/socialplay/domain/registration.go's doc comment). A
+// dedicated wrapper rather than a field on Game itself, since SpotsLeft is
+// a derived read-model value for this one browse/list path, not part of
+// the Game aggregate — mirrors GetFacilityResponse's "Courts is a sibling
+// response field, not a Facility field" precedent (T8.2's doc comment in
+// facilities.proto) for the same "don't bloat the aggregate message for one
+// read path" reasoning.
+message GameListing {
+  Game game = 1;
+  int32 spots_left = 2;
+}
+
+// ListGamesRequest is the Discover & Join Games browse/filter read (T8.9).
+// socialplay.proto had no list/browse RPC before this ticket (confirmed by
+// inspection per the ticket's Instructions #1) — this follows the
+// migration-free-read-path pattern T7.3 (ListFacilities)/T8.2
+// (ListCourtsForFacility) established: a new RPC plus a straightforward
+// sqlc query against the existing games/registrations tables, no schema
+// change.
+//
+// venue_facility_id and the starts_after/starts_before window are both
+// optional (empty/unset = no filter on that dimension) — mirrors
+// ListFacilitiesRequest.name_filter's "empty means unfiltered" convention.
+// Only scheduled Games are ever returned (see db/queries/socialplay.sql's
+// ListGames query) — a cancelled Game isn't joinable, so it has no place in
+// a player-facing browse list.
+message ListGamesRequest {
+  string venue_facility_id = 1;
+  google.protobuf.Timestamp starts_after = 2;
+  google.protobuf.Timestamp starts_before = 3;
+}
+
+message ListGamesResponse {
+  repeated GameListing games = 1;
+}
+
 // SocialPlayService is the API contract for the Social Play bounded
 // context, mirroring BookingService's style (proto/pickleball/booking/v1) —
 // buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
@@ -239,6 +279,15 @@ service SocialPlayService {
     option (google.api.http) = {
       post: "/v1/games/{game_id}/waitlist"
       body: "*"
+    };
+  }
+
+  // ListGames is the Discover & Join Games browse/filter read (T8.9) — see
+  // ListGamesRequest's doc comment for why this RPC exists (there was no
+  // list/browse RPC on this service before).
+  rpc ListGames(ListGamesRequest) returns (ListGamesResponse) {
+    option (google.api.http) = {
+      get: "/v1/games"
     };
   }
 }

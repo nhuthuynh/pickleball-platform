@@ -2,6 +2,7 @@ package port
 
 import (
 	"context"
+	"time"
 
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
 )
@@ -17,6 +18,40 @@ type GameRepository interface {
 
 	// GetByID returns a single Game, or domain.ErrGameNotFound.
 	GetByID(ctx context.Context, id string) (domain.Game, error)
+
+	// ListGames returns scheduled Games matching filter, each paired with
+	// its SpotsLeft (T8.9) — the Discover & Join Games browse/filter read
+	// path. See GameListingFilter/GameListing's doc comments for the exact
+	// filter/shape semantics.
+	ListGames(ctx context.Context, filter GameListingFilter) ([]GameListing, error)
+}
+
+// GameListingFilter is ListGames' optional filter (T8.9). VenueFacilityID
+// empty means no facility filter; StartsAfter/StartsBefore zero (time.Time's
+// zero value, i.e. IsZero()) means no bound on that side — mirrors
+// ListFacilities' name_filter empty-string-means-unfiltered convention
+// (internal/facilities/app/service.go), using time.Time's zero value as the
+// analogous "unset" sentinel for the two timestamp bounds since an empty
+// string isn't a meaningful sentinel for a timestamp.
+type GameListingFilter struct {
+	VenueFacilityID string
+	StartsAfter     time.Time
+	StartsBefore    time.Time
+}
+
+// GameListing pairs a Game with SpotsLeft — capacity minus the weighted sum
+// of (1 + guest_count) across that Game's active (non-cancelled)
+// registrations, computed by the repository/query itself (T8.9) rather than
+// requiring the app layer to separately fetch and sum registrations per
+// Game (an N+1 query per Game in the list). Deliberately not a field on
+// domain.Game itself: SpotsLeft is a derived read-model value for this one
+// browse/list path, not part of the Game aggregate's own invariants
+// (CLAUDE.md rule 2 — keep the domain pure/free of read-path-specific
+// projections). Mirrors the identically-named proto message
+// (proto/pickleball/socialplay/v1/socialplay.proto) field-for-field.
+type GameListing struct {
+	Game      domain.Game
+	SpotsLeft int
 }
 
 // RegistrationRepository is Social Play's persistence boundary for the
