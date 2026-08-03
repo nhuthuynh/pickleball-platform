@@ -20,7 +20,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T3 | — | — | `docs/reviews/03-t3-cancel-booking.md` | — | — |
 | T4 | — | — | `docs/reviews/04-t4-concurrency-invariant.md` | `adr/0001` (dual invariant), `adr/0003` (local codegen) | — |
 | T5 | `docs/process/t5-sprint-plan.md` | `docs/process/t5-retro.md` | PRs #11–#15 (GitHub review comments, not files — see naming convention) | `adr/0006` (waitlist direction), `adr/0007`, `adr/0008` | — |
-| T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed unmerged, superseded by #27's own conflict resolution); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
+| T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -51,14 +51,19 @@ incident): `docs/process/sprint-process.md`, `docs/LESSONS.md`.
 into `claude/go-backend-pickleball-7up34j` as of this entry. Merge order:
 #29 (docs governance) → #11 → #12 → #13 → #14 → #15 (T5.1–T5.5) → #25
 (T6.6) → #23 (T6.1) → #27 (T6.4, folding in T6.1–T6.3) → #28 (T6.5, folding
-in T6.1–T6.4 + T5.1–T5.5). #24 and #26 (T6.2, T6.3) were closed unmerged —
-their content already landed via #27's own hand-resolved 3-way merge, and
-merging them separately afterward would have duplicated/conflicted with
-that. Every merge past #29 hit a real git conflict (stacked branches whose
-base had moved) — each was resolved on the source branch (never a direct
-push to the shared branch) and re-verified (`go build`/`go vet`/`go test
--race` across `internal/{booking,socialplay,payments}/{domain,app}`) before
-merging; see each conflict-resolution commit's message for specifics (the
+in T6.1–T6.4 + T5.1–T5.5). #24 and #26 (T6.2, T6.3) were **closed without
+their own merge**, not left unmerged in the sense of "not landed" — GitHub
+shows them `merged: true` too, because their commits are ancestors of #27's
+own hand-resolved 3-way merge; closing them (rather than merging separately
+afterward, which would have duplicated/conflicted with content already in
+#27) is what the GitHub UI calls a close, even though the commits did land.
+Most, not all, merges past #29 hit a real git conflict from stacked
+branches whose base had moved (#13, #14, #15, #25, #27, #28 did; #11, #12,
+#23 merged clean) — every conflict that did occur was resolved on the
+source branch (never a direct push to the shared branch) and re-verified
+(`go build`/`go vet`/`go test -race` across
+`internal/{booking,socialplay,payments}/{domain,app}`) before merging; see
+each conflict-resolution commit's message for specifics (the
 `internal/socialplay/app/service_test.go` one, on #28, is the one worth
 reading if this class of stacked-PR conflict recurs — two different tests'
 similar boilerplate confused the line-based diff badly enough that
