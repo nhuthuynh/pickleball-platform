@@ -1,0 +1,147 @@
+/*
+ * Design tokens — ported per T7.1 (docs/process/t7-sprint-plan.md) from two
+ * sources, not re-derived from scratch:
+ *
+ * 1. docs/design/v1-review-round-10-final.md §2a/§2b (and the earlier
+ *    rounds it cites — 3, 8, 9) — the semantic token *names*
+ *    (--court, --paper, --paper-raised, --ink-*, --pill-*) that this
+ *    project's own 10-round design review actually contrast-verified
+ *    (WCAG 1.4.3, worked ratios in both themes, not eyeballed). These are
+ *    the primary tokens; use them first.
+ * 2. docs/design/handoff-2026-08/README.md's "Design Tokens" section — the
+ *    external handoff's oklch palette (background/surface/text/muted-text/
+ *    border/accent/accent2). docs/design/v1-external-reference-reconciliation.md
+ *    treats this as *confirming*, not competing with, the round-10 review,
+ *    so it's kept here as a secondary, generically-named alias layer
+ *    (`--hs-*`) for anyone building against that vocabulary instead.
+ *
+ * Per the external handoff's own Fidelity note ("not pixel-perfect final
+ * UI... apply the target codebase's own visual styling"), these values are
+ * carried forward as illustrative, not pixel-matched against the
+ * `.dc.html` artifact. Both a light (default) and dark variant are
+ * provided, since the review verified both.
+ *
+ * Provenance of each *value* below is called out inline: "verified" means
+ * a review round gives the literal hex and a computed contrast ratio for
+ * that exact pairing; "extrapolated" means no round gives an explicit
+ * value for that dark-theme slot and this file fills a reasonable one in
+ * following the same light/dark relationship the verified pairs show —
+ * flagged so a future ticket knows to re-verify contrast before treating
+ * it as load-bearing, same spirit as CLAUDE.md rule 10 ("a single
+ * successful run/derivation is not proof").
+ */
+
+:root,
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* --- primary semantic tokens (round-10-final §2a/§2b, light) --- */
+  --court: #1c463d; /* brand/accent green. verified: round 9 §3, ~9.30-10.53:1 vs --paper */
+  --paper: #eef2ec; /* page background. verified: round 10 §1 item 1 worked ratio */
+  --paper-raised: #ffffff; /* card/raised-surface bg. verified: round 9 §2 */
+  --ink: #16241f; /* primary text. extrapolated: dark companion to --paper, not itself given a literal hex in the reviewed rounds (rounds quote --ink-success/--ink-warning/--ink-soft explicitly, not a bare --ink) */
+  --ink-soft: #3f5850; /* secondary/muted text. extrapolated from --ink at reduced contrast; round 2/3 use --ink-soft only in the dark-theme `.waitlist` pairing (paired with --paper-raised, not this direction) */
+  --ink-success: #0f6b3f; /* success text. verified pairing: round 9 §2, ~6.09:1 on --paper-raised */
+  --ink-warning: #8f5416; /* warning text. verified: round 8/9, ~6.09:1 on --paper-raised */
+  --pill-fg: #06251b; /* status-pill foreground. verified: round 3 §2 */
+  --pill-success-bg: #bfead2; /* extrapolated: light tint consistent with --ink-success */
+  --pill-warning-bg: #f6dcb8; /* extrapolated: light tint consistent with --ink-warning */
+  --pill-critical-bg: #f3c6c6; /* extrapolated: light tint, no critical-red literal hex given in the reviewed rounds */
+
+  /* --- secondary alias layer (external handoff README "Design Tokens", oklch, verified as quoted in README.md) --- */
+  --hs-background: oklch(98% 0.006 95);
+  --hs-surface: #ffffff;
+  --hs-text: oklch(22% 0.01 95);
+  --hs-muted-text: oklch(48% 0.012 95);
+  --hs-border: oklch(89% 0.012 95);
+  --hs-accent: oklch(56% 0.135 155);
+  --hs-accent-soft: oklch(94% 0.035 155);
+  --hs-accent2: oklch(58% 0.135 45);
+  --hs-accent2-soft: oklch(94% 0.035 45);
+
+  /* --- radius scale (README "Radius: 6-14px depending on component size; chips use full pill radius") --- */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  /* --- type scale ---
+     Neither source document specifies exact px/rem values (README's
+     "Typography" section only names the font families — Inter 400-800 for
+     UI text, JetBrains Mono for placeholder/code-style labels). This is a
+     standard modular scale used as a placeholder per the handoff's own
+     Fidelity note; adjust freely once a real UI ticket needs to. */
+  --font-family-ui: 'Inter', system-ui, -apple-system, sans-serif;
+  --font-family-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-base: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.375rem;
+  --font-size-2xl: 1.75rem;
+  --font-size-3xl: 2.25rem;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* --- primary semantic tokens (round-10-final §2a/§2b, dark) --- */
+  --court: #9fe0c4; /* verified: round 9 §3 — deliberately inverted from typical dark-theme convention since --court is an accent/brand color here, not a surface color */
+  --paper: #0f1c17; /* verified: round 10 §1 item 1 */
+  --paper-raised: #172822; /* verified: round 9 §2 */
+  --ink: #eef2ec; /* extrapolated: reuses light-theme --paper as dark-theme primary text, a common token-reuse pattern; not itself a literal hex in the reviewed rounds */
+  --ink-soft: #b9c9c2; /* extrapolated */
+  --ink-success: #6fcf9c; /* extrapolated: lightened for dark-bg legibility; verify contrast before treating as load-bearing (round 9 only gives the light-theme hex + both themes' ratios, not the dark hex itself) */
+  --ink-warning: #e0a250; /* verified: round 8/9 dark-theme hex, ~6.91:1 on --paper-raised */
+  --pill-fg: #eaf7ef; /* extrapolated: light foreground for dark-theme pill backgrounds */
+  --pill-success-bg: #1f4433; /* extrapolated */
+  --pill-warning-bg: #4a3315; /* extrapolated */
+  --pill-critical-bg: #4a2222; /* extrapolated */
+
+  /* --- secondary alias layer ---
+     README's oklch palette is presented theme-agnostically (no explicit
+     dark variant given); these dark values are extrapolated the same way
+     as the primary tokens above, keeping the same hue/chroma with lightness
+     inverted, not a second value quoted from a source doc. */
+  --hs-background: oklch(18% 0.012 95);
+  --hs-surface: #172822;
+  --hs-text: oklch(94% 0.006 95);
+  --hs-muted-text: oklch(72% 0.012 95);
+  --hs-border: oklch(32% 0.012 95);
+  --hs-accent: oklch(70% 0.135 155);
+  --hs-accent-soft: oklch(28% 0.06 155);
+  --hs-accent2: oklch(70% 0.135 45);
+  --hs-accent2-soft: oklch(28% 0.06 45);
+
+  /* radius and type scale are not theme-dependent; inherited from :root above */
+}
+
+/* Respect the OS-level theme preference when the viewer hasn't set an
+   explicit data-theme override (mirrors the artifact-authoring convention
+   this repo's other tooling uses: prefers-color-scheme as the default
+   signal, an explicit override always wins). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --court: #9fe0c4;
+    --paper: #0f1c17;
+    --paper-raised: #172822;
+    --ink: #eef2ec;
+    --ink-soft: #b9c9c2;
+    --ink-success: #6fcf9c;
+    --ink-warning: #e0a250;
+    --pill-fg: #eaf7ef;
+    --pill-success-bg: #1f4433;
+    --pill-warning-bg: #4a3315;
+    --pill-critical-bg: #4a2222;
+    --hs-background: oklch(18% 0.012 95);
+    --hs-surface: #172822;
+    --hs-text: oklch(94% 0.006 95);
+    --hs-muted-text: oklch(72% 0.012 95);
+    --hs-border: oklch(32% 0.012 95);
+    --hs-accent: oklch(70% 0.135 155);
+    --hs-accent-soft: oklch(28% 0.06 155);
+    --hs-accent2: oklch(70% 0.135 45);
+    --hs-accent2-soft: oklch(28% 0.06 45);
+  }
+}

@@ -1,0 +1,41 @@
+/*
+ * Custom media queries for the three reviewed breakpoints, verbatim from
+ * the external design handoff's Platform Notes
+ * (docs/design/handoff-2026-08/README.md), adopted by
+ * docs/design/v1-external-reference-reconciliation.md and restated as the
+ * T7 sprint goal's own acceptance criterion:
+ *   - web   >= 1280px  (persistent sidebar nav, multi-column dashboards)
+ *   - iPad   768-1180px (two-column list+detail, collapsible nav, >=44px touch targets)
+ *   - iPhone  < 600px  (single-column stacked, bottom tab bar, full-screen modal forms)
+ *
+ * `@custom-media` isn't supported by browsers directly (it's a PostCSS/
+ * future-CSS syntax) — kept here as documentation of the exact values
+ * (mirrored in TypeScript by useBreakpoint.ts's BREAKPOINTS constant, the
+ * single source of truth both this file and the composable stay in sync
+ * with) plus copy-pasteable literal media queries below for plain CSS
+ * consumers who don't want to reach for the composable.
+ *
+ * @custom-media --iphone (max-width: 599px);
+ * @custom-media --ipad (min-width: 768px) and (max-width: 1180px);
+ * @custom-media --web (min-width: 1280px);
+ */
+
+/* Plain-CSS equivalents (use these directly until/unless a PostCSS custom
+   media plugin is added to the Vite pipeline): */
+@media (max-width: 599px) {
+  :root {
+    --breakpoint: iphone;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1180px) {
+  :root {
+    --breakpoint: ipad;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --breakpoint: web;
+  }
+}
