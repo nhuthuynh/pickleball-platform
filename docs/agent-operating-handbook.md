@@ -51,9 +51,26 @@ UI copy. If a new term is needed, add it here in the same PR that introduces it.
   bookings (one ends exactly when another starts) are **not** a conflict —
   ranges are half-open `[start, end)`.
 - **Facility** — a physical venue owned by an Owner, containing one or more
-  Courts.
+  Courts. (T7.2, `internal/facilities/domain`) Fields: `ID`, `OwnerID`,
+  `Name`, `Description`, `Address`, `PhotoURLs` (`[]string`), `CameraLinks`
+  (`[]CameraLink`), `CameraConsentAttested` (`bool`, always starts `false` —
+  see Camera Link below). `OwnerID`/`Name`/`Address` are required
+  non-empty; `Description`/`PhotoURLs`/`CameraLinks` may be empty.
 - **Court** — a single playable surface within a Facility; the unit that
-  Bookings reserve.
+  Bookings reserve. (T7.2, `internal/facilities/domain`) Fields: `ID`,
+  `FacilityID`, `Name` — deliberately minimal, with no pricing fields;
+  pricing for a Court lives entirely in the existing `pricing_rules` table
+  keyed by `court_id` (T1), untouched by T7.2. `FacilityID`/`Name` are
+  required non-empty.
+- **Camera Link** — a link to a Facility's live camera feed, either
+  facility-wide (`CourtID` empty) or scoped to one Court (`CourtID` set).
+  (T7.2, `internal/facilities/domain`) Fields: `URL`, `CourtID`. May only be
+  added to a Facility once that Facility's `CameraConsentAttested` is
+  `true` — `CameraConsentAttested` defaults to `false` and there is no
+  constructor path that sets it `true` on creation, encoding the round-10
+  design review's finding that the consent checkbox must default to
+  unchecked (`docs/design/v1-review-round-10-final.md` §2b) as a domain
+  invariant, not just a UI default.
 - **Pricing Rule** — a rule attached to a Court (or inherited from its
   Facility) that resolves to a price for a given slot based on day-of-week /
   time window / weekend band.
