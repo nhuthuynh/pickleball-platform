@@ -3,5 +3,8 @@ import './styles/breakpoints.css'
 
 import { createApp } from 'vue'
 import App from './App.vue'
+import { createAppRouter } from './router'
 
-createApp(App).mount('#app')
+const app = createApp(App)
+app.use(createAppRouter())
+app.mount('#app')
