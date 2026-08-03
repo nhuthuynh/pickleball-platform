@@ -20,7 +20,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T3 | — | — | `docs/reviews/03-t3-cancel-booking.md` | — | — |
 | T4 | — | — | `docs/reviews/04-t4-concurrency-invariant.md` | `adr/0001` (dual invariant), `adr/0003` (local codegen) | — |
 | T5 | `docs/process/t5-sprint-plan.md` | `docs/process/t5-retro.md` | PRs #11–#15 (GitHub review comments, not files — see naming convention) | `adr/0006` (waitlist direction), `adr/0007`, `adr/0008` | — |
-| T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #24, #25, #26, #27, #28 (GitHub review comments) — **#25 (T6.6 Game waitlist) had no review dispatched until a PO+PE review of PR #29 caught the omission; still needs one** | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by PR #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
+| T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed unmerged, superseded by #27's own conflict resolution); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -47,28 +47,38 @@ incident): `docs/process/sprint-process.md`, `docs/LESSONS.md`.
 **Generated on the developer's machine (gitignored)**
 - `internal/gen/**` from `make generate` (needs `buf` + `sqlc` installed).
 
-**T5 (Social Play) and T6 (Payments): all tickets implemented, none merged yet**
-(T5: PRs #11–#15, all review-approved; T6: PRs #23, #24, #26, #27, #28, all
-review-approved, plus **#25 (T6.6, Game waitlist) — implemented, NOT yet
-reviewed**, found unreviewed only when a PO+PE review of the docs-governance
-PR #29 spot-checked this table against the actual PR list instead of trusting
-an earlier draft of it. #27 and #28 are sequential merges that fold T6.1–T6.4
-and T5.1–T5.5+T6.1–T6.4 together respectively, so merging #28 first, or #27
-then #28, brings in the whole Payments+Social-Play stack; #25 stacks on T5
-only and is independent of the Payments chain. T6.7 (QA auth regression
-tests, depends on #26/#27) is the one T6 ticket not yet implemented at all —
-check `docs/process/t6-sprint-plan.md` and GitHub issue #22. **Before trusting
-any status claim in this file, spot-check it against the actual PR/issue list
-— this file has already been wrong about this once.** **Merging this backlog
-is a real, undone task** — see the `docs/process/t5-retro.md` finding #2
-self-approval gap this repeats if left unaddressed
-again.
+**T5 (Social Play) and T6 (Payments, minus T6.7): all reviewed and MERGED**
+into `claude/go-backend-pickleball-7up34j` as of this entry. Merge order:
+#29 (docs governance) → #11 → #12 → #13 → #14 → #15 (T5.1–T5.5) → #25
+(T6.6) → #23 (T6.1) → #27 (T6.4, folding in T6.1–T6.3) → #28 (T6.5, folding
+in T6.1–T6.4 + T5.1–T5.5). #24 and #26 (T6.2, T6.3) were closed unmerged —
+their content already landed via #27's own hand-resolved 3-way merge, and
+merging them separately afterward would have duplicated/conflicted with
+that. Every merge past #29 hit a real git conflict (stacked branches whose
+base had moved) — each was resolved on the source branch (never a direct
+push to the shared branch) and re-verified (`go build`/`go vet`/`go test
+-race` across `internal/{booking,socialplay,payments}/{domain,app}`) before
+merging; see each conflict-resolution commit's message for specifics (the
+`internal/socialplay/app/service_test.go` one, on #28, is the one worth
+reading if this class of stacked-PR conflict recurs — two different tests'
+similar boilerplate confused the line-based diff badly enough that
+reconstructing from each side's real content was safer than patching the
+markers). Post-merge, the full domain+app suite is green across all three
+contexts (`go test ./internal/.../domain/... ./internal/.../app/... -race
+-count=1`) — this is a live, verified claim as of this entry, not carried
+forward from a pre-merge PR description.
 
 **Not yet built**
 - Facilities, Competitions, Statements contexts.
-- QA object-level-auth regression tests for Payments (T6.7) — not implemented.
-- Game waitlist (T6.6) — implemented (PR #25), not yet reviewed.
+- QA object-level-auth regression tests for Payments (T6.7) — no PR, not started.
 - Auth, real migration tooling, observability.
+- `internal/gen/**` still needs `make generate` run locally/in CI before
+  `go build ./...` (not just the domain/app packages) will succeed — the
+  postgres/grpcapi adapters and `cmd/server` are unverified beyond
+  `gofmt`/manual reading in this environment (no `buf`/`sqlc` toolchain
+  available here). Run `make generate && go build ./...` as the first
+  real verification step next session, before assuming the full binary
+  compiles.
 
 ## First actions on resume (T0 — do this before anything else)
 1. Install tools: `buf`, `sqlc`, `gotestsum`, `golangci-lint`, Docker — all
