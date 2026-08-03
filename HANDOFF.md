@@ -22,7 +22,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T5 | `docs/process/t5-sprint-plan.md` | `docs/process/t5-retro.md` | PRs #11–#15 (GitHub review comments, not files — see naming convention) | `adr/0006` (waitlist direction), `adr/0007`, `adr/0008` | — |
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
-| T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #61 (T8.2) → #63 (T8.4) → #62 (T8.6) → #60 (T8.5) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
+| T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -98,15 +98,17 @@ pre-T7) is still unreconciled with the new `facilities.id uuid`.
 
 **T8 (Social Play + Payments UI spine, closing T7's carried gaps): all 10
 tickets (T8.1–T8.10, 51 points) implemented, reviewed, and MERGED** into
-`claude/go-backend-pickleball-7up34j` as of this entry. Merge order: #59
-(T8.1, Vue Router) → #61 (T8.2, Facilities courts-list) → #63 (T8.4,
-AttestCameraConsent) → #62 (T8.6, Game/Registration domain fields) → #60
-(T8.5, Payments authz — closed the long-open T6.7 gap) → #64 (T8.3,
-`games.facility_id` reconciliation) → #65 (T8.7, guest-capacity proto/DB
-wiring, including a rewritten weighted-sum capacity trigger) → #66 (T8.8,
-Social Game creation UI) → #67 (T8.9, Discover & Join Games UI, added a new
-`ListGames` RPC) → #68 (T8.10, Payments UI, added a new
-`ListRegistrationsForGame` RPC). All of T7.1–T7.6's carried gaps this
+`claude/go-backend-pickleball-7up34j` as of this entry. Merge order
+(verified against each PR's `merged_at` timestamp, not just the plan's
+intended dependency order): #59 (T8.1, Vue Router) → #60 (T8.5, Payments
+authz — closed the long-open T6.7 gap) → #62 (T8.6, Game/Registration
+domain fields) → #61 (T8.2, Facilities courts-list) → #63 (T8.4,
+AttestCameraConsent) → #64 (T8.3, `games.facility_id` reconciliation) →
+#65 (T8.7, guest-capacity proto/DB wiring, including a rewritten
+weighted-sum capacity trigger) → #66 (T8.8, Social Game creation UI) → #67
+(T8.9, Discover & Join Games UI, added a new `ListGames` RPC) → #68 (T8.10,
+Payments UI, added a new `ListRegistrationsForGame` RPC). All of
+T7.1–T7.6's carried gaps this
 sprint was scoped to close are closed: real client-side routing exists
 (`vue-router`), Facilities has a real courts-list read path, camera consent
 has a real server-side attest path, and `games.facility_id` is reconciled
