@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import DiscoverFacilities from '../DiscoverFacilities.vue'
 import type { FacilitiesClient } from '../../../api/facilitiesClient'
+import type { BookingClient } from '../../../api/bookingClient'
 
 /**
  * Minimal `window.matchMedia` stand-in for a fixed viewport width — see
@@ -148,5 +149,37 @@ describe('DiscoverFacilities', () => {
 
     expect(wrapper.find('.facility-detail').exists()).toBe(true)
     expect(wrapper.text()).toContain('Select a facility')
+  })
+
+  describe('booking entry point (T7.6)', () => {
+    function fakeBookingClient(): BookingClient {
+      return { POST: vi.fn(), GET: vi.fn() } as unknown as BookingClient
+    }
+
+    it('shows the quote/book flow for a manually-entered court id once "Book this court" is submitted', async () => {
+      const client = fakeClient({
+        list: async () => ({ data: { facilities: [{ ...RIVERSIDE_WITH_CAMERA_LINKS }] }, error: undefined }),
+        detail: async () => ({ data: { facility: { ...RIVERSIDE_WITH_CAMERA_LINKS } }, error: undefined }),
+      })
+      const bookingClient = fakeBookingClient()
+      const wrapper = mount(DiscoverFacilities, { props: { client, bookingClient, win: matchMediaForWidth(1024) } })
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('Book Court court-123')
+
+      await wrapper.find('.facility-list__item').trigger('click')
+      await flushPromises()
+
+      await wrapper.find('.facility-detail__manual-booking-input').setValue('court-123')
+      await wrapper.find('.facility-detail__manual-booking').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Book Court court-123')
+
+      await wrapper.find('.court-booking__close').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.text()).not.toContain('Book Court court-123')
+    })
   })
 })

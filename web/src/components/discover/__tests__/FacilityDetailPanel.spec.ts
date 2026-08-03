@@ -68,8 +68,45 @@ describe('FacilityDetailPanel', () => {
         facility: { ...facility, courts: [{ id: 'c1', name: 'Court 1' }, { id: 'c2', name: 'Court 2' }] },
       },
     })
-    const items = wrapper.findAll('.facility-detail__court')
+    const items = wrapper.findAll('.facility-detail__court span')
     expect(items.map((i) => i.text())).toEqual(['Court 1', 'Court 2'])
+  })
+
+  it('emits book-court with the court id and name when a listed court is booked', async () => {
+    const wrapper = mount(FacilityDetailPanel, {
+      props: {
+        ...baseProps(),
+        hasSelection: true,
+        facility: { ...facility, courts: [{ id: 'c1', name: 'Court 1' }] },
+      },
+    })
+    const bookButton = wrapper.findAll('.facility-detail__court button')[0]
+    expect(bookButton).toBeTruthy()
+    await bookButton!.trigger('click')
+    expect(wrapper.emitted('book-court')).toEqual([['c1', 'Court 1']])
+  })
+
+  it('always offers a manual court-ID entry fallback (T7.6) since the courts list is currently always empty', async () => {
+    const wrapper = mount(FacilityDetailPanel, { props: { ...baseProps(), hasSelection: true, facility } })
+
+    const bookButton = wrapper.find('.facility-detail__manual-booking button[type="submit"]')
+    // Disabled until a court id has been entered.
+    expect(bookButton.attributes('disabled')).toBeDefined()
+
+    await wrapper.find('.facility-detail__manual-booking-input').setValue('court-123')
+    expect(wrapper.find('.facility-detail__manual-booking button[type="submit"]').attributes('disabled')).toBeUndefined()
+
+    await wrapper.find('.facility-detail__manual-booking').trigger('submit')
+    expect(wrapper.emitted('book-court')).toEqual([['court-123']])
+  })
+
+  it('does not emit book-court for a blank manually-entered court id', async () => {
+    const wrapper = mount(FacilityDetailPanel, { props: { ...baseProps(), hasSelection: true, facility } })
+
+    await wrapper.find('.facility-detail__manual-booking-input').setValue('   ')
+    await wrapper.find('.facility-detail__manual-booking').trigger('submit')
+
+    expect(wrapper.emitted('book-court')).toBeFalsy()
   })
 
   it('never renders camera-link data, even if it were present on the facility object passed in', () => {

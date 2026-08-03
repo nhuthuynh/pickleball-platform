@@ -12,4 +12,9 @@ export function createBookingClient(options: CreateTypedClientOptions = {}) {
   return createTypedClient<BookingPaths>(options)
 }
 
+// Added T7.6 (docs/process/t7-sprint-plan.md) so composables/components can
+// declare an injectable-for-tests `client?: BookingClient` prop, mirroring
+// `facilitiesClient.ts`'s `FacilitiesClient` type export exactly.
+export type BookingClient = ReturnType<typeof createBookingClient>
+
 export const bookingClient = createBookingClient()
