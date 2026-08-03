@@ -60,8 +60,23 @@ message GetFacilityRequest {
   string facility_id = 1;
 }
 
+// GetFacilityResponse.courts (T8.2) is the read path AddCourt (T7.3) never
+// had: every Court belonging to this Facility, so a client no longer has to
+// fall back to the always-empty courts list FacilityDetail.vue rendered
+// before this. Deliberately a field on the *response*, not on the shared
+// Facility message: CreateFacility/ListFacilities/AddCameraLink responses
+// all reuse Facility via the same grpcapi.toProto, and none of those
+// call sites need (or should pay the extra courts query for) a courts list
+// — only the single-facility detail view does. A dedicated
+// ListFacilityCourts RPC was considered instead and rejected: it would
+// require web/src/composables/useFacilityDetail.ts to orchestrate a second
+// network call and DiscoverFacilities.vue to join the two results, whereas
+// this shape lets GetFacility's existing single round trip carry the data
+// mapToFacilityDetail (web/src/models/facility.ts) already has a `courts`
+// field waiting for. See docs/process/t8-sprint-plan.md T8.2.
 message GetFacilityResponse {
   Facility facility = 1;
+  repeated Court courts = 2;
 }
 
 // ListFacilitiesRequest's name_filter is a simple case-insensitive

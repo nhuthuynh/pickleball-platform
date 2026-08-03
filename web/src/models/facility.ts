@@ -21,6 +21,13 @@ import type { components } from '../api/generated/facilities'
 
 export type RawFacility = components['schemas']['v1Facility']
 
+/**
+ * A raw Court as GetFacilityResponse.courts returns it (T8.2) — see
+ * `mapToFacilityDetail`'s doc comment for why `courts` lives on the
+ * response wrapper rather than on `RawFacility`/`v1Facility` itself.
+ */
+export type RawCourt = components['schemas']['v1Court']
+
 /** A single Court within a Facility, as shown to a Player browsing courts. */
 export interface FacilityCourt {
   id: string
@@ -59,27 +66,29 @@ export function mapToFacilitySummary(raw: RawFacility): FacilitySummary {
 }
 
 /**
- * Maps a raw API `Facility` to the detail view model.
+ * Maps a raw API `Facility` (plus its sibling `courts` list) to the detail
+ * view model.
  *
- * `courts` is always `[]` today: the merged Facilities API (T7.3) has
- * `AddCourt` to create a Court but no endpoint that lists a Facility's
- * Courts back (`GetFacility`/`ListFacilities` return a bare `Facility`
- * with no `courts` field — confirmed against the generated OpenAPI types,
- * not assumed). So every facility genuinely has an empty courts list from
- * this screen's point of view right now, and the "zero courts" empty
- * state (T7.5 requirement #2) is not just a rare edge case to handle, it
- * is the *only* case this screen can currently observe. `courts` is kept
- * as a real field (rather than deleting it from the view model) so a
- * follow-up ticket that adds a courts-listing capability to the Facilities
- * API only has to change this one line, not this screen's components.
+ * `rawCourts` (T8.2) closes the gap this function's previous version
+ * documented: the merged Facilities API (T7.3) had `AddCourt` to create a
+ * Court but no endpoint that listed a Facility's Courts back, so this
+ * always mapped `courts: []` regardless of what a Facility Owner had
+ * actually added. `GetFacilityResponse` now carries `courts` (see
+ * proto/pickleball/facilities/v1/facilities.proto's doc comment on that
+ * message for why it's a field on the *response*, not on `RawFacility`/
+ * `v1Facility` itself) — `rawCourts` is that sibling list, passed in by the
+ * caller (`useFacilityDetail.ts`) alongside `raw.facility`, not read off
+ * `raw`. Defaults to `[]` (not required) so existing call sites/tests that
+ * only have a bare `RawFacility` (e.g. a `CreateFacility`/`AddCourt`
+ * response, neither of which carries a courts list) keep working.
  */
-export function mapToFacilityDetail(raw: RawFacility): FacilityDetail {
+export function mapToFacilityDetail(raw: RawFacility, rawCourts: RawCourt[] = []): FacilityDetail {
   return {
     id: raw.id ?? '',
     name: raw.name ?? '',
     description: raw.description ?? '',
     address: raw.address ?? '',
     photoUrls: raw.photoUrls ?? [],
-    courts: [],
+    courts: rawCourts.map((c) => ({ id: c.id ?? '', name: c.name ?? '' })),
   }
 }

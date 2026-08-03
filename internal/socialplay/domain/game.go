@@ -24,16 +24,25 @@ type Game struct {
 	Range      TimeRange
 	Capacity   int
 	Status     Status
+	// PaymentMethod is the Host's declared accepted payment method(s) for
+	// this Game (T8.6). See payment_method.go's doc comment for why this is
+	// deliberately distinct from Registration.PaymentStatus.
+	PaymentMethod PaymentMethod
+	// GuestAllowance is the maximum number of guests a single Registration
+	// against this Game may bring (T8.6); 0 means no guests permitted.
+	// Registration.GuestCount is validated against this field by Register.
+	GuestAllowance int
 }
 
 // NewGame constructs a scheduled Game, validating the invariants that don't
 // require knowledge of other Games or Bookings: Capacity must be positive,
-// CourtIDs must be non-empty, and the time range must be valid. It
-// re-validates the range itself (rather than trusting the caller already
-// went through NewTimeRange) so a Game built from a zero-duration or
-// inverted range is rejected regardless of how the TimeRange value was
-// produced.
-func NewGame(id, hostID, facilityID string, courtIDs []string, r TimeRange, capacity int) (Game, error) {
+// CourtIDs must be non-empty, the time range must be valid, PaymentMethod
+// must be one of its closed enum values, and GuestAllowance must not be
+// negative. It re-validates the range itself (rather than trusting the
+// caller already went through NewTimeRange) so a Game built from a
+// zero-duration or inverted range is rejected regardless of how the
+// TimeRange value was produced.
+func NewGame(id, hostID, facilityID string, courtIDs []string, r TimeRange, capacity int, paymentMethod PaymentMethod, guestAllowance int) (Game, error) {
 	if capacity <= 0 {
 		return Game{}, ErrInvalidCapacity
 	}
@@ -43,14 +52,22 @@ func NewGame(id, hostID, facilityID string, courtIDs []string, r TimeRange, capa
 	if !r.End.After(r.Start) {
 		return Game{}, ErrInvalidTimeRange
 	}
+	if !paymentMethod.IsValid() {
+		return Game{}, ErrInvalidPaymentMethod
+	}
+	if guestAllowance < 0 {
+		return Game{}, ErrInvalidGuestAllowance
+	}
 	return Game{
-		ID:         id,
-		HostID:     hostID,
-		FacilityID: facilityID,
-		CourtIDs:   courtIDs,
-		Range:      r,
-		Capacity:   capacity,
-		Status:     StatusScheduled,
+		ID:             id,
+		HostID:         hostID,
+		FacilityID:     facilityID,
+		CourtIDs:       courtIDs,
+		Range:          r,
+		Capacity:       capacity,
+		Status:         StatusScheduled,
+		PaymentMethod:  paymentMethod,
+		GuestAllowance: guestAllowance,
 	}, nil
 }
 

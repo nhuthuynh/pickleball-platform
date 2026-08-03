@@ -55,7 +55,13 @@ func (r *Repository) GetFacilityByID(ctx context.Context, id string) (domain.Fac
 	if err != nil {
 		return domain.Facility{}, err
 	}
-	return fromFacilityFields(row.ID, row.OwnerID, row.Name, row.Description, row.Address, row.PhotoUrls, row.CameraConsentAttested, links), nil
+	courts, err := r.ListCourtsForFacility(ctx, id)
+	if err != nil {
+		return domain.Facility{}, err
+	}
+	f := fromFacilityFields(row.ID, row.OwnerID, row.Name, row.Description, row.Address, row.PhotoUrls, row.CameraConsentAttested, links)
+	f.Courts = courts
+	return f, nil
 }
 
 func (r *Repository) ListFacilities(ctx context.Context, nameFilter string) ([]domain.Facility, error) {
@@ -119,6 +125,26 @@ func (r *Repository) AttestCameraConsent(ctx context.Context, facilityID string)
 		return translateErr(err)
 	}
 	return nil
+}
+
+// ListCourtsForFacility is T8.2's read path — AddCourt (T7.3) had no way to
+// list Courts back. It reads the *existing* courts table (0001_init.sql)
+// filtered by facility_id, the same table AddCourt inserts into and Booking
+// reads court_id from — no second courts table, no Booking schema change.
+func (r *Repository) ListCourtsForFacility(ctx context.Context, facilityID string) ([]domain.Court, error) {
+	rows, err := r.q.ListCourtsForFacility(ctx, mustUUID(facilityID))
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	out := make([]domain.Court, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.Court{
+			ID:         row.ID.String(),
+			FacilityID: uuidOrEmpty(row.FacilityID),
+			Name:       row.Name,
+		})
+	}
+	return out, nil
 }
 
 func (r *Repository) cameraLinksFor(ctx context.Context, facilityID string) ([]domain.CameraLink, error) {

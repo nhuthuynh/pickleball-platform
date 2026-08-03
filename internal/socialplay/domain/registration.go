@@ -68,36 +68,59 @@ type Registration struct {
 	Source        RegistrationSource
 	Status        RegistrationStatus
 	PaymentStatus PaymentStatus
+	// GuestCount is the number of guests this Player is bringing along with
+	// this Registration (T8.6); 0 means no guests. Each guest occupies a
+	// capacity slot the same as the registering Player themself — see
+	// Register's doc comment for the weighted capacity rule this implies.
+	// Must be >= 0 and <= the owning Game's GuestAllowance.
+	GuestCount int
 }
 
 // Register builds a new Registration for playerID against game, enforcing
-// the two invariants that only need the Game and its other registrations
-// (not infrastructure) to check:
+// the invariants that only need the Game and its other registrations (not
+// infrastructure) to check:
 //
-//   - capacity: counts existing, non-cancelled registrations scoped to
+//   - guest allowance: guestCount must be >= 0 and <= game.GuestAllowance
+//     (ErrGuestAllowanceExceeded otherwise). Checked before the capacity
+//     check below, since a caller who asked for more guests than this Game
+//     permits should get that specific, actionable error rather than a
+//     generic "full" — even on a Game with room to spare.
+//   - capacity: a Registration and its guests all occupy capacity slots, so
+//     this is a *weighted* count, not a headcount. It sums (1 +
+//     r.GuestCount) across existing, non-cancelled registrations scoped to
 //     game.ID (mirroring EnsureNoConflict's own-scope filtering, so a
-//     caller can safely pass an unfiltered registrations slice); at
-//     capacity, returns the exact, stable ErrGameFull sentinel.
+//     caller can safely pass an unfiltered registrations slice), adds this
+//     call's own weight (1 + guestCount), and rejects with the exact,
+//     stable ErrGameFull sentinel if that total would exceed game.Capacity.
+//     This replaced a plain registration-count check (T5.2) once guests
+//     were introduced (T8.6): a single registration bringing enough guests
+//     can fill a Game's capacity on its own, well before the registration
+//     *count* reaches Capacity — see docs/process/t8-sprint-plan.md's T8.6
+//     kickoff note for the exact scenario this must reject.
 //   - no double registration: a player with an existing active
 //     registration for this game returns ErrAlreadyRegistered. This check
-//     runs before the capacity check, since it's the more specific,
-//     actionable error — a player who is already in should never be told
-//     the game is full because of their own registration.
+//     runs before the capacity check (but after the guest-allowance check),
+//     since it's the more specific, actionable error — a player who is
+//     already in should never be told the game is full because of their
+//     own registration.
 //
 // The returned Registration's ID is intentionally left empty: Register is
 // a pure domain constructor and, unlike NewGame/NewBooking, does not take
 // an id parameter (see T5.2's ticket-specified signature) — assigning a
 // durable ID is the app/adapter layer's job at persistence time.
-func Register(game Game, existing []Registration, playerID string) (Registration, error) {
+func Register(game Game, existing []Registration, playerID string, guestCount int) (Registration, error) {
 	if playerID == "" {
 		return Registration{}, ErrEmptyPlayerID
 	}
+	if guestCount < 0 || guestCount > game.GuestAllowance {
+		return Registration{}, ErrGuestAllowanceExceeded
+	}
 
-	activeCount, playerAlreadyActive := countActiveRegistrations(game.ID, existing, playerID)
+	activeWeight, playerAlreadyActive := countActiveRegistrations(game.ID, existing, playerID)
 	if playerAlreadyActive {
 		return Registration{}, ErrAlreadyRegistered
 	}
-	if activeCount >= game.Capacity {
+	if activeWeight+(1+guestCount) > game.Capacity {
 		return Registration{}, ErrGameFull
 	}
 
@@ -107,18 +130,26 @@ func Register(game Game, existing []Registration, playerID string) (Registration
 		Source:        RegistrationSourceApp,
 		Status:        RegistrationStatusRegistered,
 		PaymentStatus: PaymentStatusUnpaid,
+		GuestCount:    guestCount,
 	}, nil
 }
 
 // countActiveRegistrations scans existing for non-cancelled registrations
-// scoped to gameID, returning both the active count and whether playerID
+// scoped to gameID, returning both the total *weighted* capacity those
+// registrations occupy (each registration counts as 1 + its own GuestCount,
+// T8.6 — a GuestCount of 0 makes this identical to a plain headcount, so
+// the pre-T8.6 no-guests behavior is unchanged) and whether playerID
 // already holds one of them. Extracted (T6.6) from Register's own body so
 // domain.JoinWaitlist can derive "is this Game actually full for this
 // player" from the exact same counting rule Register uses, rather than a
 // second, independently-maintained copy of it (CLAUDE.md rule 4's spirit:
 // one counting rule, not two that can drift) — see JoinWaitlist's doc
-// comment in waitlist.go.
-func countActiveRegistrations(gameID string, existing []Registration, playerID string) (activeCount int, playerAlreadyActive bool) {
+// comment in waitlist.go. JoinWaitlist benefits from the T8.6 reweighting
+// the same way Register does, for the same reason: a guest-heavy
+// registration can fill a Game without the registration count reaching
+// Capacity, so "is it full" must be answered in weight, not headcount,
+// wherever that question is asked.
+func countActiveRegistrations(gameID string, existing []Registration, playerID string) (activeWeight int, playerAlreadyActive bool) {
 	for _, r := range existing {
 		if r.GameID != gameID {
 			continue
@@ -129,9 +160,9 @@ func countActiveRegistrations(gameID string, existing []Registration, playerID s
 		if r.PlayerID == playerID {
 			playerAlreadyActive = true
 		}
-		activeCount++
+		activeWeight += 1 + r.GuestCount
 	}
-	return activeCount, playerAlreadyActive
+	return activeWeight, playerAlreadyActive
 }
 
 // Cancel transitions a Registration to cancelled, but only for its owner.

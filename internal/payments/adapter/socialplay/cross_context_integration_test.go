@@ -109,7 +109,7 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	if err != nil {
 		t.Fatalf("failed to build fixture time range: %v", err)
 	}
-	game, err := socialplaydomain.NewGame("", "host-1", "facility-1", []string{"court-1"}, rng, 4)
+	game, err := socialplaydomain.NewGame("", "host-1", "facility-1", []string{"court-1"}, rng, 4, socialplaydomain.PaymentMethodEither, 0)
 	if err != nil {
 		t.Fatalf("failed to build fixture game: %v", err)
 	}

@@ -13,6 +13,15 @@ type CameraLink struct {
 // CameraConsentAttested gates AddCameraLink — see its doc comment for the
 // round-10 design-review finding this field exists to encode as a domain
 // invariant, not just a UI default.
+//
+// Courts (T8.2) mirrors CameraLinks: populated by a separate repository
+// fetch, not persisted alongside the Facility row itself (a Court is a row
+// in the *existing* courts table with facility_id set — see
+// internal/facilities/adapter/postgres/repository.go's courtsFor). Only
+// Repository.GetFacilityByID populates it; CreateFacility/ListFacilities
+// intentionally leave it nil rather than pay for a courts query neither
+// caller needs (see the GetFacilityResponse.courts doc comment in
+// proto/pickleball/facilities/v1/facilities.proto for the full reasoning).
 type Facility struct {
 	ID                    string
 	OwnerID               string
@@ -22,6 +31,7 @@ type Facility struct {
 	PhotoURLs             []string
 	CameraLinks           []CameraLink
 	CameraConsentAttested bool
+	Courts                []Court
 }
 
 // NewFacility constructs a Facility, validating the invariants that don't

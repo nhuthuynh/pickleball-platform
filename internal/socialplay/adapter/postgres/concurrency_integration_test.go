@@ -79,7 +79,7 @@ func TestCreateRegistration_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 	regRepo := socialplaypg.NewRegistrationRepository(pool)
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
-	game, err := domain.NewGame("11111111-1111-1111-1111-100000000001", "host-x", "facility-x", []string{seedCourtID}, r, concurrentRegisterAttempts)
+	game, err := domain.NewGame("11111111-1111-1111-1111-100000000001", "host-x", "facility-x", []string{seedCourtID}, r, concurrentRegisterAttempts, domain.PaymentMethodEither, 0)
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}

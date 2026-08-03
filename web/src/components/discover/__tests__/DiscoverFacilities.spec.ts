@@ -99,6 +99,35 @@ describe('DiscoverFacilities', () => {
     expect(wrapper.text()).toContain("hasn't listed any courts yet")
   })
 
+  // T8.2: GetFacilityResponse now carries a real courts list — this is the
+  // end-to-end proof (real client -> real composable -> real mapping ->
+  // real panel) that a facility with courts actually renders them, sitting
+  // alongside the zero-courts case the previous test still covers.
+  it('loads and shows a facility\'s real courts when GetFacilityResponse.courts is populated', async () => {
+    const client = fakeClient({
+      list: async () => ({ data: { facilities: [{ ...RIVERSIDE_WITH_CAMERA_LINKS }] }, error: undefined }),
+      detail: async () => ({
+        data: {
+          facility: { ...RIVERSIDE_WITH_CAMERA_LINKS },
+          courts: [
+            { id: 'c1', facilityId: 'f1', name: 'Court 1' },
+            { id: 'c2', facilityId: 'f1', name: 'Court 2' },
+          ],
+        },
+        error: undefined,
+      }),
+    })
+    const wrapper = mount(DiscoverFacilities, { props: { client, win: matchMediaForWidth(1024) } })
+    await flushPromises()
+
+    await wrapper.find('.facility-list__item').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain("hasn't listed any courts yet")
+    const courtNames = wrapper.findAll('.facility-detail__court span').map((n) => n.text())
+    expect(courtNames).toEqual(['Court 1', 'Court 2'])
+  })
+
   it('never renders camera-link data anywhere on screen, even though the mocked API response includes it', async () => {
     const client = fakeClient({
       list: async () => ({ data: { facilities: [{ ...RIVERSIDE_WITH_CAMERA_LINKS }] }, error: undefined }),

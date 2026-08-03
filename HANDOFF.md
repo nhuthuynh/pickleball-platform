@@ -97,7 +97,9 @@ pre-T7) is still unreconciled with the new `facilities.id uuid`.
 
 **Not yet built**
 - Competitions, Statements contexts.
-- QA object-level-auth regression tests for Payments (T6.7) — no PR, not started.
+- ~~QA object-level-auth regression tests for Payments (T6.7) — no PR, not
+  started.~~ Done as T8.5 (closes issue #53) — see the Cross-cutting Auth
+  note below.
 - A `ListFacilityCourts`/equivalent endpoint returning a Facility's Courts
   (T7.3 shipped `AddCourt` as create-only, no read path back) — logged by
   T7.5's review as a real gap, not a scoping miss; the Discover UI is built
@@ -244,6 +246,22 @@ end to end. Retro not yet written.
   (Social Play, Payments, Facilities) and the caveat is the same each time
   — don't re-litigate it per context, just extend real auth to all three
   call sites together when the JWT/Auth0 item above finally lands.
+  T8.5 (closes issue #53, `internal/payments/adapter/grpcapi/
+  authz_regression_test.go`) finally closed the long-open T6.7 gap: the
+  scope-check found `app.authorizeOfflineRecording`/
+  `domain.ErrNotPaymentRecorder` (T6.3) already existed and was already
+  unit-tested at the app layer, so T8.5 only needed to add the missing
+  handler-level regression proof (mirroring T5.5/T7.7) — real
+  `grpcapi.Handler.RecordOfflinePayment` -> `app.Service` ->
+  `authorizeOfflineRecording`, on both the Registration-payable (Player
+  who is neither Host nor an assigned Game Admin) and Booking-payable
+  (non-Host actor) paths, asserting the mapped gRPC status is
+  `PermissionDenied`, not `Internal`, and that no Payment is persisted.
+  Verified non-vacuous per CLAUDE.md rule 10 by temporarily disabling
+  `authorizeOfflineRecording`'s call site, confirming both regression
+  tests fail, then restoring it. Same caveat as above, not re-litigated:
+  object-level check given a claimed `actor_user_id`, not real
+  authentication.
 - T5.5 (see PR stacked on #11-#14, closes issue #10) added a full-stack
   regression test — `internal/socialplay/adapter/grpcapi/authz_regression_test.go`
   — proving `Registration.Cancel`'s object-level ownership check (Player A

@@ -83,11 +83,11 @@ func JoinWaitlist(game Game, existingRegistrations []Registration, existingEntri
 		return WaitlistEntry{}, ErrEmptyPlayerID
 	}
 
-	activeCount, playerAlreadyActive := countActiveRegistrations(game.ID, existingRegistrations, playerID)
+	activeWeight, playerAlreadyActive := countActiveRegistrations(game.ID, existingRegistrations, playerID)
 	if playerAlreadyActive {
 		return WaitlistEntry{}, ErrAlreadyRegistered
 	}
-	if activeCount < game.Capacity {
+	if activeWeight < game.Capacity {
 		return WaitlistEntry{}, ErrGameNotFull
 	}
 

@@ -15,11 +15,11 @@
 // the actual quote/book flow, CourtBookingFlow.vue, is owned by the parent,
 // same split as the rest of this screen) — it only emits `book-court` with
 // a courtId (+ courtName when known). Two ways to trigger it: a button per
-// court in `facility.courts` (for once the Facilities API's courts-listing
-// gap — see web/README.md's "Known gap" note — is closed and this list is
-// ever non-empty), and a manual court-ID entry field that works today, per
-// this ticket's own instructions, since `facility.courts` is currently
-// always `[]`.
+// court in `facility.courts` (real data as of T8.2 — see web/README.md's
+// former "Known gap" note, now resolved, for the history), and a manual
+// court-ID entry field that keeps working as a fallback for any facility
+// with zero courts listed (or, for now, any court a client hasn't loaded
+// yet by ID some other way).
 import { ref } from 'vue'
 import type { FacilityDetail } from '../../models/facility'
 
@@ -105,7 +105,7 @@ function onManualBookSubmit(): void {
           <label :for="`manual-court-id-${facility.id}`" class="facility-detail__manual-booking-label">
             Court ID
             <span class="facility-detail__manual-booking-hint">
-              This facility's courts aren't listed here yet — enter a court ID directly to get a quote and book.
+              Know a court ID directly? Enter it here to get a quote and book.
             </span>
           </label>
           <div class="facility-detail__manual-booking-row">

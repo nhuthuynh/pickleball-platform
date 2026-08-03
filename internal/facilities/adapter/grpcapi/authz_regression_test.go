@@ -68,6 +68,10 @@ import (
 type fakeRepo struct {
 	facilities map[string]domain.Facility
 	courts     map[string]domain.Court
+	// courtOrder tracks insertion order — see
+	// internal/facilities/app/service_test.go's inMemoryRepo.courtOrder for
+	// why (Go map iteration order is unspecified).
+	courtOrder []string
 }
 
 func newFakeRepo() *fakeRepo {
@@ -82,11 +86,14 @@ func (r *fakeRepo) CreateFacility(_ context.Context, f domain.Facility) (domain.
 	return f, nil
 }
 
+// GetFacilityByID merges in this Facility's Courts (T8.2), mirroring the
+// Postgres adapter's GetFacilityByID.
 func (r *fakeRepo) GetFacilityByID(_ context.Context, id string) (domain.Facility, error) {
 	f, ok := r.facilities[id]
 	if !ok {
 		return domain.Facility{}, domain.ErrFacilityNotFound
 	}
+	f.Courts = r.courtsForFacility(id)
 	return f, nil
 }
 
@@ -102,7 +109,24 @@ func (r *fakeRepo) ListFacilities(_ context.Context, nameFilter string) ([]domai
 
 func (r *fakeRepo) AddCourt(_ context.Context, c domain.Court) (domain.Court, error) {
 	r.courts[c.ID] = c
+	r.courtOrder = append(r.courtOrder, c.ID)
 	return c, nil
+}
+
+// ListCourtsForFacility is T8.2's read path fake, mirroring
+// internal/facilities/adapter/postgres.Repository.ListCourtsForFacility.
+func (r *fakeRepo) ListCourtsForFacility(_ context.Context, facilityID string) ([]domain.Court, error) {
+	return r.courtsForFacility(facilityID), nil
+}
+
+func (r *fakeRepo) courtsForFacility(facilityID string) []domain.Court {
+	out := make([]domain.Court, 0)
+	for _, id := range r.courtOrder {
+		if c := r.courts[id]; c.FacilityID == facilityID {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (r *fakeRepo) AddCameraLink(_ context.Context, facilityID string, link domain.CameraLink) (domain.CameraLink, error) {

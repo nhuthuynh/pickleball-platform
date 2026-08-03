@@ -25,6 +25,16 @@ INSERT INTO courts (id, name, facility_id)
 VALUES ($1, $2, $3)
 RETURNING id, name, facility_id;
 
+-- name: ListCourtsForFacility :many
+-- The read path AddCourt (T7.3) never had (T8.2): every Court belonging to
+-- facilityID, in creation order, from the *existing* courts table (same one
+-- AddCourt inserts into, and Booking's CreateBooking/ListCourtBookings read
+-- court_id from) — no second courts table, no Booking schema change.
+SELECT id, name, facility_id
+FROM courts
+WHERE facility_id = $1
+ORDER BY created_at;
+
 -- name: AddCameraLink :one
 INSERT INTO facility_camera_links (facility_id, court_id, url)
 VALUES ($1, $2, $3)

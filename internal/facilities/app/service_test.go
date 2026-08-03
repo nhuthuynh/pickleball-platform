@@ -17,6 +17,11 @@ import (
 type inMemoryRepo struct {
 	facilities map[string]domain.Facility
 	courts     map[string]domain.Court
+	// courtOrder tracks insertion order (Go map iteration order is
+	// unspecified) so ListCourtsForFacility/GetFacilityByID return courts
+	// deterministically, mirroring the Postgres adapter's `ORDER BY
+	// created_at`.
+	courtOrder []string
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -31,11 +36,15 @@ func (r *inMemoryRepo) CreateFacility(_ context.Context, f domain.Facility) (dom
 	return f, nil
 }
 
+// GetFacilityByID merges in this Facility's Courts (T8.2), mirroring the
+// Postgres adapter's GetFacilityByID (row + a separate courtsFor fetch) so
+// app-layer tests can prove the merge without a database.
 func (r *inMemoryRepo) GetFacilityByID(_ context.Context, id string) (domain.Facility, error) {
 	f, ok := r.facilities[id]
 	if !ok {
 		return domain.Facility{}, domain.ErrFacilityNotFound
 	}
+	f.Courts = r.courtsForFacility(id)
 	return f, nil
 }
 
@@ -51,7 +60,24 @@ func (r *inMemoryRepo) ListFacilities(_ context.Context, nameFilter string) ([]d
 
 func (r *inMemoryRepo) AddCourt(_ context.Context, c domain.Court) (domain.Court, error) {
 	r.courts[c.ID] = c
+	r.courtOrder = append(r.courtOrder, c.ID)
 	return c, nil
+}
+
+// ListCourtsForFacility is T8.2's read path fake, mirroring
+// internal/facilities/adapter/postgres.Repository.ListCourtsForFacility.
+func (r *inMemoryRepo) ListCourtsForFacility(_ context.Context, facilityID string) ([]domain.Court, error) {
+	return r.courtsForFacility(facilityID), nil
+}
+
+func (r *inMemoryRepo) courtsForFacility(facilityID string) []domain.Court {
+	out := make([]domain.Court, 0)
+	for _, id := range r.courtOrder {
+		if c := r.courts[id]; c.FacilityID == facilityID {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func (r *inMemoryRepo) AddCameraLink(_ context.Context, facilityID string, link domain.CameraLink) (domain.CameraLink, error) {
@@ -206,6 +232,71 @@ func TestListFacilities_NameFilter(t *testing.T) {
 	}
 	if len(all) != 2 {
 		t.Fatalf("got %d facilities, want 2 with empty filter", len(all))
+	}
+}
+
+// TestGetFacility_IncludesCourtsAddedViaAddCourt is T8.2's app-level proof
+// of the read path AddCourt (T7.3) never had: two Courts added via AddCourt
+// are both returned by a subsequent GetFacility, in the order they were
+// added, not silently dropped (which is what FacilityDetailPanel.vue's
+// always-empty courts list before this ticket amounted to on the client).
+func TestGetFacility_IncludesCourtsAddedViaAddCourt(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if _, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 1"); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if _, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 2"); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	got, err := svc.GetFacility(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(got.Courts) != 2 {
+		t.Fatalf("Courts = %v, want 2 entries", got.Courts)
+	}
+	if got.Courts[0].Name != "Court 1" || got.Courts[1].Name != "Court 2" {
+		t.Fatalf("Courts = %v, want [Court 1, Court 2] in insertion order", got.Courts)
+	}
+	for _, c := range got.Courts {
+		if c.FacilityID != f.ID {
+			t.Fatalf("Court %v FacilityID = %q, want %q", c, c.FacilityID, f.ID)
+		}
+	}
+}
+
+// TestGetFacility_ZeroCourtsIsEmptyNotNilPanic proves a Facility with no
+// Courts yet returns a usable (len-zero) slice, not a nil that would panic
+// a caller that ranges/indexes without a nil check — the "zero courts" case
+// FacilityDetailPanel.vue's empty state (T7.5) renders.
+func TestGetFacility_ZeroCourtsIsEmptyNotNilPanic(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	got, err := svc.GetFacility(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if len(got.Courts) != 0 {
+		t.Fatalf("Courts = %v, want empty for a facility with no courts added", got.Courts)
 	}
 }
 

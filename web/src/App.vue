@@ -1,23 +1,21 @@
 <script setup lang="ts">
-// Root layout, bootstrapped by T7.1 (docs/process/t7-sprint-plan.md) as a
-// screen-free shell. T7.4 and T7.5 each added their own first product
-// screen on top of it (Facility onboarding for Owner/Host, and
-// DiscoverFacilities browse/search for Players) on separate branches with
-// no routing library in between, so both ended up wired to the same mount
-// point. Rather than have this merge silently drop one ticket's screen,
-// both are rendered here (stacked) until a real router lands — T7.6+
-// should replace this with actual routing rather than growing this list
-// further.
-import { useBreakpoint } from './composables/useBreakpoint'
+// Root layout. Bootstrapped by T7.1 (docs/process/t7-sprint-plan.md) as a
+// screen-free shell; T7.4 and T7.5 each then landed their first product
+// screen (FacilityOnboarding, DiscoverFacilities) directly here as stacked
+// block siblings, with no routing library in between (see git history for
+// the shape this file had before T8.1). T8.1
+// (docs/process/t8-sprint-plan.md) replaces that with real routing: this
+// file is now purely a shell — persistent chrome (header, RoleIndicator,
+// AppNav) plus a <RouterView /> for whichever screen the current route
+// matches. Screens themselves live under src/router/index.ts's route
+// table, not here.
+import { RouterView } from 'vue-router'
 import RoleIndicator from './components/RoleIndicator.vue'
-import FacilityOnboarding from './views/FacilityOnboarding.vue'
-import DiscoverFacilities from './components/discover/DiscoverFacilities.vue'
-
-const { breakpoint } = useBreakpoint()
+import AppNav from './components/nav/AppNav.vue'
 </script>
 
 <template>
-  <div class="app-shell" :data-breakpoint="breakpoint">
+  <div class="app-shell">
     <header class="app-shell__header">
       <span class="app-shell__brand">Court&amp;Play</span>
       <!-- Mock/hardcoded role data — see RoleIndicator.vue's own comment
@@ -25,15 +23,13 @@ const { breakpoint } = useBreakpoint()
       <RoleIndicator />
     </header>
 
-    <main class="app-shell__main">
-      <!-- T7.4: Facility onboarding (Owner/Host). -->
-      <FacilityOnboarding />
+    <div class="app-shell__body">
+      <AppNav />
 
-      <!-- T7.5: Discover & browse facilities/courts (Player-facing,
-           read-only). See docs/process/t7-sprint-plan.md's T7.5 section
-           and src/components/discover/DiscoverFacilities.vue. -->
-      <DiscoverFacilities />
-    </main>
+      <main class="app-shell__main">
+        <RouterView />
+      </main>
+    </div>
   </div>
 </template>
 
@@ -63,29 +59,37 @@ const { breakpoint } = useBreakpoint()
   color: var(--court);
 }
 
+.app-shell__body {
+  flex: 1;
+  display: flex;
+}
+
 .app-shell__main {
   flex: 1;
   padding: 1rem;
+  min-width: 0;
 }
 
 /* Single-column stacked layout on iPhone (<600px), per the external
-   handoff's Platform Notes. */
+   handoff's Platform Notes. AppNav renders as a fixed bottom tab bar at
+   this width (see AppNav.vue), so leave room for it. */
 @media (max-width: 599px) {
   .app-shell__header {
     flex-direction: column;
     align-items: flex-start;
   }
+
+  .app-shell__main {
+    padding-bottom: 4.5rem;
+  }
 }
 
-/* Persistent sidebar-shaped header on web (>=1280px) — a full sidebar nav
-   is a future ticket's job; this just widens the header's breathing room
-   per the reviewed multi-column web layout. */
+/* Persistent sidebar-shaped web layout (>=1280px) — AppNav renders as a
+   real sidebar at this width (see AppNav.vue); this just widens the main
+   column's breathing room per the reviewed multi-column web layout. */
 @media (min-width: 1280px) {
   .app-shell__main {
     padding: 2rem;
-    max-width: 1280px;
-    margin: 0 auto;
-    width: 100%;
   }
 }
 </style>
