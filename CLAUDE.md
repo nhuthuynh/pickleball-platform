@@ -28,12 +28,19 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
    a `Booking` everywhere. See glossary in `docs/agent-operating-handbook.md`.
 8. **Run `make test` green before calling any task done.** Add/adjust tests for
    every change; turn every bug into a regression test.
-9. **No direct commits/pushes to the shared branch — PR only.** Every change,
-   including subagent/review work, lands via a branch + PR that is reviewed,
-   tested, and explicitly approved before merge. A reviewer/QA/PE agent's job
-   is to *report* findings, never to commit or push itself. (Added after an
-   incident where a review-only subagent pushed unreviewed work directly —
-   see `docs/LESSONS.md`.)
+9. **No direct commits/pushes to the shared branch — PR only. No exceptions
+   for docs.** Every change — application code *and* process/planning
+   artifacts (sprint plans, retros, ADRs, `HANDOFF.md`/`LESSONS.md`
+   entries, design docs, review docs) — lands via a branch + PR that is
+   reviewed, tested, and explicitly approved before merge. A reviewer/QA/PE
+   agent's job is to *report* findings, never to commit or push itself.
+   Nothing is "low-risk enough" to skip this on its own judgment — that
+   judgment call is exactly the failure mode this rule exists to remove.
+   (Added after an incident where a review-only subagent pushed unreviewed
+   work directly — see `docs/LESSONS.md`. Tightened to explicitly cover
+   docs after a stretch of sprint plans/retros/design docs landing via
+   direct push on the reasoning that they were "just docs" — see
+   `docs/LESSONS.md`'s "Direct-push-for-docs" entry.)
 10. **A single successful run is not proof of reliability**, especially for
     concurrency claims. Re-run non-deterministic tests (cold start + several
     repeats) before writing "proven" or "reliable" anywhere.
@@ -57,6 +64,31 @@ cmd/server                 wires gRPC + grpc-gateway REST
 ```
 Add a new bounded context as `internal/<context>/{domain,app,port,adapter}` with
 its own `proto/pickleball/<context>/v1` — mirror the `booking` context exactly.
+
+## Docs index & naming convention
+`HANDOFF.md` has a **Docs index** section, organized by phase (T0..T6+),
+linking every sprint plan, retro, review, ADR, and design doc relevant to
+that phase. **Read it before starting any task** — it's the map; this file
+is the rulebook. Naming, so a doc's phase/task/workstream is legible from
+its filename alone and nothing collides or goes stale silently:
+- Sprint plans: `docs/process/t{N}-sprint-plan.md`
+- Sprint retros: `docs/process/t{N}-retro.md` (one per sprint; retro
+  ceremony output is a distinct artifact from `docs/LESSONS.md`'s
+  incident postmortems — don't fold one into the other)
+- Ticket/PR reviews: `docs/reviews/{NN}-t{N}-{slug}.md` when committed as a
+  file (T0–T4); from T5 onward, ticket reviews are posted as GitHub PR
+  reviews directly (`pull_request_review_write`) rather than committed
+  files — the PR *is* the review record, no separate file needed.
+- ADRs: `docs/adr/{NNNN}-{slug}.md`, globally numbered (not phase-prefixed
+  — an ADR is a cross-cutting decision, not tied to one phase).
+- Design workstreams: `docs/design/{workstream}-{artifact}.md`, e.g.
+  `docs/design/v1-system-design.md` and `docs/design/v1-review-round-{N}.md`
+  — the workstream tag (`v1`, `v2`, ...) is what prevents a second design
+  pass from colliding with or shadowing the first.
+- `docs/LESSONS.md` stays one running, append-only file (per its own
+  header) — entries are dated/phase-tagged via `##` headers, not split
+  into per-phase files, since a single chronological postmortem log is the
+  point.
 
 ## Locked decisions — do NOT reopen
 - Stack: **Go** backend, **Vue** web, **Swift + Kotlin** native, **gRPC +
