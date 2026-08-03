@@ -82,4 +82,21 @@ var (
 	// shape is identical (CLAUDE.md rule 7 — a WaitlistEntry is not a
 	// Registration, so its own-scope check gets its own sentinel).
 	ErrNotWaitlistEntryOwner = errors.New("socialplay: only the waiting player may cancel this waitlist entry")
+
+	// T8.6 sentinels: Game.PaymentMethod, Game.GuestAllowance, and
+	// Registration.GuestCount (docs/process/t8-sprint-plan.md T8.6).
+	//
+	//   - ErrInvalidPaymentMethod: NewGame's PaymentMethod argument is not one
+	//     of PaymentMethod's closed enum values (online/cash/either) — mirrors
+	//     PaymentStatus.IsValid's "reject garbage input" role, but for a
+	//     Game-level field, deliberately distinct from
+	//     ErrInvalidPaymentStatus (Registration-level; see PaymentMethod's own
+	//     doc comment for why the two must not be conflated).
+	//   - ErrInvalidGuestAllowance: NewGame's GuestAllowance argument is
+	//     negative.
+	//   - ErrGuestAllowanceExceeded: Register's guestCount argument is
+	//     negative, or exceeds game.GuestAllowance.
+	ErrInvalidPaymentMethod   = errors.New("socialplay: invalid payment method")
+	ErrInvalidGuestAllowance  = errors.New("socialplay: guest allowance must not be negative")
+	ErrGuestAllowanceExceeded = errors.New("socialplay: guest count exceeds this game's guest allowance")
 )

@@ -17,7 +17,7 @@ func TestNewGame_Valid(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", validCourtIDs(), r, 4)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", validCourtIDs(), r, 4, domain.PaymentMethodOnline, 2)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -29,6 +29,12 @@ func TestNewGame_Valid(t *testing.T) {
 	}
 	if g.ID != "g1" || g.HostID != "host-1" || g.FacilityID != "facility-1" {
 		t.Fatalf("unexpected identity fields: %+v", g)
+	}
+	if g.PaymentMethod != domain.PaymentMethodOnline {
+		t.Fatalf("PaymentMethod = %v, want %v", g.PaymentMethod, domain.PaymentMethodOnline)
+	}
+	if g.GuestAllowance != 2 {
+		t.Fatalf("GuestAllowance = %d, want 2", g.GuestAllowance)
 	}
 }
 
@@ -47,26 +53,34 @@ func TestNewGame_Validation(t *testing.T) {
 	zeroDurationRange := domain.TimeRange{Start: sameInstant, End: sameInstant}
 
 	tests := []struct {
-		name     string
-		hostID   string
-		courtIDs []string
-		r        domain.TimeRange
-		capacity int
-		wantErr  error
+		name           string
+		hostID         string
+		courtIDs       []string
+		r              domain.TimeRange
+		capacity       int
+		paymentMethod  domain.PaymentMethod
+		guestAllowance int
+		wantErr        error
 	}{
-		{"capacity zero is rejected", "host-1", validCourtIDs(), validRange, 0, domain.ErrInvalidCapacity},
-		{"negative capacity is rejected", "host-1", validCourtIDs(), validRange, -1, domain.ErrInvalidCapacity},
-		{"empty court ids is rejected", "host-1", []string{}, validRange, 4, domain.ErrEmptyCourtIDs},
-		{"nil court ids is rejected", "host-1", nil, validRange, 4, domain.ErrEmptyCourtIDs},
-		{"zero-duration range is rejected", "host-1", validCourtIDs(), zeroDurationRange, 4, domain.ErrInvalidTimeRange},
-		{"valid inputs accepted", "host-1", validCourtIDs(), validRange, 1, nil},
+		{"capacity zero is rejected", "host-1", validCourtIDs(), validRange, 0, domain.PaymentMethodEither, 0, domain.ErrInvalidCapacity},
+		{"negative capacity is rejected", "host-1", validCourtIDs(), validRange, -1, domain.PaymentMethodEither, 0, domain.ErrInvalidCapacity},
+		{"empty court ids is rejected", "host-1", []string{}, validRange, 4, domain.PaymentMethodEither, 0, domain.ErrEmptyCourtIDs},
+		{"nil court ids is rejected", "host-1", nil, validRange, 4, domain.PaymentMethodEither, 0, domain.ErrEmptyCourtIDs},
+		{"zero-duration range is rejected", "host-1", validCourtIDs(), zeroDurationRange, 4, domain.PaymentMethodEither, 0, domain.ErrInvalidTimeRange},
+		{"valid inputs accepted", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethodEither, 0, nil},
+		{"payment method online accepted", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethodOnline, 0, nil},
+		{"payment method cash accepted", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethodCash, 0, nil},
+		{"invalid payment method string is rejected", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethod("crypto"), 0, domain.ErrInvalidPaymentMethod},
+		{"empty payment method string is rejected", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethod(""), 0, domain.ErrInvalidPaymentMethod},
+		{"negative guest allowance is rejected", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethodEither, -1, domain.ErrInvalidGuestAllowance},
+		{"positive guest allowance accepted", "host-1", validCourtIDs(), validRange, 1, domain.PaymentMethodEither, 3, nil},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := domain.NewGame("g1", tt.hostID, "facility-1", tt.courtIDs, tt.r, tt.capacity)
+			_, err := domain.NewGame("g1", tt.hostID, "facility-1", tt.courtIDs, tt.r, tt.capacity, tt.paymentMethod, tt.guestAllowance)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("got err %v, want %v", err, tt.wantErr)
 			}
@@ -83,7 +97,7 @@ func TestGame_Cancel(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", validCourtIDs(), r, 4)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0)
 	if err != nil {
 		t.Fatalf("unexpected err building fixture: %v", err)
 	}

@@ -80,7 +80,29 @@ UI copy. If a new term is needed, add it here in the same PR that introduces it.
   on specific Courts and a time range, with a capacity. Reserves its courts by
   creating `game`-source Bookings, never a separate mechanism.
 - **Registration** — a Player's signup for a Game; tracks `source`
-  (`app | social`) and payment status.
+  (`app | social`), payment status, and `GuestCount` (T8.6, see Guest below).
+- **Payment Method** — a Game-level field (`domain.Game.PaymentMethod`,
+  T8.6): `online | cash | either`, set once by the Host at scheduling time
+  (`NewGame`), describing which payment method(s) the Host accepts for that
+  Game's registrations. **Not to be confused with `Registration.PaymentStatus`**
+  (`unpaid | paid | refunded`, see Payment above) — PaymentMethod is a
+  Game-level policy statement set by the Host once; PaymentStatus is a
+  per-Registration fact, reported by the Payments context, that changes over
+  a Registration's lifetime. A Game's PaymentMethod does not itself enforce
+  which Payments RPC (`CreateOnlinePayment`/`RecordOfflinePayment`) the
+  backend will accept — it is UI guidance only until a real enforcement
+  mechanism (a `port.GamePaymentPolicy`-shaped addition) is designed; see
+  `docs/process/t8-sprint-plan.md`'s T8.6 kickoff note.
+- **Guest** — a non-registered player a Registration's owner brings along.
+  `domain.Game.GuestAllowance` (T8.6) is the Host-set maximum guests any
+  single Registration against that Game may bring (0 = no guests permitted);
+  `domain.Registration.GuestCount` (T8.6) is how many guests that specific
+  Registration actually brings, validated against `GuestAllowance`
+  (`0 <= GuestCount <= GuestAllowance`). Guests occupy capacity slots the
+  same as the registering Player: the Game-full check is a *weighted* count
+  — `sum(1 + GuestCount)` across active Registrations — not a plain
+  registration headcount, since a single Registration with enough guests can
+  fill a Game's capacity on its own.
 - **Host / Organiser** — the user who owns and created a Game or Competition.
 - **Game Admin** — a role assigned per-Game (or per-Competition) by the Host;
   manages/directs players on the day and may record offline Payments. Scoped
