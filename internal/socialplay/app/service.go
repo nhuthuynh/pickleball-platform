@@ -86,7 +86,14 @@ type ScheduleGameInput struct {
 // dangling Bookings behind, for the same "no half-scheduled Game" reason
 // T5.3 rolls back on a reservation conflict.
 func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reservation port.CourtReservation) (domain.Game, error) {
-	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.CourtIDs, in.Range, in.Capacity)
+	// domain.NewGame's PaymentMethod/GuestAllowance parameters (T8.6) are not
+	// yet exposed on ScheduleGameInput — wiring them through the app/proto
+	// surface is T8.7's job, not this ticket's (domain-only). Until then,
+	// every Game scheduled through this method gets the least restrictive
+	// PaymentMethod ("either") and no guest allowance (0), which is exactly
+	// the pre-T8.6 behavior: no caller of this method could previously
+	// express a payment-method preference or guests at all.
+	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.CourtIDs, in.Range, in.Capacity, domain.PaymentMethodEither, 0)
 	if err != nil {
 		return domain.Game{}, err
 	}
@@ -164,7 +171,12 @@ func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) 
 		return domain.Registration{}, err
 	}
 
-	reg, err := domain.Register(game, existing, in.PlayerID)
+	// domain.Register's guestCount parameter (T8.6) is not yet exposed on
+	// RegisterForGameInput — same T8.7 deferral as ScheduleGame's
+	// PaymentMethod/GuestAllowance above. Every registration made through
+	// this method brings 0 guests until then, matching pre-T8.6 behavior
+	// exactly.
+	reg, err := domain.Register(game, existing, in.PlayerID, 0)
 	if err != nil {
 		return domain.Registration{}, err
 	}
