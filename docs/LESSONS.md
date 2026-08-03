@@ -133,3 +133,111 @@ Two separate incidents, found and fixed in the same follow-up pass:
   happen, don't grant the tool that would let it happen, or require a
   separate approval gate (a PR) that doesn't depend on the subagent's own
   compliance.
+
+## T5 (in progress) — a capacity invariant with no DB-level backstop
+
+- **Mistake:** T5.4's first pass (PR #14) implemented `RegisterForGame` as
+  a get-active-registrations-then-count-then-insert sequence in
+  `app.Service`, with only a domain-level check
+  (`count >= game.Capacity -> ErrGameFull`) and a Postgres unique index on
+  `(game_id, player_id)` — which correctly prevents the *same* player
+  double-registering, but does nothing to stop two *different* players
+  both passing the in-process count check for the last open slot and both
+  succeeding. This is exactly the class of bug CLAUDE.md rule 4 exists to
+  prevent ("invariants are enforced in Postgres AND expressed in the
+  domain"), and unlike booking's `EXCLUDE` constraint (ADR-0001), there
+  was no unconditional DB-level guard on capacity at all — only
+  uniqueness. It was also the sprint goal's own headline invariant
+  ("capacity... enforced"), not an edge case.
+  **Fix:** loop 2 of T5.4 (PM+PE review caught it before merge, per the
+  sprint's execution-loop mechanics) added a `BEFORE INSERT/UPDATE`
+  trigger on `registrations` that locks the `games` row (`SELECT ... FOR
+  UPDATE`) and counts non-cancelled registrations against `games.capacity`
+  before allowing the insert, translated to `domain.ErrGameFull` in the
+  adapter per rule 5. Verified with a real concurrency test (20 concurrent
+  `RegisterForGame` calls, capacity 5) run 6 times including 2 cold
+  starts, consistently 5 successes / 15 `ErrGameFull` / 0 unexpected
+  errors — not a single run, per rule 10.
+  **Lesson:** a domain-level "count existing rows, then insert" check is
+  not an invariant under concurrency, no matter how correct the counting
+  logic looks in a unit test with a fake repository — it has a TOCTOU
+  window the moment two real requests interleave. Any future "N of these,
+  capped at M" invariant (this project's waitlist work in T6 is a likely
+  next case, per ADR-0006) needs to ask the same question this review
+  asked: what actually closes the race at the database level, not just in
+  application code? A unique index closes a *distinctness* race; it does
+  not by itself close a *counting* race — those need a lock, a trigger, or
+  an equivalent DB-enforced check, and this is worth checking explicitly
+  every time a ticket introduces a capacity-style limit, not just the
+  first time.
+
+## T5 sprint retro
+
+Moved to `docs/process/t5-retro.md` — retro-ceremony output (six-role
+findings against a sprint plan) is a distinct artifact type from this
+file's incident-postmortem entries, and gets its own phase-tagged file per
+sprint going forward (`docs/process/t{N}-retro.md`) rather than living as a
+growing section here. See that file for the T5 retro in full.
+
+## T6 — Direct-push-for-docs
+
+- **Mistake:** after the T4 incident that created rule 9, the next three
+  artifacts correctly followed it — real branches, real PRs, real "Merge
+  pull request #N" merge commits, verified directly against `git log
+  --graph` rather than trusted from any prior draft's description of it:
+
+  | Commit | Date | Content | Via |
+  |---|---|---|---|
+  | `86df8f9` | 07-31 17:51 | T4 deadlock fix + corrected reliability claim | PR #1 |
+  | `4c1194c` | 07-31 20:00 | `sprint-process.md` + six role dossiers | PR #2 |
+  | `88a0e06` | 08-01 03:53 | README project overview | PR #3 |
+
+  Starting with the four requirements-research docs on 2026-08-01 and
+  continuing through both T5/T6 sprint plans, ADRs 0004-0008, the T5 retro,
+  `HANDOFF.md` cross-cutting notes, and all 11 docs across the 10-round
+  design review, every further process/planning commit went directly to
+  `claude/go-backend-pickleball-7up34j` with no branch and no PR — a
+  multi-day, multi-sprint pattern, not an isolated slip.
+
+  This entry needed four correction passes to get even its own commit-level
+  provenance claims right (miscounted design docs; wrongly attributed a
+  PR-merged commit to the direct-push list; then wrongly widened that
+  correction too far; then mis-scoped which commits actually touched this
+  shared branch versus `main`) — each caught by a fresh review that
+  re-checked `git log` rather than trusting the prior pass's claim.
+  Deliberately not re-attempting exact commit-level precision here after
+  that: four consecutive loops each fixing one small error while
+  introducing another is itself the signal that this paragraph's value is
+  the pattern it documents, not a hash-by-hash reconstruction, and further
+  precision-chasing on a historical footnote stopped being worth its cost.
+  Full verified detail, to the extent it matters later, lives in this PR's
+  own review comments on GitHub (`chore/docs-governance-and-naming` ->
+  PR #29). CLAUDE.md rule 9 ("No direct commits/pushes to the
+  shared branch — PR only")
+  draws no exception for documentation; the reasoning applied in the
+  moment each time was an unstated, unreviewed judgment call — "this is
+  just a doc, it's low-risk, a PR would slow down a fast iteration loop"
+  — made unilaterally by whichever agent was writing the doc. That is
+  structurally the same failure shape as the incident rule 9 was
+  originally written to prevent (an agent deciding on its own that a
+  change was safe enough to skip review), just generalized from one
+  subagent's one bad call to a whole category of file, repeated across
+  two sprints.
+  **Fix:** surfaced directly to the user rather than resolved
+  unilaterally — this file's own guidance ("only take risky actions
+  carefully, and when in doubt, ask before acting") applies to a
+  governance question about this project's own rules as much as to a
+  `git push --force`. The user chose strict enforcement (option B, no
+  category exceptions) over formalizing the exception. Rule 9 was
+  tightened to say so explicitly (no implied carve-out for docs), and this
+  entry plus a docs index/naming convention (`HANDOFF.md`'s **Docs
+  index**, CLAUDE.md's **Docs index & naming convention**) landed via a
+  real branch + PR — the first artifact under the tightened rule to do so.
+  **Lesson:** a written rule with an unstated, self-granted exception is
+  not actually the rule — it's the rule until an agent finds a
+  low-stakes-looking reason not to follow it, which is exactly the
+  category of decision no single agent-in-the-moment should be trusted to
+  make alone. If a category of change is genuinely meant to be exempt from
+  a governance rule, the exemption needs to be written into the rule
+  itself, deliberately, before it's relied on — not inferred from what
+  happened to be convenient in each prior instance.
