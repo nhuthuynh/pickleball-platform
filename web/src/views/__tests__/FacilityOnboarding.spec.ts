@@ -286,3 +286,51 @@ describe('FacilityOnboarding — courts step', () => {
     expect(wrapper.find('button[disabled][aria-disabled]').exists()).toBe(false)
   })
 })
+
+// T7.7 (proto/pickleball/facilities/v1/facilities.proto) added a required
+// actor_user_id to AddCourtRequest/AddCameraLinkRequest, checked server-side
+// by domain.Facility.EnsureOwner (403 on empty/mismatched actor). PR #44's
+// review flagged that the existing suite gave "zero warning" here because
+// no test inspected the request body for an actor field on these two
+// endpoints — every test kept passing even though the live flow would
+// 403 unconditionally once #43 landed. These two tests close that gap by
+// asserting the same MOCK_OWNER_ID used for CreateFacility's ownerId is
+// also sent as actorUserId on AddCourt and AddCameraLink, so the acting
+// caller matches the facility's owner and EnsureOwner passes.
+describe('FacilityOnboarding — actorUserId on AddCourt/AddCameraLink (T7.7 ownership check)', () => {
+  it('sends actorUserId matching the facility owner on AddCameraLink', async () => {
+    const client = makeFakeClient()
+    const wrapper = mount(FacilityOnboarding, { props: { client } })
+    await advanceToCameras(wrapper)
+
+    await wrapper.get('#camera-consent-checkbox').setValue(true)
+    await wrapper.get('#camera-url-input').setValue('https://cam.example.com/1')
+    await wrapper.get('[data-testid="add-camera-button"]').trigger('click')
+    await flushPromises()
+
+    const cameraLinkCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks',
+    )
+    expect(cameraLinkCalls).toHaveLength(1)
+    const [, init] = cameraLinkCalls[0] as [string, { body: Record<string, unknown> }]
+    expect(init.body.actorUserId).toBe('owner-mock-1')
+  })
+
+  it('sends actorUserId matching the facility owner on AddCourt', async () => {
+    const client = makeFakeClient()
+    const wrapper = mount(FacilityOnboarding, { props: { client } })
+    await advanceToCameras(wrapper)
+
+    await wrapper.get('[data-testid="cameras-next"]').trigger('click')
+    await wrapper.get('#court-name-input').setValue('Court 1')
+    await wrapper.get('[data-testid="add-court-button"]').trigger('click')
+    await flushPromises()
+
+    const addCourtCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls.filter(
+      (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/courts',
+    )
+    expect(addCourtCalls).toHaveLength(1)
+    const [, init] = addCourtCalls[0] as [string, { body: Record<string, unknown> }]
+    expect(init.body.actorUserId).toBe('owner-mock-1')
+  })
+})

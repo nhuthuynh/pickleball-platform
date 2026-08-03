@@ -33,7 +33,11 @@ import { useBreakpoint } from '../composables/useBreakpoint'
 
 // No Identity/Users/Auth context exists yet (same caveat class as
 // RoleIndicator.vue's mock role data) — the acting owner is a hardcoded
-// placeholder id until a real account/session store exists.
+// placeholder id until a real account/session store exists. Also threaded
+// through as `actorUserId` on AddCourt/AddCameraLink (T7.7,
+// facilities.proto's AddCourtRequest/AddCameraLinkRequest) so those calls'
+// caller-claimed identity matches the Facility's ownerId set here on
+// CreateFacility — Facility.EnsureOwner 403s on a mismatch/empty actor.
 const MOCK_OWNER_ID = 'owner-mock-1'
 
 const STEP_ORDER = ['details', 'photos', 'cameras', 'courts'] as const
@@ -209,7 +213,7 @@ async function submitCameraLink() {
   try {
     const { data, error } = await props.client.POST('/v1/facilities/{facilityId}/cameraLinks', {
       params: { path: { facilityId: facility.value.id } },
-      body: { url },
+      body: { url, actorUserId: MOCK_OWNER_ID },
     })
 
     if (error || !data?.facility) {
@@ -236,7 +240,7 @@ async function addCourt() {
   try {
     const { data, error } = await props.client.POST('/v1/facilities/{facilityId}/courts', {
       params: { path: { facilityId: facility.value.id } },
-      body: { name },
+      body: { name, actorUserId: MOCK_OWNER_ID },
     })
 
     if (error || !data?.court) {
