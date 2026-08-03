@@ -357,3 +357,75 @@ screens" instruction): no Facility onboarding/browse/booking screens (T7.4
 -T7.6), no Facilities backend (T7.2/T7.3), no routing/state-management
 library, no real authentication. (T7.5, added later, is the first
 exception to "no product screens"; T7.6, above, is the second.)
+
+## Client-side routing (T8.1)
+
+`vue-router@4.6.4` (exact-pinned, not `^4.6.4` — see below), added per
+`docs/process/t8-sprint-plan.md`'s T8.1: `App.vue`'s former header comment
+flagged the T7.4/T7.5 stacked-siblings state (`FacilityOnboarding` +
+`DiscoverFacilities` both mounted unconditionally, no routing between them)
+as overdue for exactly this fix.
+
+- **Version choice:** `vue-router@5.x` was evaluated first but rejected —
+  its `peerDependencies` require `pinia` and `@pinia/colada`
+  (`^3.0.4 || ^4.0.2` / `>=0.21.2`), which would silently pull in a state
+  library this project has deliberately deferred (see "Stack" above: "no
+  router/Pinia/ESLint added yet — deliberately minimal until a ticket
+  actually needs them"). `vue-router@4.6.4`'s only peer dependency is
+  `vue: ^3.5.0`, matching the scaffolded `vue@^3.5.40` cleanly — installing
+  it did **not** need `--legacy-peer-deps` on its own (only the
+  pre-existing, unrelated `openapi-typescript`-vs-`typescript` conflict
+  `HANDOFF.md` already logged needs that flag for a full `npm install`).
+- **`src/router/index.ts`** — the route table:
+  - `/facilities` -> `DiscoverFacilities` (T7.5), `/facilities/onboard` ->
+    `FacilityOnboarding` (T7.4): existing screens, wired unchanged.
+  - `/games`, `/games/new`, `/games/:id/checkout`, `/host/payments`: the
+    four new T8.8-T8.10 routes. Each renders
+    `src/views/placeholders/ComingSoonView.vue` (one shared component,
+    parameterized by the matched route's `meta.title`) in this ticket —
+    T8.8/T8.9/T8.10 replace the `component:` entry to build the real
+    screen; they don't invent the route.
+  - `/bookings`, `/profile`: not named in T8.1's route list, but required
+    by its nav requirement (the Bookings/Profile tabs must link somewhere
+    real, not be omitted) — same `ComingSoonView` placeholder.
+  - `/` redirects to `/facilities`.
+- **`App.vue`** is now a shell: persistent header chrome (brand,
+  `RoleIndicator`) + `AppNav` + `<RouterView />`. It no longer imports or
+  mounts any screen component directly.
+- **`src/components/nav/AppNav.vue`** — the minimal nav T8.1 asks for:
+  tabs Discover (`/facilities`) / Bookings (`/bookings`) / Games (`/games`)
+  / Profile (`/profile`), reusing the external handoff's exact tab set
+  even though Bookings/Profile have no real screen yet. Renders as a
+  persistent sidebar when `useBreakpoint()` resolves `web` (>=1280px), and
+  a fixed bottom tab bar otherwise (iPhone <600px, iPad, and the two named
+  in-between gaps — the handoff's Platform Notes only specify the two named
+  layouts, so the tab bar is the reasonable default at every width that
+  isn't `web`). Takes the same injectable `win` prop pattern as
+  `DiscoverFacilities.vue` for testability.
+
+### Tests added by this ticket
+
+- `src/__tests__/App.spec.ts` — the regression this ticket exists to fix:
+  mounts `App.vue` behind a real (memory-history) router and asserts
+  `/facilities` renders `DiscoverFacilities` with neither
+  `FacilityOnboarding` nor a placeholder alongside it, and
+  `/facilities/onboard` renders `FacilityOnboarding` alone — written so it
+  fails against the old stacked-siblings `App.vue`. Also covers every
+  placeholder route rendering `ComingSoonView` with the right title, `/`
+  redirecting to `/facilities`, and the header chrome persisting across
+  routes. Stubs the ambient `fetch` (rather than injecting a fake client,
+  since `App.vue`/the router don't have a test-only seam to thread one
+  through) so `DiscoverFacilities`'s mount-time `ListFacilities` call fails
+  fast and deterministically instead of hitting the network.
+- `src/components/nav/__tests__/AppNav.spec.ts` — the responsive nav
+  behavior across `useBreakpoint()`'s three named breakpoints (sidebar at
+  web, tab bar at iPhone and iPad), the exact tab set/order, and that
+  Bookings/Profile link to their placeholder routes rather than being
+  omitted.
+
+Existing T7.4/T7.5 component tests
+(`src/views/__tests__/FacilityOnboarding.spec.ts`,
+`src/components/discover/__tests__/DiscoverFacilities.spec.ts` and its
+siblings) were left unmodified — they already mount their component
+standalone (not through `App.vue`/the router), which this ticket's
+Instructions explicitly say not to force a rewrite of.
