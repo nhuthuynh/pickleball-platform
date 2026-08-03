@@ -21,6 +21,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T4 | — | — | `docs/reviews/04-t4-concurrency-invariant.md` | `adr/0001` (dual invariant), `adr/0003` (local codegen) | — |
 | T5 | `docs/process/t5-sprint-plan.md` | `docs/process/t5-retro.md` | PRs #11–#15 (GitHub review comments, not files — see naming convention) | `adr/0006` (waitlist direction), `adr/0007`, `adr/0008` | — |
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
+| T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -73,9 +74,40 @@ contexts (`go test ./internal/.../domain/... ./internal/.../app/... -race
 -count=1`) — this is a live, verified claim as of this entry, not carried
 forward from a pre-merge PR description.
 
+**T7 (Web client foundation + Facilities context): all 7 tickets (T7.1–T7.7)
+implemented, reviewed, and MERGED** into `claude/go-backend-pickleball-7up34j`
+as of this entry. Merge order: #40 (T7.2, Facility/Court domain) → #41 (T7.1,
+Vue 3 scaffold) → #42 (T7.3, Facilities Postgres/proto/gRPC) → #43 (T7.7,
+Facilities object-level authorization — found and closed a real gap, no
+ownership check existed before this ticket) → #45 (T7.5, Discover/browse UI)
+→ #44 (T7.4, Facility onboarding UI, merged in 2 loops — loop 1 found a real
+blocking cross-PR gap: #44 never sent the `actor_user_id` field #43 made
+required, which would have 403'd every onboarding submission; fixed and
+re-verified in loop 2) → #46 (T7.6, quote + book UI). There is now a real
+Vue 3 web app (`web/`) and a real Facilities backend context
+(`internal/facilities/{domain,app,port,adapter}` +
+`proto/pickleball/facilities/v1`), reachable end to end: create a facility →
+add a court → get a live quote → book it, all against the real gRPC-gateway
+REST API. Known gaps carried forward, not silently dropped (see "Not yet
+built" and Cross-cutting below for detail): Facilities has no
+courts-listing endpoint yet (a facility's courts list always renders empty
+in the UI); there is no client-side router yet (`App.vue` mounts every T7
+screen as stacked siblings); `games.facility_id text` (Social Play,
+pre-T7) is still unreconciled with the new `facilities.id uuid`.
+
 **Not yet built**
-- Facilities, Competitions, Statements contexts.
+- Competitions, Statements contexts.
 - QA object-level-auth regression tests for Payments (T6.7) — no PR, not started.
+- A `ListFacilityCourts`/equivalent endpoint returning a Facility's Courts
+  (T7.3 shipped `AddCourt` as create-only, no read path back) — logged by
+  T7.5's review as a real gap, not a scoping miss; the Discover UI is built
+  end-to-end for when it lands (T7.5's PR, see its README note).
+- Client-side routing for the Vue app (`vue-router` or equivalent) — T7.1
+  through T7.6 all deferred it explicitly (kickoff notes), so `App.vue`
+  currently mounts `RoleIndicator` + `FacilityOnboarding` +
+  `DiscoverFacilities` (which itself owns showing `CourtBookingFlow`) as
+  block siblings with no navigation between them. Not broken, just not a
+  real multi-screen app yet — first candidate for a T8 ticket.
 - Auth, real migration tooling, observability.
 - `internal/gen/**` still needs `make generate` run locally/in CI before
   `go build ./...` (not just the domain/app packages) will succeed — the
@@ -83,7 +115,10 @@ forward from a pre-merge PR description.
   `gofmt`/manual reading in this environment (no `buf`/`sqlc` toolchain
   available here). Run `make generate && go build ./...` as the first
   real verification step next session, before assuming the full binary
-  compiles.
+  compiles. (Note: T7's implementer agents did have buf/sqlc/node/npm
+  available in their sandboxes and ran real builds — see PRs #41–#46 for
+  what was actually verified there; the caveat above is about *this*
+  environment, not a claim the toolchain is universally unavailable.)
 
 ## First actions on resume (T0 — do this before anything else)
 1. Install tools: `buf`, `sqlc`, `gotestsum`, `golangci-lint`, Docker — all
@@ -167,6 +202,14 @@ path where Host/Game Admin records the amount. See "Cross-cutting /
 later" below for follow-ups T6's own reviews surfaced (uncommitted
 concurrency proof, missing `RefundPayment` wiring, migration-number
 collision).
+
+**T7 — Web client foundation + Facilities context. All 7 tickets (T7.1–T7.7)
+implemented, reviewed, and MERGED (see the note above).** Full roadmap
+(T7–T9), kickoff note, and all 7 tickets: `docs/process/t7-sprint-plan.md`.
+Sprint goal met: a Facility and its Courts are real persisted entities, an
+Owner/Host can onboard a facility with a consent-gated camera link through
+a real Vue app, and a Player can browse, quote, and book a real court
+end to end. Retro not yet written.
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
@@ -447,8 +490,61 @@ collision).
   ./internal/facilities/...` and `go build ./...` are both clean. Worth a
   follow-up to fix that stale test call, out of scope here.
 - Observability: Sentry + slog + uptime.
-- Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
-  Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).
+- **Vue typed REST client: DONE (T7.1)** — `web/src/api/` generates from the
+  OpenAPI output via `npm run generate:client` (openapi-typescript +
+  openapi-fetch + a `swagger2openapi` conversion step, since
+  `protoc-gen-openapiv2` emits Swagger 2.0 and `openapi-typescript` 7.x
+  requires 3.0). Still open: generate Swift + Kotlin gRPC clients (`buf
+  generate --template buf.gen.mobile.yaml`) — no native mobile client exists,
+  deliberately deferred past T9 per `docs/process/t7-sprint-plan.md`'s
+  roadmap section on native mobile.
+- T7.3 shipped `facilities`/`facility_camera_links` tables + a nullable
+  `courts.facility_id` FK, but `games.facility_id text NOT NULL`
+  (`db/migrations/0005_socialplay.sql`, pre-T7) was deliberately left
+  unreconciled — it's an opaque string column with no FK to anything,
+  unconnected to the new `facilities.id uuid`. Flagged by both T7's own
+  sprint plan and its PM+PE review as a real T8 input, not an oversight:
+  reconciling it (likely: add a nullable `games.venue_facility_id uuid`
+  FK, or migrate the existing text column) needs a decision on whether a
+  Game's free-text facility description and a real onboarded Facility are
+  the same concept or two that need a migration path between them — raise
+  at the next backlog refinement, don't decide unilaterally.
+- T7.3 shipped `AddCourt` as create-only — there is no RPC that lists a
+  Facility's Courts back. T7.5's Discover UI is built end-to-end for a real
+  courts list (`FacilityCourt[]` type, rendered by `FacilityDetailPanel.vue`)
+  but always shows the zero-courts empty state today since
+  `mapToFacilityDetail` has nothing to populate it from. T7.6's booking flow
+  worked around the same gap with a manual court-ID entry field. A
+  `ListFacilityCourts` (or equivalent `GetFacility` response field) RPC is
+  the natural next Facilities ticket — closing it makes both T7.5's and
+  T7.6's already-built list-rendering/per-court-button code paths reachable
+  with no further frontend change.
+- T7.2/T7.3 deliberately shipped no API path that ever sets
+  `Facility.CameraConsentAttested` to `true` server-side (neither
+  `CreateFacilityRequest` nor `AddCameraLinkRequest` carry it, per the
+  round-10 design review's requirement that consent not be settable at
+  creation time). T7.4's onboarding UI correctly implements the
+  default-unchecked client-side gate regardless, but as of T7 there is no
+  way for a real user to ever get a camera link accepted end-to-end — every
+  correct client submission still gets `ErrCameraConsentRequired`. Not a
+  T7.4 bug; a real API gap (an `AttestCameraConsent`-shaped RPC, or folding
+  the flag into `AddCameraLinkRequest`, is the fix) with no ticket filed
+  yet — raise at the next backlog refinement rather than leaving it as an
+  undiscoverable footgun.
+- T7.1 through T7.6 all needed `npm install --legacy-peer-deps` in every
+  implementer sandbox, due to a `typescript@~6.0.0` (from the `npm create
+  vue@latest` scaffold) vs. `openapi-typescript`'s published `^5.x` peer
+  range. Not a real incompatibility (confirmed working across 6 tickets'
+  worth of builds), but worth pinning/resolving properly rather than
+  carrying the flag forward indefinitely — a small T8 chore.
+- No CI is configured on this repo yet (0 GitHub check runs as of T7's
+  reviews) — every "tests pass"/"build green" claim in T5–T7's PRs was
+  verified by an agent running the commands locally in its own sandbox and
+  reporting the result, not by an independently-checkable CI signal.
+  Reviewers have consistently flagged this as "plausible but
+  unverifiable," not blocking, but it's an accumulating trust gap worth
+  closing (Jenkinsfile already exists from T0 — wiring it for real is a
+  T8+ candidate).
 
 ## Definition of Done (per task)
 Acceptance criteria met · new/updated tests green · `make test` green · invariants
