@@ -1,0 +1,97 @@
+// Package app is the Facilities context's application layer: it
+// orchestrates the domain and the repository port, but holds no business
+// rules itself — those live in internal/facilities/domain. Mirrors
+// internal/booking/app's shape (CLAUDE.md: "mirror the booking context
+// exactly").
+package app
+
+import (
+	"context"
+
+	"github.com/nhuthuynh/white-label/internal/facilities/domain"
+	"github.com/nhuthuynh/white-label/internal/facilities/port"
+)
+
+// Service is the Facilities context's application layer.
+type Service struct {
+	repo port.Repository
+	ids  port.IDGenerator
+}
+
+func NewService(repo port.Repository, ids port.IDGenerator) *Service {
+	return &Service{repo: repo, ids: ids}
+}
+
+// CreateFacilityInput is CreateFacility's use-case input.
+type CreateFacilityInput struct {
+	OwnerID     string
+	Name        string
+	Description string
+	Address     string
+	PhotoURLs   []string
+}
+
+// CreateFacility validates and persists a new Facility. CameraConsentAttested
+// always starts false — domain.NewFacility deliberately has no parameter
+// that could set it true on creation (T7.2's round-10 design-review
+// finding), so there is nothing for this method to pass through either.
+func (s *Service) CreateFacility(ctx context.Context, in CreateFacilityInput) (domain.Facility, error) {
+	f, err := domain.NewFacility(s.ids.NewID(), in.OwnerID, in.Name, in.Description, in.Address, in.PhotoURLs)
+	if err != nil {
+		return domain.Facility{}, err
+	}
+	return s.repo.CreateFacility(ctx, f)
+}
+
+// GetFacility returns a single Facility by id, or domain.ErrFacilityNotFound.
+func (s *Service) GetFacility(ctx context.Context, id string) (domain.Facility, error) {
+	return s.repo.GetFacilityByID(ctx, id)
+}
+
+// ListFacilities returns Facilities matching nameFilter (a case-insensitive
+// substring match on Name — no real geo-search, per HANDOFF.md T7.3), or
+// all Facilities when nameFilter is empty. All the actual filtering lives
+// in the repository (mirroring the query the Postgres adapter runs).
+func (s *Service) ListFacilities(ctx context.Context, nameFilter string) ([]domain.Facility, error) {
+	return s.repo.ListFacilities(ctx, nameFilter)
+}
+
+// AddCourt validates and persists a new Court scoped to facilityID, via
+// Repository.AddCourt — which the Postgres adapter wires against the
+// *existing* courts table (HANDOFF.md T7.3 AC 5), so a Court created here
+// is immediately usable by Booking's CreateBooking/ListCourtBookings
+// against the same courts.id value, unmodified.
+func (s *Service) AddCourt(ctx context.Context, facilityID, name string) (domain.Court, error) {
+	c, err := domain.NewCourt(s.ids.NewID(), facilityID, name)
+	if err != nil {
+		return domain.Court{}, err
+	}
+	return s.repo.AddCourt(ctx, c)
+}
+
+// AddCameraLink adds a facility-wide camera link to facilityID, but only
+// once that Facility's CameraConsentAttested is true. The consent check
+// itself lives entirely in domain.Facility.AddCameraLink (T7.2) — this
+// method's only job is to fetch the Facility, delegate to that domain
+// method (which returns domain.ErrCameraConsentRequired and leaves the
+// Facility untouched when consent hasn't been attested, before this method
+// ever calls the repository), and persist the newly appended link when it
+// succeeds. grpcapi maps ErrCameraConsentRequired to a 4xx, never a 500 —
+// see HANDOFF.md T7.3's smoke-test AC.
+func (s *Service) AddCameraLink(ctx context.Context, facilityID, url string) (domain.Facility, error) {
+	f, err := s.repo.GetFacilityByID(ctx, facilityID)
+	if err != nil {
+		return domain.Facility{}, err
+	}
+
+	if err := f.AddCameraLink(url); err != nil {
+		return domain.Facility{}, err
+	}
+
+	newLink := f.CameraLinks[len(f.CameraLinks)-1]
+	if _, err := s.repo.AddCameraLink(ctx, facilityID, newLink); err != nil {
+		return domain.Facility{}, err
+	}
+
+	return f, nil
+}
