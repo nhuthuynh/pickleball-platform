@@ -181,17 +181,25 @@ growing section here. See that file for the T5 retro in full.
 
 ## T6 — Direct-push-for-docs
 
-- **Mistake:** starting with the README overview and the four requirements-
-  research docs (2026-08-01), and continuing through ADR-0004..0008, both
-  T5/T6 sprint plans, the T5 retro, `HANDOFF.md` cross-cutting notes, and 11
-  design docs across a 10-round design review, every process/planning
-  artifact was committed and pushed directly to
-  `claude/go-backend-pickleball-7up34j`, with no branch and no PR. This was
-  a longer-running pattern than it first appeared — an earlier draft of
-  this entry only counted from the T5 sprint plan onward and undercounted
-  the design docs at 12, both corrected here after a PO+PE review of the
-  PR that added this very entry checked the claims against `git log`
-  instead of trusting them. CLAUDE.md
+- **Mistake:** starting with the four requirements-research docs
+  (2026-08-01, commits `03a69cb`/`c68d9fe`/`82c68a6`) and continuing
+  through ADR-0004..0008 (`ff20027`, 2026-08-02), both T5/T6 sprint plans,
+  the T5 retro, `HANDOFF.md` cross-cutting notes, and 11 design docs across
+  a 10-round design review, every process/planning artifact was committed
+  and pushed directly to `claude/go-backend-pickleball-7up34j`, with no
+  branch and no PR. Everything before that — bootstrap, T1–T4, the README
+  overview, `sprint-process.md` + role dossiers — genuinely went through
+  merged PRs (#1–#3; verifiable via their "Merge pull request #N" merge
+  commits in `git log --graph`), so the pattern is real but narrower than
+  "since the beginning": it starts specifically where the requirements
+  research began, not earlier. This entry went through two rounds of
+  correction, both caught by review rather than self-checked before
+  posting: an earlier draft only counted from the T5 sprint plan onward
+  and undercounted the design docs at 12 (both fixed in a loop-2 pass);
+  that same loop-2 pass then wrongly folded the (actually PR-merged)
+  README-overview commit into the direct-push list, caught by a loop-3
+  review that checked `git log` again rather than trusting the loop-2
+  fix's own claim. CLAUDE.md
   rule 9 ("No direct commits/pushes to the shared branch — PR only")
   draws no exception for documentation; the reasoning applied in the
   moment each time was an unstated, unreviewed judgment call — "this is
