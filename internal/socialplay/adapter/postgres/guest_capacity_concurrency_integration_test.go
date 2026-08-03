@@ -126,7 +126,7 @@ func TestRegisterForGame_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) {
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 	game, err := domain.NewGame(
-		"33333333-3333-3333-3333-100000000001", "host-x", "facility-x",
+		"33333333-3333-3333-3333-100000000001", "host-x", "facility-x", "",
 		[]string{seedCourtID}, r, gameCapacityUniform,
 		domain.PaymentMethodEither, guestCountUniform, // GuestAllowance must cover guestCountUniform
 	)
@@ -245,7 +245,7 @@ func TestRegisterForGame_VaryingGuestCountsFillExactlyToCapacityUnderConcurrency
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 	game, err := domain.NewGame(
-		"33333333-3333-3333-3333-100000000002", "host-x", "facility-x",
+		"33333333-3333-3333-3333-100000000002", "host-x", "facility-x", "",
 		[]string{seedCourtID}, r, gameCapacityVarying,
 		domain.PaymentMethodEither, largeGuestCount, // GuestAllowance must cover the largest guestCount used
 	)

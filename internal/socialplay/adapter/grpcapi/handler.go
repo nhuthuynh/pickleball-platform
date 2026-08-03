@@ -22,18 +22,20 @@ import (
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 )
 
-// Handler serves SocialPlayService. It holds the CourtReservation port
-// alongside the app.Service because ScheduleGame takes it per-call (T5.3's
-// original design — see app.Service.ScheduleGame's doc comment) rather than
-// storing it on Service itself.
+// Handler serves SocialPlayService. It holds the CourtReservation and
+// FacilityLookup ports alongside the app.Service because ScheduleGame takes
+// both per-call (T5.3's original design for CourtReservation — see
+// app.Service.ScheduleGame's doc comment; T8.3 gives FacilityLookup the
+// same treatment) rather than storing them on Service itself.
 type Handler struct {
 	socialplayv1.UnimplementedSocialPlayServiceServer
 	svc         *app.Service
 	reservation port.CourtReservation
+	facilities  port.FacilityLookup
 }
 
-func NewHandler(svc *app.Service, reservation port.CourtReservation) *Handler {
-	return &Handler{svc: svc, reservation: reservation}
+func NewHandler(svc *app.Service, reservation port.CourtReservation, facilities port.FacilityLookup) *Handler {
+	return &Handler{svc: svc, reservation: reservation, facilities: facilities}
 }
 
 func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRequest) (*socialplayv1.CreateGameResponse, error) {
@@ -43,14 +45,15 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 	}
 
 	g, err := h.svc.ScheduleGame(ctx, app.ScheduleGameInput{
-		HostID:         req.GetHostId(),
-		FacilityID:     req.GetFacilityId(),
-		CourtIDs:       req.GetCourtIds(),
-		Range:          rng,
-		Capacity:       int(req.GetCapacity()),
-		PaymentMethod:  fromProtoPaymentMethod(req.GetPaymentMethod()),
-		GuestAllowance: int(req.GetGuestAllowance()),
-	}, h.reservation)
+		HostID:          req.GetHostId(),
+		FacilityID:      req.GetFacilityId(),
+		VenueFacilityID: req.GetVenueFacilityId(),
+		CourtIDs:        req.GetCourtIds(),
+		Range:           rng,
+		Capacity:        int(req.GetCapacity()),
+		PaymentMethod:   fromProtoPaymentMethod(req.GetPaymentMethod()),
+		GuestAllowance:  int(req.GetGuestAllowance()),
+	}, h.reservation, h.facilities)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -113,6 +116,10 @@ func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitli
 // either would be a signal something upstream called an app method it
 // shouldn't have, not a case this handler needs to translate for a client.
 //
+// T8.3 addition: ErrFacilityNotFound joins the NotFound group — an unknown
+// CreateGameRequest.venue_facility_id is a 404, not a 500 or a silent
+// accept (the ticket's explicit requirement).
+//
 // T8.7 additions: ErrInvalidPaymentMethod, ErrInvalidGuestAllowance, and
 // ErrGuestAllowanceExceeded join the validation-error/InvalidArgument
 // group — all three are precondition violations on the request itself
@@ -131,7 +138,8 @@ func toStatus(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrGameNotFound),
 		errors.Is(err, domain.ErrRegistrationNotFound),
-		errors.Is(err, domain.ErrWaitlistEntryNotFound):
+		errors.Is(err, domain.ErrWaitlistEntryNotFound),
+		errors.Is(err, domain.ErrFacilityNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidCapacity),
@@ -210,30 +218,43 @@ func toProtoPaymentMethod(m domain.PaymentMethod) socialplayv1.PaymentMethod {
 // payment_method column default for the identical "closest thing to
 // unspecified" reasoning applied at the DB layer. This keeps CreateGame
 // backward compatible: a request that predates this field behaves exactly
-// as it did before T8.6/T8.7 introduced PaymentMethod at all.
+// as it did before T8.6/T8.7 introduced PaymentMethod at all. Any OTHER,
+// unrecognized wire value (not one of the enum's named non-zero constants —
+// e.g. a value from a future proto version this build doesn't know about)
+// is deliberately NOT folded into the same "unspecified" default: it's
+// passed through as an invalid domain.PaymentMethod so domain.NewGame's own
+// IsValid() check rejects it via ErrInvalidPaymentMethod, rather than
+// silently accepting an unrecognized value as if it meant "either" (a
+// PE-review finding on T8.7's original PR — UNSPECIFIED and "unrecognized"
+// are not the same thing and must not share a fallback).
 func fromProtoPaymentMethod(m socialplayv1.PaymentMethod) domain.PaymentMethod {
 	switch m {
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_UNSPECIFIED:
+		return domain.PaymentMethodEither
 	case socialplayv1.PaymentMethod_PAYMENT_METHOD_ONLINE:
 		return domain.PaymentMethodOnline
 	case socialplayv1.PaymentMethod_PAYMENT_METHOD_CASH:
 		return domain.PaymentMethodCash
-	default:
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_EITHER:
 		return domain.PaymentMethodEither
+	default:
+		return domain.PaymentMethod("")
 	}
 }
 
 func toProtoGame(g domain.Game) *socialplayv1.Game {
 	return &socialplayv1.Game{
-		Id:             g.ID,
-		HostId:         g.HostID,
-		FacilityId:     g.FacilityID,
-		CourtIds:       g.CourtIDs,
-		StartsAt:       timestamppb.New(g.Range.Start),
-		EndsAt:         timestamppb.New(g.Range.End),
-		Capacity:       int32(g.Capacity),
-		Status:         toProtoGameStatus(g.Status),
-		PaymentMethod:  toProtoPaymentMethod(g.PaymentMethod),
-		GuestAllowance: int32(g.GuestAllowance),
+		Id:              g.ID,
+		HostId:          g.HostID,
+		FacilityId:      g.FacilityID,
+		VenueFacilityId: g.VenueFacilityID,
+		CourtIds:        g.CourtIDs,
+		StartsAt:        timestamppb.New(g.Range.Start),
+		EndsAt:          timestamppb.New(g.Range.End),
+		Capacity:        int32(g.Capacity),
+		Status:          toProtoGameStatus(g.Status),
+		PaymentMethod:   toProtoPaymentMethod(g.PaymentMethod),
+		GuestAllowance:  int32(g.GuestAllowance),
 	}
 }
 

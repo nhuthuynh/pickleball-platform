@@ -46,21 +46,22 @@ func NewGameRepository(pool *pgxpool.Pool) *GameRepository {
 
 func (r *GameRepository) Create(ctx context.Context, g domain.Game) (domain.Game, error) {
 	row, err := r.q.CreateGame(ctx, socialplaydb.CreateGameParams{
-		ID:             mustUUID(g.ID),
-		HostID:         g.HostID,
-		FacilityID:     g.FacilityID,
-		CourtIds:       mustUUIDs(g.CourtIDs),
-		StartsAt:       toTimestamptz(g.Range.Start),
-		EndsAt:         toTimestamptz(g.Range.End),
-		Capacity:       int32(g.Capacity),
-		Status:         string(g.Status),
-		PaymentMethod:  string(g.PaymentMethod),
-		GuestAllowance: int32(g.GuestAllowance),
+		ID:              mustUUID(g.ID),
+		HostID:          g.HostID,
+		FacilityID:      g.FacilityID,
+		VenueFacilityID: nullableUUID(g.VenueFacilityID),
+		CourtIds:        mustUUIDs(g.CourtIDs),
+		StartsAt:        toTimestamptz(g.Range.Start),
+		EndsAt:          toTimestamptz(g.Range.End),
+		Capacity:        int32(g.Capacity),
+		Status:          string(g.Status),
+		PaymentMethod:   string(g.PaymentMethod),
+		GuestAllowance:  int32(g.GuestAllowance),
 	})
 	if err != nil {
 		return domain.Game{}, translateGameErr(err)
 	}
-	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
 }
 
 func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, error) {
@@ -68,7 +69,7 @@ func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, e
 	if err != nil {
 		return domain.Game{}, translateGameErr(err)
 	}
-	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
 }
 
 func translateGameErr(err error) error {
@@ -78,22 +79,23 @@ func translateGameErr(err error) error {
 	return fmt.Errorf("socialplay postgres adapter (games): %w", err)
 }
 
-// gameFromFields builds a domain.Game from the 10 columns every games query
-// selects (8 pre-T8.7 + payment_method/guest_allowance, T8.7). sqlc
-// generates a distinct Row struct per query (CreateGameRow, GetGameByIDRow,
-// ...) rather than reusing socialplaydb.Game, mirroring the fromFields
-// pattern in internal/booking/adapter/postgres/repository.go (CLAUDE.md
-// gotcha: sqlc emits a distinct ...Row type per query).
-func gameFromFields(id pgtype.UUID, hostID, facilityID string, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32) domain.Game {
+// gameFromFields builds a domain.Game from the 11 columns every games query
+// selects (venue_facility_id, T8.3; payment_method/guest_allowance, T8.7).
+// sqlc generates a distinct Row struct per query (CreateGameRow,
+// GetGameByIDRow, ...) rather than reusing socialplaydb.Game, mirroring the
+// fromFields pattern in internal/booking/adapter/postgres/repository.go
+// (CLAUDE.md gotcha: sqlc emits a distinct ...Row type per query).
+func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32) domain.Game {
 	ids := make([]string, 0, len(courtIDs))
 	for _, c := range courtIDs {
 		ids = append(ids, c.String())
 	}
 	return domain.Game{
-		ID:         id.String(),
-		HostID:     hostID,
-		FacilityID: facilityID,
-		CourtIDs:   ids,
+		ID:              id.String(),
+		HostID:          hostID,
+		FacilityID:      facilityID,
+		VenueFacilityID: fromNullableUUID(venueFacilityID),
+		CourtIDs:        ids,
 		Range: domain.TimeRange{
 			Start: startsAt.Time,
 			End:   endsAt.Time,
@@ -237,6 +239,30 @@ func mustUUIDs(ss []string) []pgtype.UUID {
 		out = append(out, mustUUID(s))
 	}
 	return out
+}
+
+// nullableUUID converts an optional domain string (T8.3's
+// domain.Game.VenueFacilityID: "" means "no venue Facility set") into a
+// pgtype.UUID suitable for the nullable venue_facility_id column (db/
+// migrations/0011_socialplay_facility_fk.sql) — an explicitly-invalid zero
+// value (Valid: false), never an attempt to parse "" as a uuid via mustUUID
+// (which would panic).
+func nullableUUID(s string) pgtype.UUID {
+	if s == "" {
+		return pgtype.UUID{}
+	}
+	return mustUUID(s)
+}
+
+// fromNullableUUID is nullableUUID's inverse: reads a possibly-NULL
+// venue_facility_id column back into domain.Game.VenueFacilityID, mapping
+// SQL NULL (u.Valid == false) to Go's "" rather than a formatted
+// all-zeroes uuid string.
+func fromNullableUUID(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	return u.String()
 }
 
 func toTimestamptz(t time.Time) pgtype.Timestamptz {

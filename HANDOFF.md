@@ -516,7 +516,7 @@ end to end. Retro not yet written.
   generate --template buf.gen.mobile.yaml`) — no native mobile client exists,
   deliberately deferred past T9 per `docs/process/t7-sprint-plan.md`'s
   roadmap section on native mobile.
-- T7.3 shipped `facilities`/`facility_camera_links` tables + a nullable
+- ~~T7.3 shipped `facilities`/`facility_camera_links` tables + a nullable
   `courts.facility_id` FK, but `games.facility_id text NOT NULL`
   (`db/migrations/0005_socialplay.sql`, pre-T7) was deliberately left
   unreconciled — it's an opaque string column with no FK to anything,
@@ -526,7 +526,31 @@ end to end. Retro not yet written.
   FK, or migrate the existing text column) needs a decision on whether a
   Game's free-text facility description and a real onboarded Facility are
   the same concept or two that need a migration path between them — raise
-  at the next backlog refinement, don't decide unilaterally.
+  at the next backlog refinement, don't decide unilaterally.~~ Closed by
+  T8.3 (issue #51): `db/migrations/0011_socialplay_facility_fk.sql` adds
+  the nullable `games.venue_facility_id uuid REFERENCES facilities (id)`
+  FK exactly as sketched above, mirroring T7.3's `courts.facility_id`
+  precedent — the old `facility_id text` column stays in place,
+  unreferenced by any new code, marked deprecated in the migration file
+  and in `domain.Game`'s doc comment. `domain.Game` gained
+  `VenueFacilityID string`; `app.Service.ScheduleGame` validates it
+  against a new `port.FacilityLookup` port (mirrors `port.CourtReservation`
+  T5.3's shape) implemented by `internal/socialplay/adapter/facilities`
+  against the real `facilitiesapp.Service.GetFacility` — an unknown
+  `VenueFacilityID` returns `domain.ErrFacilityNotFound`, mapped to a 404,
+  *before* any court is reserved (proven by
+  `TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts`, no
+  partial-state Game/Booking left behind). `CreateGameRequest`/`Game`
+  proto messages gained `venue_facility_id`; `facility_id` stays on the
+  wire, marked deprecated. This repo's dev environment has no Docker
+  daemon (same known gap `concurrency_integration_test.go`'s package
+  comment already documents), so the schema change was verified by
+  applying every migration 0001-0011 in order against a local Postgres
+  instead of `make down && make up`: the new FK enforces correctly (an
+  unknown facility ID is rejected at the DB level too), the old
+  `facility_id` column keeps working unmodified, and — since `games` has
+  no seed data — there were no pre-existing rows to check get `NULL`
+  either way.
 - T7.3 shipped `AddCourt` as create-only — there is no RPC that lists a
   Facility's Courts back. T7.5's Discover UI is built end-to-end for a real
   courts list (`FacilityCourt[]` type, rendered by `FacilityDetailPanel.vue`)

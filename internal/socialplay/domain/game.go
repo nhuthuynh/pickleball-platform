@@ -19,11 +19,30 @@ const (
 type Game struct {
 	ID         string
 	HostID     string
+	// FacilityID is the pre-Facilities-context opaque free-text venue
+	// identifier (db/migrations/0005_socialplay.sql). DEPRECATED (T8.3):
+	// Facilities didn't exist when Social Play was originally built, so
+	// this field has no real relationship to anything — prefer
+	// VenueFacilityID, a real FK into the Facilities context. Left in
+	// place, unreferenced by any new code path, until nothing depends on
+	// it anymore (see db/migrations/0011_socialplay_facility_fk.sql).
 	FacilityID string
-	CourtIDs   []string
-	Range      TimeRange
-	Capacity   int
-	Status     Status
+	// VenueFacilityID is a real Facilities-context Facility ID (T8.3),
+	// reconciling the opaque FacilityID above with facilities.id uuid.
+	// Validated for existence (not merely format) by
+	// app.Service.ScheduleGame via port.FacilityLookup — NewGame itself
+	// only stores it, the same way it never validated FacilityID's
+	// existence either; existence requires the Facilities context, which
+	// this pure domain package must never import (CLAUDE.md rule 2/3).
+	// Optional: an empty string means this Game has no known venue
+	// Facility yet (db/migrations/0011_socialplay_facility_fk.sql adds it
+	// as a nullable column precisely so this is legal), and
+	// ScheduleGame skips the FacilityLookup check entirely in that case.
+	VenueFacilityID string
+	CourtIDs        []string
+	Range           TimeRange
+	Capacity        int
+	Status          Status
 	// PaymentMethod is the Host's declared accepted payment method(s) for
 	// this Game (T8.6). See payment_method.go's doc comment for why this is
 	// deliberately distinct from Registration.PaymentStatus.
@@ -42,7 +61,14 @@ type Game struct {
 // caller already went through NewTimeRange) so a Game built from a
 // zero-duration or inverted range is rejected regardless of how the
 // TimeRange value was produced.
-func NewGame(id, hostID, facilityID string, courtIDs []string, r TimeRange, capacity int, paymentMethod PaymentMethod, guestAllowance int) (Game, error) {
+//
+// venueFacilityID (T8.3) is stored as-is, with no validation here: whether
+// it refers to a real Facility requires calling out to the Facilities
+// context, which this pure domain constructor cannot do (CLAUDE.md rule 2)
+// — that existence check is app.Service.ScheduleGame's job, via
+// port.FacilityLookup, before this Game is allowed to reserve any courts.
+// An empty venueFacilityID is legal (see VenueFacilityID's doc comment).
+func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, r TimeRange, capacity int, paymentMethod PaymentMethod, guestAllowance int) (Game, error) {
 	if capacity <= 0 {
 		return Game{}, ErrInvalidCapacity
 	}
@@ -59,15 +85,16 @@ func NewGame(id, hostID, facilityID string, courtIDs []string, r TimeRange, capa
 		return Game{}, ErrInvalidGuestAllowance
 	}
 	return Game{
-		ID:             id,
-		HostID:         hostID,
-		FacilityID:     facilityID,
-		CourtIDs:       courtIDs,
-		Range:          r,
-		Capacity:       capacity,
-		Status:         StatusScheduled,
-		PaymentMethod:  paymentMethod,
-		GuestAllowance: guestAllowance,
+		ID:              id,
+		HostID:          hostID,
+		FacilityID:      facilityID,
+		VenueFacilityID: venueFacilityID,
+		CourtIDs:        courtIDs,
+		Range:           r,
+		Capacity:        capacity,
+		Status:          StatusScheduled,
+		PaymentMethod:   paymentMethod,
+		GuestAllowance:  guestAllowance,
 	}, nil
 }
 

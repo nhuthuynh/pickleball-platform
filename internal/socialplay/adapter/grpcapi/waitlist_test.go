@@ -36,7 +36,7 @@ func newTestHandlerWithWaitlist() (*fakeGameRepo, *fakeRegistrationRepo, *fakeWa
 func TestJoinWaitlist_Valid(t *testing.T) {
 	ctx := context.Background()
 	gameRepo, _, waitlistRepo, svc := newTestHandlerWithWaitlist()
-	h := grpcapi.NewHandler(svc, nil)
+	h := grpcapi.NewHandler(svc, nil, nil)
 
 	game := seedGame(t, gameRepo, "game-wl-1", 1)
 	if _, err := h.RegisterForGame(ctx, &socialplayv1.RegisterForGameRequest{GameId: game.ID, PlayerId: "player-a"}); err != nil {
@@ -65,7 +65,7 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 func TestJoinWaitlist_GameNotFull_MapsToInvalidArgument(t *testing.T) {
 	ctx := context.Background()
 	gameRepo, _, _, svc := newTestHandlerWithWaitlist()
-	h := grpcapi.NewHandler(svc, nil)
+	h := grpcapi.NewHandler(svc, nil, nil)
 
 	game := seedGame(t, gameRepo, "game-wl-2", 4)
 
@@ -88,7 +88,7 @@ func TestJoinWaitlist_GameNotFull_MapsToInvalidArgument(t *testing.T) {
 func TestJoinWaitlist_AlreadyOnWaitlist_MapsToAlreadyExists(t *testing.T) {
 	ctx := context.Background()
 	gameRepo, _, _, svc := newTestHandlerWithWaitlist()
-	h := grpcapi.NewHandler(svc, nil)
+	h := grpcapi.NewHandler(svc, nil, nil)
 
 	game := seedGame(t, gameRepo, "game-wl-3", 1)
 	if _, err := h.RegisterForGame(ctx, &socialplayv1.RegisterForGameRequest{GameId: game.ID, PlayerId: "player-a"}); err != nil {

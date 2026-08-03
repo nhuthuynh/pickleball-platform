@@ -1,15 +1,19 @@
 -- name: CreateGame :one
+-- venue_facility_id (T8.3) is nullable — sqlc infers CreateGameParams.
+-- VenueFacilityID as pgtype.UUID, which the adapter must pass as an
+-- explicitly-invalid (Valid: false) zero value for an empty domain string,
+-- not attempt to parse "" as a uuid (see nullableUUID in repository.go).
 -- payment_method and guest_allowance (T8.7, db/migrations/
 -- 0012_socialplay_guest_capacity.sql) are always supplied explicitly by the
 -- adapter (never relying on the column DEFAULT), mirroring how every other
 -- column here is caller-supplied — the DEFAULT only exists to backfill rows
 -- that predate the column.
-INSERT INTO games (id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-RETURNING id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance;
+INSERT INTO games (id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+RETURNING id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance;
 
 -- name: GetGameByID :one
-SELECT id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance
+SELECT id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance
 FROM games
 WHERE id = $1;
 

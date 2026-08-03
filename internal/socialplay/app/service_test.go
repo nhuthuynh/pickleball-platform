@@ -50,6 +50,34 @@ func (f *fakeReservation) ReleaseCourt(_ context.Context, bookingID string) erro
 	return f.releaseErr
 }
 
+// fakeFacilityLookup is a minimal in-memory port.FacilityLookup fake (T8.3),
+// mirroring fakeReservation's shape. known lets a test seed which facility
+// IDs "exist" in the (faked) Facilities context; a facility ID absent from
+// known is treated as not found. Most ScheduleGame tests don't set
+// ScheduleGameInput.VenueFacilityID at all (it's optional — see
+// app.Service.ScheduleGame's doc comment), so an empty newFakeFacilityLookup()
+// with nothing seeded is the right default: Service skips the lookup
+// entirely for an empty VenueFacilityID, so this fake is never actually
+// consulted by those tests.
+type fakeFacilityLookup struct {
+	known map[string]bool
+}
+
+func newFakeFacilityLookup(knownIDs ...string) *fakeFacilityLookup {
+	f := &fakeFacilityLookup{known: make(map[string]bool)}
+	for _, id := range knownIDs {
+		f.known[id] = true
+	}
+	return f
+}
+
+func (f *fakeFacilityLookup) FacilityExists(_ context.Context, facilityID string) error {
+	if f.known[facilityID] {
+		return nil
+	}
+	return domain.ErrFacilityNotFound
+}
+
 // sequentialIDs is a deterministic port.IDGenerator fake, mirroring
 // internal/booking/app's test fake of the same shape. Shared by both Game
 // and Registration IDs (real deployments use a random UUID generator, see
@@ -269,7 +297,7 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	g, err := svc.ScheduleGame(context.Background(), in, reservation)
+	g, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -298,7 +326,7 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	_, err := svc.ScheduleGame(context.Background(), in, reservation)
+	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if !errors.Is(err, domain.ErrCourtUnavailable) {
 		t.Fatalf("got err %v, want ErrCourtUnavailable", err)
 	}
@@ -318,7 +346,7 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	_, err := svc.ScheduleGame(context.Background(), in, reservation)
+	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if !errors.Is(err, domain.ErrCourtUnavailable) {
 		t.Fatalf("got err %v, want ErrCourtUnavailable", err)
 	}
@@ -343,7 +371,7 @@ func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	_, err := svc.ScheduleGame(context.Background(), in, reservation)
+	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if !errors.Is(err, domain.ErrCourtUnavailable) {
 		t.Fatalf("got err %v, want ErrCourtUnavailable even though rollback itself failed", err)
 	}
@@ -365,12 +393,88 @@ func TestScheduleGame_InvalidInputRejectedBeforeTouchingPort(t *testing.T) {
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.Capacity = 0
 
-	_, err := svc.ScheduleGame(context.Background(), in, reservation)
+	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if !errors.Is(err, domain.ErrInvalidCapacity) {
 		t.Fatalf("got err %v, want ErrInvalidCapacity", err)
 	}
 	if len(reservation.reserveCalls) != 0 {
 		t.Fatalf("invalid Game must not touch the reservation port, got calls: %v", reservation.reserveCalls)
+	}
+}
+
+// TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts is
+// T8.3's core proof: a VenueFacilityID that the Facilities context doesn't
+// recognise is rejected with domain.ErrFacilityNotFound, and — same
+// no-partial-state requirement as
+// TestScheduleGame_InvalidInputRejectedBeforeTouchingPort above — no court
+// reservation is attempted and no Game is persisted, so a bogus
+// VenueFacilityID can never leave a dangling Booking or Game behind.
+func TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts(t *testing.T) {
+	t.Parallel()
+
+	reservation := newFakeReservation()
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	in := validInput("court-1")
+	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	in.VenueFacilityID = "no-such-facility"
+
+	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
+	if !errors.Is(err, domain.ErrFacilityNotFound) {
+		t.Fatalf("got err %v, want ErrFacilityNotFound", err)
+	}
+	if len(reservation.reserveCalls) != 0 {
+		t.Fatalf("an unknown venue facility must not touch the reservation port, got calls: %v", reservation.reserveCalls)
+	}
+	if len(games.games) != 0 {
+		t.Fatalf("an unknown venue facility must not leave a persisted Game behind, got %d", len(games.games))
+	}
+}
+
+// TestScheduleGame_KnownVenueFacilityAccepted proves the happy path: a
+// VenueFacilityID the fake FacilityLookup recognises does not block
+// scheduling, and the Game returned carries it through.
+func TestScheduleGame_KnownVenueFacilityAccepted(t *testing.T) {
+	t.Parallel()
+
+	reservation := newFakeReservation()
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	in := validInput("court-1")
+	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	in.VenueFacilityID = "facility-1"
+
+	g, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup("facility-1"))
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if g.VenueFacilityID != "facility-1" {
+		t.Fatalf("VenueFacilityID = %q, want facility-1", g.VenueFacilityID)
+	}
+}
+
+// TestScheduleGame_EmptyVenueFacilitySkipsLookup proves VenueFacilityID is
+// optional (the migration adds venue_facility_id as a nullable column,
+// db/migrations/0011_socialplay_facility_fk.sql, precisely so existing/
+// legacy Games aren't forced to have one): an empty VenueFacilityID never
+// even calls the FacilityLookup port, so a Game can still be scheduled
+// without one.
+func TestScheduleGame_EmptyVenueFacilitySkipsLookup(t *testing.T) {
+	t.Parallel()
+
+	reservation := newFakeReservation()
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	in := validInput("court-1")
+	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+
+	// newFakeFacilityLookup() with no known IDs seeded: if ScheduleGame
+	// called it for an empty VenueFacilityID, this would fail with
+	// ErrFacilityNotFound.
+	g, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if g.VenueFacilityID != "" {
+		t.Fatalf("VenueFacilityID = %q, want empty", g.VenueFacilityID)
 	}
 }
 
@@ -387,7 +491,7 @@ func TestScheduleGame_PersistsGame(t *testing.T) {
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	g, err := svc.ScheduleGame(context.Background(), in, reservation)
+	g, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -415,7 +519,7 @@ func TestScheduleGame_RollsBackReservationsWhenPersistFails(t *testing.T) {
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	_, err := svc.ScheduleGame(context.Background(), in, reservation)
+	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
 	if err == nil {
 		t.Fatalf("expected an error when persistence fails")
 	}
@@ -440,7 +544,7 @@ func TestRegisterForGame_Valid(t *testing.T) {
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -479,7 +583,7 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 	in := validInput("court-1")
 	in.Capacity = 1
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, in, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, in, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -520,7 +624,7 @@ func TestCancelRegistration_OwnerSucceeds(t *testing.T) {
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -561,7 +665,7 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -602,7 +706,7 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -654,7 +758,7 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -687,7 +791,7 @@ func fixtureFullGame(t *testing.T, ctx context.Context, svc *app.Service, capaci
 	in := validInput("court-1")
 	in.Capacity = capacity
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, in, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, in, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -747,7 +851,7 @@ func TestJoinWaitlist_GameNotFull(t *testing.T) {
 	in := validInput("court-1")
 	in.Capacity = 4
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, in, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, in, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
@@ -831,7 +935,7 @@ func TestCancelRegistration_NoWaitlistIsNotAnError(t *testing.T) {
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}

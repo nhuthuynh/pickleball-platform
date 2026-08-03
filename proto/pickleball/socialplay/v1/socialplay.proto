@@ -63,17 +63,30 @@ enum PaymentMethod {
 message Game {
   string id = 1;
   string host_id = 2;
+  // facility_id is DEPRECATED (T8.3): the pre-Facilities-context opaque
+  // free-text venue identifier (db/migrations/0005_socialplay.sql) with no
+  // real relationship to anything. Prefer venue_facility_id below, a real
+  // FK into the Facilities context (facilities.id uuid). Retained on the
+  // wire so existing readers don't break; slated for removal once nothing
+  // depends on it (see db/migrations/0011_socialplay_facility_fk.sql).
   string facility_id = 3;
   repeated string court_ids = 4;
   google.protobuf.Timestamp starts_at = 5;
   google.protobuf.Timestamp ends_at = 6;
   int32 capacity = 7;
   GameStatus status = 8;
+  // venue_facility_id (T8.3) is the real Facilities-context Facility ID
+  // for this Game's venue, reconciling the opaque facility_id above with
+  // facilities.id uuid — see that field's doc comment for the migration
+  // context. Optional/nullable in storage; empty string on the wire means
+  // this Game has no known venue Facility yet.
+  string venue_facility_id = 9;
   // payment_method and guest_allowance mirror
   // internal/socialplay/domain.Game's T8.6 fields, wired onto the wire in
-  // T8.7.
-  PaymentMethod payment_method = 9;
-  int32 guest_allowance = 10;
+  // T8.7. Field numbers 10/11 (not 9/10) since venue_facility_id (T8.3)
+  // already claimed 9 when both landed the same sprint.
+  PaymentMethod payment_method = 10;
+  int32 guest_allowance = 11;
 }
 
 // Registration mirrors internal/socialplay/domain.Registration.
@@ -111,16 +124,25 @@ message WaitlistEntry {
 
 message CreateGameRequest {
   string host_id = 1;
+  // facility_id is DEPRECATED (T8.3) — see Game.facility_id's doc comment.
+  // Prefer venue_facility_id below.
   string facility_id = 2;
   repeated string court_ids = 3;
   google.protobuf.Timestamp starts_at = 4;
   google.protobuf.Timestamp ends_at = 5;
   int32 capacity = 6;
+  // venue_facility_id (T8.3) — see Game.venue_facility_id's doc comment.
+  // Optional: an unset/empty value schedules a Game with no known venue
+  // Facility, exactly like today; a non-empty value that doesn't refer to
+  // a real Facility is rejected (404 NOT_FOUND).
+  string venue_facility_id = 7;
   // payment_method and guest_allowance (T8.7): see Game's doc comment on
   // these same two fields, and PaymentMethod's doc comment for what an
-  // unset/UNSPECIFIED payment_method resolves to.
-  PaymentMethod payment_method = 7;
-  int32 guest_allowance = 8;
+  // unset/UNSPECIFIED payment_method resolves to. Field numbers 8/9 (not
+  // 7/8) since venue_facility_id (T8.3) already claimed 7 when both landed
+  // the same sprint.
+  PaymentMethod payment_method = 8;
+  int32 guest_allowance = 9;
 }
 
 message CreateGameResponse {

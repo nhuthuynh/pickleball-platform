@@ -17,7 +17,7 @@ func TestNewGame_Valid(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", validCourtIDs(), r, 4, domain.PaymentMethodOnline, 2)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", validCourtIDs(), r, 4, domain.PaymentMethodOnline, 2)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -27,7 +27,7 @@ func TestNewGame_Valid(t *testing.T) {
 	if g.Capacity != 4 {
 		t.Fatalf("capacity = %d, want 4", g.Capacity)
 	}
-	if g.ID != "g1" || g.HostID != "host-1" || g.FacilityID != "facility-1" {
+	if g.ID != "g1" || g.HostID != "host-1" || g.FacilityID != "facility-1" || g.VenueFacilityID != "venue-1" {
 		t.Fatalf("unexpected identity fields: %+v", g)
 	}
 	if g.PaymentMethod != domain.PaymentMethodOnline {
@@ -80,7 +80,7 @@ func TestNewGame_Validation(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := domain.NewGame("g1", tt.hostID, "facility-1", tt.courtIDs, tt.r, tt.capacity, tt.paymentMethod, tt.guestAllowance)
+			_, err := domain.NewGame("g1", tt.hostID, "facility-1", "venue-1", tt.courtIDs, tt.r, tt.capacity, tt.paymentMethod, tt.guestAllowance)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("got err %v, want %v", err, tt.wantErr)
 			}
@@ -97,7 +97,7 @@ func TestGame_Cancel(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0)
 	if err != nil {
 		t.Fatalf("unexpected err building fixture: %v", err)
 	}
@@ -111,5 +111,24 @@ func TestGame_Cancel(t *testing.T) {
 
 	if err := g.Cancel(); !errors.Is(err, domain.ErrIllegalStatusTransition) {
 		t.Fatalf("double-cancel should be rejected, got %v", err)
+	}
+}
+
+// TestNewGame_EmptyVenueFacilityIDAccepted proves VenueFacilityID (T8.3) is
+// optional at the domain layer: NewGame stores whatever it's given (empty
+// string included) without validating its existence — that check requires
+// the Facilities context, which is app.Service.ScheduleGame's job via
+// port.FacilityLookup, not this pure constructor's (see VenueFacilityID's
+// doc comment on game.go).
+func TestNewGame_EmptyVenueFacilityIDAccepted(t *testing.T) {
+	t.Parallel()
+
+	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if g.VenueFacilityID != "" {
+		t.Fatalf("VenueFacilityID = %q, want empty", g.VenueFacilityID)
 	}
 }
