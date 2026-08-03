@@ -172,10 +172,12 @@ section added by this ticket, and CLAUDE.md rule 6): generated code is
 never hand-edited and never committed, only produced locally (or in CI) by
 running the generator. `src/api/bookingClient.ts` is the hand-written,
 committed wrapper that consumes `src/api/generated/booking.d.ts`'s types —
-add `paymentsClient.ts`/`socialplayClient.ts` the same way once a ticket
-actually needs them (the swagger/types for both already exist after
-`make generate`; only the thin wrapper file is missing, deliberately, to
-avoid building client surface nothing calls yet).
+add `paymentsClient.ts` the same way once a ticket actually needs it (the
+swagger/types already exist after `make generate`; only the thin wrapper
+file is missing, deliberately, to avoid building client surface nothing
+calls yet). `src/api/socialplayClient.ts` was added by T8.8 (see that
+section below) the same way, once `CreateGame` became the first thing in
+this repo to actually need it.
 
 ### API base URL
 
@@ -428,3 +430,90 @@ Existing T7.4/T7.5 component tests
 siblings) were left unmodified — they already mount their component
 standalone (not through `App.vue`/the router), which this ticket's
 Instructions explicitly say not to force a rewrite of.
+
+## Social Game creation (T8.8, Host/Owner)
+
+`src/views/GameCreation.vue` replaces T8.1's `/games/new` placeholder with
+the real flow (`docs/process/t8-sprint-plan.md`): a multi-step form —
+Facility & courts -> date/time & capacity -> payment method -> guest
+allowance -> review & publish — calling the real `CreateGame` (T8.7's
+extended request: `venue_facility_id`, `payment_method`,
+`guest_allowance`).
+
+- **`src/api/socialplayClient.ts`** — thin typed client for the Social
+  Play context, mirroring `bookingClient.ts`/`facilitiesClient.ts` exactly.
+  First thing in this repo to need it (T8.9/T8.10 will add
+  `RegisterForGame`/`CancelRegistration`/`JoinWaitlist` call sites on the
+  same client later).
+- **Facility & courts step reuses T7.5's pieces where the shape actually
+  overlaps**, per this ticket's own instructions: `FacilityListPanel.vue`
+  for the facility search/select UI, plus `useFacilityList`/
+  `useFacilityDetail` for the network calls (`ListFacilities`/
+  `GetFacility`, the latter carrying T8.2's real `courts` list). It does
+  **not** reuse `FacilityDetailPanel.vue` — that component mixes in
+  player-facing "book a court" UI this Host-facing flow has no use for.
+- **The "Matching & publish" step from Flow 3 is just "Publish" here.**
+  There is no `Match`/`PlayerRating` aggregate or matching algorithm
+  anywhere in this codebase (T8 kickoff note's re-scope finding), so an
+  auto-match toggle / level-range slider / gender-mix selector would
+  control nothing real. The review step carries an honest one-line note
+  instead ("Automated matching isn't available yet — players join
+  directly") — the same "coming soon note, not a dead control" approach
+  T7.4 used for not-yet-built court pricing.
+- **Field-level error rendering (WCAG 3.3.1):** `applyCreateGameError`
+  matches `CreateGame`'s domain sentinel error messages
+  (`internal/socialplay/domain/errors.go` — plain sentinel strings on this
+  context, unlike Facilities' structured `FieldError`) and routes the
+  wizard back to the specific step + field the failure is about: a
+  capacity<=0 rejection lands on the Date/time/capacity step next to
+  Capacity, an unknown `venue_facility_id` lands on the Facility & courts
+  step, an invalid payment method lands on the Payment method step, and so
+  on. Anything unrecognized falls back to a generic message on the Review
+  step, never a silent failure.
+- **Guest-allowance stepper minimum of 0** is enforced in
+  `decrementGuestAllowance` itself, not just the decrement button's
+  `disabled` attribute — same "the gate is a real code path" pattern
+  `FacilityOnboarding.vue`'s camera-consent checkbox already established.
+- **Payment method (3-way: Online / Cash / Either) is required before
+  advancing past that step** — "Next" stays disabled until one radio is
+  selected.
+- **WCAG 4.1.3 Status Messages:** a successful publish shows a
+  `role="status"` live-region confirmation, same convention as
+  `FacilityOnboarding.vue`/`CourtBookingFlow.vue`.
+- **Host role evidence (T8 kickoff note decision #1):** a successful
+  `CreateGame` call also calls `recordHostEvidence()`
+  (`src/state/roleEvidence.ts`, new this ticket) — a small reactive +
+  localStorage-backed module that `RoleIndicator.vue` now reads instead of
+  hardcoding "Host" as always present. See that file's header comment: this
+  replaces RoleIndicator's previous hardcoded mock evidence with a real (if
+  still client-side-only, server-unverified) per-session signal — "Host"
+  only appears in the role switcher once this browser session has actually
+  published a Game.
+- Responsive across all three breakpoints (single-column on iPhone,
+  wider/multi-column field rows from iPad up, same pattern as
+  `FacilityOnboarding.vue`); every interactive control is >=44px for touch.
+
+### Tests added by this ticket
+
+- `src/views/__tests__/GameCreation.spec.ts` — the omitted-matching-step
+  note rendering plus an explicit assertion that no matching control
+  (`input[type="range"]`, "auto-match"/"gender"/"level range" text) exists
+  anywhere in the form; payment-method selection required before the
+  Payment step's Next enables; the guest-allowance stepper's minimum-of-0
+  floor (including calling the decrement handler directly, bypassing the
+  disabled button); forward/back state retention across every step;
+  field-level error rendering for a capacity rejection, an unknown
+  `venue_facility_id`, and a generic fallback; and the successful-publish
+  path (exact `CreateGame` body, the `role="status"` confirmation, and that
+  `hasHostEvidence` flips true).
+- `src/state/__tests__/roleEvidence.spec.ts` — the new module's own
+  behavior (starts false, `recordHostEvidence` sets + persists,
+  idempotency, the test-only reset helper).
+- `src/components/__tests__/RoleIndicator.spec.ts` — rewritten for the new
+  behavior: defaults to Player-only (no hardcoded Host), lists Host once
+  `recordHostEvidence()` has been called, and reacts to that call on an
+  already-mounted instance without a remount.
+- `src/__tests__/App.spec.ts` — `/games/new` moved out of the shared
+  "Coming soon" `it.each` table into its own case asserting `GameCreation`
+  (not `ComingSoonView`) renders there, mirroring the existing
+  `/facilities`/`/facilities/onboard` regression checks.

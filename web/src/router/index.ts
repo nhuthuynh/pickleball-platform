@@ -10,7 +10,9 @@
 //   - /games, /games/new, /games/:id/checkout, /host/payments: the four
 //     new T8.8-T8.10 routes. Placeholder components in *this* ticket only
 //     — the ticket that builds each screen for real swaps the
-//     `component:` entry, it doesn't invent the route.
+//     `component:` entry, it doesn't invent the route. T8.8
+//     (docs/process/t8-sprint-plan.md) is the first to do so: /games/new
+//     now renders the real GameCreation.vue instead of ComingSoonView.
 //   - /bookings, /profile: not named in T8.1's Instructions #1 route list,
 //     but required by Instructions #1's nav requirement ("Bookings"/
 //     "Profile" tabs must link to a "Coming soon" placeholder route too,
@@ -18,6 +20,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
+import GameCreation from '../views/GameCreation.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -26,8 +29,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/facilities/onboard', name: 'facilities-onboard', component: FacilityOnboarding },
   // T8.9 (Discover & Join games) replaces this placeholder.
   { path: '/games', name: 'games', component: ComingSoonView, meta: { title: 'Games' } },
-  // T8.8 (Social Game Creation) replaces this placeholder.
-  { path: '/games/new', name: 'games-new', component: ComingSoonView, meta: { title: 'Create a game' } },
+  // T8.8 (Social Game Creation, Host/Owner): real screen.
+  { path: '/games/new', name: 'games-new', component: GameCreation, meta: { title: 'Create a game' } },
   // T8.10 (Payments UI) replaces this placeholder.
   {
     path: '/games/:id/checkout',
