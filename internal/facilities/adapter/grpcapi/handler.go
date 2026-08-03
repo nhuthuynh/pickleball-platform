@@ -43,12 +43,23 @@ func (h *Handler) CreateFacility(ctx context.Context, req *facilitiesv1.CreateFa
 	return &facilitiesv1.CreateFacilityResponse{Facility: toProto(f)}, nil
 }
 
+// GetFacility's response includes Courts (T8.2) alongside Facility — kept as
+// a separate response field rather than on Facility itself, so
+// CreateFacility/ListFacilities/AddCameraLink (which all build a Facility
+// via toProto below) don't pay for an extra courts query none of them need.
+// See GetFacilityResponse's doc comment in
+// proto/pickleball/facilities/v1/facilities.proto for the full reasoning,
+// including the ListFacilityCourts-RPC alternative considered and rejected.
 func (h *Handler) GetFacility(ctx context.Context, req *facilitiesv1.GetFacilityRequest) (*facilitiesv1.GetFacilityResponse, error) {
 	f, err := h.svc.GetFacility(ctx, req.GetFacilityId())
 	if err != nil {
 		return nil, toStatus(err)
 	}
-	return &facilitiesv1.GetFacilityResponse{Facility: toProto(f)}, nil
+	courts := make([]*facilitiesv1.Court, 0, len(f.Courts))
+	for _, c := range f.Courts {
+		courts = append(courts, toProtoCourt(c))
+	}
+	return &facilitiesv1.GetFacilityResponse{Facility: toProto(f), Courts: courts}, nil
 }
 
 func (h *Handler) ListFacilities(ctx context.Context, req *facilitiesv1.ListFacilitiesRequest) (*facilitiesv1.ListFacilitiesResponse, error) {

@@ -37,4 +37,11 @@ type Repository interface {
 	// CameraConsentAttested invariant before calling this — this method
 	// only persists, it does not re-check consent.
 	AddCameraLink(ctx context.Context, facilityID string, link domain.CameraLink) (domain.CameraLink, error)
+
+	// ListCourtsForFacility returns every Court belonging to facilityID, in
+	// creation order (T8.2 — the read path AddCourt (T7.3) never had). An
+	// unknown facilityID is not itself an error here — it simply has no
+	// courts; GetFacilityByID is what returns ErrFacilityNotFound for an
+	// unknown Facility.
+	ListCourtsForFacility(ctx context.Context, facilityID string) ([]domain.Court, error)
 }
