@@ -5,7 +5,7 @@ URL, republished — `https://claude.ai/code/artifact/bcfb62bc-d157-44dc-95da-51
 verified against the artifact's actual HTML/CSS source (fetched directly via
 its raw markup, not inferred from its own "Round 1/2/3" changelog callout,
 per the task's standing instruction), plus a fresh open-ended pass over
-`docs/design/pickleball-system-design-v1.md` §1's 16 requirements against
+`docs/design/v1-system-design.md` §1's 16 requirements against
 every screen in the artifact.
 **Roles played:** UX/UI Designer, Product Manager, Principal Engineer,
 Product Owner — same four dossiers as rounds 1–2.
@@ -104,7 +104,7 @@ former is true here.
 
 Per the task brief's framing that round 3 should look past mechanics at
 whether the artifact's screens actually cover the 16 requirements in
-`pickleball-system-design-v1.md` §1:
+`v1-system-design.md` §1:
 
 **Requirement #9 (competitions + social-media advertising) has no screen,
 despite the artifact's own intro claiming it's covered.** The intro
@@ -136,7 +136,7 @@ negotiates ad hoc" — i.e., by the artifact's own description, it reuses
 the same `DiscountRule` instance (same 25%-off, same "ends after 10
 bookings") drawn two paragraphs above for the individual/off-peak case,
 rather than depicting its own club-specific rule. That's a real design gap
-against `pickleball-system-design-v1.md` §3.2's own model, which defines
+against `v1-system-design.md` §3.2's own model, which defines
 `AppliesTo (individual|recurring_hire|club)` as a discriminator precisely
 because these are meant to be independently configurable discount rule
 instances, not one rule wearing two labels. Not fully conflated (there's a

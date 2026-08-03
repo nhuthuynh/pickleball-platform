@@ -1,6 +1,6 @@
 # Design Review — Round 1
 
-**Reviewing:** `docs/design/pickleball-system-design-v1.md` (round 0) + its
+**Reviewing:** `docs/design/v1-system-design.md` (round 0) + its
 companion visual artifact (host facility/pricing console, host game-creation
 flow, player discovery/join/registration on iPhone, iPad adaptive layout).
 **Roles played:** UX/UI Designer, Product Manager, Principal Engineer,
