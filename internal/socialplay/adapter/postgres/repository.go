@@ -26,9 +26,10 @@ import (
 // 0005_socialplay.sql) firing — the DB-level mirror of
 // domain.ErrAlreadyRegistered per CLAUDE.md rule 4. P0001 is the
 // registrations_capacity_guard trigger's RAISE EXCEPTION (db/migrations/
-// 0006_socialplay_capacity_guard.sql) firing — the DB-level mirror of
-// domain.ErrGameFull, closing the race domain.Register's in-process count
-// check alone can't (PR #14 loop-1 review finding).
+// 0006_socialplay_capacity_guard.sql, rewritten by db/migrations/
+// 0012_socialplay_guest_capacity.sql T8.7 to a weighted sum) firing — the
+// DB-level mirror of domain.ErrGameFull, closing the race domain.Register's
+// in-process count check alone can't (PR #14 loop-1 review finding).
 const (
 	pgUniqueViolation  = "23505"
 	pgCapacityExceeded = "P0001"
@@ -54,11 +55,13 @@ func (r *GameRepository) Create(ctx context.Context, g domain.Game) (domain.Game
 		EndsAt:          toTimestamptz(g.Range.End),
 		Capacity:        int32(g.Capacity),
 		Status:          string(g.Status),
+		PaymentMethod:   string(g.PaymentMethod),
+		GuestAllowance:  int32(g.GuestAllowance),
 	})
 	if err != nil {
 		return domain.Game{}, translateGameErr(err)
 	}
-	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status), nil
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
 }
 
 func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, error) {
@@ -66,7 +69,7 @@ func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, e
 	if err != nil {
 		return domain.Game{}, translateGameErr(err)
 	}
-	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status), nil
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
 }
 
 func translateGameErr(err error) error {
@@ -76,12 +79,13 @@ func translateGameErr(err error) error {
 	return fmt.Errorf("socialplay postgres adapter (games): %w", err)
 }
 
-// gameFromFields builds a domain.Game from the 9 columns every games query
-// selects. sqlc generates a distinct Row struct per query (CreateGameRow,
+// gameFromFields builds a domain.Game from the 11 columns every games query
+// selects (venue_facility_id, T8.3; payment_method/guest_allowance, T8.7).
+// sqlc generates a distinct Row struct per query (CreateGameRow,
 // GetGameByIDRow, ...) rather than reusing socialplaydb.Game, mirroring the
 // fromFields pattern in internal/booking/adapter/postgres/repository.go
 // (CLAUDE.md gotcha: sqlc emits a distinct ...Row type per query).
-func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status string) domain.Game {
+func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32) domain.Game {
 	ids := make([]string, 0, len(courtIDs))
 	for _, c := range courtIDs {
 		ids = append(ids, c.String())
@@ -96,8 +100,10 @@ func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID p
 			Start: startsAt.Time,
 			End:   endsAt.Time,
 		},
-		Capacity: int(capacity),
-		Status:   domain.Status(status),
+		Capacity:       int(capacity),
+		Status:         domain.Status(status),
+		PaymentMethod:  domain.PaymentMethod(paymentMethod),
+		GuestAllowance: int(guestAllowance),
 	}
 }
 
@@ -118,11 +124,12 @@ func (r *RegistrationRepository) Create(ctx context.Context, reg domain.Registra
 		Source:        string(reg.Source),
 		Status:        string(reg.Status),
 		PaymentStatus: string(reg.PaymentStatus),
+		GuestCount:    int32(reg.GuestCount),
 	})
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
 }
 
 func (r *RegistrationRepository) GetByID(ctx context.Context, id string) (domain.Registration, error) {
@@ -130,7 +137,7 @@ func (r *RegistrationRepository) GetByID(ctx context.Context, id string) (domain
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
 }
 
 func (r *RegistrationRepository) ListActiveForGame(ctx context.Context, gameID string) ([]domain.Registration, error) {
@@ -140,7 +147,7 @@ func (r *RegistrationRepository) ListActiveForGame(ctx context.Context, gameID s
 	}
 	out := make([]domain.Registration, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus))
+		out = append(out, registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount))
 	}
 	return out, nil
 }
@@ -153,7 +160,7 @@ func (r *RegistrationRepository) Update(ctx context.Context, reg domain.Registra
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
 }
 
 // UpdatePaymentStatus persists a PaymentStatus change (T6.5) via its own
@@ -168,7 +175,7 @@ func (r *RegistrationRepository) UpdatePaymentStatus(ctx context.Context, id str
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
 }
 
 // translateRegistrationErr maps infrastructure failures onto domain errors
@@ -198,10 +205,10 @@ func translateRegistrationErr(err error) error {
 	return fmt.Errorf("socialplay postgres adapter (registrations): %w", err)
 }
 
-// registrationFromFields builds a domain.Registration from the 6 columns
-// every registrations query selects — see gameFromFields's doc comment for
-// why this pattern exists.
-func registrationFromFields(id, gameID pgtype.UUID, playerID, source, status, paymentStatus string) domain.Registration {
+// registrationFromFields builds a domain.Registration from the 7 columns
+// every registrations query selects (6 pre-T8.7 + guest_count, T8.7) — see
+// gameFromFields's doc comment for why this pattern exists.
+func registrationFromFields(id, gameID pgtype.UUID, playerID, source, status, paymentStatus string, guestCount int32) domain.Registration {
 	return domain.Registration{
 		ID:            id.String(),
 		GameID:        gameID.String(),
@@ -209,6 +216,7 @@ func registrationFromFields(id, gameID pgtype.UUID, playerID, source, status, pa
 		Source:        domain.RegistrationSource(source),
 		Status:        domain.RegistrationStatus(status),
 		PaymentStatus: domain.PaymentStatus(paymentStatus),
+		GuestCount:    int(guestCount),
 	}
 }
 

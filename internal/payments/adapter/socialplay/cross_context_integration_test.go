@@ -84,7 +84,8 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	// same shape cmd/server wires.
 	gameRepo := socialplaypg.NewGameRepository(pool)
 	regRepo := socialplaypg.NewRegistrationRepository(pool)
-	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, regRepo)
+	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
+	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, regRepo, waitlistRepo)
 
 	// Real Payments stack (T6.4's Postgres adapter + app.Service), wired
 	// with the real RegistrationUpdater (T6.5) against the same
@@ -109,7 +110,7 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	if err != nil {
 		t.Fatalf("failed to build fixture time range: %v", err)
 	}
-	game, err := socialplaydomain.NewGame("", "host-1", "facility-1", []string{"court-1"}, rng, 4, socialplaydomain.PaymentMethodEither, 0)
+	game, err := socialplaydomain.NewGame("", "host-1", "facility-1", "", []string{"court-1"}, rng, 4, socialplaydomain.PaymentMethodEither, 0)
 	if err != nil {
 		t.Fatalf("failed to build fixture game: %v", err)
 	}

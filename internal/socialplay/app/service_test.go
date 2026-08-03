@@ -270,12 +270,19 @@ func mustRange(t *testing.T, start, end string) domain.TimeRange {
 	return r
 }
 
+// validInput's PaymentMethod is explicitly PaymentMethodEither (T8.7) —
+// mirrors the resolved value internal/socialplay/adapter/grpcapi.
+// fromProtoPaymentMethod produces for a request that never sets
+// payment_method, so these app-layer tests exercise ScheduleGame with the
+// same effective input a real unset-field request would produce. GuestAllowance
+// stays at its zero value (no guests) unless a specific test overrides it.
 func validInput(courtIDs ...string) app.ScheduleGameInput {
 	return app.ScheduleGameInput{
-		HostID:     "host-1",
-		FacilityID: "facility-1",
-		CourtIDs:   courtIDs,
-		Capacity:   4,
+		HostID:        "host-1",
+		FacilityID:    "facility-1",
+		CourtIDs:      courtIDs,
+		Capacity:      4,
+		PaymentMethod: domain.PaymentMethodEither,
 	}
 }
 

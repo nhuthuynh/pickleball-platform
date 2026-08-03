@@ -53,6 +53,14 @@ type ScheduleGameInput struct {
 	CourtIDs        []string
 	Range           domain.TimeRange
 	Capacity        int
+	// PaymentMethod and GuestAllowance (T8.7) are passed straight through to
+	// domain.NewGame — see that constructor's doc comment for their
+	// validation. internal/socialplay/adapter/grpcapi is responsible for
+	// resolving an unset/zero-value wire PaymentMethod onto
+	// domain.PaymentMethodEither before it reaches here (see that package's
+	// fromProtoPaymentMethod); this field itself has no implicit default.
+	PaymentMethod  domain.PaymentMethod
+	GuestAllowance int
 }
 
 // ScheduleGame builds a Game (domain.NewGame, T5.1) and, once it validates,
@@ -106,14 +114,11 @@ type ScheduleGameInput struct {
 // don't set one, and the underlying column is nullable by design (db/
 // migrations/0011_socialplay_facility_fk.sql).
 func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reservation port.CourtReservation, facilities port.FacilityLookup) (domain.Game, error) {
-	// domain.NewGame's PaymentMethod/GuestAllowance parameters (T8.6) are not
-	// yet exposed on ScheduleGameInput — wiring them through the app/proto
-	// surface is T8.7's job, not this ticket's (domain-only). Until then,
-	// every Game scheduled through this method gets the least restrictive
-	// PaymentMethod ("either") and no guest allowance (0), which is exactly
-	// the pre-T8.6 behavior: no caller of this method could previously
-	// express a payment-method preference or guests at all.
-	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.VenueFacilityID, in.CourtIDs, in.Range, in.Capacity, domain.PaymentMethodEither, 0)
+	// domain.NewGame's PaymentMethod/GuestAllowance parameters (T8.6) are
+	// wired straight through from ScheduleGameInput (T8.7) — see that
+	// struct's doc comment for who's responsible for resolving an
+	// unset/wire-zero-value PaymentMethod before it reaches here.
+	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.VenueFacilityID, in.CourtIDs, in.Range, in.Capacity, in.PaymentMethod, in.GuestAllowance)
 	if err != nil {
 		return domain.Game{}, err
 	}
@@ -158,6 +163,12 @@ func releaseAll(ctx context.Context, reservation port.CourtReservation, bookingI
 type RegisterForGameInput struct {
 	GameID   string
 	PlayerID string
+	// GuestCount (T8.7) is passed straight through to domain.Register — see
+	// that function's doc comment for the guest-allowance and weighted
+	// capacity checks it's validated against. Zero (the type's default) is
+	// the pre-T8.6 "no guests" behavior, so a caller that never sets this
+	// field is unaffected.
+	GuestCount int
 }
 
 // RegisterForGame looks up the Game and its current active registrations,
@@ -197,12 +208,9 @@ func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) 
 		return domain.Registration{}, err
 	}
 
-	// domain.Register's guestCount parameter (T8.6) is not yet exposed on
-	// RegisterForGameInput — same T8.7 deferral as ScheduleGame's
-	// PaymentMethod/GuestAllowance above. Every registration made through
-	// this method brings 0 guests until then, matching pre-T8.6 behavior
-	// exactly.
-	reg, err := domain.Register(game, existing, in.PlayerID, 0)
+	// domain.Register's guestCount parameter (T8.6) is wired straight
+	// through from RegisterForGameInput.GuestCount (T8.7).
+	reg, err := domain.Register(game, existing, in.PlayerID, in.GuestCount)
 	if err != nil {
 		return domain.Registration{}, err
 	}

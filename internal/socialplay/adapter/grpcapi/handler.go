@@ -51,6 +51,8 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 		CourtIDs:        req.GetCourtIds(),
 		Range:           rng,
 		Capacity:        int(req.GetCapacity()),
+		PaymentMethod:   fromProtoPaymentMethod(req.GetPaymentMethod()),
+		GuestAllowance:  int(req.GetGuestAllowance()),
 	}, h.reservation, h.facilities)
 	if err != nil {
 		return nil, toStatus(err)
@@ -61,8 +63,9 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 
 func (h *Handler) RegisterForGame(ctx context.Context, req *socialplayv1.RegisterForGameRequest) (*socialplayv1.RegisterForGameResponse, error) {
 	reg, err := h.svc.RegisterForGame(ctx, app.RegisterForGameInput{
-		GameID:   req.GetGameId(),
-		PlayerID: req.GetPlayerId(),
+		GameID:     req.GetGameId(),
+		PlayerID:   req.GetPlayerId(),
+		GuestCount: int(req.GetGuestCount()),
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -116,6 +119,13 @@ func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitli
 // T8.3 addition: ErrFacilityNotFound joins the NotFound group — an unknown
 // CreateGameRequest.venue_facility_id is a 404, not a 500 or a silent
 // accept (the ticket's explicit requirement).
+//
+// T8.7 additions: ErrInvalidPaymentMethod, ErrInvalidGuestAllowance, and
+// ErrGuestAllowanceExceeded join the validation-error/InvalidArgument
+// group — all three are precondition violations on the request itself
+// (a bad enum value, a negative allowance, or a guest count outside the
+// Game's own allowance), the same category ErrInvalidCapacity/
+// ErrEmptyCourtIDs already occupy.
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrGameFull),
@@ -136,7 +146,10 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrEmptyCourtIDs),
 		errors.Is(err, domain.ErrEmptyPlayerID),
 		errors.Is(err, domain.ErrIllegalStatusTransition),
-		errors.Is(err, domain.ErrGameNotFull):
+		errors.Is(err, domain.ErrGameNotFull),
+		errors.Is(err, domain.ErrInvalidPaymentMethod),
+		errors.Is(err, domain.ErrInvalidGuestAllowance),
+		errors.Is(err, domain.ErrGuestAllowanceExceeded):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -178,6 +191,57 @@ func toProtoPaymentStatus(s domain.PaymentStatus) socialplayv1.PaymentStatus {
 	}
 }
 
+// toProtoPaymentMethod converts a domain.PaymentMethod to its wire enum
+// (T8.7) — mirrors toProtoGameStatus/toProtoRegistrationStatus's shape. Every
+// domain.PaymentMethod value is one of its own closed enum's non-zero
+// values, so there is no "unspecified" case to fall into on this direction
+// (unlike fromProtoPaymentMethod below, which does have to handle the wire
+// zero value).
+func toProtoPaymentMethod(m domain.PaymentMethod) socialplayv1.PaymentMethod {
+	switch m {
+	case domain.PaymentMethodOnline:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_ONLINE
+	case domain.PaymentMethodCash:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_CASH
+	case domain.PaymentMethodEither:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_EITHER
+	default:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_UNSPECIFIED
+	}
+}
+
+// fromProtoPaymentMethod converts a wire PaymentMethod into a
+// domain.PaymentMethod (T8.7). PAYMENT_METHOD_UNSPECIFIED — the wire zero
+// value, sent by any client that never sets this field, including every
+// pre-T8.7 client — resolves to domain.PaymentMethodEither, the least
+// restrictive value: see db/migrations/0012_socialplay_guest_capacity.sql's
+// payment_method column default for the identical "closest thing to
+// unspecified" reasoning applied at the DB layer. This keeps CreateGame
+// backward compatible: a request that predates this field behaves exactly
+// as it did before T8.6/T8.7 introduced PaymentMethod at all. Any OTHER,
+// unrecognized wire value (not one of the enum's named non-zero constants —
+// e.g. a value from a future proto version this build doesn't know about)
+// is deliberately NOT folded into the same "unspecified" default: it's
+// passed through as an invalid domain.PaymentMethod so domain.NewGame's own
+// IsValid() check rejects it via ErrInvalidPaymentMethod, rather than
+// silently accepting an unrecognized value as if it meant "either" (a
+// PE-review finding on T8.7's original PR — UNSPECIFIED and "unrecognized"
+// are not the same thing and must not share a fallback).
+func fromProtoPaymentMethod(m socialplayv1.PaymentMethod) domain.PaymentMethod {
+	switch m {
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_UNSPECIFIED:
+		return domain.PaymentMethodEither
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_ONLINE:
+		return domain.PaymentMethodOnline
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_CASH:
+		return domain.PaymentMethodCash
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_EITHER:
+		return domain.PaymentMethodEither
+	default:
+		return domain.PaymentMethod("")
+	}
+}
+
 func toProtoGame(g domain.Game) *socialplayv1.Game {
 	return &socialplayv1.Game{
 		Id:              g.ID,
@@ -189,6 +253,8 @@ func toProtoGame(g domain.Game) *socialplayv1.Game {
 		EndsAt:          timestamppb.New(g.Range.End),
 		Capacity:        int32(g.Capacity),
 		Status:          toProtoGameStatus(g.Status),
+		PaymentMethod:   toProtoPaymentMethod(g.PaymentMethod),
+		GuestAllowance:  int32(g.GuestAllowance),
 	}
 }
 
@@ -199,6 +265,7 @@ func toProtoRegistration(r domain.Registration) *socialplayv1.Registration {
 		PlayerId:      r.PlayerID,
 		Status:        toProtoRegistrationStatus(r.Status),
 		PaymentStatus: toProtoPaymentStatus(r.PaymentStatus),
+		GuestCount:    int32(r.GuestCount),
 	}
 }
 
