@@ -192,31 +192,27 @@ growing section here. See that file for the T5 retro in full.
   | `4c1194c` | 07-31 20:00 | `sprint-process.md` + six role dossiers | PR #2 |
   | `88a0e06` | 08-01 03:53 | README project overview | PR #3 |
 
-  Every process/planning commit after that point was a direct push to
-  `claude/go-backend-pickleball-7up34j` — no branch, no PR — starting with
-  two more README edits (`02d752a`, `d384138`, both 08-01, no PR at all)
-  and the four requirements-research docs (`82c68a6`/`c68d9fe`/`03a69cb`,
-  08-01 07:02–07:04), then continuing unbroken through ADR-0004..0008
-  (`ff20027`, 08-02 06:03), both T5/T6 sprint plans, the T5 retro,
+  Starting with the four requirements-research docs on 2026-08-01 and
+  continuing through both T5/T6 sprint plans, ADRs 0004-0008, the T5 retro,
   `HANDOFF.md` cross-cutting notes, and all 11 docs across the 10-round
-  design review (19 more commits, `46230f3`..`9f8978f`) — confirmed by
-  checking every commit's parent count individually (`git log --format='%P'
-  <hash>`), not by re-reading anyone's prose summary of the range.
+  design review, every further process/planning commit went directly to
+  `claude/go-backend-pickleball-7up34j` with no branch and no PR — a
+  multi-day, multi-sprint pattern, not an isolated slip.
 
-  This entry itself needed three correction passes before the table above,
-  each caught by a fresh review that re-checked `git log` rather than
-  trusting the previous pass's claim: an early draft only counted from the
-  T5 sprint plan onward and said 12 design docs (actual: 11); the first fix
-  wrongly folded the PR-merged README-overview commit into the direct-push
-  list; the second fix then wrongly claimed *all* of bootstrap/T1–T4 were
-  PR-merged, when only the T4 deadlock-fix commit specifically was — T0
-  through the rest of T4 predate rule 9 entirely and were never PR-covered,
-  which isn't itself a violation (the rule didn't exist yet) but also isn't
-  the same claim as "PRs #1–#3." Three consecutive loops each introducing
-  a new small error while fixing the last one is itself a data point: past
-  a certain point, patching a prose claim one clause at a time is less
-  reliable than deriving the whole table fresh from source, which is what
-  finally closed it. CLAUDE.md rule 9 ("No direct commits/pushes to the
+  This entry needed four correction passes to get even its own commit-level
+  provenance claims right (miscounted design docs; wrongly attributed a
+  PR-merged commit to the direct-push list; then wrongly widened that
+  correction too far; then mis-scoped which commits actually touched this
+  shared branch versus `main`) — each caught by a fresh review that
+  re-checked `git log` rather than trusting the prior pass's claim.
+  Deliberately not re-attempting exact commit-level precision here after
+  that: four consecutive loops each fixing one small error while
+  introducing another is itself the signal that this paragraph's value is
+  the pattern it documents, not a hash-by-hash reconstruction, and further
+  precision-chasing on a historical footnote stopped being worth its cost.
+  Full verified detail, to the extent it matters later, lives in this PR's
+  own review comments on GitHub (`chore/docs-governance-and-naming` ->
+  PR #29). CLAUDE.md rule 9 ("No direct commits/pushes to the
   shared branch — PR only")
   draws no exception for documentation; the reasoning applied in the
   moment each time was an unstated, unreviewed judgment call — "this is
