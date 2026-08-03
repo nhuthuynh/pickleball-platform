@@ -25,7 +25,7 @@ Product Owner — same four dossiers as rounds 1–8.
 
 | # | Check | Verdict | Reason |
 |---|---|---|---|
-| 1 | Camera-consent checkbox exists, correctly associated, correct copy | **PASS** | Flow 1 now has a real checkbox: `<input type="checkbox" id="camera-consent" checked ...>` paired with `<label for="camera-consent">I confirm this facility has appropriate signage/consent for any security cameras linked here.</label>` — a genuine `id`/`for` pair, not visually-adjacent text (`grep`-verified: exactly one `id="camera-consent"` and one `for="camera-consent"` in the source, on the input and its label respectively). The copy is a verbatim match, word for word including punctuation placement, to `docs/design/pickleball-system-design-v1.md` line 117–118's quoted attestation text ("I confirm this facility has appropriate signage/consent for any security cameras linked here"). A supporting hint ("Required before the camera link above can be saved.") makes the field's purpose and gating behavior explicit. This closes round 8's §2.1 finding cleanly — the doc and the artifact now agree, and the checkbox is a real form control, not a caption promising one. |
+| 1 | Camera-consent checkbox exists, correctly associated, correct copy | **PASS** | Flow 1 now has a real checkbox: `<input type="checkbox" id="camera-consent" checked ...>` paired with `<label for="camera-consent">I confirm this facility has appropriate signage/consent for any security cameras linked here.</label>` — a genuine `id`/`for` pair, not visually-adjacent text (`grep`-verified: exactly one `id="camera-consent"` and one `for="camera-consent"` in the source, on the input and its label respectively). The copy is a verbatim match, word for word including punctuation placement, to `docs/design/v1-system-design.md` line 117–118's quoted attestation text ("I confirm this facility has appropriate signage/consent for any security cameras linked here"). A supporting hint ("Required before the camera link above can be saved.") makes the field's purpose and gating behavior explicit. This closes round 8's §2.1 finding cleanly — the doc and the artifact now agree, and the checkbox is a real form control, not a caption promising one. |
 | 2 | `--ink-success`/`--ink-warning`/`--ink-critical` clear 4.5:1 on `--paper`/`--paper-raised` for `.eyebrow` and `.qcard .qn`, both themes; `.tag.*` now use solid-fill `--pill-*-bg`/`--pill-fg` like `.pill`, both themes | **PASS** | See §2 for worked numbers. All four consumers (`.eyebrow`, `.qcard .qn`, `.hint.flag`, `.tag.new`/`.open`/`.conflict`) now route through either the new `--ink-*` tokens or the round-3 `--pill-*-bg`/`--pill-fg` tokens — never the raw `--success`/`--warning`/`--critical` values — and every combination checked clears 4.5:1 with real margin in both themes. |
 
 ---
@@ -52,7 +52,7 @@ regardless.)
 `color-mix(...)` tint-on-saturated-text at all — they now read
 `background: var(--pill-*-bg); color: var(--pill-fg);`, the identical rule
 shape as `.pill.paid`/`.unpaid`/`.full` (lines 229–233). These tokens were
-already validated in round 3 (`review-round-3.md` §2): light theme
+already validated in round 3 (`v1-review-round-3.md` §2): light theme
 6.09–6.88:1, dark theme 5.92–7.84:1, all six combinations passing. Since
 `.tag.*` now consumes the exact same tokens rather than a parallel
 same-looking-but-different implementation, no new computation is needed —
@@ -155,7 +155,7 @@ established the checkbox did not exist at that point.**
 The first "(round 8)" is a fair, accurate description of round 8's
 *finding* (the checkbox was flagged missing). The second is a claim about
 the *current state of the mockup* — "the checkbox itself now exists... —
-and it attributes that existence to round 8. `review-round-8.md` itself is
+and it attributes that existence to round 8. `v1-review-round-8.md` itself is
 unambiguous on this point: *"It doesn't exist. Flow 1 ... shows the full
 security-camera field verbatim: [...] No checkbox."* Round 8 was
 explicitly review-only (CLAUDE.md golden rule 9's process discipline

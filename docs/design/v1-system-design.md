@@ -1,4 +1,4 @@
-> **Round 1 resolutions (see `review-round-1.md` for full reasoning):** all
+> **Round 1 resolutions (see `v1-review-round-1.md` for full reasoning):** all
 > seven §7 questions answered; two of them are provisional defaults pending
 > explicit user sign-off, not fully settled — `Registration.GuestCount` is
 > assumed **set-once** (change of mind = cancel and re-register, not an
@@ -285,7 +285,7 @@ consistent with the above.
 
 ## 7. Open questions for round 1 (Designer + PM + Principal Engineer + PO)
 
-**All seven answered in round 1 — see `review-round-1.md` for full
+**All seven answered in round 1 — see `v1-review-round-1.md` for full
 reasoning.** Short answers: (1) store-a-URL, confirmed, plus a new
 consent-attestation requirement; (2) modify (percent/fixed-off), confirmed;
 (3) per-Game total, confirmed; (4) proceed, but the fix is bigger than
