@@ -18,6 +18,20 @@ type WaitlistRepository interface {
 	// concurrency — domain.JoinWaitlist's own pre-check is a fast pre-check
 	// only, the same relationship domain.Register has with
 	// RegistrationRepository.Create (CLAUDE.md rule 4).
+	//
+	// e.Position (T6.6-loop-2): callers pass domain.JoinWaitlist's own
+	// count-based computation, but that value is only safe to trust as-is
+	// in a single-goroutine/in-memory implementation with no concurrent
+	// writers. A Postgres implementation MUST NOT echo it back as
+	// authoritative — two concurrent Create calls for the same Game can
+	// otherwise be handed the same, or a misordered, Position (reproduced
+	// directly: 30 concurrent calls against one Game produced 27 entries
+	// all at Position 1). The Postgres adapter instead derives Position
+	// itself inside a FOR UPDATE-locked function (join_waitlist_entry,
+	// db/migrations/0009_socialplay_waitlist_join_position.sql) and returns
+	// whatever it authoritatively assigns, discarding the caller's value —
+	// mirroring how PromoteNext below never lets the caller pick which
+	// entry gets promoted either.
 	Create(ctx context.Context, e domain.WaitlistEntry) (domain.WaitlistEntry, error)
 
 	// GetByID returns a single entry, or domain.ErrWaitlistEntryNotFound.

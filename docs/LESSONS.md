@@ -133,3 +133,43 @@ Two separate incidents, found and fixed in the same follow-up pass:
   happen, don't grant the tool that would let it happen, or require a
   separate approval gate (a PR) that doesn't depend on the subagent's own
   compliance.
+
+## T6.6 (loop 2) — the race analysis was done for one half of the invariant, not both
+
+- **Mistake:** T6.6's own migration (`0008_socialplay_waitlist_promotion.sql`)
+  did a thorough, explicit "is this distinctness-shaped or ordering-shaped"
+  race analysis for the promotion trigger, closed it with a
+  `FOR UPDATE`-locked Postgres function, and proved it under repeated
+  concurrency — genuinely good work. But `JoinWaitlist`'s queue-`Position`
+  assignment is the *same kind* of invariant (a count/order-then-act
+  computation, the exact TOCTOU shape this file's own earlier entries
+  already named as suspect) and got none of that treatment: `Position` was
+  computed from an unlocked app-layer read and inserted unconditionally,
+  with no DB-level guard at all. The PM+PE review caught this on PR #25; it
+  reproduces trivially (30 concurrent `JoinWaitlist` calls against one full
+  Game produced 27 entries all at `Position` 1).
+  **Fix:** `join_waitlist_entry`
+  (`db/migrations/0009_socialplay_waitlist_join_position.sql`), a
+  `FOR UPDATE`-locked function mirroring `promote_next_waiting`'s own
+  pattern; re-verified across 6 runs including a true process cold start
+  (30/30, then 40/40, all correct 1..N sequences, zero collisions/gaps).
+  **Lesson:** doing a rigorous race analysis for ONE invariant in a ticket
+  does not mean every invariant in that same ticket got the same treatment
+  — "count existing rows, then act on the count" appears twice in T6.6
+  (once for "who gets promoted", once for "what position does a new joiner
+  get") and each occurrence needs its own explicit distinctness-vs-ordering
+  analysis, not just the first one found. When a ticket or sprint plan names
+  a required analysis "for X", check every structurally-similar Y in the
+  same change before declaring the ticket's race-analysis requirement done.
+- **Deliberate scope decision, not a mistake:** while doing this analysis, a
+  second, unrelated, non-concurrency bug surfaced in the same formula —
+  `Position` (count of non-cancelled entries + 1) can collide with an
+  already-active entry's `Position` if a lower-`Position` entry is
+  cancelled before a later join recomputes the count, even single-threaded,
+  no concurrency required. Not fixed in this loop: it's a product-semantics
+  question (does `Position` stay history-reflecting/count-based, or become
+  a monotonic `MAX(position)+1`), not the concurrency race this loop's
+  finding named, and `TestJoinWaitlist_PositionCountsNonCancelledEntries`
+  currently locks in the count-based behavior as intentional. Recorded here
+  and in HANDOFF.md rather than silently fixed or silently ignored — flagged
+  for a follow-up ticket.

@@ -24,13 +24,23 @@ func NewWaitlistRepository(pool *pgxpool.Pool) *WaitlistRepository {
 	return &WaitlistRepository{q: socialplaydb.New(pool)}
 }
 
+// Create persists a new waiting WaitlistEntry. Per T6.6-loop-2's PM+PE
+// review finding: e.Position (domain.JoinWaitlist's own count-based
+// computation, from an unlocked app-layer read) is NOT trusted as
+// authoritative here and is discarded, not echoed back — it exists only for
+// in-memory/test implementations of this port that have no concurrent
+// writers to race against. This Postgres implementation instead calls
+// join_waitlist_entry (db/migrations/0009_socialplay_waitlist_join_position.sql),
+// a FOR UPDATE-locked function mirroring PromoteNext's own race-closing
+// pattern, and returns whatever Position it authoritatively assigns — see
+// that migration's doc comment for the full race analysis (ordering-shaped,
+// not distinctness-shaped, same conclusion 0008 reached for the promotion
+// trigger).
 func (r *WaitlistRepository) Create(ctx context.Context, e domain.WaitlistEntry) (domain.WaitlistEntry, error) {
-	row, err := r.q.CreateWaitlistEntry(ctx, socialplaydb.CreateWaitlistEntryParams{
-		ID:       mustUUID(e.ID),
-		GameID:   mustUUID(e.GameID),
-		PlayerID: e.PlayerID,
-		Position: int32(e.Position),
-		Status:   string(e.Status),
+	row, err := r.q.JoinWaitlistEntry(ctx, socialplaydb.JoinWaitlistEntryParams{
+		PID:       mustUUID(e.ID),
+		PGameID:   mustUUID(e.GameID),
+		PPlayerID: e.PlayerID,
 	})
 	if err != nil {
 		return domain.WaitlistEntry{}, translateWaitlistErr(err)

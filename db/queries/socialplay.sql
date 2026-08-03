@@ -35,10 +35,15 @@ SET status = $2
 WHERE id = $1
 RETURNING id, game_id, player_id, source, status, payment_status;
 
--- name: CreateWaitlistEntry :one
-INSERT INTO waitlist_entries (id, game_id, player_id, position, status)
-VALUES ($1, $2, $3, $4, $5)
-RETURNING id, game_id, player_id, position, status, promoted_at;
+-- name: JoinWaitlistEntry :one
+-- The DB-level race-closing operation for queue-position assignment
+-- (db/migrations/0009_socialplay_waitlist_join_position.sql, T6.6-loop-2) —
+-- see that migration's doc comment for the full race analysis. Replaces a
+-- plain INSERT (which trusted a caller-computed Position) with a call into
+-- join_waitlist_entry, which locks the owning games row FOR UPDATE, derives
+-- Position from fresh state, and inserts in one atomic step.
+SELECT id, game_id, player_id, position, status, promoted_at
+FROM join_waitlist_entry($1, $2, $3);
 
 -- name: GetWaitlistEntryByID :one
 SELECT id, game_id, player_id, position, status, promoted_at

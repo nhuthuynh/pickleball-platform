@@ -179,6 +179,37 @@ mark-paid path; one `payments` row per payable action.
   of growing further, same reasoning T6's own sprint plan applied to
   Payments' `Service` from the start. Standalone (non-Game) court/slot
   waitlists remain deferred with no ticket — see ADR-0006's Status section.
+  **T6.6-loop-2 correction (PR #25):** the PM+PE review found the T6.6
+  sprint plan's DB-level race-analysis requirement had only actually been
+  closed for the promotion trigger — `JoinWaitlist`'s `Position` field was
+  still computed from an unlocked app-layer read (`len(existing
+  non-cancelled entries) + 1` in `domain.JoinWaitlist`), with a plain
+  unconditional insert (`CreateWaitlistEntry`) and no DB-level guard at all.
+  Reproduced directly (30 concurrent `JoinWaitlist` calls for the same full
+  Game produced 27 entries all at `Position` 1). Same conclusion as the
+  promotion trigger's own analysis: ordering-shaped, not
+  distinctness-shaped — a bare `UNIQUE(game_id, position)` would only reject
+  one of two equally-legitimate concurrent joiners rather than compute the
+  correct next value for them. Fixed with `join_waitlist_entry`
+  (`db/migrations/0009_socialplay_waitlist_join_position.sql`), a
+  `FOR UPDATE`-locked Postgres function mirroring `promote_next_waiting`'s
+  pattern exactly (locks the owning `games` row, counts non-cancelled
+  entries, inserts atomically); the Postgres adapter's `Create` now
+  discards the caller-computed `Position` and returns whatever the DB
+  authoritatively assigns. Verified against a real local Postgres 16 (no
+  Docker here either): 30 concurrent `JoinWaitlist` calls against one Game
+  produced positions `1..30` exactly, no collisions, no gaps, across 6 runs
+  including a true process cold start (cluster stop/start) — see the PR
+  description for the full run log. A related but separate, non-concurrency
+  bug was found and deliberately NOT fixed in this loop (flagged for a
+  follow-up ticket instead): the count-based `Position` formula can still
+  collide with an already-active entry's `Position` if a lower-`Position`
+  entry is cancelled before a later join recomputes the count — this is a
+  product-semantics question (whether `Position` should stay
+  count-based/history-reflecting or switch to a monotonic
+  `MAX(position)+1`), not a concurrency one, and changing it would silently
+  redefine behavior `TestJoinWaitlist_PositionCountsNonCancelledEntries`
+  currently locks in as intentional.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).
