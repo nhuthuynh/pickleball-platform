@@ -192,7 +192,15 @@ collision).
 - T5.5's actor-scoped authorization checks (Registration/Game ownership) use
   a request-supplied `actor_player_id` field, not a verified identity — this
   is *not* a real authorization boundary (anyone can claim to be anyone)
-  until the JWT/Auth0 item above lands. Don't mistake it for one.
+  until the JWT/Auth0 item above lands. Don't mistake it for one. T6.7/T6.3's
+  Payments equivalent (`actor_user_id` vs. Booking/Game-Host/Game-Admin
+  ownership facts) and T7.7's Facilities equivalent (`actor_user_id` vs.
+  `Facility.OwnerID`, closing issue #39 — see the dedicated T7.7 bullet
+  below) carry the exact same caveat: object-level check given a claimed
+  actor, not authentication. This is now a three-times-repeated pattern
+  (Social Play, Payments, Facilities) and the caveat is the same each time
+  — don't re-litigate it per context, just extend real auth to all three
+  call sites together when the JWT/Auth0 item above finally lands.
 - T5.5 (see PR stacked on #11-#14, closes issue #10) added a full-stack
   regression test — `internal/socialplay/adapter/grpcapi/authz_regression_test.go`
   — proving `Registration.Cancel`'s object-level ownership check (Player A
@@ -372,6 +380,72 @@ collision).
   invent a second constructor path. (T6.5's own entry above covers both
   the `RefundPayment` gap this omission led to and the migration-`0005`
   collision in more detail — not repeated here.)
+- T7.7 (closes issue #39, third instance of the T5.5/T6.7 object-level
+  authorization pattern, this time for Facilities) checked the actual
+  shipped T7.3 Facilities handler first, per the ticket's own scope-check
+  instruction: `AddCourt` and `AddCameraLink` had **no** ownership check at
+  all — `AddCourt` didn't even fetch the target `Facility` before
+  constructing/persisting a `Court`, and `AddCameraLink`'s only existing
+  gate was `CameraConsentAttested` (T7.2), unrelated to *who* was calling.
+  So, unlike T5.5/T6.7 (which only needed a regression test proving an
+  existing check), T7.7 had to add the check itself:
+  `domain.Facility.EnsureOwner(actorUserID)` (new,
+  `internal/facilities/domain/facility.go`) compares a caller-supplied
+  `actor_user_id` against `Facility.OwnerID`, returning the new
+  `domain.ErrNotFacilityOwner` sentinel on a mismatch (mirrors
+  `socialplay.ErrNotRegistrationOwner`/`payments.ErrNotPaymentRecorder`).
+  `AddCameraLink` now calls it first, before its existing consent check,
+  so a non-owner never gets to observe the Facility's consent state.
+  `AddCourt` (`internal/facilities/app/service.go`) now fetches the
+  Facility via `Repository.GetFacilityByID` and calls `EnsureOwner` before
+  ever calling `domain.NewCourt`/`Repository.AddCourt` — no code path to
+  the repository exists for a rejected actor. Both `AddCourtRequest` and
+  `AddCameraLinkRequest` (`proto/pickleball/facilities/v1/facilities.proto`)
+  gained an `actor_user_id` field (regenerated via `make generate`);
+  `grpcapi.toStatus` maps `ErrNotFacilityOwner` to `codes.PermissionDenied`
+  (-> HTTP 403), never `codes.Internal`. `CreateFacility` was out of scope
+  by inspection — there's no pre-existing Facility to be scoped against on
+  create, the caller sets `owner_id` themselves; there is no
+  `UpdateFacility` RPC in the shipped proto at all, so per the ticket's own
+  instruction this is scoped to `AddCourt`/`AddCameraLink` only, not a
+  hypothetical third RPC.
+  **Test shape**: domain-level unit tests
+  (`internal/facilities/domain/facility_test.go`:
+  `TestFacility_EnsureOwner`, `TestFacility_AddCameraLink_RejectsNonOwner`),
+  app-level tests (`internal/facilities/app/service_test.go`:
+  `TestAddCourt_RejectsNonOwner`, `TestAddCameraLink_RejectsNonOwner`), and
+  — the ticket's required proof — a full-stack handler-level regression
+  test, `internal/facilities/adapter/grpcapi/authz_regression_test.go`
+  (`TestAddCourt_RejectsMismatchedActor`,
+  `TestAddCameraLink_RejectsMismatchedActor`, plus the symmetric
+  `_AllowsOwningActor` positive-path cases for both), run through the real
+  `grpcapi.Handler` -> `app.Service` -> `domain.Facility` path against an
+  in-memory `port.Repository` fake, same reasoning T5.5 used for
+  handler-level over a `-tags=integration` Postgres round trip (the check
+  has no SQL involved, and this environment has no Docker daemon — same
+  gap T5.5/T6.4/T6.5/T6.6's own entries above already document). Verified
+  as a real regression test, not a decorative one, by temporarily
+  disabling `domain.Facility.EnsureOwner` (short-circuited to always
+  return `nil`) and re-running the full `internal/facilities/...` suite:
+  both handler-level tests
+  (`TestAddCourt_RejectsMismatchedActor`/`TestAddCameraLink_RejectsMismatchedActor`),
+  both app-level tests, and both domain-level tests failed exactly as
+  expected, then the check was restored and the full suite (`go build
+  ./... && go vet ./internal/facilities/... && go test
+  ./internal/facilities/... -race`) confirmed green again (CLAUDE.md rule
+  10). **Reiterating the caveat** (see the T5.5 bullet above, now updated
+  to cover all three contexts): this proves the *object-level* check given
+  a claimed `actor_user_id`, not real authentication, and does not and
+  cannot prove that identity itself until the JWT/Auth0 item above lands.
+  No authentication work was done in this ticket.
+  **Pre-existing, unrelated gap noted, not fixed**: `go vet ./...` at the
+  repo root fails on `internal/payments/adapter/socialplay/
+  registration_updater_test.go` (a stale call to `socialplayapp.NewService`
+  with 3 args against its current 4-arg signature) — confirmed pre-existing
+  on this branch before any T7.7 change (T7.7 never touches
+  `internal/payments` or `internal/socialplay`); `go vet
+  ./internal/facilities/...` and `go build ./...` are both clean. Worth a
+  follow-up to fix that stale test call, out of scope here.
 - Observability: Sentry + slog + uptime.
 - Generate the **Vue** typed REST client from the OpenAPI output; generate Swift +
   Kotlin gRPC clients (`buf generate --template buf.gen.mobile.yaml`).

@@ -136,7 +136,7 @@ func TestFacility_AddCameraLink_RequiresConsent(t *testing.T) {
 		t.Fatalf("fixture CameraConsentAttested = true, want false")
 	}
 
-	err = f.AddCameraLink("https://example.com/cam1.m3u8")
+	err = f.AddCameraLink("owner-1", "https://example.com/cam1.m3u8")
 	if !errors.Is(err, domain.ErrCameraConsentRequired) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrCameraConsentRequired)
 	}
@@ -145,7 +145,7 @@ func TestFacility_AddCameraLink_RequiresConsent(t *testing.T) {
 	}
 
 	f.CameraConsentAttested = true
-	if err := f.AddCameraLink("https://example.com/cam1.m3u8"); err != nil {
+	if err := f.AddCameraLink("owner-1", "https://example.com/cam1.m3u8"); err != nil {
 		t.Fatalf("unexpected err after consent attested: %v", err)
 	}
 	if len(f.CameraLinks) != 1 || f.CameraLinks[0].URL != "https://example.com/cam1.m3u8" {
@@ -167,13 +167,60 @@ func TestFacility_AddCameraLink_MultipleLinksAppend(t *testing.T) {
 	}
 	f.CameraConsentAttested = true
 
-	if err := f.AddCameraLink("https://example.com/cam1.m3u8"); err != nil {
+	if err := f.AddCameraLink("owner-1", "https://example.com/cam1.m3u8"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if err := f.AddCameraLink("https://example.com/cam2.m3u8"); err != nil {
+	if err := f.AddCameraLink("owner-1", "https://example.com/cam2.m3u8"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if len(f.CameraLinks) != 2 {
 		t.Fatalf("CameraLinks len = %d, want 2", len(f.CameraLinks))
+	}
+}
+
+// --- T7.7: object-level (BOLA) ownership checks ----------------------------
+
+// TestFacility_EnsureOwner proves the ownership predicate itself: the
+// Facility's own OwnerID is accepted, any other actor (including an empty
+// one) is rejected with ErrNotFacilityOwner.
+func TestFacility_EnsureOwner(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+
+	if err := f.EnsureOwner("owner-1"); err != nil {
+		t.Fatalf("EnsureOwner(owner) = %v, want nil", err)
+	}
+	if err := f.EnsureOwner("someone-else"); !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("EnsureOwner(non-owner) = %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+	if err := f.EnsureOwner(""); !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("EnsureOwner(empty actor) = %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+}
+
+// TestFacility_AddCameraLink_RejectsNonOwner is the domain-level proof that
+// AddCameraLink checks ownership before it checks camera consent: a
+// non-owner is rejected with ErrNotFacilityOwner even when
+// CameraConsentAttested is already true (so the two checks can't be
+// confused with each other), and CameraLinks is left untouched.
+func TestFacility_AddCameraLink_RejectsNonOwner(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+	f.CameraConsentAttested = true
+
+	err = f.AddCameraLink("attacker", "https://example.com/cam1.m3u8")
+	if !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+	if len(f.CameraLinks) != 0 {
+		t.Fatalf("CameraLinks = %v, want empty after rejected AddCameraLink", f.CameraLinks)
 	}
 }

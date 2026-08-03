@@ -57,17 +57,38 @@ func NewFacility(id, ownerID, name, description, address string, photoURLs []str
 	}, nil
 }
 
+// EnsureOwner returns ErrNotFacilityOwner unless actorUserID matches
+// f.OwnerID exactly (an empty actorUserID is always rejected). This is
+// T7.7's object-level (BOLA) authorization check for Facilities' write
+// RPCs — mirrors internal/socialplay/domain.Registration.Cancel's
+// actorPlayerID-vs-PlayerID check (T5.2/T5.5) applied to Facility's own
+// ownership fact instead. As with that precedent, actorUserID is a
+// caller-supplied claim, not a verified identity — see
+// ErrNotFacilityOwner's doc comment and HANDOFF.md's Auth cross-cutting
+// item for the caveat this must not re-litigate.
+func (f Facility) EnsureOwner(actorUserID string) error {
+	if actorUserID == "" || actorUserID != f.OwnerID {
+		return ErrNotFacilityOwner
+	}
+	return nil
+}
+
 // AddCameraLink appends a facility-wide CameraLink (empty CourtID) to the
-// Facility, but only once CameraConsentAttested is true. This is the
-// round-10 design review's one concrete, no-judgment-call finding
-// (v1-review-round-10-final.md §2b: "the consent checkbox must default to
-// unchecked... saving is blocked until the user actively checks it")
+// Facility, but only once the caller has been proven to own the Facility
+// (EnsureOwner, T7.7) and only once CameraConsentAttested is true (the
+// round-10 design review's one concrete, no-judgment-call finding,
+// v1-review-round-10-final.md §2b: "the consent checkbox must default to
+// unchecked... saving is blocked until the user actively checks it",
 // translated into an actual domain invariant rather than left as a UI
-// concern alone: even if a client bypassed or mis-wired the checkbox, the
-// domain itself still refuses to record a camera link without attestation.
-// Returns ErrCameraConsentRequired, and leaves CameraLinks untouched, when
-// consent has not been attested.
-func (f *Facility) AddCameraLink(url string) error {
+// concern alone). The ownership check runs first: a non-owner is rejected
+// with ErrNotFacilityOwner regardless of the Facility's consent state,
+// rather than leaking the consent state to a caller who has no business
+// mutating this Facility at all. Returns ErrCameraConsentRequired, and
+// leaves CameraLinks untouched, when consent has not been attested.
+func (f *Facility) AddCameraLink(actorUserID, url string) error {
+	if err := f.EnsureOwner(actorUserID); err != nil {
+		return err
+	}
 	if !f.CameraConsentAttested {
 		return ErrCameraConsentRequired
 	}

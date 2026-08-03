@@ -64,7 +64,7 @@ func (h *Handler) ListFacilities(ctx context.Context, req *facilitiesv1.ListFaci
 }
 
 func (h *Handler) AddCourt(ctx context.Context, req *facilitiesv1.AddCourtRequest) (*facilitiesv1.AddCourtResponse, error) {
-	c, err := h.svc.AddCourt(ctx, req.GetFacilityId(), req.GetName())
+	c, err := h.svc.AddCourt(ctx, req.GetFacilityId(), req.GetActorUserId(), req.GetName())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -72,7 +72,7 @@ func (h *Handler) AddCourt(ctx context.Context, req *facilitiesv1.AddCourtReques
 }
 
 func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCameraLinkRequest) (*facilitiesv1.AddCameraLinkResponse, error) {
-	f, err := h.svc.AddCameraLink(ctx, req.GetFacilityId(), req.GetUrl())
+	f, err := h.svc.AddCameraLink(ctx, req.GetFacilityId(), req.GetActorUserId(), req.GetUrl())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -81,13 +81,22 @@ func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCamera
 
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: NotFound -> 404, InvalidArgument -> 400,
-// FailedPrecondition -> 400 — this is what makes the T7.3 smoke-test AC
-// ("adding a camera link before consent is attested returns a mapped 4xx,
-// not a 500") true end-to-end.
+// FailedPrecondition -> 400, PermissionDenied -> 403 — this is what makes
+// the T7.3 smoke-test AC ("adding a camera link before consent is
+// attested returns a mapped 4xx, not a 500") and T7.7's authz regression
+// test ("AddCourt/AddCameraLink against a Facility the actor doesn't own
+// returns a mapped 4xx, not a 500") true end-to-end.
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrFacilityNotFound):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, domain.ErrNotFacilityOwner):
+		// PermissionDenied (-> HTTP 403 via grpc-gateway), not Internal:
+		// T7.7's object-level (BOLA) authorization rejection — mirrors
+		// internal/socialplay/adapter/grpcapi's ErrNotRegistrationOwner
+		// handling (T5.5) and internal/payments/adapter/grpcapi's
+		// ErrNotPaymentRecorder handling (T6.3/T6.7).
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrCameraConsentRequired):
 		// FailedPrecondition (-> HTTP 400 via grpc-gateway), not Internal:
 		// this is a client-visible, expected precondition failure (the
