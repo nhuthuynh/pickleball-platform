@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -146,6 +147,84 @@ func (r *fakeRegistrationRepository) UpdatePaymentStatus(_ context.Context, id s
 	return reg, nil
 }
 
+// fakeWaitlistRepository is a minimal in-memory port.WaitlistRepository
+// fake, mirroring fakeRegistrationRepository's shape. PromoteNext and
+// ExpirePromotion are implemented as straightforward in-memory
+// compare-and-swap operations (no concurrency guarantees are needed here —
+// this fake backs single-goroutine app-layer tests only; the real
+// concurrency proof lives in internal/socialplay/adapter/postgres against a
+// real Postgres, per the T6.6 ticket's own DB-level requirement).
+type fakeWaitlistRepository struct {
+	entries map[string]domain.WaitlistEntry
+}
+
+func newFakeWaitlistRepository() *fakeWaitlistRepository {
+	return &fakeWaitlistRepository{entries: make(map[string]domain.WaitlistEntry)}
+}
+
+func (r *fakeWaitlistRepository) Create(_ context.Context, e domain.WaitlistEntry) (domain.WaitlistEntry, error) {
+	for _, existing := range r.entries {
+		if existing.GameID == e.GameID && existing.PlayerID == e.PlayerID &&
+			(existing.Status == domain.WaitlistStatusWaiting || existing.Status == domain.WaitlistStatusPromoted) {
+			return domain.WaitlistEntry{}, domain.ErrAlreadyOnWaitlist
+		}
+	}
+	r.entries[e.ID] = e
+	return e, nil
+}
+
+func (r *fakeWaitlistRepository) GetByID(_ context.Context, id string) (domain.WaitlistEntry, error) {
+	e, ok := r.entries[id]
+	if !ok {
+		return domain.WaitlistEntry{}, domain.ErrWaitlistEntryNotFound
+	}
+	return e, nil
+}
+
+func (r *fakeWaitlistRepository) ListForGame(_ context.Context, gameID string) ([]domain.WaitlistEntry, error) {
+	var out []domain.WaitlistEntry
+	for _, e := range r.entries {
+		if e.GameID == gameID {
+			out = append(out, e)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Position < out[j].Position })
+	return out, nil
+}
+
+func (r *fakeWaitlistRepository) PromoteNext(_ context.Context, gameID string, now time.Time) (domain.WaitlistEntry, error) {
+	var oldest *domain.WaitlistEntry
+	for id, e := range r.entries {
+		if e.GameID != gameID || e.Status != domain.WaitlistStatusWaiting {
+			continue
+		}
+		if oldest == nil || e.Position < oldest.Position {
+			cp := r.entries[id]
+			oldest = &cp
+		}
+	}
+	if oldest == nil {
+		return domain.WaitlistEntry{}, domain.ErrNoWaitingEntries
+	}
+	if err := oldest.Promote(now); err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+	r.entries[oldest.ID] = *oldest
+	return *oldest, nil
+}
+
+func (r *fakeWaitlistRepository) ExpirePromotion(_ context.Context, id string, now time.Time) (domain.WaitlistEntry, error) {
+	e, ok := r.entries[id]
+	if !ok {
+		return domain.WaitlistEntry{}, domain.ErrWaitlistEntryNotFound
+	}
+	if err := e.Expire(); err != nil {
+		return domain.WaitlistEntry{}, err
+	}
+	r.entries[id] = e
+	return e, nil
+}
+
 func mustRange(t *testing.T, start, end string) domain.TimeRange {
 	t.Helper()
 	s, err := time.Parse(time.RFC3339, start)
@@ -179,7 +258,7 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -208,7 +287,7 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation("court-1")
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -228,7 +307,7 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation("court-2")
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -253,7 +332,7 @@ func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 
 	reservation := newFakeReservation("court-2")
 	reservation.releaseErr = errors.New("release: boom")
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -274,7 +353,7 @@ func TestScheduleGame_InvalidInputRejectedBeforeTouchingPort(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.Capacity = 0
@@ -297,7 +376,7 @@ func TestScheduleGame_PersistsGame(t *testing.T) {
 
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -325,7 +404,7 @@ func TestScheduleGame_RollsBackReservationsWhenPersistFails(t *testing.T) {
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
 	games.createErr = errors.New("persist: boom")
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -349,7 +428,7 @@ func TestRegisterForGame_Valid(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations)
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -387,7 +466,7 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations)
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
 	in := validInput("court-1")
@@ -413,7 +492,7 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 func TestRegisterForGame_GameNotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 
 	_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{GameID: "no-such-game", PlayerID: "player-1"})
 	if !errors.Is(err, domain.ErrGameNotFound) {
@@ -429,7 +508,7 @@ func TestCancelRegistration_OwnerSucceeds(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations)
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -470,7 +549,7 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations)
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -511,7 +590,7 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations)
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -547,7 +626,7 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 func TestMarkRegistrationPaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository())
+	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository())
 
 	err := svc.MarkRegistrationPaymentStatus(context.Background(), "no-such-registration", domain.PaymentStatusPaid)
 	if !errors.Is(err, domain.ErrRegistrationNotFound) {
@@ -563,7 +642,7 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations)
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -588,5 +667,378 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 	}
 	if stored.PaymentStatus != domain.PaymentStatusUnpaid {
 		t.Fatalf("registration must be untouched by the rejected update, PaymentStatus = %v", stored.PaymentStatus)
+	}
+}
+
+// --- T6.6: waitlist ---------------------------------------------------------
+
+// fixtureFullGame schedules and fills a Game of the given capacity, returning
+// it plus the fixture player IDs occupying every slot, so waitlist tests can
+// start from "the game is definitely full" without repeating the setup.
+func fixtureFullGame(t *testing.T, ctx context.Context, svc *app.Service, capacity int) domain.Game {
+	t.Helper()
+	in := validInput("court-1")
+	in.Capacity = capacity
+	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, in, newFakeReservation())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+	for i := 0; i < capacity; i++ {
+		playerID := fmt.Sprintf("filler-%d", i)
+		if _, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: playerID}); err != nil {
+			t.Fatalf("fixture filler registration %d should succeed, got %v", i, err)
+		}
+	}
+	return g
+}
+
+// TestJoinWaitlist_Valid proves the happy path through the app layer: a full
+// Game accepts a waitlist join, persisted with a generated ID.
+func TestJoinWaitlist_Valid(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist)
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	entry, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-waiting"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if entry.ID == "" {
+		t.Fatalf("waitlist entry should have a generated ID")
+	}
+	if entry.Status != domain.WaitlistStatusWaiting {
+		t.Fatalf("Status = %v, want waiting", entry.Status)
+	}
+
+	stored, err := waitlist.GetByID(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("entry should be persisted, GetByID err: %v", err)
+	}
+	if stored.PlayerID != "player-waiting" {
+		t.Fatalf("stored entry = %+v, want PlayerID player-waiting", stored)
+	}
+}
+
+// TestJoinWaitlist_GameNotFull proves the app layer surfaces
+// domain.ErrGameNotFull for a Game that still has an open slot, mirroring
+// the domain-level test but through the full use case (repository round
+// trips included).
+func TestJoinWaitlist_GameNotFull(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	in := validInput("court-1")
+	in.Capacity = 4
+	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, in, newFakeReservation())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+
+	_, err = svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-1"})
+	if !errors.Is(err, domain.ErrGameNotFull) {
+		t.Fatalf("got err %v, want ErrGameNotFull", err)
+	}
+}
+
+// TestCancelRegistration_PromotesOldestWaiting is the auto-promotion
+// requirement's core proof: cancelling a Registration on a full Game
+// promotes the oldest waiting entry, and that entry's promotion is
+// persisted (not just returned).
+func TestCancelRegistration_PromotesOldestWaiting(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist)
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	first, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-first"})
+	if err != nil {
+		t.Fatalf("first join should succeed, got %v", err)
+	}
+	second, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-second"})
+	if err != nil {
+		t.Fatalf("second join should succeed, got %v", err)
+	}
+	if first.Position >= second.Position {
+		t.Fatalf("fixture setup bug: first.Position (%d) should be < second.Position (%d)", first.Position, second.Position)
+	}
+
+	all, err := registrations.ListActiveForGame(ctx, g.ID)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("fixture setup bug: expected exactly 1 active registration, got %d (err %v)", len(all), err)
+	}
+	var fillerRegID string
+	for id := range registrations.registrations {
+		fillerRegID = id
+	}
+
+	if _, err := svc.CancelRegistration(ctx, fillerRegID, "filler-0"); err != nil {
+		t.Fatalf("cancel should succeed, got %v", err)
+	}
+
+	storedFirst, err := waitlist.GetByID(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("GetByID(first) err: %v", err)
+	}
+	if storedFirst.Status != domain.WaitlistStatusPromoted {
+		t.Fatalf("first (oldest) entry Status = %v, want promoted", storedFirst.Status)
+	}
+	if storedFirst.PromotedAt.IsZero() {
+		t.Fatalf("first entry PromotedAt should be set")
+	}
+
+	storedSecond, err := waitlist.GetByID(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("GetByID(second) err: %v", err)
+	}
+	if storedSecond.Status != domain.WaitlistStatusWaiting {
+		t.Fatalf("second entry Status = %v, want still waiting (only one slot freed)", storedSecond.Status)
+	}
+}
+
+// TestCancelRegistration_NoWaitlistIsNotAnError proves cancelling on a Game
+// with an empty waitlist is not treated as a failure — domain.ErrNoWaitingEntries
+// must be swallowed, not propagated as an error from CancelRegistration.
+func TestCancelRegistration_NoWaitlistIsNotAnError(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository())
+	ctx := context.Background()
+
+	fixtureIn := validInput("court-1")
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+	reg, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-a"})
+	if err != nil {
+		t.Fatalf("fixture registration should succeed, got %v", err)
+	}
+
+	if _, err := svc.CancelRegistration(ctx, reg.ID, "player-a"); err != nil {
+		t.Fatalf("cancel on a game with no waitlist should succeed cleanly, got %v", err)
+	}
+}
+
+// TestRegisterForGame_UnexpiredPromotionReservesSlot is the ticket's
+// required "confirm-then-register-fails-full" proof: while a promoted
+// entry's response window is still open, a *different* (non-promoted)
+// player's direct RegisterForGame call for the freed slot fails with
+// ErrGameFull, but the promoted player's own call succeeds (that is how a
+// promotion gets "confirmed" — see RegisterForGame's doc comment).
+func TestRegisterForGame_UnexpiredPromotionReservesSlot(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist)
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	promotedEntry, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-promoted"})
+	if err != nil {
+		t.Fatalf("join should succeed, got %v", err)
+	}
+
+	var fillerRegID string
+	for id := range registrations.registrations {
+		fillerRegID = id
+	}
+	if _, err := svc.CancelRegistration(ctx, fillerRegID, "filler-0"); err != nil {
+		t.Fatalf("cancel should succeed, got %v", err)
+	}
+
+	stored, err := waitlist.GetByID(ctx, promotedEntry.ID)
+	if err != nil || stored.Status != domain.WaitlistStatusPromoted {
+		t.Fatalf("fixture setup bug: entry should now be promoted, got %+v (err %v)", stored, err)
+	}
+
+	// A different, non-waitlisted player tries to take the freed slot
+	// directly -- must be rejected while the promotion window is open.
+	_, err = svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-other"})
+	if !errors.Is(err, domain.ErrGameFull) {
+		t.Fatalf("other player's direct register got err %v, want ErrGameFull (slot should be reserved for the promoted player)", err)
+	}
+
+	// The promoted player's own call succeeds -- this is the "confirm".
+	confirmed, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-promoted"})
+	if err != nil {
+		t.Fatalf("promoted player's own register should succeed, got %v", err)
+	}
+	if confirmed.Status != domain.RegistrationStatusRegistered {
+		t.Fatalf("confirmed.Status = %v, want registered", confirmed.Status)
+	}
+}
+
+// TestRegisterForGame_ExpiredPromotionDoesNotBlock proves an expired
+// promotion does not reserve the slot for anyone -- a different, unrelated
+// player can register directly once the response window has elapsed. The
+// fake repository's PromotedAt is set directly to a time far enough in the
+// past that HasExpired is true, since app.Service itself uses the real wall
+// clock (no injected Clock port for this ticket -- see the PR description).
+func TestRegisterForGame_ExpiredPromotionDoesNotBlock(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist)
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	promotedEntry, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-promoted"})
+	if err != nil {
+		t.Fatalf("join should succeed, got %v", err)
+	}
+
+	var fillerRegID string
+	for id := range registrations.registrations {
+		fillerRegID = id
+	}
+	if _, err := svc.CancelRegistration(ctx, fillerRegID, "filler-0"); err != nil {
+		t.Fatalf("cancel should succeed, got %v", err)
+	}
+
+	// Force the promotion's PromotedAt far enough into the past that its
+	// response window has already elapsed relative to real time.Now().
+	stored, err := waitlist.GetByID(ctx, promotedEntry.ID)
+	if err != nil {
+		t.Fatalf("GetByID err: %v", err)
+	}
+	stored.PromotedAt = time.Now().Add(-2 * domain.PromotionResponseWindow)
+	waitlist.entries[stored.ID] = stored
+
+	// A different player's direct register must now succeed -- the expired
+	// promotion reserves the slot for nobody.
+	reg, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-other"})
+	if err != nil {
+		t.Fatalf("other player's direct register should succeed once the promotion has expired, got %v", err)
+	}
+	if reg.PlayerID != "player-other" {
+		t.Fatalf("reg.PlayerID = %q, want player-other", reg.PlayerID)
+	}
+}
+
+// TestExpireWaitlistPromotion_CascadesToNext is the required cascade proof:
+// player 1's promotion expires, and player 2 (the next waiting entry) gets
+// promoted in their place, not left stuck.
+func TestExpireWaitlistPromotion_CascadesToNext(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist)
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	first, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-first"})
+	if err != nil {
+		t.Fatalf("first join should succeed, got %v", err)
+	}
+	second, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-second"})
+	if err != nil {
+		t.Fatalf("second join should succeed, got %v", err)
+	}
+
+	var fillerRegID string
+	for id := range registrations.registrations {
+		fillerRegID = id
+	}
+	if _, err := svc.CancelRegistration(ctx, fillerRegID, "filler-0"); err != nil {
+		t.Fatalf("cancel should succeed, got %v", err)
+	}
+
+	// player-first is now promoted. Force its PromotedAt into the past so
+	// ExpireWaitlistPromotion sees an actually-elapsed window.
+	stored, err := waitlist.GetByID(ctx, first.ID)
+	if err != nil || stored.Status != domain.WaitlistStatusPromoted {
+		t.Fatalf("fixture setup bug: first entry should be promoted, got %+v (err %v)", stored, err)
+	}
+	stored.PromotedAt = time.Now().Add(-2 * domain.PromotionResponseWindow)
+	waitlist.entries[stored.ID] = stored
+
+	expired, err := svc.ExpireWaitlistPromotion(ctx, first.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if expired.Status != domain.WaitlistStatusExpired {
+		t.Fatalf("expired.Status = %v, want expired", expired.Status)
+	}
+
+	storedSecond, err := waitlist.GetByID(ctx, second.ID)
+	if err != nil {
+		t.Fatalf("GetByID(second) err: %v", err)
+	}
+	if storedSecond.Status != domain.WaitlistStatusPromoted {
+		t.Fatalf("second entry Status = %v, want promoted (cascade should have skipped the expired first entry)", storedSecond.Status)
+	}
+	if storedSecond.PromotedAt.IsZero() {
+		t.Fatalf("second entry PromotedAt should be set")
+	}
+}
+
+// TestExpireWaitlistPromotion_RejectsPremature proves calling
+// ExpireWaitlistPromotion before the response window has actually elapsed
+// is rejected, not silently honoured.
+func TestExpireWaitlistPromotion_RejectsPremature(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist)
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	entry, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-first"})
+	if err != nil {
+		t.Fatalf("join should succeed, got %v", err)
+	}
+
+	var fillerRegID string
+	for id := range registrations.registrations {
+		fillerRegID = id
+	}
+	if _, err := svc.CancelRegistration(ctx, fillerRegID, "filler-0"); err != nil {
+		t.Fatalf("cancel should succeed, got %v", err)
+	}
+	// entry is now promoted, PromotedAt == time.Now() (just now) -- its
+	// window has not elapsed.
+
+	_, err = svc.ExpireWaitlistPromotion(ctx, entry.ID)
+	if !errors.Is(err, domain.ErrWaitlistPromotionNotExpired) {
+		t.Fatalf("got err %v, want ErrWaitlistPromotionNotExpired", err)
+	}
+
+	stored, err := waitlist.GetByID(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("GetByID err: %v", err)
+	}
+	if stored.Status != domain.WaitlistStatusPromoted {
+		t.Fatalf("status = %v, want unchanged (still promoted)", stored.Status)
 	}
 }

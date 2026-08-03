@@ -13,6 +13,7 @@ var (
 	ErrEmptyCourtIDs           = errors.New("socialplay: at least one court id is required")
 	ErrIllegalStatusTransition = errors.New("socialplay: illegal status transition")
 	ErrEmptyPlayerID           = errors.New("socialplay: player id is required")
+
 	// ErrGameFull, ErrAlreadyRegistered, and ErrNotRegistrationOwner are
 	// deliberately distinct, stable sentinels (not a generic validation
 	// error) — T5.4's gRPC/REST layer maps each to its own status code, and
@@ -45,4 +46,40 @@ var (
 	// domain-side guard keeping Registration.PaymentStatus a projection of
 	// internal/payments/domain.Status's own values, never arbitrary input.
 	ErrInvalidPaymentStatus = errors.New("socialplay: invalid payment status")
+
+	// T6.6 waitlist sentinels. ErrGameNotFull and ErrAlreadyOnWaitlist are
+	// JoinWaitlist's own rejections, deliberately distinct from
+	// ErrGameFull/ErrAlreadyRegistered (which JoinWaitlist also propagates
+	// unchanged in the cases they apply — see JoinWaitlist's doc comment).
+	//
+	//   - ErrGameNotFull: a player tried to join the waitlist for a Game that
+	//     still has an open registration slot — they should register
+	//     directly instead.
+	//   - ErrAlreadyOnWaitlist: a player with an existing waiting/promoted
+	//     waitlist entry for this Game tried to join a second time.
+	ErrGameNotFull           = errors.New("socialplay: game is not full, register directly instead of joining the waitlist")
+	ErrAlreadyOnWaitlist     = errors.New("socialplay: player is already on this game's waitlist")
+	ErrWaitlistEntryNotFound = errors.New("socialplay: waitlist entry not found")
+
+	// ErrNoWaitingEntries is returned by
+	// port.WaitlistRepository.PromoteNext when a Game currently has no
+	// entry in "waiting" status to promote — an expected, non-error outcome
+	// for app.Service (a cancellation on a Game with an empty waitlist is
+	// not a failure), kept as a sentinel rather than a (WaitlistEntry, bool,
+	// error) return so the interface stays symmetric with the rest of this
+	// package's repositories.
+	ErrNoWaitingEntries = errors.New("socialplay: no waiting waitlist entries for this game")
+
+	// ErrWaitlistPromotionNotExpired guards ExpireWaitlistPromotion
+	// (app.Service): calling it on a promoted entry whose response window
+	// (WaitlistEntry.PromotionResponseWindow) hasn't actually elapsed yet is
+	// a caller error, not a silent no-op — mirrors this package's existing
+	// "reject, don't guess" stance on illegal/premature transitions.
+	ErrWaitlistPromotionNotExpired = errors.New("socialplay: waitlist promotion response window has not expired yet")
+
+	// ErrNotWaitlistEntryOwner is WaitlistEntry.Cancel's BOLA-shaped
+	// rejection, kept distinct from ErrNotRegistrationOwner even though the
+	// shape is identical (CLAUDE.md rule 7 — a WaitlistEntry is not a
+	// Registration, so its own-scope check gets its own sentinel).
+	ErrNotWaitlistEntryOwner = errors.New("socialplay: only the waiting player may cancel this waitlist entry")
 )

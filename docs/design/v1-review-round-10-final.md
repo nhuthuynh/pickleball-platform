@@ -181,7 +181,7 @@ one class of bug this review has now found in six separate rounds (2, 4, 5,
 
 ### 2d. Companion doc vs. artifact
 
-Read `docs/design/pickleball-system-design-v1.md` fully against the
+Read `docs/design/v1-system-design.md` fully against the
 round-10 artifact. The one live mismatch this review has ever found across
 the two documents (round 8 §2.1 — doc described the consent checkbox as
 settled-except-wording while the mockup had none) is resolved: the doc's

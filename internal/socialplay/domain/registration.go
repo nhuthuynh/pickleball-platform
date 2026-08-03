@@ -93,20 +93,10 @@ func Register(game Game, existing []Registration, playerID string) (Registration
 		return Registration{}, ErrEmptyPlayerID
 	}
 
-	activeCount := 0
-	for _, r := range existing {
-		if r.GameID != game.ID {
-			continue
-		}
-		if r.Status == RegistrationStatusCancelled {
-			continue
-		}
-		if r.PlayerID == playerID {
-			return Registration{}, ErrAlreadyRegistered
-		}
-		activeCount++
+	activeCount, playerAlreadyActive := countActiveRegistrations(game.ID, existing, playerID)
+	if playerAlreadyActive {
+		return Registration{}, ErrAlreadyRegistered
 	}
-
 	if activeCount >= game.Capacity {
 		return Registration{}, ErrGameFull
 	}
@@ -118,6 +108,30 @@ func Register(game Game, existing []Registration, playerID string) (Registration
 		Status:        RegistrationStatusRegistered,
 		PaymentStatus: PaymentStatusUnpaid,
 	}, nil
+}
+
+// countActiveRegistrations scans existing for non-cancelled registrations
+// scoped to gameID, returning both the active count and whether playerID
+// already holds one of them. Extracted (T6.6) from Register's own body so
+// domain.JoinWaitlist can derive "is this Game actually full for this
+// player" from the exact same counting rule Register uses, rather than a
+// second, independently-maintained copy of it (CLAUDE.md rule 4's spirit:
+// one counting rule, not two that can drift) — see JoinWaitlist's doc
+// comment in waitlist.go.
+func countActiveRegistrations(gameID string, existing []Registration, playerID string) (activeCount int, playerAlreadyActive bool) {
+	for _, r := range existing {
+		if r.GameID != gameID {
+			continue
+		}
+		if r.Status == RegistrationStatusCancelled {
+			continue
+		}
+		if r.PlayerID == playerID {
+			playerAlreadyActive = true
+		}
+		activeCount++
+	}
+	return activeCount, playerAlreadyActive
 }
 
 // Cancel transitions a Registration to cancelled, but only for its owner.

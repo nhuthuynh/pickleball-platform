@@ -5,12 +5,12 @@
 // internal/gen/pickleball/socialplay/v1, and internal/gen/pickleball/
 // payments/v1.
 //
-// Social Play was merged into this lineage by T6.5 (which also merged T6.4)
-// so that Payments' RegistrationUpdater dependency (socialplayport.
+// Payments' RegistrationUpdater dependency (socialplayport.
 // RegistrationPaymentUpdater, satisfied by internal/payments/adapter/
-// socialplay) can be wired for real: one grpc.Server, one grpc-gateway mux,
-// one RegisterXServiceServer/RegisterXServiceHandlerFromEndpoint pair per
-// context.
+// socialplay, T6.5) is wired against the same, real socialplaySvc instance
+// Social Play's own gRPC handler uses below, not a second/separate stack:
+// one grpc.Server, one grpc-gateway mux, one RegisterXServiceServer/
+// RegisterXServiceHandlerFromEndpoint pair per context.
 package main
 
 import (
@@ -83,8 +83,9 @@ func run(logger *slog.Logger) error {
 	// CLAUDE.md rule 5 — see internal/socialplay/adapter/booking).
 	gameRepo := socialplaypg.NewGameRepository(pool)
 	registrationRepo := socialplaypg.NewRegistrationRepository(pool)
+	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
-	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo)
+	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo)
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation)
 
 	// Payments (T6.4). stripestub stands in for a real Stripe adapter

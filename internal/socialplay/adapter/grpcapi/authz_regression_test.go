@@ -123,6 +123,50 @@ func (f *fakeRegistrationRepo) UpdatePaymentStatus(_ context.Context, id string,
 	return r, nil
 }
 
+// fakeWaitlistRepo is a minimal, empty-always port.WaitlistRepository stand-in
+// — neither RegisterForGame nor CancelRegistration's BOLA behaviour under
+// test here depends on waitlist state, so this only needs to satisfy the
+// interface (PromoteNext always reports no waiting entries, matching every
+// fixture in this file never seeding one).
+type fakeWaitlistRepo struct {
+	entries map[string]domain.WaitlistEntry
+}
+
+func newFakeWaitlistRepo() *fakeWaitlistRepo {
+	return &fakeWaitlistRepo{entries: map[string]domain.WaitlistEntry{}}
+}
+
+func (f *fakeWaitlistRepo) Create(_ context.Context, e domain.WaitlistEntry) (domain.WaitlistEntry, error) {
+	f.entries[e.ID] = e
+	return e, nil
+}
+
+func (f *fakeWaitlistRepo) GetByID(_ context.Context, id string) (domain.WaitlistEntry, error) {
+	e, ok := f.entries[id]
+	if !ok {
+		return domain.WaitlistEntry{}, domain.ErrWaitlistEntryNotFound
+	}
+	return e, nil
+}
+
+func (f *fakeWaitlistRepo) ListForGame(_ context.Context, gameID string) ([]domain.WaitlistEntry, error) {
+	var out []domain.WaitlistEntry
+	for _, e := range f.entries {
+		if e.GameID == gameID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeWaitlistRepo) PromoteNext(_ context.Context, gameID string, now time.Time) (domain.WaitlistEntry, error) {
+	return domain.WaitlistEntry{}, domain.ErrNoWaitingEntries
+}
+
+func (f *fakeWaitlistRepo) ExpirePromotion(_ context.Context, id string, now time.Time) (domain.WaitlistEntry, error) {
+	return domain.WaitlistEntry{}, domain.ErrWaitlistEntryNotFound
+}
+
 // fakeIDs is a deterministic, dependency-free port.IDGenerator stand-in
 // (mirrors why internal/platform/idgen exists for production — tests get a
 // predictable sequence instead of random UUIDs).
@@ -143,7 +187,7 @@ func (f *fakeIDs) NewID() string {
 func newTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
-	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo)
+	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, newFakeWaitlistRepo())
 	return grpcapi.NewHandler(svc, nil), gameRepo, regRepo
 }
 

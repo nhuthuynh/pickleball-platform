@@ -3,7 +3,7 @@ sql:
   # Booking context (bookings + pricing_rules). Queries are listed
   # explicitly (not the whole db/queries dir) so adding a new bounded
   # context's .sql file under db/queries doesn't silently get swept into
-  # this package too — see the payments/socialplay entries below.
+  # this package too — see the payments and socialplay entries below.
   - engine: "postgresql"
     queries:
       - "db/queries/booking.sql"

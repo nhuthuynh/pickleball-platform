@@ -8,7 +8,7 @@ verified against the artifact's actual HTML/CSS source (fetched directly —
 full `<style>` block and full `<body>` markup for every section — not
 inferred from its own "Round 1–4" changelog callout, per the task's standing
 instruction), plus a fresh open-ended pass over
-`docs/design/pickleball-system-design-v1.md` §1's 16 requirements against
+`docs/design/v1-system-design.md` §1's 16 requirements against
 every screen in the artifact.
 **Roles played:** UX/UI Designer, Product Manager, Principal Engineer,
 Product Owner — same four dossiers as rounds 1–3.
@@ -154,7 +154,7 @@ does not manufacture a single verdict where the roles genuinely differ.
 
 ## 4. Open-ended pass — requirement coverage, full 16-item re-check
 
-Re-checked every row of `pickleball-system-design-v1.md` §1 against every
+Re-checked every row of `v1-system-design.md` §1 against every
 screen in the round-4 artifact (not just the two rows round 3 flagged):
 
 | # | Requirement | Status this round |
