@@ -1,10 +1,14 @@
 -- name: CreateGame :one
-INSERT INTO games (id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status;
+-- venue_facility_id (T8.3) is nullable — sqlc infers CreateGameParams.
+-- VenueFacilityID as pgtype.UUID, which the adapter must pass as an
+-- explicitly-invalid (Valid: false) zero value for an empty domain string,
+-- not attempt to parse "" as a uuid (see nullableUUID in repository.go).
+INSERT INTO games (id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status;
 
 -- name: GetGameByID :one
-SELECT id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status
+SELECT id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status
 FROM games
 WHERE id = $1;
 

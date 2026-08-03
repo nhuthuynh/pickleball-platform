@@ -46,6 +46,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
 	"github.com/nhuthuynh/white-label/internal/platform/pg"
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
+	socialplayfacilities "github.com/nhuthuynh/white-label/internal/socialplay/adapter/facilities"
 	socialplaygrpc "github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
 	socialplaypg "github.com/nhuthuynh/white-label/internal/socialplay/adapter/postgres"
 	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
@@ -92,13 +93,18 @@ func run(logger *slog.Logger) error {
 	// Postgres-backed like Booking's; its CourtReservation port is
 	// implemented against the real Booking app.Service (the one place
 	// Social Play code is allowed to import internal/booking/*, per
-	// CLAUDE.md rule 5 — see internal/socialplay/adapter/booking).
+	// CLAUDE.md rule 5 — see internal/socialplay/adapter/booking). Its
+	// FacilityLookup port (T8.3) gets the same treatment against the real
+	// Facilities app.Service already built above (internal/socialplay/
+	// adapter/facilities) — one, real facilitiesSvc instance, not a second/
+	// separate Facilities stack.
 	gameRepo := socialplaypg.NewGameRepository(pool)
 	registrationRepo := socialplaypg.NewRegistrationRepository(pool)
 	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
+	facilityLookup := socialplayfacilities.NewLookup(facilitiesSvc)
 	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo)
-	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation)
+	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
 
 	// Payments (T6.4). stripestub stands in for a real Stripe adapter
 	// (internal/payments/adapter/stripe, not yet built — T6.2's ACL is

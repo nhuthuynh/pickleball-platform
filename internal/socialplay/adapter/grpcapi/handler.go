@@ -22,18 +22,20 @@ import (
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
 )
 
-// Handler serves SocialPlayService. It holds the CourtReservation port
-// alongside the app.Service because ScheduleGame takes it per-call (T5.3's
-// original design — see app.Service.ScheduleGame's doc comment) rather than
-// storing it on Service itself.
+// Handler serves SocialPlayService. It holds the CourtReservation and
+// FacilityLookup ports alongside the app.Service because ScheduleGame takes
+// both per-call (T5.3's original design for CourtReservation — see
+// app.Service.ScheduleGame's doc comment; T8.3 gives FacilityLookup the
+// same treatment) rather than storing them on Service itself.
 type Handler struct {
 	socialplayv1.UnimplementedSocialPlayServiceServer
 	svc         *app.Service
 	reservation port.CourtReservation
+	facilities  port.FacilityLookup
 }
 
-func NewHandler(svc *app.Service, reservation port.CourtReservation) *Handler {
-	return &Handler{svc: svc, reservation: reservation}
+func NewHandler(svc *app.Service, reservation port.CourtReservation, facilities port.FacilityLookup) *Handler {
+	return &Handler{svc: svc, reservation: reservation, facilities: facilities}
 }
 
 func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRequest) (*socialplayv1.CreateGameResponse, error) {
@@ -43,12 +45,13 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 	}
 
 	g, err := h.svc.ScheduleGame(ctx, app.ScheduleGameInput{
-		HostID:     req.GetHostId(),
-		FacilityID: req.GetFacilityId(),
-		CourtIDs:   req.GetCourtIds(),
-		Range:      rng,
-		Capacity:   int(req.GetCapacity()),
-	}, h.reservation)
+		HostID:          req.GetHostId(),
+		FacilityID:      req.GetFacilityId(),
+		VenueFacilityID: req.GetVenueFacilityId(),
+		CourtIDs:        req.GetCourtIds(),
+		Range:           rng,
+		Capacity:        int(req.GetCapacity()),
+	}, h.reservation, h.facilities)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -109,6 +112,10 @@ func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitli
 // sweep/admin path, not exposed directly) — falling through to Internal for
 // either would be a signal something upstream called an app method it
 // shouldn't have, not a case this handler needs to translate for a client.
+//
+// T8.3 addition: ErrFacilityNotFound joins the NotFound group — an unknown
+// CreateGameRequest.venue_facility_id is a 404, not a 500 or a silent
+// accept (the ticket's explicit requirement).
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrGameFull),
@@ -121,7 +128,8 @@ func toStatus(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrGameNotFound),
 		errors.Is(err, domain.ErrRegistrationNotFound),
-		errors.Is(err, domain.ErrWaitlistEntryNotFound):
+		errors.Is(err, domain.ErrWaitlistEntryNotFound),
+		errors.Is(err, domain.ErrFacilityNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidCapacity),
@@ -172,14 +180,15 @@ func toProtoPaymentStatus(s domain.PaymentStatus) socialplayv1.PaymentStatus {
 
 func toProtoGame(g domain.Game) *socialplayv1.Game {
 	return &socialplayv1.Game{
-		Id:         g.ID,
-		HostId:     g.HostID,
-		FacilityId: g.FacilityID,
-		CourtIds:   g.CourtIDs,
-		StartsAt:   timestamppb.New(g.Range.Start),
-		EndsAt:     timestamppb.New(g.Range.End),
-		Capacity:   int32(g.Capacity),
-		Status:     toProtoGameStatus(g.Status),
+		Id:              g.ID,
+		HostId:          g.HostID,
+		FacilityId:      g.FacilityID,
+		VenueFacilityId: g.VenueFacilityID,
+		CourtIds:        g.CourtIDs,
+		StartsAt:        timestamppb.New(g.Range.Start),
+		EndsAt:          timestamppb.New(g.Range.End),
+		Capacity:        int32(g.Capacity),
+		Status:          toProtoGameStatus(g.Status),
 	}
 }
 

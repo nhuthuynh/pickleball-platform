@@ -24,7 +24,7 @@ func fixtureGame(t *testing.T, capacity int) domain.Game {
 func fixtureGameWithGuests(t *testing.T, capacity, guestAllowance int) domain.Game {
 	t.Helper()
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", []string{"court-1"}, r, capacity, domain.PaymentMethodEither, guestAllowance)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", []string{"court-1"}, r, capacity, domain.PaymentMethodEither, guestAllowance)
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
