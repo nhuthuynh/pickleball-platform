@@ -13,6 +13,7 @@ var (
 	ErrEmptyCourtIDs           = errors.New("socialplay: at least one court id is required")
 	ErrIllegalStatusTransition = errors.New("socialplay: illegal status transition")
 	ErrEmptyPlayerID           = errors.New("socialplay: player id is required")
+
 	// ErrGameFull, ErrAlreadyRegistered, and ErrNotRegistrationOwner are
 	// deliberately distinct, stable sentinels (not a generic validation
 	// error) — T5.4's gRPC/REST layer maps each to its own status code, and
