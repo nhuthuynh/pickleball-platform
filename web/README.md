@@ -93,19 +93,18 @@ main content):
   (list-then-detail-on-selection) vs. iPad/web
   (always-two-column-with-placeholder) layout behavior.
 
-**Known gap, not fixed by this ticket:** the merged Facilities API (T7.3)
-has `AddCourt` to create a Court but no endpoint that returns a Facility's
-Courts (`GetFacility`/`ListFacilities`'s `Facility` message has no
-`courts` field — confirmed against the generated OpenAPI types, not
-assumed). `models/facility.ts`'s `mapToFacilityDetail` therefore always
-maps `courts: []`, so every facility shows the "zero courts" empty state
-today regardless of what a Facility Owner has actually added via
-`AddCourt`. The view model and components already have a real `courts`
-list end to end (`FacilityCourt[]`, rendered by
-`FacilityDetailPanel.vue`), so a follow-up ticket that adds a
-courts-listing capability to the Facilities API only needs to change the
-one line in `mapToFacilityDetail` that currently hardcodes `[]` — see that
-function's doc comment.
+**Known gap, closed by T8.2:** the merged Facilities API (T7.3) shipped
+`AddCourt` to create a Court but no endpoint that returned a Facility's
+Courts back, so every facility showed the "zero courts" empty state
+regardless of what a Facility Owner had actually added. T8.2
+(`docs/process/t8-sprint-plan.md`) added `courts` to
+`GetFacilityResponse` (a field on the response, not on the shared
+`Facility`/`v1Facility` message — see that message's doc comment in
+`proto/pickleball/facilities/v1/facilities.proto` for why) and wired it
+through `useFacilityDetail.ts` -> `models/facility.ts`'s
+`mapToFacilityDetail` -> `FacilityDetailPanel.vue`, so a facility's real
+courts render, with "Book this court" per court, and the zero-courts empty
+state now only shows for facilities that genuinely have none.
 
 **`facilitiesClient.ts`:** no `facilitiesClient.ts`-style wrapper existed
 on the base branch (`claude/go-backend-pickleball-7up34j`) when this

@@ -41,7 +41,7 @@ export function useFacilityDetail(client: FacilitiesClient = facilitiesClient): 
         error.value = 'Could not load this facility. Please try again.'
         return
       }
-      facility.value = mapToFacilityDetail(data.facility)
+      facility.value = mapToFacilityDetail(data.facility, data.courts)
     } catch {
       error.value = 'Could not reach the server. Check your connection and try again.'
     } finally {

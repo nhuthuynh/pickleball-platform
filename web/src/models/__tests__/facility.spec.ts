@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mapToFacilitySummary, mapToFacilityDetail, type RawFacility } from '../facility'
+import { mapToFacilitySummary, mapToFacilityDetail, type RawFacility, type RawCourt } from '../facility'
 
 /**
  * A raw Facility as the API actually returns it — including camera-link
@@ -57,9 +57,34 @@ describe('mapToFacilityDetail', () => {
     expect(JSON.stringify(detail)).not.toContain('cameras.example.test')
   })
 
-  it('returns an empty courts list (no Facilities API endpoint lists a facility\'s courts yet)', () => {
+  it('returns an empty courts list when no rawCourts argument is given (e.g. a CreateFacility/AddCourt response, which carries no courts list)', () => {
     const detail = mapToFacilityDetail(rawFacilityWithCameraLinks)
     expect(detail.courts).toEqual([])
+  })
+
+  it('returns an empty courts list for a facility with none (GetFacilityResponse.courts === [])', () => {
+    const detail = mapToFacilityDetail(rawFacilityWithCameraLinks, [])
+    expect(detail.courts).toEqual([])
+  })
+
+  // T8.2: GetFacilityResponse.courts closes the gap the previous version of
+  // this test documented (no endpoint listed a facility's courts back) —
+  // this proves the populated case maps correctly, not just the empty one.
+  it('maps a populated rawCourts list onto FacilityDetail.courts', () => {
+    const rawCourts: RawCourt[] = [
+      { id: 'court-1', facilityId: 'facility-1', name: 'Court 1' },
+      { id: 'court-2', facilityId: 'facility-1', name: 'Court 2' },
+    ]
+    const detail = mapToFacilityDetail(rawFacilityWithCameraLinks, rawCourts)
+    expect(detail.courts).toEqual([
+      { id: 'court-1', name: 'Court 1' },
+      { id: 'court-2', name: 'Court 2' },
+    ])
+  })
+
+  it('defaults a missing court id/name to empty strings', () => {
+    const detail = mapToFacilityDetail(rawFacilityWithCameraLinks, [{}])
+    expect(detail.courts).toEqual([{ id: '', name: '' }])
   })
 
   it('defaults missing optional fields to empty strings/arrays', () => {

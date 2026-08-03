@@ -58,6 +58,41 @@ describe('useFacilityDetail', () => {
     })
   })
 
+  // T8.2: GetFacilityResponse now carries a sibling `courts` list —
+  // previously this always mapped to `[]` (see models/facility.ts's prior
+  // doc comment) since no endpoint returned a facility's courts at all.
+  // This proves the composable actually forwards `data.courts` into
+  // `mapToFacilityDetail`, not just that the mapping function itself can
+  // handle a populated list (models/__tests__/facility.spec.ts covers
+  // that in isolation).
+  it('maps a populated courts list from GetFacilityResponse.courts onto the loaded facility', async () => {
+    const get = vi.fn(async () => ({
+      data: {
+        facility: {
+          id: 'f1',
+          name: 'Riverside Courts',
+          description: 'Six outdoor courts.',
+          address: '1 River Rd',
+          photoUrls: [],
+        },
+        courts: [
+          { id: 'c1', facilityId: 'f1', name: 'Court 1' },
+          { id: 'c2', facilityId: 'f1', name: 'Court 2' },
+        ],
+      },
+      error: undefined,
+    }))
+    const { facility, error, load } = useFacilityDetail(fakeClient(get))
+
+    await load('f1')
+
+    expect(error.value).toBeNull()
+    expect(facility.value?.courts).toEqual([
+      { id: 'c1', name: 'Court 1' },
+      { id: 'c2', name: 'Court 2' },
+    ])
+  })
+
   it('never carries camera-link data onto the loaded facility, even when the mocked API response includes it', async () => {
     const get = vi.fn(async () => ({
       data: {
