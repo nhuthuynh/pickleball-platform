@@ -38,6 +38,14 @@ type Repository interface {
 	// only persists, it does not re-check consent.
 	AddCameraLink(ctx context.Context, facilityID string, link domain.CameraLink) (domain.CameraLink, error)
 
+	// AttestCameraConsent persists CameraConsentAttested = true for
+	// facilityID (T8.4). Callers must have already checked
+	// domain.Facility.AttestCameraConsent's EnsureOwner invariant before
+	// calling this — this method only persists, it does not re-check
+	// ownership. Returns domain.ErrFacilityNotFound if facilityID doesn't
+	// exist.
+	AttestCameraConsent(ctx context.Context, facilityID string) error
+
 	// ListCourtsForFacility returns every Court belonging to facilityID, in
 	// creation order (T8.2 — the read path AddCourt (T7.3) never had). An
 	// unknown facilityID is not itself an error here — it simply has no

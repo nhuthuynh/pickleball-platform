@@ -116,6 +116,17 @@ func (r *Repository) AddCameraLink(ctx context.Context, facilityID string, link 
 	return domain.CameraLink{URL: row.Url, CourtID: uuidOrEmpty(row.CourtID)}, nil
 }
 
+// AttestCameraConsent persists CameraConsentAttested = true for facilityID
+// (T8.4). Callers must have already run domain.Facility.
+// AttestCameraConsent's EnsureOwner check before calling this — see
+// port.Repository.AttestCameraConsent's doc comment.
+func (r *Repository) AttestCameraConsent(ctx context.Context, facilityID string) error {
+	if _, err := r.q.AttestCameraConsent(ctx, mustUUID(facilityID)); err != nil {
+		return translateErr(err)
+	}
+	return nil
+}
+
 // ListCourtsForFacility is T8.2's read path — AddCourt (T7.3) had no way to
 // list Courts back. It reads the *existing* courts table (0001_init.sql)
 // filtered by facility_id, the same table AddCourt inserts into and Booking

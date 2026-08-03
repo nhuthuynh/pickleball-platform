@@ -117,3 +117,31 @@ func (s *Service) AddCameraLink(ctx context.Context, facilityID, actorUserID, ur
 
 	return f, nil
 }
+
+// AttestCameraConsent sets facilityID's CameraConsentAttested to true, but
+// only once the caller owns the Facility (T8.4: domain.Facility.
+// EnsureOwner, checked first inside domain.Facility.AttestCameraConsent —
+// returns domain.ErrNotFacilityOwner for a mismatched actorUserID ->
+// codes.PermissionDenied via grpcapi.toStatus, mirroring AddCourt/
+// AddCameraLink's T7.7 check). This is the RPC that closes the gap
+// AddCameraLink's doc comment describes: before this method existed,
+// nothing could ever set CameraConsentAttested to true server-side, so
+// every correct client submission to AddCameraLink was rejected with
+// ErrCameraConsentRequired. Idempotent, per domain.Facility.
+// AttestCameraConsent's doc comment.
+func (s *Service) AttestCameraConsent(ctx context.Context, facilityID, actorUserID string) (domain.Facility, error) {
+	f, err := s.repo.GetFacilityByID(ctx, facilityID)
+	if err != nil {
+		return domain.Facility{}, err
+	}
+
+	if err := f.AttestCameraConsent(actorUserID); err != nil {
+		return domain.Facility{}, err
+	}
+
+	if err := s.repo.AttestCameraConsent(ctx, facilityID); err != nil {
+		return domain.Facility{}, err
+	}
+
+	return f, nil
+}

@@ -130,6 +130,28 @@ message AddCameraLinkResponse {
   Facility facility = 1;
 }
 
+// AttestCameraConsentRequest is T8.4's dedicated write path for
+// Facility.CameraConsentAttested — deliberately its own RPC, not a field on
+// AddCameraLinkRequest, per the round-10 design review's requirement that
+// consent not be settable at creation time (cited in T7.2's own ticket
+// text): attesting consent and adding a link stay two explicit steps.
+// T7.2/T7.3 shipped no RPC that could ever set this to true, so every
+// correct client submission of AddCameraLink was rejected with
+// ErrCameraConsentRequired until this ticket. actor_user_id follows the
+// same caller-claimed-identity convention as AddCourtRequest/
+// AddCameraLinkRequest (T7.7) — checked against the target Facility's
+// owner_id via domain.Facility.EnsureOwner before consent is ever touched,
+// so a non-owner is rejected with a mapped 403 without learning the
+// Facility's current consent state.
+message AttestCameraConsentRequest {
+  string facility_id = 1;
+  string actor_user_id = 2;
+}
+
+message AttestCameraConsentResponse {
+  Facility facility = 1;
+}
+
 // FacilitiesService is the API contract for the Facilities bounded
 // context, mirroring BookingService's/PaymentsService's style
 // (proto/pickleball/booking/v1, proto/pickleball/payments/v1) — buf
@@ -168,6 +190,17 @@ service FacilitiesService {
   rpc AddCameraLink(AddCameraLinkRequest) returns (AddCameraLinkResponse) {
     option (google.api.http) = {
       post: "/v1/facilities/{facility_id}/cameraLinks"
+      body: "*"
+    };
+  }
+
+  // AttestCameraConsent is T8.4's dedicated write path for
+  // Facility.CameraConsentAttested — see AttestCameraConsentRequest's doc
+  // comment for why it's a separate RPC rather than a field folded into
+  // AddCameraLinkRequest.
+  rpc AttestCameraConsent(AttestCameraConsentRequest) returns (AttestCameraConsentResponse) {
+    option (google.api.http) = {
+      post: "/v1/facilities/{facility_id}/attestCameraConsent"
       body: "*"
     };
   }

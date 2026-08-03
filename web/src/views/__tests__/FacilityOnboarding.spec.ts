@@ -36,6 +36,7 @@ beforeAll(() => {
 function makeFakeClient(
   overrides: Partial<{
     createFacility: (body: Record<string, unknown>) => { data?: unknown; error?: unknown }
+    attestCameraConsent: (body: Record<string, unknown>) => { data?: unknown; error?: unknown }
     addCameraLink: (body: Record<string, unknown>) => { data?: unknown; error?: unknown }
     addCourt: (body: Record<string, unknown>) => { data?: unknown; error?: unknown }
   }> = {},
@@ -52,6 +53,23 @@ function makeFakeClient(
           address: body.address,
           photoUrls: body.photoUrls ?? [],
           cameraConsentAttested: false,
+          cameraLinks: [],
+        },
+      },
+    }))
+
+  const attestCameraConsent =
+    overrides.attestCameraConsent ??
+    (() => ({
+      data: {
+        facility: {
+          id: 'fac-1',
+          ownerId: 'owner-mock-1',
+          name: 'Sunset Courts',
+          description: '',
+          address: '123 Main St',
+          photoUrls: [],
+          cameraConsentAttested: true,
           cameraLinks: [],
         },
       },
@@ -83,6 +101,9 @@ function makeFakeClient(
   const POST = vi.fn(async (path: string, init: { params?: unknown; body?: unknown }) => {
     if (path === '/v1/facilities') {
       return createFacility(init.body as Record<string, unknown>)
+    }
+    if (path === '/v1/facilities/{facilityId}/attestCameraConsent') {
+      return attestCameraConsent(init.body as Record<string, unknown>)
     }
     if (path === '/v1/facilities/{facilityId}/cameraLinks') {
       return addCameraLink(init.body as Record<string, unknown>)
@@ -117,7 +138,7 @@ describe('FacilityOnboarding — camera-consent checkbox (round-10 §2b, load-be
     expect((checkbox.element as HTMLInputElement).checked).toBe(false)
   })
 
-  it('does not call AddCameraLink when submitting a camera URL via the UI while consent is unchecked', async () => {
+  it('does not call AttestCameraConsent or AddCameraLink when submitting a camera URL via the UI while consent is unchecked', async () => {
     const client = makeFakeClient()
     const wrapper = mount(FacilityOnboarding, { props: { client } })
     await advanceToCameras(wrapper)
@@ -129,10 +150,9 @@ describe('FacilityOnboarding — camera-consent checkbox (round-10 §2b, load-be
     await button.trigger('click')
     await flushPromises()
 
-    const cameraLinkCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks',
-    )
-    expect(cameraLinkCalls).toHaveLength(0)
+    const calls = (client.POST as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.filter((call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/attestCameraConsent')).toHaveLength(0)
+    expect(calls.filter((call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks')).toHaveLength(0)
   })
 
   it('the internal submit handler itself refuses to call the API while unchecked (client-side gate, not just a disabled button)', async () => {
@@ -148,15 +168,54 @@ describe('FacilityOnboarding — camera-consent checkbox (round-10 §2b, load-be
     await exposed.submitCameraLink()
     await flushPromises()
 
-    const cameraLinkCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls.filter(
-      (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks',
-    )
-    expect(cameraLinkCalls).toHaveLength(0)
+    const calls = (client.POST as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.filter((call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/attestCameraConsent')).toHaveLength(0)
+    expect(calls.filter((call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks')).toHaveLength(0)
     expect(wrapper.text()).toContain('Check the consent box')
   })
 
-  it('does call AddCameraLink once consent is actively checked', async () => {
+  // T8.4: this is the ticket's headline assertion — before T8.4 there was no
+  // RPC that could ever set CameraConsentAttested to true, so this flow was
+  // dead-ended even with the checkbox checked. Now checking the box and
+  // submitting calls the real AttestCameraConsent RPC first, then
+  // AddCameraLink, in that order, both against the real network call (via
+  // the injected client), not just a client-side gate.
+  it('calls AttestCameraConsent then AddCameraLink, in order, once consent is actively checked', async () => {
     const client = makeFakeClient()
+    const wrapper = mount(FacilityOnboarding, { props: { client } })
+    await advanceToCameras(wrapper)
+
+    await wrapper.get('#camera-consent-checkbox').setValue(true)
+    await wrapper.get('#camera-url-input').setValue('https://cam.example.com/1')
+    await wrapper.get('[data-testid="add-camera-button"]').trigger('click')
+    await flushPromises()
+
+    const postCalls = (client.POST as ReturnType<typeof vi.fn>).mock
+      .calls as unknown as [string, { body: Record<string, unknown> }][]
+    const facilityCalls = postCalls.filter(([path]) =>
+      [
+        '/v1/facilities/{facilityId}/attestCameraConsent',
+        '/v1/facilities/{facilityId}/cameraLinks',
+      ].includes(path),
+    )
+    expect(facilityCalls.map(([path]) => path)).toEqual([
+      '/v1/facilities/{facilityId}/attestCameraConsent',
+      '/v1/facilities/{facilityId}/cameraLinks',
+    ])
+    expect(facilityCalls[0]?.[1].body.actorUserId).toBe('owner-mock-1')
+    expect(facilityCalls[1]?.[1].body).toMatchObject({
+      url: 'https://cam.example.com/1',
+      actorUserId: 'owner-mock-1',
+    })
+    expect(wrapper.get('[role="status"]').text()).toBe('Camera link added.')
+  })
+
+  it('surfaces an AttestCameraConsent failure inline and never calls AddCameraLink', async () => {
+    const client = makeFakeClient({
+      attestCameraConsent: () => ({
+        error: { code: 7, message: 'facilities: actor is not authorized to modify this facility' },
+      }),
+    })
     const wrapper = mount(FacilityOnboarding, { props: { client } })
     await advanceToCameras(wrapper)
 
@@ -168,8 +227,8 @@ describe('FacilityOnboarding — camera-consent checkbox (round-10 §2b, load-be
     const cameraLinkCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls.filter(
       (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks',
     )
-    expect(cameraLinkCalls).toHaveLength(1)
-    expect(wrapper.get('[role="status"]').text()).toBe('Camera link added.')
+    expect(cameraLinkCalls).toHaveLength(0)
+    expect(wrapper.get('.fo-field-error').text()).toContain('not authorized')
   })
 })
 
@@ -298,7 +357,7 @@ describe('FacilityOnboarding — courts step', () => {
 // also sent as actorUserId on AddCourt and AddCameraLink, so the acting
 // caller matches the facility's owner and EnsureOwner passes.
 describe('FacilityOnboarding — actorUserId on AddCourt/AddCameraLink (T7.7 ownership check)', () => {
-  it('sends actorUserId matching the facility owner on AddCameraLink', async () => {
+  it('sends actorUserId matching the facility owner on AttestCameraConsent and AddCameraLink', async () => {
     const client = makeFakeClient()
     const wrapper = mount(FacilityOnboarding, { props: { client } })
     await advanceToCameras(wrapper)
@@ -308,12 +367,19 @@ describe('FacilityOnboarding — actorUserId on AddCourt/AddCameraLink (T7.7 own
     await wrapper.get('[data-testid="add-camera-button"]').trigger('click')
     await flushPromises()
 
-    const cameraLinkCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls.filter(
+    const postCalls = (client.POST as ReturnType<typeof vi.fn>).mock.calls
+    const attestCalls = postCalls.filter(
+      (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/attestCameraConsent',
+    )
+    const cameraLinkCalls = postCalls.filter(
       (call: unknown[]) => call[0] === '/v1/facilities/{facilityId}/cameraLinks',
     )
+    expect(attestCalls).toHaveLength(1)
     expect(cameraLinkCalls).toHaveLength(1)
-    const [, init] = cameraLinkCalls[0] as [string, { body: Record<string, unknown> }]
-    expect(init.body.actorUserId).toBe('owner-mock-1')
+    const [, attestInit] = attestCalls[0] as [string, { body: Record<string, unknown> }]
+    const [, linkInit] = cameraLinkCalls[0] as [string, { body: Record<string, unknown> }]
+    expect(attestInit.body.actorUserId).toBe('owner-mock-1')
+    expect(linkInit.body.actorUserId).toBe('owner-mock-1')
   })
 
   it('sends actorUserId matching the facility owner on AddCourt', async () => {

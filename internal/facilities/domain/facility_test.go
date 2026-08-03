@@ -202,6 +202,82 @@ func TestFacility_EnsureOwner(t *testing.T) {
 	}
 }
 
+// --- T8.4: AttestCameraConsent --------------------------------------------
+
+// TestFacility_AttestCameraConsent_Owner proves the happy path: the
+// Facility's own owner attesting consent sets CameraConsentAttested to
+// true, and that a camera link can then be added — closing the T7-flagged
+// gap that nothing ever set this field server-side.
+func TestFacility_AttestCameraConsent_Owner(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+	if f.CameraConsentAttested {
+		t.Fatalf("fixture CameraConsentAttested = true, want false")
+	}
+
+	if err := f.AttestCameraConsent("owner-1"); err != nil {
+		t.Fatalf("AttestCameraConsent(owner) = %v, want nil", err)
+	}
+	if !f.CameraConsentAttested {
+		t.Fatalf("CameraConsentAttested = false after AttestCameraConsent, want true")
+	}
+
+	// Now that consent is attested, AddCameraLink should actually succeed —
+	// the end-to-end proof this ticket exists for.
+	if err := f.AddCameraLink("owner-1", "https://example.com/cam1.m3u8"); err != nil {
+		t.Fatalf("AddCameraLink after AttestCameraConsent should succeed, got: %v", err)
+	}
+}
+
+// TestFacility_AttestCameraConsent_Idempotent proves attesting twice is not
+// an error — re-attesting an already-attested Facility just confirms the
+// same state, per the ticket's explicit requirement.
+func TestFacility_AttestCameraConsent_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+
+	if err := f.AttestCameraConsent("owner-1"); err != nil {
+		t.Fatalf("first AttestCameraConsent = %v, want nil", err)
+	}
+	if err := f.AttestCameraConsent("owner-1"); err != nil {
+		t.Fatalf("second AttestCameraConsent = %v, want nil (idempotent)", err)
+	}
+	if !f.CameraConsentAttested {
+		t.Fatalf("CameraConsentAttested = false after idempotent re-attest, want true")
+	}
+}
+
+// TestFacility_AttestCameraConsent_RejectsNonOwner proves the ownership
+// check runs before consent is ever touched: a non-owner is rejected with
+// ErrNotFacilityOwner (mapped to 403 by grpcapi) and CameraConsentAttested
+// is left untouched — the non-owner never even learns the Facility's
+// current consent state, mirroring AddCameraLink's/AddCourt's check
+// ordering (T7.7).
+func TestFacility_AttestCameraConsent_RejectsNonOwner(t *testing.T) {
+	t.Parallel()
+
+	f, err := domain.NewFacility("f1", "owner-1", "Riverside Courts", "", "123 Main St", nil)
+	if err != nil {
+		t.Fatalf("unexpected err building fixture: %v", err)
+	}
+
+	err = f.AttestCameraConsent("attacker")
+	if !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+	if f.CameraConsentAttested {
+		t.Fatalf("CameraConsentAttested = true after rejected non-owner attest, want false (untouched)")
+	}
+}
+
 // TestFacility_AddCameraLink_RejectsNonOwner is the domain-level proof that
 // AddCameraLink checks ownership before it checks camera consent: a
 // non-owner is rejected with ErrNotFacilityOwner even when

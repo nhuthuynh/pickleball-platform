@@ -90,6 +90,16 @@ func (r *inMemoryRepo) AddCameraLink(_ context.Context, facilityID string, link 
 	return link, nil
 }
 
+func (r *inMemoryRepo) AttestCameraConsent(_ context.Context, facilityID string) error {
+	f, ok := r.facilities[facilityID]
+	if !ok {
+		return domain.ErrFacilityNotFound
+	}
+	f.CameraConsentAttested = true
+	r.facilities[facilityID] = f
+	return nil
+}
+
 // containsFold is a tiny case-insensitive substring check, just enough to
 // fake ListFacilities' ILIKE filter in-memory without pulling in strings
 // import ceremony for one call site.
@@ -486,5 +496,111 @@ func TestAddCameraLink_RejectsNonOwner(t *testing.T) {
 	}
 	if len(stored.CameraLinks) != 0 {
 		t.Fatalf("CameraLinks = %v, want empty after rejected non-owner AddCameraLink", stored.CameraLinks)
+	}
+}
+
+// --- T8.4: AttestCameraConsent ---------------------------------------------
+
+// TestAttestCameraConsent_EnablesAddCameraLink is the app-level, end-to-end
+// proof this ticket exists for: attesting consent as the owner, then adding
+// a camera link, both succeed through the real service — closing the gap
+// where every correct client submission to AddCameraLink was rejected
+// because nothing could ever set CameraConsentAttested to true.
+func TestAttestCameraConsent_EnablesAddCameraLink(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	attested, err := svc.AttestCameraConsent(ctx, f.ID, "owner-1")
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !attested.CameraConsentAttested {
+		t.Fatalf("CameraConsentAttested = false after AttestCameraConsent, want true")
+	}
+
+	stored, err := svc.GetFacility(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if !stored.CameraConsentAttested {
+		t.Fatalf("persisted CameraConsentAttested = false, want true")
+	}
+
+	if _, err := svc.AddCameraLink(ctx, f.ID, "owner-1", "https://example.com/cam1.m3u8"); err != nil {
+		t.Fatalf("AddCameraLink after AttestCameraConsent should succeed, got: %v", err)
+	}
+}
+
+// TestAttestCameraConsent_Idempotent mirrors the domain-level idempotency
+// test at the app layer: attesting twice must not error.
+func TestAttestCameraConsent_Idempotent(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if _, err := svc.AttestCameraConsent(ctx, f.ID, "owner-1"); err != nil {
+		t.Fatalf("first AttestCameraConsent: unexpected err: %v", err)
+	}
+	if _, err := svc.AttestCameraConsent(ctx, f.ID, "owner-1"); err != nil {
+		t.Fatalf("second AttestCameraConsent: unexpected err: %v (want idempotent)", err)
+	}
+}
+
+// TestAttestCameraConsent_UnknownFacilityReturnsNotFound mirrors
+// TestAddCameraLink_UnknownFacilityReturnsNotFound for the new RPC.
+func TestAttestCameraConsent_UnknownFacilityReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	_, err := svc.AttestCameraConsent(ctx, "does-not-exist", "owner-1")
+	if !errors.Is(err, domain.ErrFacilityNotFound) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrFacilityNotFound)
+	}
+}
+
+// TestAttestCameraConsent_RejectsNonOwner is T8.4's app-level proof that
+// AttestCameraConsent rejects an actor who does not own the target
+// Facility, and does not persist any change to CameraConsentAttested.
+func TestAttestCameraConsent_RejectsNonOwner(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &sequentialIDs{})
+	ctx := context.Background()
+
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	_, err = svc.AttestCameraConsent(ctx, f.ID, "attacker")
+	if !errors.Is(err, domain.ErrNotFacilityOwner) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
+	}
+
+	stored, err := svc.GetFacility(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if stored.CameraConsentAttested {
+		t.Fatalf("CameraConsentAttested = true after rejected non-owner attempt, want false (untouched)")
 	}
 }

@@ -45,3 +45,14 @@ SELECT id, facility_id, court_id, url
 FROM facility_camera_links
 WHERE facility_id = $1
 ORDER BY created_at;
+
+-- name: AttestCameraConsent :one
+-- T8.4: the write path that sets camera_consent_attested = true. RETURNING
+-- id (rather than :exec) so the adapter can distinguish "facility doesn't
+-- exist" (pgx.ErrNoRows, translated to domain.ErrFacilityNotFound) from a
+-- successful no-op update on an already-true row — idempotent per
+-- domain.Facility.AttestCameraConsent's doc comment.
+UPDATE facilities
+SET camera_consent_attested = true, updated_at = now()
+WHERE id = $1
+RETURNING id;
