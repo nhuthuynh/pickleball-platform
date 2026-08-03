@@ -68,8 +68,9 @@ func run(logger *slog.Logger) error {
 	// CLAUDE.md rule 5 — see internal/socialplay/adapter/booking).
 	gameRepo := socialplaypg.NewGameRepository(pool)
 	registrationRepo := socialplaypg.NewRegistrationRepository(pool)
+	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
-	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo)
+	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo)
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation)
 
 	grpcServer := grpc.NewServer()
