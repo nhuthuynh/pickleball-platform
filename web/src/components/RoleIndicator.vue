@@ -1,43 +1,67 @@
 <script setup lang="ts">
 // ---------------------------------------------------------------------------
-// PLACEHOLDER — mock/hardcoded role data only.
+// PLACEHOLDER — mock/hardcoded account, but a REAL (if client-side-only)
+// per-role evidence signal as of T8.8.
 //
 // Implements the kickoff note's decision #1 in docs/process/t7-sprint-plan.md
 // ("Role-switching UX. Decided contextual, with a lightweight persistent
 // indicator... the app shell shows a role indicator in the nav ('Viewing
 // as: Player ▾') that only lists roles the signed-in account actually holds
 // evidence for"). There is no real Identity/Users/Auth context in this repo
-// yet (see the sprint plan's "starting facts"), so this component's account
-// and role list are hardcoded mock data, NOT read from any backend. It must
-// not be treated as an authorization boundary — same caveat class as
+// yet (see the sprint plan's "starting facts"), so the account itself is
+// still hardcoded mock data, NOT read from any backend. It must not be
+// treated as an authorization boundary — same caveat class as
 // T5.5/T6.3/T6.7's ActorUserID pattern (UI state only, server-unverified).
 //
-// Wire this to a real account/session store once Identity/Users exists
-// (tracked as a T7.4+ / Identity-context follow-up, not solved here).
+// T8's kickoff note (docs/process/t8-sprint-plan.md) decision #1 extends
+// this exact mechanism with a second, real role: "Host" is now listed once
+// this browser session has actually called `CreateGame` successfully (see
+// src/state/roleEvidence.ts and src/views/GameCreation.vue), rather than
+// being hardcoded present unconditionally as it was pre-T8.
+//
+// Wire the account itself to a real account/session store once
+// Identity/Users exists (tracked as a T7.4+ / Identity-context follow-up,
+// not solved here).
 // ---------------------------------------------------------------------------
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
+import { hasHostEvidence } from '../state/roleEvidence'
 
 export interface MockRole {
   id: 'player' | 'host' | 'owner' | 'club'
   label: string
 }
 
-// A player who has also hosted a game (so both roles have "evidence") but
-// has never onboarded a facility, per decision #1's "only lists roles the
-// signed-in account actually holds evidence for" rule.
-const MOCK_AVAILABLE_ROLES: MockRole[] = [
-  { id: 'player', label: 'Player' },
-  { id: 'host', label: 'Host' },
-]
+// Player is always available (the mock account's baseline role); Host is
+// added once this session has real evidence for it (T8.8). Owner/Club stay
+// absent — no onboarding-evidence signal exists for either yet, per
+// decision #1's "only lists roles the signed-in account actually holds
+// evidence for" rule.
+const availableRoles = computed<MockRole[]>(() => {
+  const roles: MockRole[] = [{ id: 'player', label: 'Player' }]
+  if (hasHostEvidence.value) {
+    roles.push({ id: 'host', label: 'Host' })
+  }
+  return roles
+})
 
-const currentRoleId = ref<MockRole['id']>(MOCK_AVAILABLE_ROLES[0]!.id)
+const currentRoleId = ref<MockRole['id']>('player')
+
+// If the currently-selected role ever stops being available (only possible
+// today via the test-only reset helper, but kept as a real guard rather
+// than an assumption), fall back to Player instead of pointing the select
+// at an option that no longer renders.
+watch(availableRoles, (roles) => {
+  if (!roles.some((r) => r.id === currentRoleId.value)) {
+    currentRoleId.value = 'player'
+  }
+})
 
 function selectRole(id: MockRole['id']) {
   currentRoleId.value = id
 }
 
 function currentRoleLabel(): string {
-  return MOCK_AVAILABLE_ROLES.find((r) => r.id === currentRoleId.value)?.label ?? 'Player'
+  return availableRoles.value.find((r) => r.id === currentRoleId.value)?.label ?? 'Player'
 }
 </script>
 
@@ -51,7 +75,7 @@ function currentRoleLabel(): string {
       aria-label="Switch which role you are viewing the app as (mock data — placeholder until Identity/Users exists)"
       @change="selectRole(($event.target as HTMLSelectElement).value as MockRole['id'])"
     >
-      <option v-for="role in MOCK_AVAILABLE_ROLES" :key="role.id" :value="role.id">
+      <option v-for="role in availableRoles" :key="role.id" :value="role.id">
         {{ role.label }}
       </option>
     </select>

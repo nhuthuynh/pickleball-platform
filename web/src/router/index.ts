@@ -8,10 +8,10 @@
 //   - /facilities, /facilities/onboard: existing T7.4/T7.5 screens, wired
 //     to real components unchanged.
 //   - /games: T8.9 (Discover & Join Games) real screen, wired below.
-//   - /games/new, /games/:id/checkout, /host/payments: the remaining
-//     T8.8/T8.10 routes. Still placeholder components until each of those
-//     tickets swaps its own `component:` entry in — this ticket only
-//     claims the one route it owns.
+//   - /games/new: T8.8 (Social Game Creation) real screen, wired below.
+//   - /games/:id/checkout, /host/payments: the remaining T8.10 routes.
+//     Still placeholder components until that ticket swaps its own
+//     `component:` entry in.
 //   - /bookings, /profile: not named in T8.1's Instructions #1 route list,
 //     but required by Instructions #1's nav requirement ("Bookings"/
 //     "Profile" tabs must link to a "Coming soon" placeholder route too,
@@ -20,6 +20,7 @@ import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
+import GameCreation from '../views/GameCreation.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -28,8 +29,8 @@ export const routes: RouteRecordRaw[] = [
   { path: '/facilities/onboard', name: 'facilities-onboard', component: FacilityOnboarding },
   // T8.9 (Discover & Join Games) — real screen, replacing T8.1's placeholder.
   { path: '/games', name: 'games', component: DiscoverGames, meta: { title: 'Games' } },
-  // T8.8 (Social Game Creation) replaces this placeholder.
-  { path: '/games/new', name: 'games-new', component: ComingSoonView, meta: { title: 'Create a game' } },
+  // T8.8 (Social Game Creation, Host/Owner) — real screen, replacing T8.1's placeholder.
+  { path: '/games/new', name: 'games-new', component: GameCreation, meta: { title: 'Create a game' } },
   // T8.10 (Payments UI) replaces this placeholder.
   {
     path: '/games/:id/checkout',
