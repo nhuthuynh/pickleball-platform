@@ -43,11 +43,13 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 	}
 
 	g, err := h.svc.ScheduleGame(ctx, app.ScheduleGameInput{
-		HostID:     req.GetHostId(),
-		FacilityID: req.GetFacilityId(),
-		CourtIDs:   req.GetCourtIds(),
-		Range:      rng,
-		Capacity:   int(req.GetCapacity()),
+		HostID:         req.GetHostId(),
+		FacilityID:     req.GetFacilityId(),
+		CourtIDs:       req.GetCourtIds(),
+		Range:          rng,
+		Capacity:       int(req.GetCapacity()),
+		PaymentMethod:  fromProtoPaymentMethod(req.GetPaymentMethod()),
+		GuestAllowance: int(req.GetGuestAllowance()),
 	}, h.reservation)
 	if err != nil {
 		return nil, toStatus(err)
@@ -58,8 +60,9 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 
 func (h *Handler) RegisterForGame(ctx context.Context, req *socialplayv1.RegisterForGameRequest) (*socialplayv1.RegisterForGameResponse, error) {
 	reg, err := h.svc.RegisterForGame(ctx, app.RegisterForGameInput{
-		GameID:   req.GetGameId(),
-		PlayerID: req.GetPlayerId(),
+		GameID:     req.GetGameId(),
+		PlayerID:   req.GetPlayerId(),
+		GuestCount: int(req.GetGuestCount()),
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -109,6 +112,13 @@ func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitli
 // sweep/admin path, not exposed directly) — falling through to Internal for
 // either would be a signal something upstream called an app method it
 // shouldn't have, not a case this handler needs to translate for a client.
+//
+// T8.7 additions: ErrInvalidPaymentMethod, ErrInvalidGuestAllowance, and
+// ErrGuestAllowanceExceeded join the validation-error/InvalidArgument
+// group — all three are precondition violations on the request itself
+// (a bad enum value, a negative allowance, or a guest count outside the
+// Game's own allowance), the same category ErrInvalidCapacity/
+// ErrEmptyCourtIDs already occupy.
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrGameFull),
@@ -128,7 +138,10 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrEmptyCourtIDs),
 		errors.Is(err, domain.ErrEmptyPlayerID),
 		errors.Is(err, domain.ErrIllegalStatusTransition),
-		errors.Is(err, domain.ErrGameNotFull):
+		errors.Is(err, domain.ErrGameNotFull),
+		errors.Is(err, domain.ErrInvalidPaymentMethod),
+		errors.Is(err, domain.ErrInvalidGuestAllowance),
+		errors.Is(err, domain.ErrGuestAllowanceExceeded):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -170,16 +183,57 @@ func toProtoPaymentStatus(s domain.PaymentStatus) socialplayv1.PaymentStatus {
 	}
 }
 
+// toProtoPaymentMethod converts a domain.PaymentMethod to its wire enum
+// (T8.7) — mirrors toProtoGameStatus/toProtoRegistrationStatus's shape. Every
+// domain.PaymentMethod value is one of its own closed enum's non-zero
+// values, so there is no "unspecified" case to fall into on this direction
+// (unlike fromProtoPaymentMethod below, which does have to handle the wire
+// zero value).
+func toProtoPaymentMethod(m domain.PaymentMethod) socialplayv1.PaymentMethod {
+	switch m {
+	case domain.PaymentMethodOnline:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_ONLINE
+	case domain.PaymentMethodCash:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_CASH
+	case domain.PaymentMethodEither:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_EITHER
+	default:
+		return socialplayv1.PaymentMethod_PAYMENT_METHOD_UNSPECIFIED
+	}
+}
+
+// fromProtoPaymentMethod converts a wire PaymentMethod into a
+// domain.PaymentMethod (T8.7). PAYMENT_METHOD_UNSPECIFIED — the wire zero
+// value, sent by any client that never sets this field, including every
+// pre-T8.7 client — resolves to domain.PaymentMethodEither, the least
+// restrictive value: see db/migrations/0012_socialplay_guest_capacity.sql's
+// payment_method column default for the identical "closest thing to
+// unspecified" reasoning applied at the DB layer. This keeps CreateGame
+// backward compatible: a request that predates this field behaves exactly
+// as it did before T8.6/T8.7 introduced PaymentMethod at all.
+func fromProtoPaymentMethod(m socialplayv1.PaymentMethod) domain.PaymentMethod {
+	switch m {
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_ONLINE:
+		return domain.PaymentMethodOnline
+	case socialplayv1.PaymentMethod_PAYMENT_METHOD_CASH:
+		return domain.PaymentMethodCash
+	default:
+		return domain.PaymentMethodEither
+	}
+}
+
 func toProtoGame(g domain.Game) *socialplayv1.Game {
 	return &socialplayv1.Game{
-		Id:         g.ID,
-		HostId:     g.HostID,
-		FacilityId: g.FacilityID,
-		CourtIds:   g.CourtIDs,
-		StartsAt:   timestamppb.New(g.Range.Start),
-		EndsAt:     timestamppb.New(g.Range.End),
-		Capacity:   int32(g.Capacity),
-		Status:     toProtoGameStatus(g.Status),
+		Id:             g.ID,
+		HostId:         g.HostID,
+		FacilityId:     g.FacilityID,
+		CourtIds:       g.CourtIDs,
+		StartsAt:       timestamppb.New(g.Range.Start),
+		EndsAt:         timestamppb.New(g.Range.End),
+		Capacity:       int32(g.Capacity),
+		Status:         toProtoGameStatus(g.Status),
+		PaymentMethod:  toProtoPaymentMethod(g.PaymentMethod),
+		GuestAllowance: int32(g.GuestAllowance),
 	}
 }
 
@@ -190,6 +244,7 @@ func toProtoRegistration(r domain.Registration) *socialplayv1.Registration {
 		PlayerId:      r.PlayerID,
 		Status:        toProtoRegistrationStatus(r.Status),
 		PaymentStatus: toProtoPaymentStatus(r.PaymentStatus),
+		GuestCount:    int32(r.GuestCount),
 	}
 }
 

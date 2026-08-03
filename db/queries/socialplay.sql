@@ -1,20 +1,25 @@
 -- name: CreateGame :one
-INSERT INTO games (id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-RETURNING id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status;
+-- payment_method and guest_allowance (T8.7, db/migrations/
+-- 0012_socialplay_guest_capacity.sql) are always supplied explicitly by the
+-- adapter (never relying on the column DEFAULT), mirroring how every other
+-- column here is caller-supplied — the DEFAULT only exists to backfill rows
+-- that predate the column.
+INSERT INTO games (id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+RETURNING id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance;
 
 -- name: GetGameByID :one
-SELECT id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status
+SELECT id, host_id, facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance
 FROM games
 WHERE id = $1;
 
 -- name: CreateRegistration :one
-INSERT INTO registrations (id, game_id, player_id, source, status, payment_status)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, game_id, player_id, source, status, payment_status;
+INSERT INTO registrations (id, game_id, player_id, source, status, payment_status, guest_count)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
 
 -- name: GetRegistrationByID :one
-SELECT id, game_id, player_id, source, status, payment_status
+SELECT id, game_id, player_id, source, status, payment_status, guest_count
 FROM registrations
 WHERE id = $1;
 
@@ -23,7 +28,7 @@ WHERE id = $1;
 -- app.Service.RegisterForGame uses to re-derive the active count/players
 -- before calling domain.Register, mirroring ListActiveForCourt's role in
 -- Booking's CreateBooking.
-SELECT id, game_id, player_id, source, status, payment_status
+SELECT id, game_id, player_id, source, status, payment_status, guest_count
 FROM registrations
 WHERE game_id = $1
   AND status <> 'cancelled'
@@ -33,7 +38,7 @@ ORDER BY created_at;
 UPDATE registrations
 SET status = $2
 WHERE id = $1
-RETURNING id, game_id, player_id, source, status, payment_status;
+RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
 
 -- name: UpdateRegistrationPaymentStatus :one
 -- Dedicated single-column update for PaymentStatus (T6.5), mirroring
@@ -46,7 +51,7 @@ RETURNING id, game_id, player_id, source, status, payment_status;
 UPDATE registrations
 SET payment_status = $2
 WHERE id = $1
-RETURNING id, game_id, player_id, source, status, payment_status;
+RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
 
 -- name: JoinWaitlistEntry :one
 -- The DB-level race-closing operation for queue-position assignment

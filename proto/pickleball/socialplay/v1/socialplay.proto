@@ -37,6 +37,25 @@ enum PaymentStatus {
   PAYMENT_STATUS_REFUNDED = 3;
 }
 
+// PaymentMethod mirrors internal/socialplay/domain.PaymentMethod (T8.6/T8.7)
+// — the Host's declared accepted payment method(s) for a Game, deliberately
+// distinct from PaymentStatus above (see domain.PaymentMethod's doc comment
+// for why the two must not be conflated). Style mirrors
+// pickleball.payments.v1.PayableType: an UNSPECIFIED zero value plus one
+// value per domain.PaymentMethod constant. PAYMENT_METHOD_UNSPECIFIED on an
+// inbound CreateGameRequest (an old/unaware client, or a field simply left
+// unset) is mapped onto domain.PaymentMethodEither by
+// internal/socialplay/adapter/grpcapi — the least restrictive value, for
+// the same "closest thing to unspecified" reasoning documented on
+// db/migrations/0012_socialplay_guest_capacity.sql's payment_method column
+// default.
+enum PaymentMethod {
+  PAYMENT_METHOD_UNSPECIFIED = 0;
+  PAYMENT_METHOD_ONLINE = 1;
+  PAYMENT_METHOD_CASH = 2;
+  PAYMENT_METHOD_EITHER = 3;
+}
+
 // Game mirrors internal/socialplay/domain.Game. court_ids is repeated
 // (not a single court_id like Booking) because a Game can span multiple
 // courts — each one becomes its own game-source Booking via
@@ -50,6 +69,11 @@ message Game {
   google.protobuf.Timestamp ends_at = 6;
   int32 capacity = 7;
   GameStatus status = 8;
+  // payment_method and guest_allowance mirror
+  // internal/socialplay/domain.Game's T8.6 fields, wired onto the wire in
+  // T8.7.
+  PaymentMethod payment_method = 9;
+  int32 guest_allowance = 10;
 }
 
 // Registration mirrors internal/socialplay/domain.Registration.
@@ -59,6 +83,9 @@ message Registration {
   string player_id = 3;
   RegistrationStatus status = 4;
   PaymentStatus payment_status = 5;
+  // guest_count mirrors internal/socialplay/domain.Registration.GuestCount
+  // (T8.6), wired onto the wire in T8.7.
+  int32 guest_count = 6;
 }
 
 // WaitlistStatus mirrors internal/socialplay/domain.WaitlistStatus (T6.6).
@@ -89,6 +116,11 @@ message CreateGameRequest {
   google.protobuf.Timestamp starts_at = 4;
   google.protobuf.Timestamp ends_at = 5;
   int32 capacity = 6;
+  // payment_method and guest_allowance (T8.7): see Game's doc comment on
+  // these same two fields, and PaymentMethod's doc comment for what an
+  // unset/UNSPECIFIED payment_method resolves to.
+  PaymentMethod payment_method = 7;
+  int32 guest_allowance = 8;
 }
 
 message CreateGameResponse {
@@ -102,6 +134,10 @@ message CreateGameResponse {
 message RegisterForGameRequest {
   string game_id = 1;
   string player_id = 2;
+  // guest_count (T8.7) mirrors Registration.guest_count — see
+  // domain.Register's doc comment for the guest-allowance and weighted
+  // capacity checks this value is validated against.
+  int32 guest_count = 3;
 }
 
 message RegisterForGameResponse {
