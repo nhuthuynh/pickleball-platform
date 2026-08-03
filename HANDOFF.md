@@ -22,6 +22,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T5 | `docs/process/t5-sprint-plan.md` | `docs/process/t5-retro.md` | PRs #11–#15 (GitHub review comments, not files — see naming convention) | `adr/0006` (waitlist direction), `adr/0007`, `adr/0008` | — |
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
+| T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #61 (T8.2) → #63 (T8.4) → #62 (T8.6) → #60 (T8.5) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -95,22 +96,41 @@ in the UI); there is no client-side router yet (`App.vue` mounts every T7
 screen as stacked siblings); `games.facility_id text` (Social Play,
 pre-T7) is still unreconciled with the new `facilities.id uuid`.
 
+**T8 (Social Play + Payments UI spine, closing T7's carried gaps): all 10
+tickets (T8.1–T8.10, 51 points) implemented, reviewed, and MERGED** into
+`claude/go-backend-pickleball-7up34j` as of this entry. Merge order: #59
+(T8.1, Vue Router) → #61 (T8.2, Facilities courts-list) → #63 (T8.4,
+AttestCameraConsent) → #62 (T8.6, Game/Registration domain fields) → #60
+(T8.5, Payments authz — closed the long-open T6.7 gap) → #64 (T8.3,
+`games.facility_id` reconciliation) → #65 (T8.7, guest-capacity proto/DB
+wiring, including a rewritten weighted-sum capacity trigger) → #66 (T8.8,
+Social Game creation UI) → #67 (T8.9, Discover & Join Games UI, added a new
+`ListGames` RPC) → #68 (T8.10, Payments UI, added a new
+`ListRegistrationsForGame` RPC). All of T7.1–T7.6's carried gaps this
+sprint was scoped to close are closed: real client-side routing exists
+(`vue-router`), Facilities has a real courts-list read path, camera consent
+has a real server-side attest path, and `games.facility_id` is reconciled
+with `facilities.id` via a real FK + `port.FacilityLookup` boundary. There
+is now a real, clickable Flow 3/4/6: a Host publishes a Social Game at a
+real Facility with a real payment method and guest allowance, a Player
+discovers it, joins it with guests, and pays — online (Stripe-stub
+checkout, PCI guardrail verified clean) or cash (surfaced as pending to the
+Host until settled). Three merge conflicts were resolved by hand across the
+sprint (T8.2↔T8.4 on `internal/facilities/port`/`adapter/postgres`;
+T8.3↔T8.7 on `socialplay.proto`'s field numbering plus a real
+`fromProtoPaymentMethod` validation bug the conflict-resolution pass fixed;
+T8.8↔T8.9 on `web/src/router/index.ts` and a duplicate `socialplayClient.ts`)
+— every conflict was resolved on the source branch, never a direct push to
+the shared branch, and re-verified (`go build`/`go vet`/`go test -race`
+plus `npm run build`/`npm run test`) before merging. Known gaps carried
+forward, not silently dropped (see Cross-cutting below): Social Play has no
+price/fee field at all (T8.10 used a disclosed, visibly-labeled placeholder
+amount), no CI is configured on this repo, and the `npm install
+--legacy-peer-deps` friction from T7 is still open.
+
 **Not yet built**
 - Competitions, Statements contexts.
-- ~~QA object-level-auth regression tests for Payments (T6.7) — no PR, not
-  started.~~ Done as T8.5 (closes issue #53) — see the Cross-cutting Auth
-  note below.
-- A `ListFacilityCourts`/equivalent endpoint returning a Facility's Courts
-  (T7.3 shipped `AddCourt` as create-only, no read path back) — logged by
-  T7.5's review as a real gap, not a scoping miss; the Discover UI is built
-  end-to-end for when it lands (T7.5's PR, see its README note).
-- Client-side routing for the Vue app (`vue-router` or equivalent) — T7.1
-  through T7.6 all deferred it explicitly (kickoff notes), so `App.vue`
-  currently mounts `RoleIndicator` + `FacilityOnboarding` +
-  `DiscoverFacilities` (which itself owns showing `CourtBookingFlow`) as
-  block siblings with no navigation between them. Not broken, just not a
-  real multi-screen app yet — first candidate for a T8 ticket.
-- Auth, real migration tooling, observability.
+- Auth, real migration tooling, observability, CI.
 - `internal/gen/**` still needs `make generate` run locally/in CI before
   `go build ./...` (not just the domain/app packages) will succeed — the
   postgres/grpcapi adapters and `cmd/server` are unverified beyond
@@ -212,6 +232,22 @@ Sprint goal met: a Facility and its Courts are real persisted entities, an
 Owner/Host can onboard a facility with a consent-gated camera link through
 a real Vue app, and a Player can browse, quote, and book a real court
 end to end. Retro not yet written.
+
+**T8 — Social Play + Payments UI spine, closing T7's carried gaps. All 10
+tickets (T8.1–T8.10) implemented, reviewed, and MERGED (see the note
+above).** Full re-scope reasoning, kickoff note, and all 10 tickets:
+`docs/process/t8-sprint-plan.md`. Sprint goal met: a Host can publish a
+Social Game at a real, linked Facility with a real payment method and
+guest allowance, a Player can discover it, join it with guests, and pay —
+online or cash — all through the real Vue app navigating between actual
+routed screens, against real gRPC-gateway REST APIs with no fabricated or
+dead-end fields anywhere in the flow (the one disclosed exception being
+T8.10's placeholder registration fee, since Social Play has no price field
+— see Cross-cutting below). Retro not yet written. Competitions,
+social-account-linking, shareable-registration-links, and the WhatsApp/Zalo
+spike — originally roadmapped as part of T8 in `docs/process/
+t7-sprint-plan.md` — move to a new T9 per T8's own re-scope decision; the
+former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
@@ -551,42 +587,66 @@ end to end. Retro not yet written.
   `facility_id` column keeps working unmodified, and — since `games` has
   no seed data — there were no pre-existing rows to check get `NULL`
   either way.
-- T7.3 shipped `AddCourt` as create-only — there is no RPC that lists a
-  Facility's Courts back. T7.5's Discover UI is built end-to-end for a real
-  courts list (`FacilityCourt[]` type, rendered by `FacilityDetailPanel.vue`)
-  but always shows the zero-courts empty state today since
-  `mapToFacilityDetail` has nothing to populate it from. T7.6's booking flow
-  worked around the same gap with a manual court-ID entry field. A
-  `ListFacilityCourts` (or equivalent `GetFacility` response field) RPC is
-  the natural next Facilities ticket — closing it makes both T7.5's and
-  T7.6's already-built list-rendering/per-court-button code paths reachable
-  with no further frontend change.
-- T7.2/T7.3 deliberately shipped no API path that ever sets
-  `Facility.CameraConsentAttested` to `true` server-side (neither
-  `CreateFacilityRequest` nor `AddCameraLinkRequest` carry it, per the
-  round-10 design review's requirement that consent not be settable at
-  creation time). T7.4's onboarding UI correctly implements the
-  default-unchecked client-side gate regardless, but as of T7 there is no
-  way for a real user to ever get a camera link accepted end-to-end — every
-  correct client submission still gets `ErrCameraConsentRequired`. Not a
-  T7.4 bug; a real API gap (an `AttestCameraConsent`-shaped RPC, or folding
-  the flag into `AddCameraLinkRequest`, is the fix) with no ticket filed
-  yet — raise at the next backlog refinement rather than leaving it as an
-  undiscoverable footgun.
-- T7.1 through T7.6 all needed `npm install --legacy-peer-deps` in every
-  implementer sandbox, due to a `typescript@~6.0.0` (from the `npm create
-  vue@latest` scaffold) vs. `openapi-typescript`'s published `^5.x` peer
-  range. Not a real incompatibility (confirmed working across 6 tickets'
-  worth of builds), but worth pinning/resolving properly rather than
-  carrying the flag forward indefinitely — a small T8 chore.
-- No CI is configured on this repo yet (0 GitHub check runs as of T7's
-  reviews) — every "tests pass"/"build green" claim in T5–T7's PRs was
-  verified by an agent running the commands locally in its own sandbox and
-  reporting the result, not by an independently-checkable CI signal.
-  Reviewers have consistently flagged this as "plausible but
-  unverifiable," not blocking, but it's an accumulating trust gap worth
-  closing (Jenkinsfile already exists from T0 — wiring it for real is a
-  T8+ candidate).
+- ~~T7.3 shipped `AddCourt` as create-only — there is no RPC that lists a
+  Facility's Courts back...~~ Closed by T8.2 (issue #50): `GetFacilityResponse`
+  gained a `courts` field (chosen over a dedicated `ListFacilityCourts` RPC
+  or putting it on the shared `Facility` message, so `ListFacilities`/
+  `CreateFacility`/`AddCameraLink` don't pay for an extra courts query per
+  facility they don't need), wired through a new sqlc query
+  (`ListCourtsForFacility`) and the Postgres/gRPC adapters. T7.5's
+  `FacilityDetailPanel.vue` and T7.6's booking flow both now render real
+  courts with no further frontend change, exactly as T7.5's original gap
+  note predicted.
+- ~~T7.2/T7.3 deliberately shipped no API path that ever sets
+  `Facility.CameraConsentAttested` to `true` server-side...~~ Closed by
+  T8.4 (issue #52): a dedicated `AttestCameraConsent` RPC (deliberately not
+  folded into `AddCameraLinkRequest`, per the round-10 review's "two
+  explicit steps" requirement) — `domain.Facility.AttestCameraConsent`
+  checks `EnsureOwner` before touching consent state, idempotent on
+  re-attestation. `FacilityOnboarding.vue`'s existing "Cameras" step now
+  calls it before its already-built `AddCameraLink` call, making the
+  default-unchecked consent checkbox actually work end-to-end for the
+  first time.
+- ~~T7.1 through T7.6 all needed `npm install --legacy-peer-deps`...~~
+  Still open as of T8 — every T8 implementer sandbox hit the same
+  `typescript@~6.0.0` vs. `openapi-typescript`'s `^5.x` peer range friction.
+  Confirmed working across 16 tickets' worth of builds now (T7+T8), so
+  still not a real incompatibility, but a third sprint carrying this
+  unfixed is exactly the "flagged in prose, not tracked as a real ticket"
+  pattern T5's retro finding 6 warned about — raise as a real, small T9/T10
+  ticket rather than logging it a fourth time.
+- No CI is configured on this repo yet (still 0 GitHub check runs as of
+  T8's reviews) — every "tests pass"/"build green" claim in T5–T8's PRs
+  was verified by an agent running the commands locally in its own sandbox
+  and reporting the result, not by an independently-checkable CI signal.
+  Same status as T7: flagged consistently as "plausible but unverifiable,"
+  not blocking, but now a two-sprint-old gap (Jenkinsfile already exists
+  from T0 — wiring it for real is a real T9/T10 candidate, not a
+  hypothetical one).
+- **New this sprint**: T8.10 (closes issue #58) found that `domain.Game`/
+  `domain.Registration` have no price/fee field at all — confirmed by
+  inspection, unchanged by T8.6/T8.7's own field additions this same
+  sprint (`PaymentMethod`, `GuestAllowance`, `GuestCount`, none of them a
+  price). Since `CreateOnlinePaymentRequest`/`RecordOfflinePaymentRequest`
+  both require a `Money` amount on the wire regardless, T8.10 used a flat
+  `PLACEHOLDER_REGISTRATION_FEE_CENTS` ($10.00), visibly labeled
+  "placeholder" everywhere it's shown in the UI rather than presented as a
+  real charge — reviewed and judged an acceptable disclosed workaround
+  (silently sending $0 would misleadingly imply a free registration; a
+  real price field is its own domain+migration+proto cycle, out of scope
+  for a Payments-*UI* ticket). Recommend a follow-up ticket (T9/T10
+  backlog) to add a real per-Game price field, the same way T8.6/T8.7 did
+  for `PaymentMethod` — and get explicit Product Owner sign-off on any
+  placeholder/default figure before this UI is ever pointed at a real
+  (non-stub) Stripe integration.
+- **New this sprint**: T8.9 (closes issue #57) found `socialplay.proto` had
+  no list/browse RPC for Games at all — added a minimal `ListGames` RPC
+  (server-computed `spots_left`, matching `domain.Register`'s weighted
+  capacity formula exactly, verified by a boundary test). T8.10 (closes
+  issue #58) found the same absence for a Game's Registrations — added
+  `ListRegistrationsForGame`. Both follow the migration-free-read-path
+  pattern T8.2/T7.3 already established (no schema change, no new domain
+  type, public read, no ownership check).
 
 ## Definition of Done (per task)
 Acceptance criteria met · new/updated tests green · `make test` green · invariants
