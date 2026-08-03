@@ -28,6 +28,11 @@ defineProps<{
 
 const emit = defineEmits<{
   retry: []
+  /** Forwarded from GameJoinPanel's identical event (T8.10) — this
+   * component stays presentational/router-free, same as its own `retry`
+   * event; the caller that actually knows about routing (DiscoverGames.vue)
+   * is what turns this into a real navigation. */
+  payOnline: [registrationId: string]
 }>()
 </script>
 
@@ -85,6 +90,7 @@ const emit = defineEmits<{
         :game="game"
         :client="client"
         :start-full="game.spotsLeft <= 0"
+        @pay-online="(id) => emit('payOnline', id)"
       />
     </div>
   </section>

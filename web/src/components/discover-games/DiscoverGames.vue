@@ -12,6 +12,7 @@
 // GameDetailPanel needs (see that file's header comment) — no second
 // network round trip per selection.
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
 import { useGameList } from '../../composables/useGameList'
 import type { SocialPlayClient } from '../../api/socialplayClient'
@@ -26,6 +27,13 @@ const props = defineProps<{
 }>()
 
 const { breakpoint, isIphone } = useBreakpoint(props.win ?? window)
+
+// Optional: `useRouter()` returns `undefined` when no router plugin is
+// installed (rather than throwing) — safe to call unconditionally even in
+// component tests that mount this screen standalone, same as every other
+// composable call here; `onPayOnline` below only ever runs it if a Player
+// actually clicks "Pay online now" (T8.10).
+const router = useRouter()
 
 const { games, loading, error, facilityFilter, dateFilter, search } = useGameList(props.client)
 
@@ -65,6 +73,14 @@ function onDetailRetry() {
   void search()
 }
 
+// T8.10: navigates to the checkout route, carrying the Registration id as
+// a query param — GameCheckout.vue reads it via `route.query.registrationId`
+// (the route's own `:id` path param is the Game id, per router/index.ts).
+function onPayOnline(registrationId: string) {
+  if (!selectedId.value) return
+  void router?.push({ name: 'game-checkout', params: { id: selectedId.value }, query: { registrationId } })
+}
+
 onMounted(() => {
   void search()
 })
@@ -95,6 +111,7 @@ onMounted(() => {
         :has-selection="selectedId !== null"
         :client="client"
         @retry="onDetailRetry"
+        @pay-online="onPayOnline"
       />
     </section>
   </div>

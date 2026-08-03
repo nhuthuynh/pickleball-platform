@@ -21,6 +21,8 @@ import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import GameCreation from '../views/GameCreation.vue'
+import GameCheckout from '../views/GameCheckout.vue'
+import HostPayments from '../views/HostPayments.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -31,15 +33,20 @@ export const routes: RouteRecordRaw[] = [
   { path: '/games', name: 'games', component: DiscoverGames, meta: { title: 'Games' } },
   // T8.8 (Social Game Creation, Host/Owner) — real screen, replacing T8.1's placeholder.
   { path: '/games/new', name: 'games-new', component: GameCreation, meta: { title: 'Create a game' } },
-  // T8.10 (Payments UI) replaces this placeholder.
+  // T8.10 (Payments UI): the online checkout step reached from
+  // GameJoinPanel.vue's "Pay online now" button (via DiscoverGames.vue's
+  // router push). `:id` is the Game id; the Registration id (the actual
+  // Payment payableId) travels as `?registrationId=` — see
+  // GameCheckout.vue's header comment for why a Registration id doesn't
+  // fit this route's own path shape.
   {
     path: '/games/:id/checkout',
     name: 'game-checkout',
-    component: ComingSoonView,
+    component: GameCheckout,
     meta: { title: 'Checkout' },
   },
-  // T8.10 (Payments UI, Host pending-cash dashboard) replaces this placeholder.
-  { path: '/host/payments', name: 'host-payments', component: ComingSoonView, meta: { title: 'Payments' } },
+  // T8.10 (Payments UI, Host pending-cash dashboard).
+  { path: '/host/payments', name: 'host-payments', component: HostPayments, meta: { title: 'Payments' } },
   // No ticket owns these yet (no Bookings-history or Profile/Identity
   // screen exists) — see file header comment.
   { path: '/bookings', name: 'bookings', component: ComingSoonView, meta: { title: 'Bookings' } },

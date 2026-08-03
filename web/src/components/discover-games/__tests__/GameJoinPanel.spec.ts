@@ -153,4 +153,72 @@ describe('GameJoinPanel', () => {
     expect(wrapper.find('.game-join__conflict').exists()).toBe(false)
     expect(wrapper.find('[role="alert"]').text()).toContain('Could not complete this registration')
   })
+
+  // T8.10 requirements #1/#2: the post-registration payment choice.
+  describe('post-registration payment choice (T8.10)', () => {
+    function registerAndFlush(gameOverrides: Partial<typeof game> = {}) {
+      const client = fakeClient({
+        postRegistrations: () => ({
+          data: {
+            registration: {
+              id: 'reg-1',
+              gameId: 'g1',
+              playerId: 'player-mock-1',
+              status: 'REGISTRATION_STATUS_REGISTERED',
+              paymentStatus: 'PAYMENT_STATUS_UNPAID',
+              guestCount: 0,
+            },
+          },
+          error: undefined,
+          response: { status: 200 },
+        }),
+      })
+      const wrapper = mount(GameJoinPanel, { props: { game: { ...game, ...gameOverrides }, client } })
+      return { wrapper, client }
+    }
+
+    it('a cash-only Game shows the pending-cash text immediately, with no payment buttons', async () => {
+      const { wrapper } = registerAndFlush({ paymentMethod: 'PAYMENT_METHOD_CASH' })
+      await wrapper.find('.game-join__form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.text()).toContain('Payment: pending (cash at facility)')
+      expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
+    })
+
+    it('an online-only Game shows a "Pay online now" button and no cash option', async () => {
+      const { wrapper } = registerAndFlush({ paymentMethod: 'PAYMENT_METHOD_ONLINE' })
+      await wrapper.find('.game-join__form').trigger('submit')
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.game-join__payment-choice button').map((b) => b.text())
+      expect(buttons).toEqual(['Pay online now'])
+    })
+
+    it('clicking "Pay online now" emits payOnline with the confirmed registration id', async () => {
+      const { wrapper } = registerAndFlush({ paymentMethod: 'PAYMENT_METHOD_ONLINE' })
+      await wrapper.find('.game-join__form').trigger('submit')
+      await flushPromises()
+
+      await wrapper.find('.game-join__payment-choice .game-join__primary').trigger('click')
+
+      expect(wrapper.emitted('payOnline')).toEqual([['reg-1']])
+    })
+
+    it('an "either" Game offers both options; choosing cash switches to the pending text without any network call', async () => {
+      const { wrapper, client } = registerAndFlush({ paymentMethod: 'PAYMENT_METHOD_EITHER' })
+      await wrapper.find('.game-join__form').trigger('submit')
+      await flushPromises()
+
+      const buttons = wrapper.findAll('.game-join__payment-choice button').map((b) => b.text())
+      expect(buttons).toEqual(['Pay online now', 'Pay cash at facility'])
+
+      const callsBeforeCashChoice = (client.POST as ReturnType<typeof vi.fn>).mock.calls.length
+      await wrapper.find('.game-join__secondary').trigger('click')
+
+      expect(wrapper.text()).toContain('Payment: pending (cash at facility)')
+      expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
+      expect((client.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeCashChoice)
+    })
+  })
 })
