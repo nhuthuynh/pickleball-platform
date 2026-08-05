@@ -23,6 +23,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
+| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5) | not yet written | in flight — ticket reviews posted as GitHub PR reviews, see naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8) | — |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -300,6 +301,28 @@ former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
   tests fail, then restoring it. Same caveat as above, not re-litigated:
   object-level check given a claimed `actor_user_id`, not real
   authentication.
+- **The one place the caveat above is NOT "the same caveat again":
+  third-party OAuth tokens — see `docs/adr/0009-social-channel-integration-deferred.md`.**
+  T9's ceremony (§A1 of `docs/process/t9-sprint-plan.md`) found that
+  storing a social-platform OAuth access/refresh token keyed to a claimed,
+  unverified `actor_user_id` differs *in kind*, not degree, from the three
+  instances above (T5.5 Social Play, T6.3/T6.7→T8.5 Payments, T7.7
+  Facilities): each of those bounds the blast radius to this platform's own
+  data, whereas a token guards **a third party's account** outside this
+  system. ADR-0009 therefore defers all OAuth token storage and all inbound
+  messaging integration until real authentication exists — shareable
+  registration links (T9.5) are the shipped mechanism for social-driven
+  registration meanwhile, and the `port.MessagingChannel` anti-corruption
+  layer is designed on paper in that ADR only (no package created). Its
+  trigger condition is the sprint that lands real auth (recommended T10,
+  §A5) and requires verified identity + an encrypted token-at-rest story +
+  a revocation path to all exist first. The locked "channel you control,
+  not public reply scraping" position
+  (`docs/design/v1-system-design.md` §4,
+  `docs/design/v1-external-reference-reconciliation.md`) is unchanged;
+  ADR-0009 adds only the timing decision. Also still open and addressed to
+  the user there: the Vietnam-vs-global market-scope question T7 escalated
+  (it decides WhatsApp vs. Zalo, and only one platform gets prototyped).
 - T5.5 (see PR stacked on #11-#14, closes issue #10) added a full-stack
   regression test — `internal/socialplay/adapter/grpcapi/authz_regression_test.go`
   — proving `Registration.Cancel`'s object-level ownership check (Player A
