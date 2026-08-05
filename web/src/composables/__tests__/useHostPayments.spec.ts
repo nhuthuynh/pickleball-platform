@@ -7,6 +7,7 @@ function gameListing(overrides: Partial<{
   id: string
   hostId: string
   paymentMethod: string
+  entryFeeCents: number
 }> = {}) {
   return {
     game: {
@@ -20,6 +21,10 @@ function gameListing(overrides: Partial<{
       status: 'GAME_STATUS_SCHEDULED',
       paymentMethod: overrides.paymentMethod ?? 'PAYMENT_METHOD_CASH',
       guestAllowance: 2,
+      // T9.2: the Game's real entry fee. 1000 ($10.00) is the same figure
+      // these tests asserted before, so their substance is unchanged — it
+      // is now the Host's real price rather than a global placeholder.
+      entryFee: { amountCents: String(overrides.entryFeeCents ?? 1000), currencyCode: 'USD' },
     },
     spotsLeft: 5,
   }

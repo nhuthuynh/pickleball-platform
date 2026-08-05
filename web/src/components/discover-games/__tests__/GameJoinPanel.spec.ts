@@ -15,6 +15,10 @@ const game: GameSummary = {
   status: 'GAME_STATUS_SCHEDULED',
   paymentMethod: 'PAYMENT_METHOD_EITHER',
   guestAllowance: 2,
+  // T9.2: a real (non-free) entry fee, so these tests keep exercising the
+  // same paid-game payment-choice behaviour they were written for.
+  entryFeeCents: 1000,
+  entryFeeCurrency: 'USD',
   spotsLeft: 3,
 }
 

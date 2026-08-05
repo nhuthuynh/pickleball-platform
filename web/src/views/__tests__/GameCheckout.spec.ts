@@ -18,6 +18,7 @@ const GAME_LISTING = {
     status: 'GAME_STATUS_SCHEDULED',
     paymentMethod: 'PAYMENT_METHOD_EITHER',
     guestAllowance: 2,
+    entryFee: { amountCents: '1000', currencyCode: 'USD' },
   },
   spotsLeft: 5,
 }
