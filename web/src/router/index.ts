@@ -23,6 +23,8 @@ import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
+import CompetitionCreation from '../views/CompetitionCreation.vue'
+import CompetitionManage from '../views/CompetitionManage.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -47,6 +49,30 @@ export const routes: RouteRecordRaw[] = [
   },
   // T8.10 (Payments UI, Host pending-cash dashboard).
   { path: '/host/payments', name: 'host-payments', component: HostPayments, meta: { title: 'Payments' } },
+  // T9.6 (Competitions, Host): create/advertise, and the roster.
+  //
+  // These belong to the GAMES area of the nav rather than a sixth
+  // top-level tab — see AppNav.vue's own note. `/competitions` and
+  // `/competitions/:id` (the Player-facing browse + detail) and
+  // `/c/:shareToken` (the shared-link landing) are T9.7's, not registered
+  // here. `/competitions/new` and `/competitions/:id` can coexist safely:
+  // vue-router ranks a static segment above a dynamic one, so `new` is
+  // never captured as an id regardless of registration order.
+  {
+    path: '/competitions/new',
+    name: 'competitions-new',
+    component: CompetitionCreation,
+    meta: { title: 'Create a competition' },
+  },
+  {
+    path: '/competitions/:id/manage',
+    name: 'competition-manage',
+    component: CompetitionManage,
+    // `props: true` so the view takes the Competition id as a plain prop —
+    // which is also what lets its spec mount it without a router.
+    props: true,
+    meta: { title: 'Manage competition' },
+  },
   // No ticket owns these yet (no Bookings-history or Profile/Identity
   // screen exists) — see file header comment.
   { path: '/bookings', name: 'bookings', component: ComingSoonView, meta: { title: 'Bookings' } },

@@ -40,9 +40,9 @@ import { useBreakpoint } from '../composables/useBreakpoint'
 import { useFacilityList } from '../composables/useFacilityList'
 import { useFacilityDetail } from '../composables/useFacilityDetail'
 import { recordHostEvidence } from '../state/roleEvidence'
-import { DEFAULT_CURRENCY_CODE } from '../models/payment'
-import { entryFeeLabel } from '../models/game'
+import { DEFAULT_CURRENCY_CODE, entryFeeLabel } from '../models/payment'
 import FacilityListPanel from '../components/discover/FacilityListPanel.vue'
+import EntryFeeInput from '../components/payments/EntryFeeInput.vue'
 
 // No Identity/Users/Auth context exists yet (same caveat class as
 // RoleIndicator.vue's mock account and FacilityOnboarding.vue's
@@ -217,18 +217,11 @@ const entryFeeCents = computed(() => {
  * Host sooner. */
 const entryFeeValid = computed(() => !Number.isNaN(entryFeeCents.value) && entryFeeCents.value >= 0)
 
-/**
- * The fee error actually shown next to the field. Two sources, one message
- * slot: the LIVE client-side check (so a Host who types a negative amount
- * is told why immediately — leaving them staring at a disabled "Next" with
- * no explanation would fail WCAG 3.3.1 just as surely as showing nothing
- * at all), and the server's own ErrInvalidMoney rejection routed here by
- * applyCreateGameError.
- */
-const entryFeeError = computed(() => {
-  if (!entryFeeValid.value) return "Entry fee can't be negative."
-  return fieldErrors.entryFee ?? ''
-})
+// The error message slot that used to live here moved into
+// components/payments/EntryFeeInput.vue with the field itself (T9.6) — it
+// merges the live client-side check with the server's ErrInvalidMoney
+// rejection, which this file still routes to it via the `server-error`
+// prop (see applyCreateGameError below).
 
 function goToStep(step: Step) {
   currentStep.value = step
@@ -525,32 +518,18 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
         <!-- Entry fee (T9.2), replacing T8.10's flat placeholder rate.
              Leaving it at 0 publishes a FREE game — a real choice, spelled
              out in the hint text so it never reads as an unfinished
-             field. -->
-        <div class="gc-field">
-          <label for="entry-fee">Entry fee per player</label>
-          <input
-            id="entry-fee"
-            v-model="form.entryFeeDollars"
-            data-testid="entry-fee-input"
-            type="number"
-            min="0"
-            step="0.01"
-            inputmode="decimal"
-            :aria-invalid="entryFeeError ? 'true' : undefined"
-            :aria-describedby="entryFeeError ? 'entry-fee-error' : 'entry-fee-hint'"
-          />
-          <!-- WCAG 1.4.1: the "this game is free" state is stated in text,
-               not implied by an empty or differently-styled field. -->
-          <p id="entry-fee-hint" class="gc-hint">
-            Leave at 0 to make this game free.<template v-if="entryFeeValid">
-              Players will see “{{ entryFeeLabel(entryFeeCents) }}”.</template>
-          </p>
-          <!-- WCAG 3.3.1 Error Identification: the validation error is
-               visible text next to the field, never color alone. -->
-          <p v-if="entryFeeError" id="entry-fee-error" class="gc-field-error" role="alert">
-            {{ entryFeeError }}
-          </p>
-        </div>
+             field.
+
+             T9.6 extracted this field into components/payments/
+             EntryFeeInput.vue so the Competition creation flow reuses the
+             identical input, conversion, and validation rather than
+             growing a second money field. Same ids, same testids, same
+             behaviour — this file's own spec is what proves that. -->
+        <EntryFeeInput
+          v-model="form.entryFeeDollars"
+          subject="game"
+          :server-error="fieldErrors.entryFee ?? ''"
+        />
 
         <div class="gc-actions">
           <button type="button" data-testid="payment-back" @click="goToStep('schedule')">Back</button>
