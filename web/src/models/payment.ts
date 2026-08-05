@@ -5,33 +5,31 @@
 // shape: a `RawX` type alias per wire message, plus one pure `mapToX`
 // function that only ever copies the specific fields it declares.
 //
-// **Disclosed gap, not silently invented (per this ticket's own process
-// instructions):** neither `domain.Game` nor `domain.Registration`
-// (internal/socialplay/domain) has ever had a price/fee field — confirmed
-// by inspection of internal/socialplay/domain/game.go and registration.go,
-// and of every T8.6/T8.7 field added this sprint (PaymentMethod,
-// GuestAllowance, GuestCount — no Price/Fee/Amount anywhere). The design
-// handoff (docs/design/handoff-2026-08/README.md's Flow 4 "Key fields")
-// calls for a real per-Game price, but no ticket before this one ever added
-// a backend field to hold one, and adding a priced-Game domain concept is
-// out of scope for a Payments-*UI* ticket (it would need its own
-// TDD domain+migration+proto cycle, the same class of work T8.6/T8.7 did
-// for PaymentMethod/GuestAllowance). `PLACEHOLDER_REGISTRATION_FEE_CENTS`
-// is a clearly-labelled, flat stand-in amount used everywhere this ticket
-// needs to submit a Money to CreateOnlinePayment/RecordOfflinePayment (both
-// require one — it is not an optional field on the wire) — every place it
-// is used in the UI shows the word "placeholder" next to it, so this is an
-// honest, visible stand-in, not a disguised real price. See this ticket's
-// PR description for the full disclosure.
+// T9.2 note: this file previously exported
+// `PLACEHOLDER_REGISTRATION_FEE_CENTS`, a flat $10.00 stand-in used
+// wherever the UI had to submit a Money, because neither `domain.Game` nor
+// `domain.Registration` had a price field at all. That field now exists
+// (`domain.Game.EntryFee`, T9.2), so the placeholder — and every "flat
+// placeholder rate" label it drove — has been deleted. Amounts now come
+// from the Game the player is actually paying for; see
+// `models/game.ts`'s `entryFeeCents` / `entryFeeLabel`.
 import type { components as PaymentsComponents } from '../api/generated/payments'
 
 export type RawPayment = PaymentsComponents['schemas']['v1Payment']
 
-/** Flat placeholder registration fee (T8.10) — see this file's header
- * comment. $10.00 USD, chosen only because it is an obviously-nominal
- * round number, not a modelled real price. */
-export const PLACEHOLDER_REGISTRATION_FEE_CENTS = 1000
-export const PLACEHOLDER_CURRENCY_CODE = 'USD'
+/**
+ * The launch market's currency code (ADR-0005). Not a placeholder: v1 is
+ * explicitly a single-currency product, and this is that one real currency
+ * — the same constant the `pricing_rules`, `payments`, and (T9.2) `games`
+ * currency columns carry. It is the fallback used only when an amount
+ * carries no currency of its own (a free Game, which has no currency to
+ * name — see domain.Money.Validate).
+ *
+ * Renamed from `PLACEHOLDER_CURRENCY_CODE` in T9.2: the name was collateral
+ * from the retired fee placeholder, and calling the real launch currency a
+ * "placeholder" was actively misleading.
+ */
+export const DEFAULT_CURRENCY_CODE = 'USD'
 
 export interface PaymentSummary {
   id: string
@@ -63,7 +61,7 @@ export function mapToPayment(raw: RawPayment): PaymentSummary {
  * the proto, which protojson (and therefore the generated OpenAPI/TS types)
  * represents as a *string* — see models/booking.ts's identical `priceCents`
  * note for the same int64-as-string convention. */
-export function toMoneyRequest(cents: number, currencyCode: string = PLACEHOLDER_CURRENCY_CODE): {
+export function toMoneyRequest(cents: number, currencyCode: string = DEFAULT_CURRENCY_CODE): {
   amountCents: string
   currencyCode: string
 } {

@@ -16,7 +16,7 @@ import { onMounted } from 'vue'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { useHostPayments, MOCK_HOST_ID, type PendingCashPayment } from '../composables/useHostPayments'
 import { setPendingCashPaymentsCount } from '../state/hostPendingPayments'
-import { PLACEHOLDER_REGISTRATION_FEE_CENTS, formatMoneyCents } from '../models/payment'
+import { formatMoneyCents } from '../models/payment'
 import type { SocialPlayClient } from '../api/socialplayClient'
 import type { PaymentsClient } from '../api/paymentsClient'
 
@@ -77,7 +77,7 @@ onMounted(() => {
           </p>
           <!-- WCAG 1.4.1: the amount-due/cash label is text, never color-only. -->
           <p class="host-payments__row-amount">
-            {{ formatMoneyCents(PLACEHOLDER_REGISTRATION_FEE_CENTS) }} due (cash at facility)
+            {{ formatMoneyCents(entry.entryFeeCents) }} due (cash at facility)
           </p>
         </div>
         <button

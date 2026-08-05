@@ -40,6 +40,8 @@ import { useBreakpoint } from '../composables/useBreakpoint'
 import { useFacilityList } from '../composables/useFacilityList'
 import { useFacilityDetail } from '../composables/useFacilityDetail'
 import { recordHostEvidence } from '../state/roleEvidence'
+import { DEFAULT_CURRENCY_CODE } from '../models/payment'
+import { entryFeeLabel } from '../models/game'
 import FacilityListPanel from '../components/discover/FacilityListPanel.vue'
 
 // No Identity/Users/Auth context exists yet (same caveat class as
@@ -85,6 +87,7 @@ interface GameDTO {
   capacity: number
   paymentMethod: string
   guestAllowance: number
+  entryFee?: { amountCents?: string; currencyCode?: string }
 }
 
 const props = withDefaults(
@@ -119,6 +122,12 @@ const form = reactive({
   capacity: 4,
   paymentMethod: '' as PaymentMethodOption | '',
   guestAllowance: 0,
+  // The Host's real entry fee (T9.2), captured in DOLLARS because that is
+  // what a Host thinks and types; converted to the integer minor units the
+  // wire expects by `entryFeeCents` below. Defaults to '0' — a free Game,
+  // a real product state — rather than to an empty box implying the Host
+  // must price the Game before they can publish it.
+  entryFeeDollars: '0',
 })
 
 interface FieldErrors {
@@ -128,6 +137,7 @@ interface FieldErrors {
   capacity?: string
   paymentMethod?: string
   guestAllowance?: string
+  entryFee?: string
 }
 
 const fieldErrors = reactive<FieldErrors>({})
@@ -185,6 +195,26 @@ function incrementGuestAllowance() {
   form.guestAllowance += 1
 }
 
+/**
+ * The typed fee in integer minor units (T9.2). Rounds rather than
+ * truncates so a Host typing "12.005" cannot silently lose a cent, and
+ * returns NaN for input that isn't a number at all so the caller can tell
+ * "not a valid amount" apart from "zero".
+ */
+const entryFeeCents = computed(() => {
+  const raw = form.entryFeeDollars.trim()
+  if (raw === '') return 0
+  const parsed = Number(raw)
+  if (Number.isNaN(parsed)) return Number.NaN
+  return Math.round(parsed * 100)
+})
+
+/** Client-side mirror of domain.Money.Validate's negative-amount rule. The
+ * server is still authoritative (ErrInvalidMoney -> 400, mapped by
+ * applyCreateGameError below); this only gets the message in front of the
+ * Host sooner. */
+const entryFeeValid = computed(() => !Number.isNaN(entryFeeCents.value) && entryFeeCents.value >= 0)
+
 function goToStep(step: Step) {
   currentStep.value = step
 }
@@ -196,6 +226,7 @@ function clearFieldErrors() {
   fieldErrors.capacity = undefined
   fieldErrors.paymentMethod = undefined
   fieldErrors.guestAllowance = undefined
+  fieldErrors.entryFee = undefined
   formError.value = ''
 }
 
@@ -227,6 +258,9 @@ function applyCreateGameError(error: unknown) {
   } else if (message.includes('invalid payment method')) {
     fieldErrors.paymentMethod = 'Choose a payment method.'
     currentStep.value = 'payment'
+  } else if (message.includes('invalid money amount')) {
+    fieldErrors.entryFee = "Entry fee can't be negative."
+    currentStep.value = 'payment'
   } else if (message.includes('guest allowance must not be negative')) {
     fieldErrors.guestAllowance = 'Guest allowance cannot be negative.'
     currentStep.value = 'guests'
@@ -238,6 +272,11 @@ function applyCreateGameError(error: unknown) {
 
 async function publishGame() {
   clearFieldErrors()
+  if (!entryFeeValid.value) {
+    fieldErrors.entryFee = "Entry fee can't be negative."
+    currentStep.value = 'payment'
+    return
+  }
   publishing.value = true
   try {
     const startsAt = form.startsAt
@@ -254,6 +293,14 @@ async function publishGame() {
         capacity: form.capacity,
         paymentMethod: paymentMethod ? PAYMENT_METHOD_WIRE[paymentMethod] : undefined,
         guestAllowance: form.guestAllowance,
+        // int64 on the wire is protojson-encoded as a string — same
+        // convention models/payment.ts's toMoneyRequest documents. A free
+        // Game sends an explicit 0 with the launch currency, never an
+        // omitted field: "free" is a value the Host chose.
+        entryFee: {
+          amountCents: String(entryFeeCents.value),
+          currencyCode: DEFAULT_CURRENCY_CODE,
+        },
       },
     })
 
@@ -289,6 +336,7 @@ function resetForNewGame() {
   form.capacity = 4
   form.paymentMethod = ''
   form.guestAllowance = 0
+  form.entryFeeDollars = '0'
   game.value = null
   published.value = false
   statusMessage.value = ''
@@ -459,12 +507,42 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
           {{ fieldErrors.paymentMethod }}
         </p>
 
+        <!-- Entry fee (T9.2), replacing T8.10's flat placeholder rate.
+             Leaving it at 0 publishes a FREE game — a real choice, spelled
+             out in the hint text so it never reads as an unfinished
+             field. -->
+        <div class="gc-field">
+          <label for="entry-fee">Entry fee per player</label>
+          <input
+            id="entry-fee"
+            v-model="form.entryFeeDollars"
+            data-testid="entry-fee-input"
+            type="number"
+            min="0"
+            step="0.01"
+            inputmode="decimal"
+            :aria-invalid="fieldErrors.entryFee ? 'true' : undefined"
+            :aria-describedby="fieldErrors.entryFee ? 'entry-fee-error' : 'entry-fee-hint'"
+          />
+          <!-- WCAG 1.4.1: the "this game is free" state is stated in text,
+               not implied by an empty or differently-styled field. -->
+          <p id="entry-fee-hint" class="gc-hint">
+            Leave at 0 to make this game free.<template v-if="entryFeeValid">
+              Players will see “{{ entryFeeLabel(entryFeeCents) }}”.</template>
+          </p>
+          <!-- WCAG 3.3.1 Error Identification: the validation error is
+               visible text next to the field, never color alone. -->
+          <p v-if="fieldErrors.entryFee" id="entry-fee-error" class="gc-field-error" role="alert">
+            {{ fieldErrors.entryFee }}
+          </p>
+        </div>
+
         <div class="gc-actions">
           <button type="button" data-testid="payment-back" @click="goToStep('schedule')">Back</button>
           <button
             type="button"
             data-testid="payment-next"
-            :disabled="!form.paymentMethod"
+            :disabled="!form.paymentMethod || !entryFeeValid"
             @click="goToStep('guests')"
           >
             Next: Guest allowance
@@ -527,6 +605,8 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
           <dd>{{ paymentMethodLabel }}</dd>
           <dt>Guest allowance</dt>
           <dd>{{ form.guestAllowance }}</dd>
+          <dt>Entry fee</dt>
+          <dd data-testid="review-entry-fee">{{ entryFeeValid ? entryFeeLabel(entryFeeCents) : '—' }}</dd>
         </dl>
 
         <!-- T8.8: "Matching & publish" -> just "Publish". No auto-match
