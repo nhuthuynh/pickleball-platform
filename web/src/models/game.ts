@@ -28,6 +28,12 @@ export interface GameSummary {
   status: string
   paymentMethod: string
   guestAllowance: number
+  /** The Host's real entry fee for this Game (T9.2), in integer minor
+   * units. 0 means the Game is FREE — a real, Host-chosen value, never
+   * "unset" (see `entryFeeLabel`). Replaces T8.10's retired
+   * `PLACEHOLDER_REGISTRATION_FEE_CENTS`. */
+  entryFeeCents: number
+  entryFeeCurrency: string
   /** Server-computed (capacity minus weighted active registrations) — see
    * `v1GameListing`'s doc comment. Never negative. */
   spotsLeft: number
@@ -46,6 +52,13 @@ export function mapToGameSummary(raw: RawGameListing): GameSummary {
     status: game.status ?? 'GAME_STATUS_UNSPECIFIED',
     paymentMethod: game.paymentMethod ?? 'PAYMENT_METHOD_UNSPECIFIED',
     guestAllowance: game.guestAllowance ?? 0,
+    // `amountCents` is an int64 in the proto, which protojson (and so the
+    // generated TS types) represents as a *string* — same convention
+    // models/payment.ts's `toMoneyRequest` documents. An absent entry_fee
+    // (an old server, or a Game created before T9.2) reads as 0 = free,
+    // matching both the wire default and the migration's backfill.
+    entryFeeCents: Number(game.entryFee?.amountCents ?? 0),
+    entryFeeCurrency: game.entryFee?.currencyCode ?? '',
     spotsLeft: raw.spotsLeft ?? 0,
   }
 }
@@ -130,4 +143,22 @@ export function formatGameRange(startsAt: string, endsAt: string): string {
   const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
   const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
   return `${dateFmt.format(start)}, ${timeFmt.format(start)}–${timeFmt.format(end)}`
+}
+
+/**
+ * The player-facing entry-fee label (T9.2).
+ *
+ * A zero fee renders as the word **"Free"**, never as `"$0.00"` and never
+ * as an empty space: a free Game is a real product state a Host
+ * deliberately chose, not a missing or pending value (NN/g heuristic #2,
+ * match between the system and the real world). This is also the whole
+ * point of the field that replaced `PLACEHOLDER_REGISTRATION_FEE_CENTS` —
+ * the placeholder could not express "free" at all.
+ *
+ * WCAG 1.4.1 (Use of Color): every branch returns text, so the price — and
+ * the fact that a Game is free — is never conveyed by styling alone.
+ */
+export function entryFeeLabel(cents: number): string {
+  if (cents <= 0) return 'Free'
+  return `$${(cents / 100).toFixed(2)}`
 }

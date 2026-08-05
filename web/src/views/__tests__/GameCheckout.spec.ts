@@ -18,6 +18,7 @@ const GAME_LISTING = {
     status: 'GAME_STATUS_SCHEDULED',
     paymentMethod: 'PAYMENT_METHOD_EITHER',
     guestAllowance: 2,
+    entryFee: { amountCents: '1000', currencyCode: 'USD' },
   },
   spotsLeft: 5,
 }
@@ -129,5 +130,51 @@ describe('GameCheckout', () => {
     const success = wrapper.find('[role="status"][aria-live="polite"]')
     expect(success.exists()).toBe(true)
     expect(success.text()).toContain('Payment confirmed')
+  })
+})
+
+// T9.2: checkout charges the Game's real fee, and a free Game creates no
+// Payment at all (a zero-amount Payment is rejected by the Payments domain,
+// so offering one would be a button that could only fail).
+describe('GameCheckout — real entry fee (T9.2)', () => {
+  /** Mounts with a Game whose entry fee is `amountCents`. */
+  async function mountWithFee(amountCents: string, paymentsClient: PaymentsClient) {
+    const listing = {
+      ...GAME_LISTING,
+      game: { ...GAME_LISTING.game, entryFee: { amountCents, currencyCode: 'USD' } },
+    }
+    const social = {
+      GET: vi.fn(async () => ({ data: { games: [listing] }, error: undefined, response: { status: 200 } })),
+      POST: vi.fn(),
+    } as unknown as SocialPlayClient
+
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push({ name: 'game-checkout', params: { id: 'g1' }, query: { registrationId: 'reg-1' } })
+    await router.isReady()
+    const wrapper = mount(GameCheckout, {
+      props: { client: social, paymentsClient },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it("creates the Payment for the Game's real entry fee", async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    await mountWithFee('2500', paymentsClient)
+
+    const calls = (paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.length).toBe(1)
+    expect(calls[0]![1].body.amount).toEqual({ amountCents: '2500', currencyCode: 'USD' })
+  })
+
+  it('creates no Payment for a free game and says so in words', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    const wrapper = await mountWithFee('0', paymentsClient)
+
+    expect((paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+    const notice = wrapper.get('[data-testid="free-game-notice"]').text()
+    expect(notice).toContain('free')
+    expect(notice).not.toContain('$0.00')
   })
 })

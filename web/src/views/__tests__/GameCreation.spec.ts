@@ -393,3 +393,102 @@ describe('GameCreation — successful publish', () => {
     expect(wrapper.find('[data-testid="venue-step"]').exists()).toBe(true)
   })
 })
+
+describe('GameCreation — entry fee (T9.2)', () => {
+  it('sends the Host\'s real entry fee, in minor units, on publish', async () => {
+    const socialClient = makeSocialPlayClient()
+    const wrapper = mountGameCreation(makeFacilitiesClient(), socialClient)
+    await flushPromises()
+
+    await wrapper.get('.facility-list__item').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.gc-court-option input[type="checkbox"]')[0]!.setValue(true)
+    await wrapper.get('[data-testid="venue-next"]').trigger('click')
+
+    await wrapper.get('#game-starts-at').setValue('2026-09-01T10:00')
+    await wrapper.get('#game-ends-at').setValue('2026-09-01T11:00')
+    await wrapper.get('#game-capacity').setValue(4)
+    await wrapper.get('[data-testid="schedule-next"]').trigger('click')
+
+    await wrapper.get('input[type="radio"][value="online"]').setValue(true)
+    await wrapper.get('[data-testid="entry-fee-input"]').setValue('12.50')
+    await wrapper.get('[data-testid="payment-next"]').trigger('click')
+    await wrapper.get('[data-testid="guests-next"]').trigger('click')
+
+    await wrapper.get('[data-testid="publish-button"]').trigger('click')
+    await flushPromises()
+
+    const body = (socialClient.POST as ReturnType<typeof vi.fn>).mock.calls[0]![1].body
+    expect(body.entryFee).toEqual({ amountCents: '1250', currencyCode: 'USD' })
+  })
+
+  it('publishes a FREE game as an explicit zero amount, not an omitted field', async () => {
+    const socialClient = makeSocialPlayClient()
+    const wrapper = mountGameCreation(makeFacilitiesClient(), socialClient)
+    await advanceToReview(wrapper) // leaves the fee at its default of 0
+
+    await wrapper.get('[data-testid="publish-button"]').trigger('click')
+    await flushPromises()
+
+    const body = (socialClient.POST as ReturnType<typeof vi.fn>).mock.calls[0]![1].body
+    expect(body.entryFee).toEqual({ amountCents: '0', currencyCode: 'USD' })
+  })
+
+  it('shows the fee as the word "Free" at zero on the review step', async () => {
+    const wrapper = mountGameCreation()
+    await advanceToReview(wrapper)
+
+    expect(wrapper.get('[data-testid="review-entry-fee"]').text()).toBe('Free')
+  })
+
+  // WCAG 1.4.1 (Use of Color) + 3.3.1 (Error Identification): the rejection
+  // must be readable TEXT sitting next to the field, not a red border.
+  it('renders a negative-fee validation error as visible text next to the field', async () => {
+    const socialClient = makeSocialPlayClient()
+    const wrapper = mountGameCreation(makeFacilitiesClient(), socialClient)
+    await flushPromises()
+
+    await wrapper.get('.facility-list__item').trigger('click')
+    await flushPromises()
+    await wrapper.findAll('.gc-court-option input[type="checkbox"]')[0]!.setValue(true)
+    await wrapper.get('[data-testid="venue-next"]').trigger('click')
+
+    await wrapper.get('#game-starts-at').setValue('2026-09-01T10:00')
+    await wrapper.get('#game-ends-at').setValue('2026-09-01T11:00')
+    await wrapper.get('#game-capacity').setValue(4)
+    await wrapper.get('[data-testid="schedule-next"]').trigger('click')
+
+    await wrapper.get('input[type="radio"][value="online"]').setValue(true)
+    await wrapper.get('[data-testid="entry-fee-input"]').setValue('-5')
+    await flushPromises()
+
+    // The message is visible text, next to the field, as soon as the value
+    // is invalid — not hidden behind a submit attempt, and not conveyed by
+    // the disabled Next button alone.
+    const error = wrapper.get('#entry-fee-error')
+    expect(error.text()).toBe("Entry fee can't be negative.")
+    expect(error.attributes('role')).toBe('alert')
+    expect(wrapper.get('[data-testid="entry-fee-input"]').attributes('aria-describedby')).toBe(
+      'entry-fee-error',
+    )
+    expect(wrapper.get('[data-testid="payment-next"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('maps the server\'s ErrInvalidMoney rejection onto the fee field and returns to the payment step', async () => {
+    const socialClient = makeSocialPlayClient({
+      createGame: () => ({
+        error: { code: 3, message: 'socialplay: invalid money amount' },
+      }),
+    })
+    const wrapper = mountGameCreation(makeFacilitiesClient(), socialClient)
+    await advanceToReview(wrapper)
+
+    await wrapper.get('[data-testid="publish-button"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="payment-step"]').exists()).toBe(true)
+    const error = wrapper.get('#entry-fee-error')
+    expect(error.text()).toBe("Entry fee can't be negative.")
+    expect(error.attributes('role')).toBe('alert')
+  })
+})

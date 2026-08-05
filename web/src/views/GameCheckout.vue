@@ -14,18 +14,24 @@
 // no per-Game detail RPC); this view accepts the same limitation rather
 // than inventing a new one just for this screen.
 //
-// **Disclosed gap: the checkout amount is a flat placeholder, not a real
-// price** — see models/payment.ts's header comment for the full
-// disclosure (Social Play's Game/Registration has no price/fee field at
-// all, despite the design handoff's Flow 4/6 calling for one). The review
-// step below labels it plainly as a placeholder rather than presenting it
-// as a real charge.
-import { computed, onMounted } from 'vue'
+// T9.2: the checkout amount is now the REAL fee the Host set on this Game
+// (`Game.EntryFee`), replacing T8.10's flat placeholder rate and the
+// "placeholder" label that had to accompany it. Two consequences worth
+// stating, because both are real product states rather than edge cases:
+//
+//   - The amount is read off the Game, so checkout cannot start until the
+//     Game has actually loaded. If it can't be found, this view says so
+//     instead of falling back to an invented amount — charging a guessed
+//     figure is precisely the failure this ticket exists to remove.
+//   - A FREE game (entry fee 0) creates no Payment at all: there is
+//     nothing to charge, and the Payments domain rightly rejects a
+//     zero-amount Payment. The player is told they're already in.
+import { computed, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useGameList } from '../composables/useGameList'
 import { useGamePayment } from '../composables/useGamePayment'
-import { formatGameRange } from '../models/game'
-import { PLACEHOLDER_REGISTRATION_FEE_CENTS, formatMoneyCents } from '../models/payment'
+import { formatGameRange, entryFeeLabel } from '../models/game'
+import { formatMoneyCents, DEFAULT_CURRENCY_CODE } from '../models/payment'
 import type { SocialPlayClient } from '../api/socialplayClient'
 import type { PaymentsClient } from '../api/paymentsClient'
 
@@ -49,11 +55,30 @@ const game = computed(() => games.value.find((g) => g.id === gameId.value) ?? nu
 const { step, payment, createError, confirming, confirmError, confirmedPayment, startCheckout, confirmPayment } =
   useGamePayment(props.paymentsClient)
 
-onMounted(() => {
-  void search()
-  if (registrationId.value) {
-    void startCheckout(registrationId.value, PLACEHOLDER_REGISTRATION_FEE_CENTS)
+/** True once the Game has loaded and its entry fee is 0 — a free Game, so
+ * there is nothing to pay and no Payment to create (T9.2). */
+const isFreeGame = computed(() => game.value !== null && game.value.entryFeeCents <= 0)
+
+/** The Game loaded but wasn't found, so its real price is unknown. We
+ * refuse to invent one — see the file header. */
+const gameMissing = ref(false)
+
+onMounted(async () => {
+  await search()
+  if (!registrationId.value) return
+
+  const loaded = game.value
+  if (!loaded) {
+    gameMissing.value = true
+    return
   }
+  if (loaded.entryFeeCents <= 0) return
+
+  void startCheckout(
+    registrationId.value,
+    loaded.entryFeeCents,
+    loaded.entryFeeCurrency || DEFAULT_CURRENCY_CODE,
+  )
 })
 </script>
 
@@ -66,11 +91,30 @@ onMounted(() => {
     </p>
 
     <template v-else>
-      <p v-if="step === 'preparing' && !createError" class="game-checkout__status" role="status">
+      <!-- FREE GAME (T9.2): a real product state, stated in words. No
+           Payment is created and no amount is shown, because none is
+           owed. -->
+      <div v-if="isFreeGame" class="game-checkout__success" role="status" aria-live="polite">
+        <p data-testid="free-game-notice">This game is free — there's nothing to pay. You're all set.</p>
+      </div>
+
+      <p
+        v-else-if="gameMissing"
+        class="game-checkout__status game-checkout__status--error"
+        role="alert"
+      >
+        We couldn't load this game, so we can't show you its price. Go back to the Games list and try again.
+      </p>
+
+      <p v-else-if="step === 'preparing' && !createError" class="game-checkout__status" role="status">
         Preparing checkout…
       </p>
 
-      <p v-if="createError" class="game-checkout__status game-checkout__status--error" role="alert">
+      <p
+        v-if="createError && !isFreeGame && !gameMissing"
+        class="game-checkout__status game-checkout__status--error"
+        role="alert"
+      >
         {{ createError }}
       </p>
 
@@ -78,19 +122,20 @@ onMounted(() => {
            CourtBookingFlow.vue already uses for CreateBooking): ConfirmOnlinePayment
            can never fire before this step is on screen — useGamePayment's
            own confirm-step gate enforces that regardless of this template. -->
-      <div v-if="step === 'review' && payment" class="game-checkout__review">
+      <div v-if="!isFreeGame && !gameMissing && step === 'review' && payment" class="game-checkout__review">
         <h2 class="game-checkout__review-heading">Review your payment</h2>
         <dl class="game-checkout__summary">
           <div v-if="game" class="game-checkout__summary-row">
             <dt>Game</dt>
             <dd>{{ formatGameRange(game.startsAt, game.endsAt) }}</dd>
           </div>
+          <div v-if="game" class="game-checkout__summary-row">
+            <dt>Entry fee</dt>
+            <dd>{{ entryFeeLabel(game.entryFeeCents) }}</dd>
+          </div>
           <div class="game-checkout__summary-row">
             <dt>Amount</dt>
-            <dd>
-              {{ formatMoneyCents(payment.amountCents) }}
-              <span class="game-checkout__note">(flat placeholder rate — no per-game price yet)</span>
-            </dd>
+            <dd data-testid="checkout-amount">{{ formatMoneyCents(payment.amountCents) }}</dd>
           </div>
         </dl>
 
@@ -108,7 +153,7 @@ onMounted(() => {
 
       <!-- SUCCESS: ARIA live region (WCAG 4.1.3) -->
       <div
-        v-else-if="step === 'success' && confirmedPayment"
+        v-else-if="!isFreeGame && !gameMissing && step === 'success' && confirmedPayment"
         class="game-checkout__success"
         role="status"
         aria-live="polite"

@@ -61,6 +61,14 @@ type ScheduleGameInput struct {
 	// fromProtoPaymentMethod); this field itself has no implicit default.
 	PaymentMethod  domain.PaymentMethod
 	GuestAllowance int
+	// EntryFee (T9.2) is the price the Host set for one player to join this
+	// Game, passed straight through to domain.NewGame — see
+	// domain.Money.Validate for its rules. The zero value of this field is
+	// domain.Money{} (0 cents, empty currency), which is valid and means a
+	// free Game: unlike PaymentMethod above, an unset EntryFee needs no
+	// resolution step in the adapter, because "free" is a real value rather
+	// than a stand-in for "unspecified".
+	EntryFee domain.Money
 }
 
 // ScheduleGame builds a Game (domain.NewGame, T5.1) and, once it validates,
@@ -118,7 +126,7 @@ func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reserv
 	// wired straight through from ScheduleGameInput (T8.7) — see that
 	// struct's doc comment for who's responsible for resolving an
 	// unset/wire-zero-value PaymentMethod before it reaches here.
-	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.VenueFacilityID, in.CourtIDs, in.Range, in.Capacity, in.PaymentMethod, in.GuestAllowance)
+	game, err := domain.NewGame(s.ids.NewID(), in.HostID, in.FacilityID, in.VenueFacilityID, in.CourtIDs, in.Range, in.Capacity, in.PaymentMethod, in.GuestAllowance, in.EntryFee)
 	if err != nil {
 		return domain.Game{}, err
 	}

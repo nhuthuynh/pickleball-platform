@@ -58,11 +58,16 @@ func (r *GameRepository) Create(ctx context.Context, g domain.Game) (domain.Game
 		Status:          string(g.Status),
 		PaymentMethod:   string(g.PaymentMethod),
 		GuestAllowance:  int32(g.GuestAllowance),
+		// EntryFee (T9.2) is always written explicitly, including a 0 for a
+		// free Game — the column DEFAULT exists only to backfill rows that
+		// predate the columns (db/migrations/0013_socialplay_entry_fee.sql).
+		EntryFeeCents:    g.EntryFee.Cents,
+		EntryFeeCurrency: g.EntryFee.Currency,
 	})
 	if err != nil {
 		return domain.Game{}, translateGameErr(err)
 	}
-	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance, row.EntryFeeCents, row.EntryFeeCurrency), nil
 }
 
 func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, error) {
@@ -70,7 +75,7 @@ func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, e
 	if err != nil {
 		return domain.Game{}, translateGameErr(err)
 	}
-	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance), nil
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance, row.EntryFeeCents, row.EntryFeeCurrency), nil
 }
 
 // ListGames implements port.GameRepository.ListGames (T8.9): the Discover &
@@ -93,7 +98,7 @@ func (r *GameRepository) ListGames(ctx context.Context, filter port.GameListingF
 	out := make([]port.GameListing, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, port.GameListing{
-			Game:      gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance),
+			Game:      gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance, row.EntryFeeCents, row.EntryFeeCurrency),
 			SpotsLeft: int(row.SpotsLeft),
 		})
 	}
@@ -107,13 +112,14 @@ func translateGameErr(err error) error {
 	return fmt.Errorf("socialplay postgres adapter (games): %w", err)
 }
 
-// gameFromFields builds a domain.Game from the 11 columns every games query
-// selects (venue_facility_id, T8.3; payment_method/guest_allowance, T8.7).
+// gameFromFields builds a domain.Game from the 13 columns every games query
+// selects (venue_facility_id, T8.3; payment_method/guest_allowance, T8.7;
+// entry_fee_cents/entry_fee_currency, T9.2).
 // sqlc generates a distinct Row struct per query (CreateGameRow,
 // GetGameByIDRow, ...) rather than reusing socialplaydb.Game, mirroring the
 // fromFields pattern in internal/booking/adapter/postgres/repository.go
 // (CLAUDE.md gotcha: sqlc emits a distinct ...Row type per query).
-func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32) domain.Game {
+func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32, entryFeeCents int64, entryFeeCurrency string) domain.Game {
 	ids := make([]string, 0, len(courtIDs))
 	for _, c := range courtIDs {
 		ids = append(ids, c.String())
@@ -132,6 +138,10 @@ func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID p
 		Status:         domain.Status(status),
 		PaymentMethod:  domain.PaymentMethod(paymentMethod),
 		GuestAllowance: int(guestAllowance),
+		EntryFee: domain.Money{
+			Cents:    entryFeeCents,
+			Currency: entryFeeCurrency,
+		},
 	}
 }
 

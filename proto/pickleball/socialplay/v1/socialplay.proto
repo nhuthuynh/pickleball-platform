@@ -56,6 +56,31 @@ enum PaymentMethod {
   PAYMENT_METHOD_EITHER = 3;
 }
 
+// Money mirrors internal/socialplay/domain.Money (T9.2): an amount in
+// integer minor units ("cents") paired with its ISO 4217 currency code, per
+// ADR-0005 (docs/adr/0005-currency-code-column.md).
+//
+// This is a deliberate, context-local duplicate of
+// pickleball.payments.v1.Money — identical shape, intentionally NOT an
+// import of the payments proto package. Social Play's wire contract does
+// not depend on the Payments context's, exactly as
+// internal/socialplay/domain does not import internal/payments/domain
+// (CLAUDE.md rules 2/3); coupling the two protos would reintroduce at the
+// API-contract layer precisely the dependency the domain layer refuses.
+// The two are free to diverge, and the rules attached to them already do:
+// a payments Money of zero is meaningless, whereas a Game's entry_fee of
+// zero is a real product state (a free Game).
+//
+// PCI guardrail (CLAUDE.md rule 11, docs/checklists/proto-review.md): this
+// message carries an AMOUNT and a currency code only. It is not, and must
+// never become, a place to put a PAN, card number, CVV, or track data —
+// card data is tokenized client-side and never reaches this backend
+// (SAQ A scope).
+message Money {
+  int64 amount_cents = 1;
+  string currency_code = 2;
+}
+
 // Game mirrors internal/socialplay/domain.Game. court_ids is repeated
 // (not a single court_id like Booking) because a Game can span multiple
 // courts — each one becomes its own game-source Booking via
@@ -87,6 +112,15 @@ message Game {
   // already claimed 9 when both landed the same sprint.
   PaymentMethod payment_method = 10;
   int32 guest_allowance = 11;
+  // entry_fee (T9.2) is the price the Host set for one player to join this
+  // Game, replacing the web client's retired
+  // PLACEHOLDER_REGISTRATION_FEE_CENTS. An amount of 0 is a real value
+  // meaning a free Game, never "unset" — clients must render it as the
+  // word "Free", not as blank or a bare "$0.00" (T9.2 non-functional
+  // requirement). An entirely absent entry_fee message on the wire (an
+  // old client) is read as free, the same value the migration backfilled
+  // pre-existing rows with.
+  Money entry_fee = 12;
 }
 
 // Registration mirrors internal/socialplay/domain.Registration.
@@ -143,6 +177,12 @@ message CreateGameRequest {
   // the same sprint.
   PaymentMethod payment_method = 8;
   int32 guest_allowance = 9;
+  // entry_fee (T9.2) — see Game.entry_fee's doc comment. Optional on the
+  // wire: an unset entry_fee schedules a free Game (amount 0), which is a
+  // real product state, not a missing value. A negative amount is rejected
+  // (400 INVALID_ARGUMENT via domain.ErrInvalidMoney), as is a non-zero
+  // amount with a missing or malformed currency_code.
+  Money entry_fee = 10;
 }
 
 message CreateGameResponse {

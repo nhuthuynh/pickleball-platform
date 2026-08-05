@@ -7,6 +7,7 @@ function gameListing(overrides: Partial<{
   id: string
   hostId: string
   paymentMethod: string
+  entryFeeCents: number
 }> = {}) {
   return {
     game: {
@@ -20,6 +21,10 @@ function gameListing(overrides: Partial<{
       status: 'GAME_STATUS_SCHEDULED',
       paymentMethod: overrides.paymentMethod ?? 'PAYMENT_METHOD_CASH',
       guestAllowance: 2,
+      // T9.2: the Game's real entry fee. 1000 ($10.00) is the same figure
+      // these tests asserted before, so their substance is unchanged — it
+      // is now the Host's real price rather than a global placeholder.
+      entryFee: { amountCents: String(overrides.entryFeeCents ?? 1000), currencyCode: 'USD' },
     },
     spotsLeft: 5,
   }
@@ -150,5 +155,64 @@ describe('useHostPayments', () => {
 
     expect(markPaidError.value).toBeTruthy()
     expect(pending.value).toHaveLength(1)
+  })
+})
+
+// T9.2: a free Game owes nothing, so it has no place on a "cash still owed"
+// dashboard. This is correctness, not cosmetics: RecordOfflinePayment
+// rejects a zero amount, so a free Game's row would render a "Mark paid"
+// button that could only ever fail.
+describe('useHostPayments — free games (T9.2)', () => {
+  it('excludes a free Game\'s registrations from the pending-cash list', async () => {
+    const client = fakeClient({
+      games: [
+        gameListing({ id: 'g-free', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 0 }),
+        gameListing({ id: 'g-paid', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 1500 }),
+      ],
+      registrationsByGame: {
+        'g-free': [{ id: 'r-free', gameId: 'g-free', playerId: 'p1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 }],
+        'g-paid': [{ id: 'r-paid', gameId: 'g-paid', playerId: 'p2', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 }],
+      },
+    })
+
+    const { pending, load } = useHostPayments(client, fakePaymentsClient({}))
+    await load('host-1')
+
+    expect(pending.value.map((p) => p.registrationId)).toEqual(['r-paid'])
+    expect(pending.value[0]!.entryFeeCents).toBe(1500)
+  })
+
+  it('records the Game\'s real fee, not a flat placeholder', async () => {
+    const client = fakeClient({
+      games: [gameListing({ id: 'g1', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 750 })],
+      registrationsByGame: {
+        g1: [{ id: 'r1', gameId: 'g1', playerId: 'p1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 }],
+      },
+    })
+    const payments = fakePaymentsClient({
+      recordOffline: () => ({
+        data: {
+          payment: {
+            id: 'pay-1',
+            payableType: 'PAYABLE_TYPE_REGISTRATION',
+            payableId: 'r1',
+            amount: { amountCents: '750', currencyCode: 'USD' },
+            method: 'PAYMENT_METHOD_OFFLINE',
+            status: 'PAYMENT_STATUS_PAID',
+            stripeReference: '',
+            recordedByUserId: 'host-1',
+          },
+        },
+        error: undefined,
+        response: { status: 200 },
+      }),
+    })
+
+    const { pending, load, markPaid } = useHostPayments(client, payments)
+    await load('host-1')
+    await markPaid(pending.value[0]!, 'host-1')
+
+    const body = (payments.POST as ReturnType<typeof vi.fn>).mock.calls[0]![1].body
+    expect(body.amount).toEqual({ amountCents: '750', currencyCode: 'USD' })
   })
 })

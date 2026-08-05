@@ -15,6 +15,10 @@ const game: GameSummary = {
   status: 'GAME_STATUS_SCHEDULED',
   paymentMethod: 'PAYMENT_METHOD_EITHER',
   guestAllowance: 2,
+  // T9.2: a real (non-free) entry fee, so these tests keep exercising the
+  // same paid-game payment-choice behaviour they were written for.
+  entryFeeCents: 1000,
+  entryFeeCurrency: 'USD',
   spotsLeft: 3,
 }
 
@@ -182,7 +186,12 @@ describe('GameJoinPanel', () => {
       await wrapper.find('.game-join__form').trigger('submit')
       await flushPromises()
 
-      expect(wrapper.text()).toContain('Payment: pending (cash at facility)')
+      // T9.2: the pending-cash line now names the real amount owed (the
+      // Game's EntryFee) instead of an unpriced "pending". The behaviour
+      // this test is about — cash pending, no payment buttons, no network
+      // call — is unchanged.
+      expect(wrapper.text()).toContain('pending (cash at facility)')
+      expect(wrapper.text()).toContain('$10.00')
       expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
     })
 
@@ -216,9 +225,61 @@ describe('GameJoinPanel', () => {
       const callsBeforeCashChoice = (client.POST as ReturnType<typeof vi.fn>).mock.calls.length
       await wrapper.find('.game-join__secondary').trigger('click')
 
-      expect(wrapper.text()).toContain('Payment: pending (cash at facility)')
+      // T9.2: the pending-cash line now names the real amount owed (the
+      // Game's EntryFee) instead of an unpriced "pending". The behaviour
+      // this test is about — cash pending, no payment buttons, no network
+      // call — is unchanged.
+      expect(wrapper.text()).toContain('pending (cash at facility)')
+      expect(wrapper.text()).toContain('$10.00')
       expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
       expect((client.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeCashChoice)
     })
+  })
+})
+
+// T9.2: the player sees the real price before joining, and a free Game says
+// so in words rather than showing a price of nothing.
+describe('GameJoinPanel — entry fee (T9.2)', () => {
+  it('shows the real entry fee on the join form', () => {
+    const wrapper = mount(GameJoinPanel, {
+      props: { game: { ...game, entryFeeCents: 2500 }, client: fakeClient({}) },
+    })
+    expect(wrapper.get('[data-testid="join-entry-fee"]').text()).toContain('$25.00')
+  })
+
+  it('shows "Free" — the word — for a zero-fee game', () => {
+    const wrapper = mount(GameJoinPanel, {
+      props: { game: { ...game, entryFeeCents: 0 }, client: fakeClient({}) },
+    })
+    const text = wrapper.get('[data-testid="join-entry-fee"]').text()
+    expect(text).toContain('Free')
+    expect(text).not.toContain('$0.00')
+  })
+
+  it('offers no payment options at all once registered for a free game', async () => {
+    const client = fakeClient({
+      postRegistrations: () => ({
+        data: {
+          registration: {
+            id: 'reg-1',
+            gameId: 'g1',
+            playerId: 'player-mock-1',
+            status: 'REGISTRATION_STATUS_REGISTERED',
+            paymentStatus: 'PAYMENT_STATUS_UNPAID',
+            guestCount: 0,
+          },
+        },
+        error: undefined,
+        response: { status: 200 },
+      }),
+    })
+    const wrapper = mount(GameJoinPanel, {
+      props: { game: { ...game, entryFeeCents: 0 }, client },
+    })
+    await wrapper.find('.game-join__form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="join-free-notice"]').text()).toContain('free')
+    expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
   })
 })
