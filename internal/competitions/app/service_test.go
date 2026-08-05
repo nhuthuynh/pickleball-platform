@@ -168,6 +168,21 @@ func (r *fakeRepository) GetByID(_ context.Context, id string) (domain.Competiti
 	return c, nil
 }
 
+// GetByShareToken mirrors the real adapter's contract: a linear scan over
+// share tokens with NO status filter (a cancelled Competition's link still
+// resolves), returning the same unwrapped ErrCompetitionNotFound sentinel
+// GetByID returns for every miss — see port.Repository.GetByShareToken for
+// why a distinct "malformed token" error would be a security bug rather than
+// a nicety.
+func (r *fakeRepository) GetByShareToken(_ context.Context, shareToken string) (domain.Competition, error) {
+	for _, id := range r.competitionOrder {
+		if c := r.competitions[id]; c.ShareToken == shareToken {
+			return c, nil
+		}
+	}
+	return domain.Competition{}, domain.ErrCompetitionNotFound
+}
+
 func (r *fakeRepository) UpdateStatus(_ context.Context, id string, status domain.Status) (domain.Competition, error) {
 	c, ok := r.competitions[id]
 	if !ok {

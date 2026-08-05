@@ -99,6 +99,19 @@ func (r *fakeRepo) GetByID(_ context.Context, id string) (domain.Competition, er
 	return c, nil
 }
 
+// GetByShareToken mirrors the real adapter: no status filter (a cancelled
+// Competition's share link still resolves — T9.5) and the same unwrapped
+// ErrCompetitionNotFound sentinel for every miss, so the handler under test
+// can never see a token-specific error this fake invented.
+func (r *fakeRepo) GetByShareToken(_ context.Context, shareToken string) (domain.Competition, error) {
+	for _, id := range r.competitionOrder {
+		if c := r.competitions[id]; c.ShareToken == shareToken {
+			return c, nil
+		}
+	}
+	return domain.Competition{}, domain.ErrCompetitionNotFound
+}
+
 func (r *fakeRepo) UpdateStatus(_ context.Context, id string, s domain.Status) (domain.Competition, error) {
 	c, ok := r.competitions[id]
 	if !ok {

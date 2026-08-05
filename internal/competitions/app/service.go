@@ -292,6 +292,62 @@ func (s *Service) GetCompetition(ctx context.Context, competitionID string) (dom
 	return s.competitions.GetByID(ctx, competitionID)
 }
 
+// GetCompetitionByShareToken resolves a Competition from the token behind
+// its shareable registration link (T9.5) — the public, unauthenticated read
+// a Player hits after following a link the Host posted outside the app.
+//
+// It returns the SAME projection GetCompetition returns: the same
+// domain.Competition, which the gRPC adapter renders through the same
+// toProtoCompetition into the same wire message. Nothing extra is disclosed
+// because a caller arrived by link rather than by ID — a share link must
+// never be a wider window onto a Competition than the app itself already
+// gives (the inverse of the BA dossier §5 scope-narrowing concern, and the
+// likelier bug of the two).
+//
+// **The error is deliberately NOT wrapped**, unlike almost every other
+// failure path in this Service. An unknown token, a malformed token, and a
+// token for a Competition that doesn't exist must all produce one
+// byte-identical domain.ErrCompetitionNotFound, because this endpoint is
+// unauthenticated and keyed by a secret: any difference in the answer is an
+// oracle that tells an enumerator "that guess had the right shape" or "that
+// token exists but the Competition is gone". A fmt.Errorf that helpfully
+// named the token or the reason would reintroduce exactly that signal (and,
+// worse, write the token itself into every log line), so the plain sentinel
+// is returned and the empty token short-circuits into the same sentinel
+// rather than an InvalidArgument that would single itself out.
+//
+// There is deliberately no ownership or authentication check, for the same
+// reason GetCompetition has none: the token IS the capability. Possession of
+// the link is what grants the read, which is why the token's entropy carries
+// the whole weight of the control and why generating it was settled before
+// this read path existed (internal/competitions/adapter/sharetoken, T9.4 —
+// crypto/rand, 256 bits; T9.5 neither rebuilds nor second-guesses it).
+//
+// A CANCELLED Competition resolves here exactly as a scheduled one does, and
+// is returned with Status cancelled — no status filter, deliberately unlike
+// ListCompetitions. See port.Repository.GetByShareToken for why, and
+// domain.Enter for the separate rejection that still blocks entering it.
+//
+// KNOWN GAP — REVOCATION, named rather than silently omitted: there is no
+// rotate-token or revoke-token path in T9. A Host who posts a link to a
+// public channel cannot un-publish it; the token stays valid for the
+// Competition's lifetime. This is not an oversight and not a "we'll harden
+// it later" placeholder — it is blocked on a specific prerequisite. Rotation
+// is an authenticated act on a Competition ("only the Host may rotate this
+// Competition's token"), and this codebase has no authenticated identity
+// yet: actor_user_id is a caller-supplied claim (HANDOFF.md's open
+// cross-cutting Auth item). Shipping rotation now would gate it on a claim
+// anyone can make, meaning any caller could invalidate any Host's published
+// link — strictly worse than no rotation at all. TRIGGER: build it alongside
+// real auth, as an authenticated CompetitionsService method that reuses
+// domain.Competition.EnsureHost, plus an UPDATE of the share_token column.
+func (s *Service) GetCompetitionByShareToken(ctx context.Context, shareToken string) (domain.Competition, error) {
+	if shareToken == "" {
+		return domain.Competition{}, domain.ErrCompetitionNotFound
+	}
+	return s.competitions.GetByShareToken(ctx, shareToken)
+}
+
 // ListCompetitions is the browse/list read path (T9.4), returning each
 // matching Competition with its server-computed, **weighted** SpotsLeft —
 // see port.CompetitionListing for why the weighting is load-bearing rather

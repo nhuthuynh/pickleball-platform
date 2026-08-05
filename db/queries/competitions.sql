@@ -37,6 +37,35 @@ SELECT id, host_id, name, venue_facility_id, capacity, guest_allowance, payment_
 FROM competitions
 WHERE id = $1;
 
+-- name: GetCompetitionByShareToken :one
+-- The token-addressed read behind a Competition's shareable registration
+-- link (T9.5). Selects the identical column list GetCompetitionByID selects,
+-- so the two read paths cannot drift into disclosing different things.
+--
+-- NOTE what this query deliberately does NOT do:
+--
+--   * No status filter. A CANCELLED Competition's token still resolves —
+--     unlike ListCompetitions, which hides cancelled Competitions from the
+--     browse list. A link already posted to a social channel outlives the
+--     Competition's scheduled state, and a Player who follows it must get an
+--     honest "this competition was cancelled" rather than a not-found that
+--     reads as a broken link. Entering it is separately rejected
+--     (domain.Enter -> ErrCompetitionCancelled).
+--   * No shape validation of the token, here or in the adapter above it. Any
+--     string is a legal parameter; a token that matches nothing returns no
+--     rows, which the adapter turns into the same domain.ErrCompetitionNotFound
+--     an unknown ID produces. That sameness is the point: this read is
+--     unauthenticated and keyed by a secret, so distinguishing "malformed
+--     token" from "unknown token" would tell an enumerator which guesses had
+--     the right shape.
+--
+-- share_token is `text NOT NULL UNIQUE` (db/migrations/0014_competitions.sql),
+-- so the unique constraint's own index already serves this lookup and at most
+-- one row can ever match — no extra index and no LIMIT are needed.
+SELECT id, host_id, name, venue_facility_id, capacity, guest_allowance, payment_method, format, status, entry_fee_cents, entry_fee_currency, share_token
+FROM competitions
+WHERE share_token = $1;
+
 -- name: ListSessionsForCompetition :many
 -- A single Competition's sessions, in the Host's original order.
 SELECT id, competition_id, position, starts_at, ends_at, court_ids

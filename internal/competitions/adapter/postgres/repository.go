@@ -149,6 +149,44 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domain.Competition
 	return competition, nil
 }
 
+// GetByShareToken returns the Competition whose share_token matches, with
+// its sessions loaded — the read behind T9.5's shareable registration link.
+//
+// It mirrors GetByID's two-query shape exactly, with two differences that
+// are both deliberate and both security- rather than style-driven:
+//
+//   - The token is passed to the query AS-IS, never validated, normalised,
+//     trimmed, or run through mustUUID (a share token is opaque base64url
+//     text, not a UUID — mustUUID would panic on every real token). A
+//     malformed token therefore takes the identical path an unknown one
+//     takes: no rows, pgx.ErrNoRows, and the same
+//     domain.ErrCompetitionNotFound. Rejecting "obviously wrong" tokens
+//     earlier or differently would turn this unauthenticated endpoint into
+//     an oracle for which tokens have the right shape.
+//   - No status filter, so a cancelled Competition's link still resolves
+//     (see the query's own comment and port.Repository.GetByShareToken).
+//
+// The sessions lookup keys off the row's OWN id rather than re-deriving
+// anything from the token, so a Competition read by link carries exactly the
+// sessions it would carry when read by ID.
+func (r *Repository) GetByShareToken(ctx context.Context, shareToken string) (domain.Competition, error) {
+	row, err := r.q.GetCompetitionByShareToken(ctx, shareToken)
+	if err != nil {
+		return domain.Competition{}, translateErr(err)
+	}
+
+	sessionRows, err := r.q.ListSessionsForCompetition(ctx, row.ID)
+	if err != nil {
+		return domain.Competition{}, translateErr(err)
+	}
+
+	competition := competitionFromFields(row.ID, row.HostID, row.Name, row.VenueFacilityID, row.Capacity, row.GuestAllowance, row.PaymentMethod, row.Format, row.Status, row.EntryFeeCents, row.EntryFeeCurrency, row.ShareToken)
+	for _, s := range sessionRows {
+		competition.Sessions = append(competition.Sessions, sessionFromFields(s.StartsAt, s.EndsAt, s.CourtIds))
+	}
+	return competition, nil
+}
+
 // UpdateStatus persists a status transition (app.Service.CancelCompetition)
 // via its own single-column query, which cannot touch any other column.
 //

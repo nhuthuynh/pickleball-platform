@@ -80,6 +80,41 @@ func (h *Handler) GetCompetition(ctx context.Context, req *competitionsv1.GetCom
 	return &competitionsv1.GetCompetitionResponse{Competition: toProtoCompetition(competition)}, nil
 }
 
+// GetCompetitionByShareToken serves the public, unauthenticated read behind
+// a Competition's shareable registration link (T9.5).
+//
+// Three properties of this handler are load-bearing, and all three are
+// regression-tested in sharelink_test.go:
+//
+//  1. It returns the SAME projection GetCompetition does, through the SAME
+//     toProtoCompetition, into a response message that is field-for-field
+//     identical to GetCompetitionResponse. Rendering it via a second
+//     conversion function is how a link quietly starts disclosing more than
+//     the app does, so there is deliberately only one.
+//  2. It adds NO validation of the token's shape. A malformed token must
+//     take the identical path an unknown one takes and produce the identical
+//     NotFound — an InvalidArgument for "that isn't even a token" would tell
+//     an enumerator which guesses were the right shape. app.Service returns
+//     the bare domain.ErrCompetitionNotFound sentinel for every miss and
+//     toStatus maps it to NotFound with that sentinel's own message, so all
+//     misses are byte-identical.
+//  3. It does NOT filter cancelled Competitions. A cancelled Competition
+//     resolves and reports COMPETITION_STATUS_CANCELLED, because a link
+//     already published outlives the Competition's scheduled state and a
+//     Player deserves an honest cancelled state rather than a 404 that looks
+//     like a broken link.
+//
+// The token generator itself is untouched by this ticket — T9.4's
+// internal/competitions/adapter/sharetoken (crypto/rand, 256 bits) already
+// mints one for every Competition at creation.
+func (h *Handler) GetCompetitionByShareToken(ctx context.Context, req *competitionsv1.GetCompetitionByShareTokenRequest) (*competitionsv1.GetCompetitionByShareTokenResponse, error) {
+	competition, err := h.svc.GetCompetitionByShareToken(ctx, req.GetShareToken())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &competitionsv1.GetCompetitionByShareTokenResponse{Competition: toProtoCompetition(competition)}, nil
+}
+
 // ListCompetitions serves the browse/filter read. starts_after/starts_before
 // are only converted to a real time.Time when actually present on the wire
 // (protobuf Timestamp field presence — GetStartsAfter() returns nil for an
