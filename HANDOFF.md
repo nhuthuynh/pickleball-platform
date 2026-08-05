@@ -23,7 +23,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
-| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | in flight — ticket reviews posted as GitHub PR reviews, not files, per the naming convention | `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
+| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | in flight — ticket reviews posted as GitHub PR reviews, not files, per the naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -129,7 +129,8 @@ plus `npm run build`/`npm run test`) before merging. Known gaps carried
 forward, not silently dropped (see Cross-cutting below): Social Play has no
 price/fee field at all (T8.10 used a disclosed, visibly-labeled placeholder
 amount), no CI is configured on this repo, and the `npm install
---legacy-peer-deps` friction from T7 is still open.
+--legacy-peer-deps` friction from T7 was still open at the end of T8
+(closed since, by T9.10 — see Cross-cutting).
 
 **Not yet built**
 - Competitions, Statements contexts.
@@ -304,6 +305,28 @@ former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
   tests fail, then restoring it. Same caveat as above, not re-litigated:
   object-level check given a claimed `actor_user_id`, not real
   authentication.
+- **The one place the caveat above is NOT "the same caveat again":
+  third-party OAuth tokens — see `docs/adr/0009-social-channel-integration-deferred.md`.**
+  T9's ceremony (§A1 of `docs/process/t9-sprint-plan.md`) found that
+  storing a social-platform OAuth access/refresh token keyed to a claimed,
+  unverified `actor_user_id` differs *in kind*, not degree, from the three
+  instances above (T5.5 Social Play, T6.3/T6.7→T8.5 Payments, T7.7
+  Facilities): each of those bounds the blast radius to this platform's own
+  data, whereas a token guards **a third party's account** outside this
+  system. ADR-0009 therefore defers all OAuth token storage and all inbound
+  messaging integration until real authentication exists — shareable
+  registration links (T9.5) are the shipped mechanism for social-driven
+  registration meanwhile, and the `port.MessagingChannel` anti-corruption
+  layer is designed on paper in that ADR only (no package created). Its
+  trigger condition is the sprint that lands real auth (recommended T10,
+  §A5) and requires verified identity + an encrypted token-at-rest story +
+  a revocation path to all exist first. The locked "channel you control,
+  not public reply scraping" position
+  (`docs/design/v1-system-design.md` §4,
+  `docs/design/v1-external-reference-reconciliation.md`) is unchanged;
+  ADR-0009 adds only the timing decision. Also still open and addressed to
+  the user there: the Vietnam-vs-global market-scope question T7 escalated
+  (it decides WhatsApp vs. Zalo, and only one platform gets prototyped).
 - T5.5 (see PR stacked on #11-#14, closes issue #10) added a full-stack
   regression test — `internal/socialplay/adapter/grpcapi/authz_regression_test.go`
   — proving `Registration.Cancel`'s object-level ownership check (Player A
@@ -613,14 +636,36 @@ former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
   calls it before its already-built `AddCameraLink` call, making the
   default-unchecked consent checkbox actually work end-to-end for the
   first time.
-- ~~T7.1 through T7.6 all needed `npm install --legacy-peer-deps`...~~
-  Still open as of T8 — every T8 implementer sandbox hit the same
+- ~~T7.1 through T7.6 all needed `npm install --legacy-peer-deps`... Still
+  open as of T8 — every T8 implementer sandbox hit the same
   `typescript@~6.0.0` vs. `openapi-typescript`'s `^5.x` peer range friction.
   Confirmed working across 16 tickets' worth of builds now (T7+T8), so
   still not a real incompatibility, but a third sprint carrying this
   unfixed is exactly the "flagged in prose, not tracked as a real ticket"
   pattern T5's retro finding 6 warned about — raise as a real, small T9/T10
-  ticket rather than logging it a fourth time.
+  ticket rather than logging it a fourth time.~~ Closed by T9.10 (issue
+  #79): `web/package.json` now pins `typescript` to `~5.9.0` instead of the
+  scaffold's `~6.0.0`. Both directions were checked before picking one —
+  there is no newer `openapi-typescript` major that widens the peer range
+  (7.13.0 is the latest published version and still declares
+  `typescript: ^5.x`), so moving TypeScript was the only fix that didn't
+  require changing the generator. `~5.9.0` satisfies every other TypeScript
+  consumer at the same time (`@vue/tsconfig@0.9.1` needs `>= 5.8`,
+  `vue-tsc@3.3.7` needs `>= 5.0.0`). `npm install` **and** `npm ci` now both
+  succeed with no flag from a clean checkout (`node_modules` deleted), and
+  `npm run build`, `npm run test` (27 files / 211 tests), and
+  `npm run generate:client` all pass afterward. Critically, the generated
+  client under `web/src/api/generated/` is **byte-identical** under
+  TypeScript 6.0.3 and 5.9.3 — verified by regenerating under each and
+  diffing, so this closed the chore without changing any API surface. The
+  only other lockfile movement is `yaml`'s hoisting (top-level `1.10.3` ->
+  `2.9.0`, with `1.10.3` now nested under the four `oas-*`/`swagger2openapi`
+  consumers that actually pin it): that is npm resolving optional peer deps
+  properly once `--legacy-peer-deps` is no longer suppressing them, not a
+  bundled upgrade — re-running the install *with* the flag still on produces
+  a typescript-only diff, which is how it was confirmed. Three sprints old
+  at closure; see `web/README.md`'s "TypeScript version pin" section for
+  when to revisit the pin.
 - No CI is configured on this repo yet (still 0 GitHub check runs as of
   T8's reviews) — every "tests pass"/"build green" claim in T5–T8's PRs
   was verified by an agent running the commands locally in its own sandbox

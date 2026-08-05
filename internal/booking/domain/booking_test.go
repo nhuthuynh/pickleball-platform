@@ -104,6 +104,22 @@ func TestEnsureNoConflict_CrossSource(t *testing.T) {
 			wantConflict: true,
 		},
 		{
+			// The reverse direction of the case above, asserted
+			// separately rather than assumed (T9.1). EnsureNoConflict is
+			// source-agnostic by construction, so both directions are
+			// expected to behave identically — but "expected by
+			// construction" is not the same as proven, and T9's
+			// Competitions context is the first code to actually build on
+			// the cross-source claim (a Competition reserves courts as
+			// competition-source Bookings that must be blocked by an
+			// existing Game's).
+			name:          "competition vs game same court overlapping conflicts",
+			existingRange: mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z"),
+			existingSrc:   domain.SourceGame, candidateSrc: domain.SourceCompetition,
+			existingCourt: "court-1", candidateCourt: "court-1", existingStatus: domain.StatusConfirmed,
+			wantConflict: true,
+		},
+		{
 			name:          "individual vs recurring hire same court overlapping conflicts",
 			existingRange: mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z"),
 			existingSrc:   domain.SourceRecurringHire, candidateSrc: domain.SourceIndividual,
