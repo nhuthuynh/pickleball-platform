@@ -105,9 +105,13 @@ func (f *fakeFacilityLookup) FacilityExists(_ context.Context, facilityID string
 // the same name in internal/socialplay/app and internal/booking/app.
 type sequentialIDs struct{ n int }
 
+// NewID mints deterministic but *UUID-shaped* IDs. It used to return "id-1",
+// a shape the real port.IDGenerator (internal/platform/idgen.UUID) never
+// produces and the Postgres adapter's mustUUID panics on — which is why no
+// test could see the malformed-ID crash. See malformed_id_test.go.
 func (g *sequentialIDs) NewID() string {
 	g.n++
-	return fmt.Sprintf("id-%d", g.n)
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", g.n)
 }
 
 // fakeShareTokens is a deterministic port.ShareTokenGenerator. err lets a

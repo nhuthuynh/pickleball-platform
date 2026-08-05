@@ -7,10 +7,25 @@ package app
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/nhuthuynh/white-label/internal/facilities/domain"
 	"github.com/nhuthuynh/white-label/internal/facilities/port"
 )
+
+// uuidShape matches the canonical 8-4-4-4-12 hex form internal/platform/idgen
+// mints for every Facility and Court ID.
+//
+// Boundary guard for caller-supplied IDs: the Postgres adapter's mustUUID
+// panics on anything pgtype.UUID.Scan can't parse, and grpc installs no
+// recover() of its own, so an unvalidated ID off the wire could take the whole
+// process down. Deliberately narrower than github.com/google/uuid's Validate,
+// which accepts braced and `urn:uuid:` forms that pgtype rejects — a guard
+// wider than the thing it protects is not a guard. Kept context-local rather
+// than shared, matching how this repo keeps each context's own not-found
+// sentinel local (see socialplay/domain's ErrFacilityNotFound comment). The
+// canonical write-up lives on internal/competitions/app's copy.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // Service is the Facilities context's application layer.
 type Service struct {
@@ -45,6 +60,13 @@ func (s *Service) CreateFacility(ctx context.Context, in CreateFacilityInput) (d
 
 // GetFacility returns a single Facility by id, or domain.ErrFacilityNotFound.
 func (s *Service) GetFacility(ctx context.Context, id string) (domain.Facility, error) {
+	// A malformed ID is answered exactly like an unknown one. Besides keeping
+	// the adapter's mustUUID from panicking on wire input, this preserves the
+	// project convention that an unresolvable Facility reference is a 404 and
+	// never a 500 — see domain.ErrFacilityNotFound.
+	if !uuidShape.MatchString(id) {
+		return domain.Facility{}, domain.ErrFacilityNotFound
+	}
 	return s.repo.GetFacilityByID(ctx, id)
 }
 

@@ -141,11 +141,23 @@ func equalFold(a, b string) bool {
 
 // sequentialIDs is a deterministic port.IDGenerator fake, mirroring
 // internal/booking/app's sequentialIDs.
+// sequentialIDs mints deterministic but *UUID-shaped* IDs.
+//
+// It used to return "id-1", "id-2", .... That was a fixture lying about
+// production: the real port.IDGenerator is internal/platform/idgen.UUID
+// (uuid.NewString()), and the Postgres adapter's mustUUID panics on anything
+// that isn't a UUID — so a fixture using "id-1" made it impossible for these
+// tests to see the malformed-ID crash. The sequence stays deterministic so
+// order-dependent assertions still hold.
 type sequentialIDs struct{ n int }
 
 func (g *sequentialIDs) NewID() string {
 	g.n++
-	return fmt.Sprintf("id-%d", g.n)
+	return seqUUID(g.n)
+}
+
+func seqUUID(n int) string {
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", n)
 }
 
 func TestCreateFacility_Valid(t *testing.T) {
@@ -165,8 +177,8 @@ func TestCreateFacility_Valid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if f.ID != "id-1" {
-		t.Fatalf("ID = %q, want id-1", f.ID)
+	if f.ID != seqUUID(1) {
+		t.Fatalf("ID = %q, want %q", f.ID, seqUUID(1))
 	}
 	if f.CameraConsentAttested {
 		t.Fatalf("CameraConsentAttested = true, want false by default")

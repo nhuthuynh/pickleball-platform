@@ -4,11 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
 	"github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
+
+// uuidShape matches the canonical 8-4-4-4-12 hex form internal/platform/idgen
+// mints for every Game and Registration ID.
+//
+// Boundary guard for caller-supplied IDs: the Postgres adapter's mustUUID
+// panics on anything pgtype.UUID.Scan can't parse, and grpc installs no
+// recover() of its own, so an unvalidated ID off the wire could take the whole
+// process down. Deliberately narrower than github.com/google/uuid's Validate,
+// which accepts braced and `urn:uuid:` forms that pgtype rejects. The canonical
+// write-up lives on internal/competitions/app's copy.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // Service is the Social Play context's application layer: it orchestrates
 // the domain and its ports, but holds no business rules itself — those live
@@ -387,6 +399,12 @@ func (s *Service) ListGames(ctx context.Context, filter port.GameListingFilter) 
 // may list a Game's registrations, same as any caller may browse Games;
 // see internal/socialplay/adapter/grpcapi's handler doc comment).
 func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID string) ([]domain.Registration, error) {
+	// A malformed gameID is answered exactly like an unknown one. This read is
+	// list-shaped — an unknown Game yields an empty roster rather than an
+	// error — so a malformed Game must yield an empty roster too.
+	if !uuidShape.MatchString(gameID) {
+		return []domain.Registration{}, nil
+	}
 	return s.registrations.ListActiveForGame(ctx, gameID)
 }
 

@@ -154,9 +154,12 @@ func (r *fakeRepo) AttestCameraConsent(_ context.Context, facilityID string) err
 // fakeIDs.
 type fakeIDs struct{ n int }
 
+// NewID mints deterministic but *UUID-shaped* IDs. It used to return "id-1",
+// which no real ID generator produces and no real Postgres adapter can store —
+// see the same note on internal/facilities/app's sequentialIDs.
 func (f *fakeIDs) NewID() string {
 	f.n++
-	return fmt.Sprintf("id-%d", f.n)
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", f.n)
 }
 
 // newTestHandler wires the real app.Service and the real grpcapi.Handler —
