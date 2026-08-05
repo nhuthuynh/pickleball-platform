@@ -2,10 +2,22 @@ package app
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
 	"github.com/nhuthuynh/white-label/internal/booking/port"
 )
+
+// uuidShape matches the canonical 8-4-4-4-12 hex form internal/platform/idgen
+// mints for every Booking and Court ID.
+//
+// Boundary guard for caller-supplied IDs: the Postgres adapter's mustUUID
+// panics on anything pgtype.UUID.Scan can't parse, and grpc installs no
+// recover() of its own, so an unvalidated ID off the wire could take the whole
+// process down. Deliberately narrower than github.com/google/uuid's Validate,
+// which accepts braced and `urn:uuid:` forms that pgtype rejects. The canonical
+// write-up lives on internal/competitions/app's copy.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // Service is the Booking context's application layer: it orchestrates the
 // domain and the repository port, but holds no business rules itself — those
@@ -61,6 +73,13 @@ func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (dom
 // adapter runs); this method exists so the API layer depends on the app
 // layer rather than the repository port directly.
 func (s *Service) ListCourtBookings(ctx context.Context, courtID string, r domain.TimeRange) ([]domain.Booking, error) {
+	// A malformed courtID is answered exactly like an unknown one. This read is
+	// list-shaped — an unknown Court yields an empty schedule rather than an
+	// error — so a malformed Court must yield an empty schedule too, rather
+	// than an error this method never otherwise returns.
+	if !uuidShape.MatchString(courtID) {
+		return []domain.Booking{}, nil
+	}
 	return s.repo.ListActiveForCourt(ctx, courtID, r)
 }
 

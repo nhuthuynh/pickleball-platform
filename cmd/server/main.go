@@ -50,6 +50,7 @@ import (
 	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	paymentsapp "github.com/nhuthuynh/white-label/internal/payments/app"
+	"github.com/nhuthuynh/white-label/internal/platform/grpcrecovery"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
 	"github.com/nhuthuynh/white-label/internal/platform/pg"
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
@@ -157,7 +158,27 @@ func run(logger *slog.Logger) error {
 	})
 	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
 
-	grpcServer := grpc.NewServer()
+	// The recovery interceptors are the process's panic safety net and must
+	// stay installed. grpc, unlike net/http, installs no recover() of its own:
+	// an unrecovered panic in any one handler unwinds past the server and kills
+	// this entire process, taking every other in-flight request and every other
+	// bounded context with it. Until this was added, grpc.NewServer() was called
+	// with no options at all, and an unauthenticated
+	// `GET /v1/competitions/not-a-uuid` reached a Postgres adapter's mustUUID
+	// and did exactly that — a one-request total outage.
+	//
+	// This protects every handler in all five contexts, present and future,
+	// against every panic — not just the malformed-ID one that exposed it. It is
+	// the backstop, not the fix: input is still validated at the boundary (see
+	// the app-layer ID checks) so these panics don't happen in the first place.
+	//
+	// Chain* rather than the single-interceptor options so adding auth/metrics/
+	// tracing later is an append, and recovery — which must be outermost to
+	// cover the other interceptors too — stays first in the chain.
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(grpcrecovery.UnaryInterceptor(logger)),
+		grpc.ChainStreamInterceptor(grpcrecovery.StreamInterceptor(logger)),
+	)
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
 	socialplayv1.RegisterSocialPlayServiceServer(grpcServer, socialplayHandler)
 	paymentsv1.RegisterPaymentsServiceServer(grpcServer, paymentsHandler)

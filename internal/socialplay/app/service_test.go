@@ -1362,24 +1362,30 @@ func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository())
 	ctx := context.Background()
 
+	// Game IDs are UUID-shaped because that is what the real system mints and
+	// what the Postgres adapter's mustUUID requires; "g-1" was a fixture shape
+	// no real Game ever has, which is why no test could see the malformed-ID
+	// crash this file's malformed_id_test.go sibling now covers.
+	gameOne, gameTwo := gameID(1), gameID(2)
+
 	registrations.registrations["r-active"] = domain.Registration{
-		ID: "r-active", GameID: "g-1", PlayerID: "player-1",
+		ID: "r-active", GameID: gameOne, PlayerID: "player-1",
 		Status: domain.RegistrationStatusRegistered, PaymentStatus: domain.PaymentStatusUnpaid,
 	}
 	registrations.registrations["r-cancelled"] = domain.Registration{
-		ID: "r-cancelled", GameID: "g-1", PlayerID: "player-2",
+		ID: "r-cancelled", GameID: gameOne, PlayerID: "player-2",
 		Status: domain.RegistrationStatusCancelled, PaymentStatus: domain.PaymentStatusUnpaid,
 	}
 	registrations.registrations["r-other-game"] = domain.Registration{
-		ID: "r-other-game", GameID: "g-2", PlayerID: "player-3",
+		ID: "r-other-game", GameID: gameTwo, PlayerID: "player-3",
 		Status: domain.RegistrationStatusRegistered, PaymentStatus: domain.PaymentStatusUnpaid,
 	}
 
-	got, err := svc.ListRegistrationsForGame(ctx, "g-1")
+	got, err := svc.ListRegistrationsForGame(ctx, gameOne)
 	if err != nil {
 		t.Fatalf("ListRegistrationsForGame err: %v", err)
 	}
 	if len(got) != 1 || got[0].ID != "r-active" {
-		t.Fatalf("ListRegistrationsForGame(g-1) = %+v, want only r-active", got)
+		t.Fatalf("ListRegistrationsForGame(%s) = %+v, want only r-active", gameOne, got)
 	}
 }

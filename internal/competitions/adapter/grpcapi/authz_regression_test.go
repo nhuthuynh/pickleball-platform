@@ -198,11 +198,22 @@ type fakeFacilities struct{}
 
 func (fakeFacilities) FacilityExists(_ context.Context, _ string) error { return nil }
 
+// fakeIDs mints deterministic but *UUID-shaped* IDs.
+//
+// It used to return "id-1", "id-2", .... That was a fixture lying about
+// production: the real port.IDGenerator is internal/platform/idgen.UUID, which
+// returns uuid.NewString(), and the Postgres adapter's mustUUID panics on
+// anything that isn't a UUID. Because these fakes accepted shapes the real
+// system never produces and the real adapter cannot store, the tests could not
+// see the malformed-ID crash at all — they were the only place "id-1" was ever
+// a valid Competition ID. Keeping the sequence deterministic (the last hex
+// digits count up) preserves every existing assertion that depends on ordering
+// while making the shape honest.
 type fakeIDs struct{ n int }
 
 func (f *fakeIDs) NewID() string {
 	f.n++
-	return fmt.Sprintf("id-%d", f.n)
+	return fmt.Sprintf("00000000-0000-4000-8000-%012d", f.n)
 }
 
 type fakeShareTokens struct{ n int }
