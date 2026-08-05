@@ -125,6 +125,34 @@ func TestParseGovulncheckRejectsMalformedJSON(t *testing.T) {
 	}
 }
 
+// TestParseGovulncheckTruncatedRunLooksLikeZeroFindings documents a real
+// incident (PR #95 review): when govulncheck can't reach vuln.go.dev, it
+// still writes a well-formed `config`/SBOM preamble to stdout before it
+// dies — no findings, no OSV entries, syntactically valid NDJSON. Parsed in
+// isolation, that is genuinely indistinguishable from "the scan ran and
+// found nothing", and this test pins that ParseGovulncheck does exactly
+// that (no error, zero findings) rather than guessing.
+//
+// That is why this is NOT a bug in ParseGovulncheck to "fix": nothing in
+// the byte stream says the process died partway through — only the
+// process's own exit code carries that information, and this function
+// never sees it. The Jenkinsfile's Security scan stage is what has to
+// carry that signal (build/govulncheck.exit, checked before this file's
+// output is ever trusted) — this test exists so a future reader doesn't
+// try to solve the problem at the wrong layer a second time.
+func TestParseGovulncheckTruncatedRunLooksLikeZeroFindings(t *testing.T) {
+	truncated := `{"config":{"protocol_version":"v1","scanner_name":"govulncheck","scanner_version":"1.1.3","db":"https://vuln.go.dev","db_last_modified":"2026-08-01T00:00:00Z","go_version":"go1.25.0"}}
+{"progress":{"message":"Scanning your code and 42 packages across 6 dependent modules for known vulnerabilities..."}}
+`
+	got, err := ParseGovulncheck(strings.NewReader(truncated))
+	if err != nil {
+		t.Fatalf("ParseGovulncheck() error = %v, want nil — a truncated-but-well-formed stream is not malformed JSON", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("got %d findings, want 0 — a config/progress-only stream genuinely has none to report", len(got))
+	}
+}
+
 func TestParseNPMAudit(t *testing.T) {
 	tests := []struct {
 		name     string

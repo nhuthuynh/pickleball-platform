@@ -274,8 +274,27 @@ pipeline {
                 // and it must not masquerade as "no vulnerabilities found".
                 // vulngate below is what decides pass/fail, and it gates on
                 // whatever reports actually exist.
+                //
+                // The exit code, not the file's presence or size, is what
+                // decides whether build/govulncheck.json is usable. A run
+                // that dies partway through (e.g. can't reach vuln.go.dev)
+                // still writes a well-formed `config`/SBOM preamble before
+                // failing — a real, non-empty, valid-JSON file with zero
+                // findings in it — so `[ -s ... ]` alone reads a failed scan
+                // as a clean one. PR #95 review caught this: the gate
+                // printed "PASS: no new gating findings" for a scan that
+                // never actually ran. build/govulncheck.exit is the real
+                // signal; see tools/vulngate/gate_test.go for the case this
+                // guards (a truncated-but-nonempty report must not gate as
+                // "no findings").
                 warnError('Go vulnerability scan could not complete — findings UNKNOWN, not "none"') {
-                    sh "go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} -format json ./... > build/govulncheck.json"
+                    sh '''
+                        set +e
+                        go run golang.org/x/vuln/cmd/govulncheck@$GOVULNCHECK_VERSION -format json ./... > build/govulncheck.json
+                        status=$?
+                        echo "$status" > build/govulncheck.exit
+                        exit "$status"
+                    '''
                 }
 
                 // npm audit exits non-zero when it finds something; that is a
@@ -285,17 +304,17 @@ pipeline {
                 sh '''
                     set -e
                     ARGS="-baseline security/vuln-baseline.json -npm build/npm-audit.json"
-                    if [ -s build/govulncheck.json ]; then
+                    if [ -f build/govulncheck.exit ] && [ "$(cat build/govulncheck.exit)" = "0" ]; then
                         ARGS="$ARGS -go build/govulncheck.json"
                     else
-                        echo "NOTE: no usable Go scan report — gating on npm findings ONLY."
+                        echo "NOTE: Go vulnerability scan did not complete successfully (see build/govulncheck.exit) — gating on npm findings ONLY."
                     fi
                     go run ./cmd/vulngate $ARGS
                 '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'build/govulncheck.json,build/npm-audit.json',
+                    archiveArtifacts artifacts: 'build/govulncheck.json,build/govulncheck.exit,build/npm-audit.json',
                                      allowEmptyArchive: true, fingerprint: false
                 }
             }

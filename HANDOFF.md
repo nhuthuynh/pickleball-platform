@@ -815,10 +815,42 @@ ADR-0009/ADR-0010's triggers — are next.
   verified by hand", not as "changes are automatically verified".
   Worth noting SCRUM-6 immediately paid for itself even so: running the
   checks it wires up surfaced four pre-existing defects on the shared
-  branch (three `vue-tsc` errors from T9.2's `GameSummary` entry-fee
-  fields never reaching T8.9's fixtures — which were rendering `$NaN` —
-  and one `staticcheck` finding), none of which `make test-domain` or
-  `npm run test` would ever have caught, because neither type-checks.
+  branch — three `vue-tsc` errors from T9.2's `GameSummary` entry-fee
+  fields never reaching T8.9's fixtures, and one `staticcheck` finding —
+  none of which `make test-domain` or `npm run test` would ever have
+  caught, because neither type-checks. **Corrected by PR #95's own
+  review**, which reproduced the `vue-tsc` defect directly rather than
+  taking the fix's severity on faith: all three errors are confined to
+  `__tests__/*.spec.ts` fixtures, and production's real
+  `mapToGameSummary` always coerces the entry-fee fields
+  (`Number(game.entryFee?.amountCents ?? 0)`), so the `$NaN` this defect
+  produced reached the vitest-rendered DOM in a test, never a real
+  browser. A genuine test-fidelity defect (and a legitimate reason to add
+  type-checking to the pipeline that plain unit tests would have missed
+  indefinitely) — not the shipped user-facing bug an earlier draft of
+  this entry implied.
+  **Also found by that same review, and fixed the same day**: the
+  Security scan stage's govulncheck-unreachable path had a real gate
+  bug, not just a disclosed limitation — when `vuln.go.dev` can't be
+  reached, `govulncheck` still writes a well-formed `config`/progress
+  preamble to stdout before exiting non-zero, and the stage's original
+  `[ -s build/govulncheck.json ]` check only asked "is this file
+  non-empty", not "did the scan actually finish" — so a failed scan
+  still fed its (findings-empty) partial output to `vulngate`, which
+  printed **`PASS: no new gating findings`** for a Go dependency scan
+  that never ran. Reproduced end-to-end with a stub `govulncheck` that
+  mimics exactly this failure shape, confirming the false PASS under the
+  old logic and its absence under the fix. Fixed by capturing the real
+  exit code to `build/govulncheck.exit` and gating on that instead of
+  file size — `warnError`'s UNSTABLE marking was never the problem (it
+  fired correctly); the gate's own verdict was the thing silently wrong,
+  which is precisely the property ADR-0011 and the baseline file both
+  claim is impossible by construction. `tools/vulngate/gate_test.go`
+  gained `TestParseGovulncheckTruncatedRunLooksLikeZeroFindings`,
+  documenting why this is a Jenkinsfile-level fix rather than something
+  `ParseGovulncheck` itself should try to detect (the byte stream alone
+  cannot distinguish a truncated run from a real zero-findings one; only
+  the process's exit code carries that information).
 - **New this sprint (critical, out-of-band, not a ticket): `cmd/server`
   had zero gRPC interceptors, so any unauthenticated request with a
   malformed ID crashed the entire server process** — found as a byproduct

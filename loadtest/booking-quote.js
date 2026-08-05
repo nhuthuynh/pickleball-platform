@@ -58,8 +58,10 @@ export const options = {
 }
 
 function uniqueSlot() {
-  // __VU is 1-based and __ITER is 0-based; this mapping is collision-free
-  // for any VU count below 100000.
+  // __VU is 1-based and __ITER is 0-based. __VU*100000 buckets each VU into
+  // its own block of the index space; collisions are avoided as long as
+  // __ITER stays below 100000 for any single VU (that's the constraint —
+  // VU count itself has no such ceiling from this formula).
   const index = __VU * 100000 + __ITER
   const start = new Date(BOOKING_EPOCH + index * HOUR_MS)
   const end = new Date(start.getTime() + HOUR_MS)
