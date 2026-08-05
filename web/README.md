@@ -22,11 +22,48 @@ Built and verified against **Node v22.22.2 / npm 10.9.7** (this repo's
 guaranteed present in every environment — check `node --version` /
 `npm --version` first; install Node LTS if missing.
 
+## TypeScript version pin (T9.10)
+
+`typescript` is pinned to `~5.9.0`, **not** the `~6.0.0` the `npm create
+vue@latest` scaffold shipped with. This is deliberate — do not bump it back
+without reading this first.
+
+`openapi-typescript@7.13.0` (latest as of T9.10) declares
+`peerDependencies: { typescript: "^5.x" }`. Against `typescript@~6.0.0` that
+is an unsatisfiable peer conflict, so every `npm install` from T7.1 onward
+needed `--legacy-peer-deps` — 16 tickets' worth of builds across T7 and T8.
+The flag worked (nothing was actually broken at runtime), but it meant a
+fresh checkout could not be installed the documented way, and `npm ci`
+failed outright.
+
+Which side to move was checked both ways: there is **no** newer
+`openapi-typescript` major that widens the range — 7.13.0 *is* the latest
+published version and still says `^5.x` — so moving TypeScript down to the
+top of the 5.x line was the only fix available that did not require
+changing the code generator. `~5.9.0` satisfies every other TypeScript
+consumer here simultaneously: `@vue/tsconfig@0.9.1` needs `>= 5.8`,
+`vue-tsc@3.3.7` needs `>= 5.0.0`.
+
+The generated client under `src/api/generated/` is **byte-identical** under
+TypeScript 6.0.3 and 5.9.3 (verified by regenerating under both and
+diffing) — `openapi-typescript` emits `.d.ts` text from the OpenAPI
+document and does not vary its output with the installed compiler version.
+No API surface changed.
+
+Revisit this pin when `openapi-typescript` publishes a version whose
+`typescript` peer range includes 6.x; at that point bump both together in
+one ticket, and re-run the same regenerate-and-diff check.
+
 ## Project setup
 
 ```sh
 npm install
 ```
+
+No `--legacy-peer-deps` (or any other) flag is needed; `npm ci` works from
+a clean checkout too. If you hit an `ERESOLVE` peer-dependency error here,
+something has drifted — see "TypeScript version pin" above before reaching
+for a workaround flag.
 
 ### Dev server
 
@@ -374,9 +411,10 @@ as overdue for exactly this fix.
   router/Pinia/ESLint added yet — deliberately minimal until a ticket
   actually needs them"). `vue-router@4.6.4`'s only peer dependency is
   `vue: ^3.5.0`, matching the scaffolded `vue@^3.5.40` cleanly — installing
-  it did **not** need `--legacy-peer-deps` on its own (only the
+  it did **not** need `--legacy-peer-deps` on its own (at the time, only the
   pre-existing, unrelated `openapi-typescript`-vs-`typescript` conflict
-  `HANDOFF.md` already logged needs that flag for a full `npm install`).
+  `HANDOFF.md` logged needed that flag for a full `npm install` — fixed
+  since, in T9.10; see "TypeScript version pin" above).
 - **`src/router/index.ts`** — the route table:
   - `/facilities` -> `DiscoverFacilities` (T7.5), `/facilities/onboard` ->
     `FacilityOnboarding` (T7.4): existing screens, wired unchanged.

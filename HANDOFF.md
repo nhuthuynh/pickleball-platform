@@ -128,7 +128,8 @@ plus `npm run build`/`npm run test`) before merging. Known gaps carried
 forward, not silently dropped (see Cross-cutting below): Social Play has no
 price/fee field at all (T8.10 used a disclosed, visibly-labeled placeholder
 amount), no CI is configured on this repo, and the `npm install
---legacy-peer-deps` friction from T7 is still open.
+--legacy-peer-deps` friction from T7 was still open at the end of T8
+(closed since, by T9.10 — see Cross-cutting).
 
 **Not yet built**
 - Competitions, Statements contexts.
@@ -609,14 +610,36 @@ former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
   calls it before its already-built `AddCameraLink` call, making the
   default-unchecked consent checkbox actually work end-to-end for the
   first time.
-- ~~T7.1 through T7.6 all needed `npm install --legacy-peer-deps`...~~
-  Still open as of T8 — every T8 implementer sandbox hit the same
+- ~~T7.1 through T7.6 all needed `npm install --legacy-peer-deps`... Still
+  open as of T8 — every T8 implementer sandbox hit the same
   `typescript@~6.0.0` vs. `openapi-typescript`'s `^5.x` peer range friction.
   Confirmed working across 16 tickets' worth of builds now (T7+T8), so
   still not a real incompatibility, but a third sprint carrying this
   unfixed is exactly the "flagged in prose, not tracked as a real ticket"
   pattern T5's retro finding 6 warned about — raise as a real, small T9/T10
-  ticket rather than logging it a fourth time.
+  ticket rather than logging it a fourth time.~~ Closed by T9.10 (issue
+  #79): `web/package.json` now pins `typescript` to `~5.9.0` instead of the
+  scaffold's `~6.0.0`. Both directions were checked before picking one —
+  there is no newer `openapi-typescript` major that widens the peer range
+  (7.13.0 is the latest published version and still declares
+  `typescript: ^5.x`), so moving TypeScript was the only fix that didn't
+  require changing the generator. `~5.9.0` satisfies every other TypeScript
+  consumer at the same time (`@vue/tsconfig@0.9.1` needs `>= 5.8`,
+  `vue-tsc@3.3.7` needs `>= 5.0.0`). `npm install` **and** `npm ci` now both
+  succeed with no flag from a clean checkout (`node_modules` deleted), and
+  `npm run build`, `npm run test` (27 files / 211 tests), and
+  `npm run generate:client` all pass afterward. Critically, the generated
+  client under `web/src/api/generated/` is **byte-identical** under
+  TypeScript 6.0.3 and 5.9.3 — verified by regenerating under each and
+  diffing, so this closed the chore without changing any API surface. The
+  only other lockfile movement is `yaml`'s hoisting (top-level `1.10.3` ->
+  `2.9.0`, with `1.10.3` now nested under the four `oas-*`/`swagger2openapi`
+  consumers that actually pin it): that is npm resolving optional peer deps
+  properly once `--legacy-peer-deps` is no longer suppressing them, not a
+  bundled upgrade — re-running the install *with* the flag still on produces
+  a typescript-only diff, which is how it was confirmed. Three sprints old
+  at closure; see `web/README.md`'s "TypeScript version pin" section for
+  when to revisit the pin.
 - No CI is configured on this repo yet (still 0 GitHub check runs as of
   T8's reviews) — every "tests pass"/"build green" claim in T5–T8's PRs
   was verified by an agent running the commands locally in its own sandbox
