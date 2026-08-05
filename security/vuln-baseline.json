@@ -1,0 +1,24 @@
+{
+  "_comment": [
+    "Explicitly accepted dependency-scanner findings. Anything listed here is",
+    "known, justified, and will NOT fail the build; anything not listed that",
+    "meets the gating threshold WILL fail it. See cmd/vulngate + tools/vulngate",
+    "and docs/adr/0011-ci-pipeline-and-security-gating.md.",
+    "",
+    "Gating threshold: npm audit high + critical; govulncheck 'called' (the Go",
+    "vuln DB carries no CVSS severity, so reachability is the signal).",
+    "",
+    "Every entry needs a real reason — vulngate rejects a baseline entry with",
+    "an empty reason, so a silent suppression is not possible. Include the date",
+    "and revisit entries when the upstream fix lands.",
+    "",
+    "As of 2026-08-05 this list is EMPTY, and that is a measured result, not a",
+    "placeholder: `npm audit` against web/ reports 0 vulnerabilities at every",
+    "severity (346 packages audited). The Go side is UNMEASURED — vuln.go.dev",
+    "is blocked by this environment's egress policy, so govulncheck could not",
+    "run here. The first CI run on an agent with normal network access is what",
+    "establishes the real Go baseline; if it reports pre-existing 'called'",
+    "findings, add them here with reasons rather than weakening the gate."
+  ],
+  "accepted": []
+}

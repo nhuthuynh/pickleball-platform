@@ -31,5 +31,26 @@ services:
       db:
         condition: service_healthy
 
+  # The Vue client, built to static assets and served by nginx (SCRUM-6),
+  # so `make up` brings up the whole stack rather than backend-only.
+  #
+  # Note the browser calls the API directly on localhost:8080 (the origin
+  # baked in at build time by VITE_API_BASE_URL) rather than being proxied
+  # through this nginx — the API is already published to the host, and
+  # adding a proxy hop would mean the dev stack and production disagreed
+  # about where the API lives.
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    ports:
+      - "5173:80"
+    depends_on:
+      # Ordering only: nginx serves a static bundle, so it does not need the
+      # API to be healthy to start — but starting it after the API keeps the
+      # first page load from racing an API that is not listening yet.
+      - app
+
 volumes:
   pgdata:

@@ -191,7 +191,12 @@ func TestUnaryInterceptorRecoversPanicAndServerSurvives(t *testing.T) {
 			panic: func() { panic(errors.New("boom")) },
 		},
 		{
-			name:  "nil map write",
+			name: "nil map write",
+			// SA5000 (assignment to nil map) is exactly the runtime panic this
+			// case exists to provoke — the nil-map write is deliberate, not a
+			// bug. Suppressed narrowly here rather than disabling staticcheck
+			// repo-wide in .golangci.yml.
+			//nolint:staticcheck // SA5000: intentional nil-map write to trigger a real runtime panic
 			panic: func() { var m map[string]string; m["k"] = "v" },
 		},
 		{

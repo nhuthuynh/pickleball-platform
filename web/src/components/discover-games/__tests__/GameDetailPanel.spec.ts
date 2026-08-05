@@ -15,6 +15,13 @@ const game: GameSummary = {
   status: 'GAME_STATUS_SCHEDULED',
   paymentMethod: 'PAYMENT_METHOD_CASH',
   guestAllowance: 2,
+  // T9.2 added entryFeeCents/entryFeeCurrency to GameSummary but this
+  // fixture was never updated, so `vue-tsc` failed and the panel rendered
+  // `entryFeeLabel(undefined)` -> "$NaN" at runtime. A real (non-free) fee
+  // matches the sibling GameJoinPanel fixture. (SCRUM-6: first defect the
+  // new CI type-check stage caught.)
+  entryFeeCents: 1000,
+  entryFeeCurrency: 'USD',
   spotsLeft: 3,
 }
 
