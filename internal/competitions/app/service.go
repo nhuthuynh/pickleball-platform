@@ -274,6 +274,41 @@ func (s *Service) EnterCompetition(ctx context.Context, in EnterCompetitionInput
 	return s.competitions.CreateEntry(ctx, entry)
 }
 
+// GetCompetition returns a single Competition by ID, or
+// domain.ErrCompetitionNotFound (which T9.4's handler maps to a 404-shaped
+// status).
+//
+// A deliberate thin pass-through to the repository with no orchestration of
+// its own: there is no rule to apply on reading a Competition, and adding a
+// use-case method that only forwards is still worth it so the gRPC handler
+// depends on app.Service alone rather than reaching past it into
+// port.Repository — the dependency direction CLAUDE.md rule 3 requires, and
+// the same shape socialplay's read paths use.
+//
+// **No ownership check, deliberately**, for the same reason
+// EnterCompetition has none: reading a Competition is not an act *on* it.
+// Anyone who can see the listing can read the Competition it names.
+func (s *Service) GetCompetition(ctx context.Context, competitionID string) (domain.Competition, error) {
+	return s.competitions.GetByID(ctx, competitionID)
+}
+
+// ListCompetitions is the browse/list read path (T9.4), returning each
+// matching Competition with its server-computed, **weighted** SpotsLeft —
+// see port.CompetitionListing for why the weighting is load-bearing rather
+// than cosmetic, and port.CompetitionListingFilter for what each filter
+// field means when unset.
+func (s *Service) ListCompetitions(ctx context.Context, filter port.CompetitionListingFilter) ([]port.CompetitionListing, error) {
+	return s.competitions.ListCompetitions(ctx, filter)
+}
+
+// ListEntriesForCompetition returns a Competition's full roster, cancelled
+// entries included — see port.Repository.ListEntriesForCompetition for why
+// this is a different method from the capacity check's own
+// ListActiveEntriesForCompetition rather than the same one with a flag.
+func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID string) ([]domain.CompetitionEntry, error) {
+	return s.competitions.ListEntriesForCompetition(ctx, competitionID)
+}
+
 // CancelCompetition transitions a Competition to cancelled on the Host's
 // behalf.
 //
