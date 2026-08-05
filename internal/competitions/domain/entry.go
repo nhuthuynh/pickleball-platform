@@ -176,6 +176,45 @@ func Enter(competition Competition, existing []CompetitionEntry, playerID string
 	}, nil
 }
 
+// SpotsLeft reports how many places remain free in competition given its
+// existing entries: capacity minus the **weighted** occupancy, floored at
+// zero.
+//
+// "Weighted" is the whole point, and it is the same rule Enter enforces —
+// both delegate to countActiveEntries, so a spots-left projection can never
+// drift from the capacity check that actually admits or rejects an entry.
+// An unweighted (headcount) version would advertise 7 free places on a
+// capacity-8 Competition holding one entry that brought 3 guests, when the
+// truth is 4: a visible lie to every player reading the listing, and one
+// they'd only discover when their entry was rejected. That is exactly the
+// drift T5's retro finding 1 and T8.6/T8.7's reweighting exist to prevent,
+// which is why this ships in the same ticket as the listing that needs it
+// rather than as a follow-up.
+//
+// The floor at zero is defensive only: the DB-level capacity guard
+// (db/migrations/0014_competitions.sql) should make an over-occupied
+// Competition unreachable. But a read path must never show a player a
+// negative number of free places even if that invariant were somehow
+// violated, so this mirrors the GREATEST(..., 0) floor the SQL applies
+// (db/queries/competitions.sql's ListCompetitions).
+//
+// This is the pure-Go half of CLAUDE.md rule 4's dual enforcement for the
+// same derived quantity: the browse list computes it in SQL (one aggregate
+// per row, rather than an N+1 fetch of every Competition's entries), and
+// the -tags=integration test asserts the two implementations agree against a
+// real Postgres.
+//
+// existing may be unfiltered — entries belonging to other Competitions are
+// ignored, exactly as in Enter, so a caller that hands over everything it
+// loaded cannot accidentally count another Competition's entrants here.
+func SpotsLeft(competition Competition, existing []CompetitionEntry) int {
+	activeWeight, _ := countActiveEntries(competition.ID, existing, "")
+	if remaining := competition.Capacity - activeWeight; remaining > 0 {
+		return remaining
+	}
+	return 0
+}
+
 // countActiveEntries scans existing for non-cancelled entries scoped to
 // competitionID, returning both the total *weighted* number of places those
 // entries occupy (each counts as 1 + its own GuestCount) and whether

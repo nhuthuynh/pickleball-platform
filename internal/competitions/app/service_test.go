@@ -9,6 +9,7 @@ import (
 
 	"github.com/nhuthuynh/white-label/internal/competitions/app"
 	"github.com/nhuthuynh/white-label/internal/competitions/domain"
+	"github.com/nhuthuynh/white-label/internal/competitions/port"
 )
 
 // ---------------------------------------------------------------------------
@@ -131,6 +132,13 @@ type fakeRepository struct {
 	competitions map[string]domain.Competition
 	entries      map[string]domain.CompetitionEntry
 
+	// competitionOrder/entryOrder track insertion order so the list read
+	// paths are deterministic — Go map iteration order is unspecified, and
+	// an assertion on a roster or a browse list needs a stable sequence.
+	// Mirrors internal/facilities/app/service_test.go's inMemoryRepo.courtOrder.
+	competitionOrder []string
+	entryOrder       []string
+
 	createErr error // simulate persistence failing after reservations succeeded
 }
 
@@ -144,6 +152,9 @@ func newFakeRepository() *fakeRepository {
 func (r *fakeRepository) Create(_ context.Context, c domain.Competition) (domain.Competition, error) {
 	if r.createErr != nil {
 		return domain.Competition{}, r.createErr
+	}
+	if _, exists := r.competitions[c.ID]; !exists {
+		r.competitionOrder = append(r.competitionOrder, c.ID)
 	}
 	r.competitions[c.ID] = c
 	return c, nil
@@ -168,6 +179,9 @@ func (r *fakeRepository) UpdateStatus(_ context.Context, id string, status domai
 }
 
 func (r *fakeRepository) CreateEntry(_ context.Context, e domain.CompetitionEntry) (domain.CompetitionEntry, error) {
+	if _, exists := r.entries[e.ID]; !exists {
+		r.entryOrder = append(r.entryOrder, e.ID)
+	}
 	r.entries[e.ID] = e
 	return e, nil
 }
@@ -182,6 +196,50 @@ func (r *fakeRepository) ListActiveEntriesForCompetition(_ context.Context, comp
 			continue
 		}
 		out = append(out, e)
+	}
+	return out, nil
+}
+
+// ListEntriesForCompetition returns EVERY entry for competitionID, cancelled
+// ones included — the deliberate difference from
+// ListActiveEntriesForCompetition above (see port.Repository's doc comments).
+// entryOrder gives it a deterministic order, since Go map iteration order is
+// unspecified and a roster assertion needs to be stable.
+func (r *fakeRepository) ListEntriesForCompetition(_ context.Context, competitionID string) ([]domain.CompetitionEntry, error) {
+	out := make([]domain.CompetitionEntry, 0)
+	for _, id := range r.entryOrder {
+		if e := r.entries[id]; e.CompetitionID == competitionID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+// ListCompetitions mirrors the real Postgres adapter's contract: only
+// scheduled Competitions, each paired with its WEIGHTED SpotsLeft. It
+// deliberately delegates that computation to domain.SpotsLeft — the same
+// function the production read path's SQL mirrors — so this fake can never
+// quietly disagree with the rule under test.
+func (r *fakeRepository) ListCompetitions(_ context.Context, filter port.CompetitionListingFilter) ([]port.CompetitionListing, error) {
+	out := make([]port.CompetitionListing, 0)
+	for _, id := range r.competitionOrder {
+		c := r.competitions[id]
+		if c.Status != domain.StatusScheduled {
+			continue
+		}
+		if filter.VenueFacilityID != "" && c.VenueFacilityID != filter.VenueFacilityID {
+			continue
+		}
+		var entries []domain.CompetitionEntry
+		for _, e := range r.entries {
+			if e.CompetitionID == c.ID {
+				entries = append(entries, e)
+			}
+		}
+		out = append(out, port.CompetitionListing{
+			Competition: c,
+			SpotsLeft:   domain.SpotsLeft(c, entries),
+		})
 	}
 	return out, nil
 }

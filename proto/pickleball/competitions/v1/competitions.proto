@@ -1,0 +1,417 @@
+syntax = "proto3";
+
+package pickleball.competitions.v1;
+
+import "google/api/annotations.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/competitions/v1;competitionsv1";
+
+// CompetitionStatus mirrors internal/competitions/domain.Status.
+enum CompetitionStatus {
+  COMPETITION_STATUS_UNSPECIFIED = 0;
+  COMPETITION_STATUS_SCHEDULED = 1;
+  COMPETITION_STATUS_CANCELLED = 2;
+}
+
+// CompetitionFormat mirrors internal/competitions/domain.Format.
+//
+// DESCRIPTIVE ONLY — it enforces nothing. An entrant may enter a
+// COMPETITION_FORMAT_DOUBLES Competition alone and the server will accept
+// it; partner pairing, brackets, rounds, seeding, and results are all
+// explicitly out of T9's scope (docs/process/t9-sprint-plan.md §A4). Clients
+// must display this as a label, never treat it as a rule the backend will
+// uphold. See domain.Format's doc comment for why a descriptive field is
+// acceptable here when T8 dropped Social Play's CancellationCutoff on
+// similar grounds: a format label is complete and honest the moment it is
+// displayed, whereas a cutoff would be a promise about other people's
+// behaviour that nothing keeps.
+enum CompetitionFormat {
+  COMPETITION_FORMAT_UNSPECIFIED = 0;
+  COMPETITION_FORMAT_SINGLES = 1;
+  COMPETITION_FORMAT_DOUBLES = 2;
+}
+
+// PaymentMethod mirrors internal/competitions/domain.PaymentMethod: the
+// payment method(s) a Host accepts for a Competition's entries. Deliberately
+// distinct from PaymentStatus below — one is the Host's policy for the whole
+// Competition, the other is a fact about one entrant's place.
+//
+// PAYMENT_METHOD_UNSPECIFIED on an inbound CreateCompetitionRequest (an
+// old/unaware client, or a field simply left unset) is mapped onto
+// domain.PaymentMethodEither by internal/competitions/adapter/grpcapi — the
+// least restrictive of the three values, the same "closest thing to
+// unspecified" resolution socialplay.proto's identical enum documents.
+enum PaymentMethod {
+  PAYMENT_METHOD_UNSPECIFIED = 0;
+  PAYMENT_METHOD_ONLINE = 1;
+  PAYMENT_METHOD_CASH = 2;
+  PAYMENT_METHOD_EITHER = 3;
+}
+
+// EntrySource mirrors internal/competitions/domain.EntrySource: how an
+// entrant arrived.
+//
+// These are the SAME two values Social Play's registration source uses — app
+// and social — not a third vocabulary such as "shared_link" for the same
+// fact. That is CLAUDE.md rule 7 (one ubiquitous language) and the BA/PE
+// ruling in docs/process/t9-sprint-plan.md §A3. ENTRY_SOURCE_SOCIAL means
+// the entrant arrived via a shareable registration link the Host published
+// outside the app (T9.5); the server VALIDATES the caller's claimed source
+// against this closed enum rather than inferring it.
+enum EntrySource {
+  ENTRY_SOURCE_UNSPECIFIED = 0;
+  ENTRY_SOURCE_APP = 1;
+  ENTRY_SOURCE_SOCIAL = 2;
+}
+
+// EntryStatus mirrors internal/competitions/domain.EntryStatus. No RPC in
+// T9.4 transitions an entry to cancelled (there is no "withdraw" RPC yet —
+// see domain.EntryStatus's doc comment for why the value is modelled
+// anyway), but the value appears on the wire because a Host's roster read
+// must be able to represent one when withdrawal lands.
+enum EntryStatus {
+  ENTRY_STATUS_UNSPECIFIED = 0;
+  ENTRY_STATUS_ENTERED = 1;
+  ENTRY_STATUS_CANCELLED = 2;
+}
+
+// PaymentStatus mirrors internal/competitions/domain.PaymentStatus's three
+// states — "never paid" and "paid, then refunded" are different facts a Host
+// or support view must be able to tell apart, which is why a refund does not
+// collapse back to unpaid.
+//
+// READ-ONLY on the wire: no RPC in this file sets it. T9 writes only the
+// initial ENTRY's unpaid value; wiring Competitions to the Payments context
+// is not a T9 ticket, and when it lands Payments must be its single writer
+// via a port — never a field a client can set. This is the same sequencing
+// Social Play went through (modelled in T5.2, given its writer in T6.5), and
+// it is stated here so the missing writer reads as sequencing rather than an
+// oversight.
+enum PaymentStatus {
+  PAYMENT_STATUS_UNSPECIFIED = 0;
+  PAYMENT_STATUS_UNPAID = 1;
+  PAYMENT_STATUS_PAID = 2;
+  PAYMENT_STATUS_REFUNDED = 3;
+}
+
+// Money mirrors internal/competitions/domain.Money: an amount in integer
+// minor units ("cents") paired with its ISO 4217 currency code, per ADR-0005
+// (docs/adr/0005-currency-code-column.md).
+//
+// A deliberate, context-local duplicate of pickleball.payments.v1.Money and
+// pickleball.socialplay.v1.Money — identical shape, intentionally NOT an
+// import of either. Competitions' wire contract does not depend on another
+// context's, exactly as internal/competitions/domain does not import
+// internal/payments/domain or internal/socialplay/domain (CLAUDE.md rules
+// 2/3); coupling the protos would reintroduce at the API-contract layer
+// precisely the dependency the domain layer refuses. Do not "fix" this
+// duplication — see domain/money.go's doc comment and the sprint plan's §A4.
+//
+// An amount of 0 is a REAL value meaning a free Competition, never "unset".
+// Clients must render it as the word "Free", not as blank or a bare "$0.00".
+//
+// PCI guardrail (CLAUDE.md rule 11, docs/checklists/proto-review.md): this
+// message carries an AMOUNT and a currency code only. It is not, and must
+// never become, a place to put a PAN, card number, CVV, or track data — card
+// data is tokenized client-side and never reaches this backend (SAQ A
+// scope). No message in this file accepts card data on any request DTO.
+message Money {
+  int64 amount_cents = 1;
+  string currency_code = 2;
+}
+
+// CompetitionSession mirrors internal/competitions/domain.Session: one
+// sitting of a Competition — a time range plus the courts it reserves for
+// that range.
+//
+// This is the one structural difference from a Game, and the reason
+// Competitions needs its own contract rather than reusing Social Play's: a
+// Game has a single (starts_at, ends_at, court_ids) triple, whereas a
+// Competition "reserves courts across dates" (spec Flow 5) and therefore has
+// a LIST of them.
+//
+// Deliberately carries NO id field. A Session is a value type inside the
+// Competition aggregate — no identity, no lifecycle, meaningful only as part
+// of the Competition that owns it (see domain.Session). Exposing the storage
+// row's primary key would invite clients to address a session directly and
+// manufacture an identity the domain explicitly does not have.
+message CompetitionSession {
+  google.protobuf.Timestamp starts_at = 1;
+  google.protobuf.Timestamp ends_at = 2;
+  repeated string court_ids = 3;
+}
+
+// Competition mirrors internal/competitions/domain.Competition.
+//
+// NOTE what is absent: share_token. The token behind a Competition's
+// shareable registration link is deliberately NOT a field on this message,
+// so it cannot leak through GetCompetition or ListCompetitions — both of
+// which are unauthenticated reads. An enumerable or broadly-readable token
+// would make every unpublished Competition readable by anyone who can list
+// them, which is exactly the risk port.ShareTokenGenerator's doc comment
+// calls out. The token is returned ONCE, to the Host, on
+// CreateCompetitionResponse (see that message). T9.5 owns the authenticated
+// read path for retrieving it again.
+//
+// Also absent: brackets, rounds, seeding, match scheduling, and results.
+// Those are deferred to T10+ (docs/process/t9-sprint-plan.md §A4) — this
+// contract models the court-reservation and entry spine only, which is a
+// complete user loop (create -> advertise -> enter -> roster) without them.
+message Competition {
+  string id = 1;
+  string host_id = 2;
+  string name = 3;
+  // venue_facility_id is a real Facilities-context Facility ID. Optional: an
+  // empty string means this Competition has no known venue Facility yet, and
+  // the existence check is skipped entirely. A non-empty value that doesn't
+  // refer to a real Facility is rejected (404 NOT_FOUND).
+  string venue_facility_id = 4;
+  // sessions is never empty — domain.NewCompetition rejects a Competition
+  // with no sittings, and no two sessions may reserve the same court at
+  // overlapping times.
+  repeated CompetitionSession sessions = 5;
+  // capacity counts PLACES, not entries: an entrant and each of their guests
+  // occupy one place each. See CompetitionListing.spots_left.
+  int32 capacity = 6;
+  // guest_allowance is the maximum guests a SINGLE entry may bring; 0 means
+  // no guests permitted.
+  int32 guest_allowance = 7;
+  PaymentMethod payment_method = 8;
+  Money entry_fee = 9;
+  CompetitionFormat format = 10;
+  CompetitionStatus status = 11;
+}
+
+// CompetitionEntry mirrors internal/competitions/domain.CompetitionEntry: a
+// Player's claim on a Competition's places — one for themself plus one per
+// guest.
+message CompetitionEntry {
+  string id = 1;
+  string competition_id = 2;
+  string player_id = 3;
+  // guest_count is how many guests this entrant brings; each occupies a
+  // place exactly as the entrant does.
+  int32 guest_count = 4;
+  EntrySource source = 5;
+  PaymentStatus payment_status = 6;
+  EntryStatus status = 7;
+}
+
+message CreateCompetitionRequest {
+  // host_id is a claimed identity, not a verified one — there is no
+  // JWT/session layer yet (HANDOFF.md's open cross-cutting Auth item). Same
+  // known gap CancelCompetitionRequest.actor_user_id documents below.
+  string host_id = 1;
+  string name = 2;
+  // venue_facility_id — see Competition.venue_facility_id. Optional.
+  string venue_facility_id = 3;
+  repeated CompetitionSession sessions = 4;
+  int32 capacity = 5;
+  int32 guest_allowance = 6;
+  // payment_method: an unset/UNSPECIFIED value resolves to
+  // PAYMENT_METHOD_EITHER — see PaymentMethod's doc comment.
+  PaymentMethod payment_method = 7;
+  // entry_fee is optional on the wire: an unset entry_fee schedules a FREE
+  // Competition (amount 0), which is a real product state, not a missing
+  // value. A negative amount is rejected (400 INVALID_ARGUMENT via
+  // domain.ErrInvalidMoney), as is a non-zero amount with a missing or
+  // malformed currency_code.
+  Money entry_fee = 8;
+  CompetitionFormat format = 9;
+}
+
+message CreateCompetitionResponse {
+  Competition competition = 1;
+  // share_token is returned HERE and only here — the one moment the caller
+  // is provably the Host (they just created this Competition). It is
+  // deliberately not a field on Competition itself, so it cannot leak
+  // through the unauthenticated GetCompetition/ListCompetitions reads; see
+  // Competition's doc comment for the full reasoning. Hosts who lose it need
+  // T9.5's authenticated read path, not a widening of this contract.
+  string share_token = 2;
+}
+
+message GetCompetitionRequest {
+  string competition_id = 1;
+}
+
+message GetCompetitionResponse {
+  Competition competition = 1;
+}
+
+// ListCompetitionsRequest is the Competitions browse/filter read. Every
+// filter is optional (empty/unset = no filter on that dimension), mirroring
+// ListGamesRequest's convention.
+//
+// Only SCHEDULED Competitions are ever returned — a cancelled Competition
+// can't be entered, so it has no place in a player-facing browse list.
+//
+// starts_after/starts_before filter on a Competition's EARLIEST session
+// start, which is also the field results are ordered by, so the filter and
+// the ordering agree on one definition of when a Competition "starts"
+// rather than two (a Competition runs across dates, so this has to be
+// pinned down explicitly).
+message ListCompetitionsRequest {
+  string venue_facility_id = 1;
+  google.protobuf.Timestamp starts_after = 2;
+  google.protobuf.Timestamp starts_before = 3;
+}
+
+// CompetitionListing pairs a Competition with spots_left, a server-computed
+// field.
+//
+// spots_left is capacity minus the **WEIGHTED** sum of (1 + guest_count)
+// across this Competition's active, non-cancelled entries — the identical
+// weighting domain.Enter's own capacity check applies. The weighting is not
+// a detail: an unweighted (headcount) spots_left would advertise 7 free
+// places on a capacity-8 Competition holding one entry that brought 3
+// guests, when the truth is 4. That is a visible lie to every player reading
+// the listing, and one they'd only discover when their entry was rejected.
+// A boundary test pins this down (internal/competitions/domain's
+// TestSpotsLeft), and the -tags=integration test asserts the SQL that
+// computes it agrees with the domain rule against a real Postgres.
+//
+// A dedicated wrapper rather than a field on Competition itself, since
+// spots_left is a derived read-model value for this one browse path and not
+// part of the aggregate — mirrors socialplay.v1.GameListing exactly.
+message CompetitionListing {
+  Competition competition = 1;
+  int32 spots_left = 2;
+}
+
+message ListCompetitionsResponse {
+  repeated CompetitionListing competitions = 1;
+}
+
+// EnterCompetitionRequest's actor is player_id — a claimed identity, not a
+// verified one (HANDOFF.md's open Auth item).
+//
+// There is deliberately NO ownership check on entering: any Player may enter
+// a published Competition, because entering is not an act *on* the
+// Competition, it is the invitation being accepted (the same asymmetry
+// socialplay's RegisterForGame has). A Competition an entrant may not enter
+// is one that is cancelled or full, and both are domain rules already
+// enforced.
+message EnterCompetitionRequest {
+  string competition_id = 1;
+  string player_id = 2;
+  // guest_count is validated against the Competition's guest_allowance
+  // (400 INVALID_ARGUMENT if exceeded) and against its WEIGHTED capacity
+  // (409-shaped FAILED_PRECONDITION if the Competition is full).
+  int32 guest_count = 3;
+  // source is validated against EntrySource's closed enum — the server
+  // checks the caller's claimed source rather than inferring it. An
+  // unset/UNSPECIFIED value resolves to ENTRY_SOURCE_APP, the in-app
+  // default, keeping the field optional for clients that don't set it.
+  EntrySource source = 4;
+}
+
+message EnterCompetitionResponse {
+  CompetitionEntry entry = 1;
+}
+
+// CancelCompetitionRequest.actor_user_id is a claimed identity, not a
+// verified one — there is no JWT/session layer yet (HANDOFF.md's open
+// cross-cutting Auth backlog). The object-level check this enables (only the
+// Host may cancel their own Competition,
+// domain.Competition.EnsureHost) is real and regression-tested
+// (internal/competitions/adapter/grpcapi/authz_regression_test.go); the
+// identity behind actor_user_id is not authenticated yet. Stated once here
+// rather than repeated on every field.
+message CancelCompetitionRequest {
+  string competition_id = 1;
+  string actor_user_id = 2;
+}
+
+message CancelCompetitionResponse {
+  Competition competition = 1;
+}
+
+// ListEntriesForCompetitionRequest is the Host-facing roster read.
+//
+// It returns EVERY entry, cancelled ones included — deliberately unlike the
+// capacity check's own internal read. "Who withdrew" and "who never entered"
+// are different answers, and a roster that silently drops the former can't
+// be reconciled against payments.
+message ListEntriesForCompetitionRequest {
+  string competition_id = 1;
+}
+
+message ListEntriesForCompetitionResponse {
+  repeated CompetitionEntry entries = 1;
+}
+
+// CompetitionsService is the API contract for the Competitions bounded
+// context, mirroring SocialPlayService's style
+// (proto/pickleball/socialplay/v1) — buf generates gRPC, a grpc-gateway REST
+// mapping, and OpenAPI from this file.
+service CompetitionsService {
+  // CreateCompetition schedules a Competition and reserves one Booking per
+  // (session, court) pair via the Booking context
+  // (internal/competitions/adapter/booking), so a Competition inherits the
+  // no-double-booking invariant rather than merely modelling one that has no
+  // effect on court availability.
+  rpc CreateCompetition(CreateCompetitionRequest) returns (CreateCompetitionResponse) {
+    option (google.api.http) = {
+      post: "/v1/competitions"
+      body: "*"
+    };
+  }
+
+  // GetCompetition reads a single Competition by ID.
+  rpc GetCompetition(GetCompetitionRequest) returns (GetCompetitionResponse) {
+    option (google.api.http) = {
+      get: "/v1/competitions/{competition_id}"
+    };
+  }
+
+  // ListCompetitions is the browse/filter read, returning each Competition
+  // with its server-computed weighted spots_left — see CompetitionListing.
+  // A GET on the same collection path CreateCompetition POSTs to (standard
+  // REST: GET lists a collection, POST creates into it).
+  rpc ListCompetitions(ListCompetitionsRequest) returns (ListCompetitionsResponse) {
+    option (google.api.http) = {
+      get: "/v1/competitions"
+    };
+  }
+
+  // EnterCompetition enters a player (and optionally their guests) into a
+  // Competition, enforcing the guest-allowance, no-double-entry, and
+  // WEIGHTED capacity invariants. The capacity invariant is enforced
+  // authoritatively by a DB-level trigger that locks the owning competitions
+  // row and re-sums occupancy (db/migrations/0014_competitions.sql), not
+  // only by the in-process pre-check — so two simultaneous entries cannot
+  // overfill a Competition.
+  rpc EnterCompetition(EnterCompetitionRequest) returns (EnterCompetitionResponse) {
+    option (google.api.http) = {
+      post: "/v1/competitions/{competition_id}/entries"
+      body: "*"
+    };
+  }
+
+  // CancelCompetition cancels a Competition, but only when actor_user_id
+  // matches its Host (object-level check — see CancelCompetitionRequest's
+  // doc comment for what this does and does not prove without real auth).
+  //
+  // KNOWN GAP, stated so it doesn't look accidental: cancelling does NOT
+  // release the Competition's court reservations or cancel its entries. See
+  // app.Service.CancelCompetition's doc comment for why that cascade is left
+  // visibly undone rather than half-implemented. Entering a cancelled
+  // Competition IS already blocked.
+  rpc CancelCompetition(CancelCompetitionRequest) returns (CancelCompetitionResponse) {
+    option (google.api.http) = {
+      post: "/v1/competitions/{competition_id}:cancel"
+      body: "*"
+    };
+  }
+
+  // ListEntriesForCompetition is the Host-facing roster read — see its
+  // request message for why it includes cancelled entries. A GET on the same
+  // path EnterCompetition POSTs to.
+  rpc ListEntriesForCompetition(ListEntriesForCompetitionRequest) returns (ListEntriesForCompetitionResponse) {
+    option (google.api.http) = {
+      get: "/v1/competitions/{competition_id}/entries"
+    };
+  }
+}

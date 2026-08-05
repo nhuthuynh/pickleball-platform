@@ -59,3 +59,19 @@ sql:
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_interface: true
+  # Competitions context (competitions + competition_sessions +
+  # competition_entries), T9.4. Its own generated package (competitionsdb)
+  # mirrors bookingdb's shape but stays a separate Go package, keeping the
+  # context boundary visible in generated code too — every other context
+  # here does the same.
+  - engine: "postgresql"
+    queries:
+      - "db/queries/competitions.sql"
+    schema: "db/migrations"
+    gen:
+      go:
+        package: "competitionsdb"
+        out: "internal/gen/competitionsdb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true

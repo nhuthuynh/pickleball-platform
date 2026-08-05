@@ -31,10 +31,17 @@ import (
 	bookinggrpc "github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
 	bookingpg "github.com/nhuthuynh/white-label/internal/booking/adapter/postgres"
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
+	competitionsbooking "github.com/nhuthuynh/white-label/internal/competitions/adapter/booking"
+	competitionsfacilities "github.com/nhuthuynh/white-label/internal/competitions/adapter/facilities"
+	competitionsgrpc "github.com/nhuthuynh/white-label/internal/competitions/adapter/grpcapi"
+	competitionspg "github.com/nhuthuynh/white-label/internal/competitions/adapter/postgres"
+	"github.com/nhuthuynh/white-label/internal/competitions/adapter/sharetoken"
+	competitionsapp "github.com/nhuthuynh/white-label/internal/competitions/app"
 	facilitiesgrpc "github.com/nhuthuynh/white-label/internal/facilities/adapter/grpcapi"
 	facilitiespg "github.com/nhuthuynh/white-label/internal/facilities/adapter/postgres"
 	facilitiesapp "github.com/nhuthuynh/white-label/internal/facilities/app"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
+	competitionsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/competitions/v1"
 	facilitiesv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/facilities/v1"
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
@@ -127,11 +134,35 @@ func run(logger *slog.Logger) error {
 	})
 	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
 
+	// Competitions (T9.4). Same shape as Social Play's wiring above, one
+	// level deeper: its Repository is Postgres-backed, its CourtReservation
+	// port is implemented against the real Booking app.Service (reserving
+	// one `competition`-source Booking per (session, court) pair, so a
+	// Competition inherits the no-double-booking invariant), and its
+	// FacilityLookup port against the real Facilities app.Service — both
+	// against the SAME bookingSvc/facilitiesSvc instances built above, not
+	// second/separate stacks.
+	//
+	// ShareTokens is the crypto/rand-backed generator
+	// (internal/competitions/adapter/sharetoken): CreateCompetition mints a
+	// real token for every Competition from the moment this endpoint is
+	// live, so it must not be a placeholder — see that package's doc comment.
+	competitionsRepo := competitionspg.NewRepository(pool)
+	competitionsSvc := competitionsapp.NewService(competitionsapp.ServiceOptions{
+		Competitions: competitionsRepo,
+		IDs:          idgen.UUID{},
+		Reservation:  competitionsbooking.NewReservation(bookingSvc),
+		Facilities:   competitionsfacilities.NewLookup(facilitiesSvc),
+		ShareTokens:  sharetoken.Generator{},
+	})
+	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
+
 	grpcServer := grpc.NewServer()
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
 	socialplayv1.RegisterSocialPlayServiceServer(grpcServer, socialplayHandler)
 	paymentsv1.RegisterPaymentsServiceServer(grpcServer, paymentsHandler)
 	facilitiesv1.RegisterFacilitiesServiceServer(grpcServer, facilitiesHandler)
+	competitionsv1.RegisterCompetitionsServiceServer(grpcServer, competitionsHandler)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -157,6 +188,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	if err := facilitiesv1.RegisterFacilitiesServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
+		return err
+	}
+	if err := competitionsv1.RegisterCompetitionsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
 		return err
 	}
 
