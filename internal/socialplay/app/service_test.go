@@ -1338,7 +1338,7 @@ func TestListGames_ComputesSpotsLeft(t *testing.T) {
 // fake repository.
 func mustGame(t *testing.T, id, venueFacilityID string, r domain.TimeRange) domain.Game {
 	t.Helper()
-	g, err := domain.NewGame(id, "host-1", "", venueFacilityID, []string{"court-1"}, r, 4, domain.PaymentMethodEither, 0)
+	g, err := domain.NewGame(id, "host-1", "", venueFacilityID, []string{"court-1"}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("fixture NewGame err: %v", err)
 	}

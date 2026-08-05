@@ -118,6 +118,7 @@ describe('AppNav', () => {
                       status: 'GAME_STATUS_SCHEDULED',
                       paymentMethod: 'PAYMENT_METHOD_CASH',
                       guestAllowance: 2,
+                      entryFee: { amountCents: '1000', currencyCode: 'USD' },
                     },
                     spotsLeft: 5,
                   },

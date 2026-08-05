@@ -27,6 +27,7 @@ function gameListing(id: string, hostId: string, paymentMethod: string) {
       status: 'GAME_STATUS_SCHEDULED',
       paymentMethod,
       guestAllowance: 2,
+      entryFee: { amountCents: '1000', currencyCode: 'USD' },
     },
     spotsLeft: 5,
   }

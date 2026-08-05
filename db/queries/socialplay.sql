@@ -7,13 +7,17 @@
 -- 0012_socialplay_guest_capacity.sql) are always supplied explicitly by the
 -- adapter (never relying on the column DEFAULT), mirroring how every other
 -- column here is caller-supplied — the DEFAULT only exists to backfill rows
--- that predate the column.
-INSERT INTO games (id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance)
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-RETURNING id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance;
+-- that predate the column. The same holds for entry_fee_cents/
+-- entry_fee_currency (T9.2, db/migrations/0013_socialplay_entry_fee.sql):
+-- the adapter always writes the Host's real EntryFee, including an explicit
+-- 0 for a free Game -- the column DEFAULT of 0/'USD' is only ever the
+-- backfill value for rows that predate the columns.
+INSERT INTO games (id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance, entry_fee_cents, entry_fee_currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+RETURNING id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance, entry_fee_cents, entry_fee_currency;
 
 -- name: GetGameByID :one
-SELECT id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance
+SELECT id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance, entry_fee_cents, entry_fee_currency
 FROM games
 WHERE id = $1;
 
@@ -42,7 +46,7 @@ WHERE id = $1;
 -- unreachable in practice, but a list/read path shouldn't ever surface a
 -- negative "spots left" to a Player even if that invariant were ever
 -- violated some other way.
-SELECT g.id, g.host_id, g.facility_id, g.venue_facility_id, g.court_ids, g.starts_at, g.ends_at, g.capacity, g.status, g.payment_method, g.guest_allowance,
+SELECT g.id, g.host_id, g.facility_id, g.venue_facility_id, g.court_ids, g.starts_at, g.ends_at, g.capacity, g.status, g.payment_method, g.guest_allowance, g.entry_fee_cents, g.entry_fee_currency,
        GREATEST(g.capacity - COALESCE(SUM(CASE WHEN r.status <> 'cancelled' THEN 1 + r.guest_count ELSE 0 END), 0), 0)::int AS spots_left
 FROM games g
 LEFT JOIN registrations r ON r.game_id = g.id

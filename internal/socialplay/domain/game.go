@@ -51,13 +51,24 @@ type Game struct {
 	// against this Game may bring (T8.6); 0 means no guests permitted.
 	// Registration.GuestCount is validated against this field by Register.
 	GuestAllowance int
+	// EntryFee is the price the Host set for one player to join this Game
+	// (T9.2). A zero EntryFee is legal and means a free Game — a real
+	// value the Host chose, never a sentinel for "unset" (see
+	// Money.IsFree). This field replaces T8.10's
+	// PLACEHOLDER_REGISTRATION_FEE_CENTS, a flat $10.00 the web client
+	// invented and labelled "placeholder" in the UI precisely because the
+	// domain had no price field at all.
+	EntryFee Money
 }
 
 // NewGame constructs a scheduled Game, validating the invariants that don't
 // require knowledge of other Games or Bookings: Capacity must be positive,
 // CourtIDs must be non-empty, the time range must be valid, PaymentMethod
-// must be one of its closed enum values, and GuestAllowance must not be
-// negative. It re-validates the range itself (rather than trusting the
+// must be one of its closed enum values, GuestAllowance must not be
+// negative, and entryFee must be well-formed (T9.2 — negative amounts and
+// non-zero amounts with a missing/malformed currency code are rejected with
+// ErrInvalidMoney; a zero amount is accepted and means a free Game, see
+// Money.Validate). It re-validates the range itself (rather than trusting the
 // caller already went through NewTimeRange) so a Game built from a
 // zero-duration or inverted range is rejected regardless of how the
 // TimeRange value was produced.
@@ -68,7 +79,7 @@ type Game struct {
 // — that existence check is app.Service.ScheduleGame's job, via
 // port.FacilityLookup, before this Game is allowed to reserve any courts.
 // An empty venueFacilityID is legal (see VenueFacilityID's doc comment).
-func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, r TimeRange, capacity int, paymentMethod PaymentMethod, guestAllowance int) (Game, error) {
+func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, r TimeRange, capacity int, paymentMethod PaymentMethod, guestAllowance int, entryFee Money) (Game, error) {
 	if capacity <= 0 {
 		return Game{}, ErrInvalidCapacity
 	}
@@ -84,6 +95,9 @@ func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, 
 	if guestAllowance < 0 {
 		return Game{}, ErrInvalidGuestAllowance
 	}
+	if err := entryFee.Validate(); err != nil {
+		return Game{}, err
+	}
 	return Game{
 		ID:              id,
 		HostID:          hostID,
@@ -95,6 +109,7 @@ func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, 
 		Status:          StatusScheduled,
 		PaymentMethod:   paymentMethod,
 		GuestAllowance:  guestAllowance,
+		EntryFee:        entryFee,
 	}, nil
 }
 

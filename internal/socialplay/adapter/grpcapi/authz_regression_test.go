@@ -207,7 +207,7 @@ func seedGame(t *testing.T, gameRepo *fakeGameRepo, id string, capacity int) dom
 	if err != nil {
 		t.Fatalf("bad fixture range: %v", err)
 	}
-	g, err := domain.NewGame(id, "host-1", "facility-1", "venue-1", []string{"court-1"}, rng, capacity, domain.PaymentMethodEither, 0)
+	g, err := domain.NewGame(id, "host-1", "facility-1", "venue-1", []string{"court-1"}, rng, capacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}

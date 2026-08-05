@@ -129,6 +129,7 @@ func TestRegisterForGame_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) {
 		"33333333-3333-3333-3333-100000000001", "host-x", "facility-x", "",
 		[]string{seedCourtID}, r, gameCapacityUniform,
 		domain.PaymentMethodEither, guestCountUniform, // GuestAllowance must cover guestCountUniform
+		domain.Money{Cents: 1500, Currency: "USD"},
 	)
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
@@ -248,6 +249,7 @@ func TestRegisterForGame_VaryingGuestCountsFillExactlyToCapacityUnderConcurrency
 		"33333333-3333-3333-3333-100000000002", "host-x", "facility-x", "",
 		[]string{seedCourtID}, r, gameCapacityVarying,
 		domain.PaymentMethodEither, largeGuestCount, // GuestAllowance must cover the largest guestCount used
+		domain.Money{Cents: 1500, Currency: "USD"},
 	)
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)

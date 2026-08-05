@@ -2,7 +2,7 @@ import { ref, type Ref } from 'vue'
 import { socialplayClient, type SocialPlayClient } from '../api/socialplayClient'
 import { paymentsClient, type PaymentsClient } from '../api/paymentsClient'
 import { mapToGameSummary, formatGameRange } from '../models/game'
-import { PLACEHOLDER_REGISTRATION_FEE_CENTS, toMoneyRequest } from '../models/payment'
+import { DEFAULT_CURRENCY_CODE, toMoneyRequest } from '../models/payment'
 
 // No Identity/Users/Auth context exists yet (same caveat class as
 // FacilityOnboarding.vue's MOCK_OWNER_ID) — RecordOfflinePaymentRequest.
@@ -32,6 +32,12 @@ export interface PendingCashPayment {
   guestCount: number
   /** Formatted Game date/time range, for display. */
   gameLabel: string
+  /** The owning Game's real entry fee (T9.2) — the amount actually
+   * recorded by `markPaid`, replacing T8.10's flat placeholder. Always
+   * > 0 here: free games are filtered out of this list entirely (see
+   * `load`). */
+  entryFeeCents: number
+  entryFeeCurrency: string
 }
 
 export interface UseHostPaymentsResult {
@@ -58,8 +64,9 @@ export interface UseHostPaymentsResult {
   load: (hostId: string) => Promise<void>
   /** Calls `RecordOfflinePayment` for `entry` and removes it from `pending`
    * on success (T8.10's "Mark paid" action). Uses
-   * `PLACEHOLDER_REGISTRATION_FEE_CENTS` for the same disclosed reason
-   * `useGamePayment.startCheckout` does — see models/payment.ts. */
+   * Records the Game's REAL entry fee (T9.2), carried on each entry from
+   * the Game it belongs to — no flat placeholder amount is involved
+   * anywhere in this flow any more. */
   markPaid: (entry: PendingCashPayment, actorUserId: string) => Promise<void>
 }
 
@@ -88,7 +95,15 @@ export function useHostPayments(
         .filter(
           (g) =>
             g.hostId === hostId &&
-            (g.paymentMethod === 'PAYMENT_METHOD_CASH' || g.paymentMethod === 'PAYMENT_METHOD_EITHER'),
+            (g.paymentMethod === 'PAYMENT_METHOD_CASH' || g.paymentMethod === 'PAYMENT_METHOD_EITHER') &&
+            // A FREE game (T9.2) has nothing to collect, so it has no place
+            // on a "cash still owed" dashboard. This is a correctness
+            // requirement, not a cosmetic filter: RecordOfflinePayment
+            // rejects a zero amount (payments domain.NewPayment's
+            // `amount.Cents <= 0` -> ErrInvalidAmount), so listing a free
+            // game's registrations here would render a "Mark paid" button
+            // that could only ever fail.
+            g.entryFeeCents > 0,
         )
 
       const results: PendingCashPayment[] = []
@@ -106,6 +121,8 @@ export function useHostPayments(
             playerId: raw.playerId ?? '',
             guestCount: raw.guestCount ?? 0,
             gameLabel: formatGameRange(game.startsAt, game.endsAt),
+            entryFeeCents: game.entryFeeCents,
+            entryFeeCurrency: game.entryFeeCurrency,
           })
         }
       }
@@ -125,7 +142,7 @@ export function useHostPayments(
         body: {
           payableType: 'PAYABLE_TYPE_REGISTRATION',
           payableId: entry.registrationId,
-          amount: toMoneyRequest(PLACEHOLDER_REGISTRATION_FEE_CENTS),
+          amount: toMoneyRequest(entry.entryFeeCents, entry.entryFeeCurrency || DEFAULT_CURRENCY_CODE),
           actorUserId,
           gameHostId: entry.gameHostId,
         },

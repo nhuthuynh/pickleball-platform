@@ -100,6 +100,17 @@ var (
 	ErrInvalidGuestAllowance  = errors.New("socialplay: guest allowance must not be negative")
 	ErrGuestAllowanceExceeded = errors.New("socialplay: guest count exceeds this game's guest allowance")
 
+	// ErrInvalidMoney (T9.2) is returned by Money.Validate — and so by
+	// NewGame for its entryFee argument — for a negative amount, or for a
+	// non-zero amount whose currency code is missing or malformed. A ZERO
+	// amount is not an error: it means a free Game, a real product state
+	// (see Money.IsFree). One sentinel covers both the amount and the
+	// currency half of the check because callers have the same recourse for
+	// either ("that isn't a well-formed price, fix the input"), unlike
+	// internal/payments/domain's split ErrInvalidAmount/ErrInvalidCurrency,
+	// whose gRPC layer distinguishes the two.
+	ErrInvalidMoney = errors.New("socialplay: invalid money amount")
+
 	// ErrFacilityNotFound is Social Play's own, context-local sentinel
 	// (T8.3) for a Game.VenueFacilityID that doesn't refer to any real
 	// Facility — the translated equivalent of

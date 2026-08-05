@@ -30,6 +30,7 @@
 //   (still no network call) and swaps to the same pending text.
 import { computed, ref } from 'vue'
 import { useJoinGame, MOCK_PLAYER_ID } from '../../composables/useJoinGame'
+import { entryFeeLabel } from '../../models/game'
 import type { GameSummary } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 
@@ -138,27 +139,36 @@ function onPayCash(): void {
       <!-- T8.10 requirement #1/#2: payment choice, driven by the Game's
            declared PaymentMethod. WCAG 1.4.1: the pending-cash label is
            text, never color-only. -->
-      <p v-if="showPendingCashText" class="game-join__payment-status">
-        Payment: pending (cash at facility)
+      <!-- A free game owes nothing, so no payment choice is offered at
+           all (T9.2) — offering "Pay online now" for a $0 game would lead
+           to a checkout that cannot create a Payment. -->
+      <p v-if="game.entryFeeCents <= 0" class="game-join__payment-status" data-testid="join-free-notice">
+        This game is free — there's nothing to pay.
       </p>
-      <div v-else class="game-join__payment-choice">
-        <button
-          v-if="paymentMode === 'online' || paymentMode === 'either'"
-          type="button"
-          class="game-join__primary"
-          @click="onPayOnline"
-        >
-          Pay online now
-        </button>
-        <button
-          v-if="paymentMode === 'either'"
-          type="button"
-          class="game-join__secondary"
-          @click="onPayCash"
-        >
-          Pay cash at facility
-        </button>
-      </div>
+      <p v-else-if="showPendingCashText" class="game-join__payment-status">
+        Payment: {{ entryFeeLabel(game.entryFeeCents) }} pending (cash at facility)
+      </p>
+      <template v-else>
+        <p class="game-join__payment-status">Entry fee: {{ entryFeeLabel(game.entryFeeCents) }}</p>
+        <div class="game-join__payment-choice">
+          <button
+            v-if="paymentMode === 'online' || paymentMode === 'either'"
+            type="button"
+            class="game-join__primary"
+            @click="onPayOnline"
+          >
+            Pay online now
+          </button>
+          <button
+            v-if="paymentMode === 'either'"
+            type="button"
+            class="game-join__secondary"
+            @click="onPayCash"
+          >
+            Pay cash at facility
+          </button>
+        </div>
+      </template>
     </div>
 
     <!-- WAITLIST SUCCESS -->
@@ -213,6 +223,14 @@ function onPayCash(): void {
         </div>
         <span class="game-join__stepper-hint">Up to {{ game.guestAllowance }} guests allowed</span>
       </div>
+
+      <!-- Entry fee (T9.2): the player sees the real price they'll be asked
+           for BEFORE joining, not a placeholder discovered at checkout. A
+           free game says "Free" in words (WCAG 1.4.1 — text, never a
+           color-only cue). -->
+      <p class="game-join__fee" data-testid="join-entry-fee">
+        Entry fee: <strong>{{ entryFeeLabel(game.entryFeeCents) }}</strong>
+      </p>
 
       <p v-if="registerError" class="game-join__status game-join__status--error" role="alert">
         {{ registerError }}
@@ -340,6 +358,12 @@ function onPayCash(): void {
 .game-join__payment-status {
   margin: 0;
   color: var(--ink-soft);
+}
+
+.game-join__fee {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--ink);
 }
 
 .game-join__payment-choice {

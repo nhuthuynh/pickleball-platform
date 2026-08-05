@@ -9,7 +9,7 @@
 // (network-calling) is delegated to GameJoinPanel.vue — see that file's
 // header comment for why it isn't purely presentational too.
 import type { GameSummary } from '../../models/game'
-import { formatGameRange, paymentMethodLabel, spotsLeftLabel } from '../../models/game'
+import { formatGameRange, paymentMethodLabel, spotsLeftLabel, entryFeeLabel } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import GameJoinPanel from './GameJoinPanel.vue'
 
@@ -78,10 +78,17 @@ const emit = defineEmits<{
         </div>
         <div class="game-detail__field">
           <!-- WCAG 1.4.1: "Cash at facility" / "Online" / "Online or cash"
-               is text, never a color-only cue; T8.10 wires a real price for
-               the Online case -->
+               is text, never a color-only cue -->
           <dt>Payment</dt>
           <dd>{{ paymentMethodLabel(game.paymentMethod) }}</dd>
+        </div>
+        <div class="game-detail__field">
+          <!-- Entry fee (T9.2): the Host's real price, replacing T8.10's
+               flat placeholder. A free game reads as the word "Free", never
+               "$0.00" or a blank — WCAG 1.4.1 (text, not a color cue) and
+               NN/g heuristic #2 (a zero price is a real product state). -->
+          <dt>Entry fee</dt>
+          <dd data-testid="game-detail-entry-fee">{{ entryFeeLabel(game.entryFeeCents) }}</dd>
         </div>
       </dl>
 
