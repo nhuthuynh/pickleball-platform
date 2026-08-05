@@ -51,6 +51,10 @@ isn't.
 # 1. Tools
 brew install bufbuild/buf/buf sqlc gotestsum golangci-lint   # or your platform's equivalent
 
+# ...plus Go >= 1.25, Node >= 22.18, and (optionally) Docker.
+# Check what's actually present before you start:
+make tools-check
+
 # 2. Fast, dependency-free gate — should be green before anything else
 make test-domain
 
@@ -58,10 +62,54 @@ make test-domain
 make generate
 make tidy
 
-# 4. Run Postgres + the API
+# 4. Run the whole stack: Postgres + the API + the Vue web client
 cp .env.template .env
 make up
 ```
+
+`make up` serves:
+
+| | |
+|---|---|
+| Web (Vue) | <http://localhost:5173> |
+| REST API | <http://localhost:8080> |
+| gRPC API | `localhost:8081` |
+| Postgres | `localhost:5432` |
+
+It runs `make generate-client` first, so the generated Go *and* TypeScript
+code is up to date before anything is built — the web image refuses to
+build without it, exactly as the API image refuses to build without
+`internal/gen`.
+
+## Running the CI checks locally
+
+`make ci` runs the same lint / unit-test / codegen / build / security-scan
+sequence the Jenkins pipeline runs, in the same order, so "green locally"
+and "green in CI" mean the same thing:
+
+```bash
+make ci
+```
+
+The Docker-dependent half is separate, because a large share of this
+project's development environments have no Docker daemon (see CLAUDE.md's
+gotchas) and the pipeline skips the same stage on the same condition:
+
+```bash
+make ci-integration    # testcontainers concurrency + integration suite
+```
+
+Individual pieces, if you want them one at a time: `make lint`,
+`make lint-web`, `make test-domain`, `make test-tools`, `make test-web`,
+`make build-web`, `make security`.
+
+`make security` runs `govulncheck` (Go) and `npm audit` (web) and gates on
+**new** high-severity findings via `cmd/vulngate`; anything pre-existing
+must be listed, with a written reason, in `security/vuln-baseline.json`.
+On a machine that cannot reach `vuln.go.dev`, `SKIP_GOVULNCHECK=1` skips
+the Go half with a loud warning — never set it in CI.
+
+Load tests are opt-in and need a running stack: see `loadtest/README.md`.
 
 ## Smoke test
 
@@ -126,7 +174,13 @@ internal/<context>/
   domain/  app/  port/  adapter/{postgres,grpcapi}
 internal/platform/         shared adapters (db pool, id generation)
 cmd/server                 wires gRPC + grpc-gateway REST
+cmd/vulngate               CI security gate (CLI over tools/vulngate)
+tools/vulngate             scanner-report parsing + baseline logic (tested)
+security/                  vuln-baseline.json — accepted findings, with reasons
+loadtest/                  k6 scenarios (opt-in, not a per-PR gate)
+web/                       Vue client (+ its Dockerfile / nginx config)
 docs/                       spec, operating handbook, design review, ADRs, reviews
+Jenkinsfile                CI/CD pipeline; `make ci` runs the same checks locally
 ```
 
 See `CLAUDE.md` "Architecture" and "Locked decisions" before adding a new

@@ -25,6 +25,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
 | T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | PRs #81 (T9.8) → #84 (T9.1) → #83 (T9.10) → #82 (T9.9) → #85 (T9.2) → #86 (T9.3) → #87 (T9.4) → #88 (T9.5) → #89 (critical fix, unticketed) → #90 (T9.7) → #91 (T9.6), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
 
+| SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
+
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
 `research-{functional,performance-availability,security-compliance,accessibility-i18n}.md`.
@@ -224,7 +226,11 @@ above.
 
 **Not yet built**
 - Statements context.
-- Auth, real migration tooling, observability, CI.
+- Auth, real migration tooling, observability.
+- CI: the pipeline definition now exists (SCRUM-6 — `Jenkinsfile`,
+  `make ci`, `docs/adr/0011-*`), but no Jenkins job/webhook/branch
+  protection has been configured, so nothing runs automatically yet. See
+  the Cross-cutting entry below for exactly what remains.
 - Competitions↔Payments online-payment wiring (needs a new `PayableType`
   value + port/adapter — see T9's Cross-cutting entry).
 - `internal/gen/**` still needs `make generate` run locally/in CI before
@@ -791,6 +797,28 @@ ADR-0009/ADR-0010's triggers — are next.
   themselves were fixed to mint real UUID-shaped IDs. CI is still worth
   doing on its own merits; it just isn't a substitute for that class of
   fixture-fidelity gap.
+  **Partially closed by SCRUM-6** (branch `SCRUM-6-cicd-pipeline`): the
+  T0 `Jenkinsfile` placeholder is replaced with a real pipeline (checkout,
+  toolchain, generate, lint Go+web, unit tests, build, integration,
+  security scan, opt-in k6 load test), plus `make ci` for local parity, a
+  tested security gate (`cmd/vulngate` + `tools/vulngate`), a `web`
+  service in `docker-compose.yml`, and `docs/adr/0011-*`. Read the
+  remaining gap precisely, because it is the part that matters: **the
+  repo-side work is done; the SERVER-side work is not, and cannot be done
+  from this repo.** Nobody has created the Jenkins job, installed the
+  plugins, registered the GitHub webhook, or added branch protection, and
+  there is no reachable Jenkins instance to do it against — so as of this
+  entry there are still **zero automated pipeline runs**, and no PR has
+  yet been gated by one. The `Jenkinsfile` header lists the five
+  server-side steps required. Until an admin performs them, treat
+  "CI exists" as "the pipeline definition exists and its commands were
+  verified by hand", not as "changes are automatically verified".
+  Worth noting SCRUM-6 immediately paid for itself even so: running the
+  checks it wires up surfaced four pre-existing defects on the shared
+  branch (three `vue-tsc` errors from T9.2's `GameSummary` entry-fee
+  fields never reaching T8.9's fixtures — which were rendering `$NaN` —
+  and one `staticcheck` finding), none of which `make test-domain` or
+  `npm run test` would ever have caught, because neither type-checks.
 - **New this sprint (critical, out-of-band, not a ticket): `cmd/server`
   had zero gRPC interceptors, so any unauthenticated request with a
   malformed ID crashed the entire server process** — found as a byproduct
