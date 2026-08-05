@@ -15,6 +15,11 @@ const games: GameSummary[] = [
     status: 'GAME_STATUS_SCHEDULED',
     paymentMethod: 'PAYMENT_METHOD_EITHER',
     guestAllowance: 2,
+    // T9.2 added these to GameSummary; this fixture predates it and was
+    // never updated (SCRUM-6: caught by the new CI type-check stage). One
+    // paid and one free game below, so the list covers both fee shapes.
+    entryFeeCents: 1000,
+    entryFeeCurrency: 'USD',
     spotsLeft: 5,
   },
   {
@@ -28,6 +33,10 @@ const games: GameSummary[] = [
     status: 'GAME_STATUS_SCHEDULED',
     paymentMethod: 'PAYMENT_METHOD_CASH',
     guestAllowance: 0,
+    // 0 cents is a real Host choice meaning FREE, not "unset" — see
+    // GameSummary.entryFeeCents' doc comment.
+    entryFeeCents: 0,
+    entryFeeCurrency: 'USD',
     spotsLeft: 0,
   },
 ]
