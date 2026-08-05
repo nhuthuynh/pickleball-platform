@@ -64,17 +64,41 @@ type CompetitionListing struct {
 // every call site.
 //
 // Methods are added as the use cases that need them land, rather than
-// up-front: T9.4 adds the listing read path and T9.5 adds a
-// token-addressed lookup for the share link. Declaring those here now
-// would ship interface methods no implementation is exercised against and
-// no test covers — the same reasoning that kept T9.1's errors.go from
-// pre-declaring this ticket's sentinels.
+// up-front: T9.4 added the listing read path and T9.5 adds
+// GetByShareToken, the token-addressed lookup for the share link.
+// Declaring those before their use cases existed would have shipped
+// interface methods no implementation was exercised against and no test
+// covered — the same reasoning that kept T9.1's errors.go from
+// pre-declaring later sentinels.
 type Repository interface {
 	// Create persists a new scheduled Competition, including its sessions.
 	Create(ctx context.Context, c domain.Competition) (domain.Competition, error)
 
 	// GetByID returns a single Competition, or domain.ErrCompetitionNotFound.
 	GetByID(ctx context.Context, id string) (domain.Competition, error)
+
+	// GetByShareToken returns the Competition whose share_token equals
+	// shareToken — the read behind T9.5's shareable registration link — or
+	// domain.ErrCompetitionNotFound.
+	//
+	// Two rules bind every implementation of this method:
+	//
+	//  1. It returns THE SAME domain.ErrCompetitionNotFound sentinel that
+	//     GetByID returns, unwrapped and with no token-specific detail. This
+	//     read is unauthenticated and keyed by a secret, so any difference
+	//     between "no such token" and "no such Competition" is an oracle an
+	//     enumerator can use to confirm a guess without ever seeing a
+	//     Competition. An implementation must not, for example, validate the
+	//     token's shape and return a distinct "malformed" error.
+	//  2. It does NOT filter by status. A cancelled Competition's token must
+	//     still resolve, returning the Competition with Status cancelled —
+	//     deliberately unlike ListCompetitions, which hides cancelled
+	//     Competitions from the browse list. A link already published to a
+	//     social channel outlives the Competition's scheduled state, and a
+	//     Player who follows it deserves "this competition was cancelled"
+	//     rather than a 404 that reads as a broken link. Entering it is
+	//     separately rejected by domain.Enter.
+	GetByShareToken(ctx context.Context, shareToken string) (domain.Competition, error)
 
 	// UpdateStatus persists a status transition for the Competition
 	// identified by id (app.Service.CancelCompetition). A dedicated,

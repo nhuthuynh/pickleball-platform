@@ -140,6 +140,15 @@ type fakeRepository struct {
 	entryOrder       []string
 
 	createErr error // simulate persistence failing after reservations succeeded
+
+	// getByShareTokenCalls counts real invocations of GetByShareToken, so a
+	// test can prove a malformed-shape token never reaches the repository at
+	// all (see TestGetCompetitionByShareToken_MalformedShapeNeverReachesRepository
+	// in sharelink_test.go) — the in-memory fake here can't reproduce
+	// Postgres rejecting a NUL byte in a `text` column, so the shape-check
+	// short-circuit in app.Service can only be proven by observing that the
+	// repository call itself never happens, not by its return value.
+	getByShareTokenCalls int
 }
 
 func newFakeRepository() *fakeRepository {
@@ -166,6 +175,22 @@ func (r *fakeRepository) GetByID(_ context.Context, id string) (domain.Competiti
 		return domain.Competition{}, domain.ErrCompetitionNotFound
 	}
 	return c, nil
+}
+
+// GetByShareToken mirrors the real adapter's contract: a linear scan over
+// share tokens with NO status filter (a cancelled Competition's link still
+// resolves), returning the same unwrapped ErrCompetitionNotFound sentinel
+// GetByID returns for every miss — see port.Repository.GetByShareToken for
+// why a distinct "malformed token" error would be a security bug rather than
+// a nicety.
+func (r *fakeRepository) GetByShareToken(_ context.Context, shareToken string) (domain.Competition, error) {
+	r.getByShareTokenCalls++
+	for _, id := range r.competitionOrder {
+		if c := r.competitions[id]; c.ShareToken == shareToken {
+			return c, nil
+		}
+	}
+	return domain.Competition{}, domain.ErrCompetitionNotFound
 }
 
 func (r *fakeRepository) UpdateStatus(_ context.Context, id string, status domain.Status) (domain.Competition, error) {

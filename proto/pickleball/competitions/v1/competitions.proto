@@ -240,6 +240,38 @@ message GetCompetitionResponse {
   Competition competition = 1;
 }
 
+// GetCompetitionByShareTokenRequest carries the opaque token behind a
+// Competition's shareable registration link (T9.5).
+//
+// share_token is a CAPABILITY, not an identifier: possession of it is what
+// grants the read, which is why it is generated with crypto/rand at 256 bits
+// of entropy (internal/competitions/adapter/sharetoken) and why clients must
+// treat it like a secret — never log it, never put it in an analytics event,
+// never render it in a page title. It is URL-safe (base64url, unpadded) so it
+// can be embedded in a link without escaping.
+//
+// An unknown token, a malformed token, and a token whose Competition doesn't
+// exist all return the SAME NotFound with the SAME message. That is
+// deliberate and must stay that way: this read is unauthenticated, so any
+// difference between those answers would let a caller confirm which tokens
+// are real without ever seeing a Competition.
+message GetCompetitionByShareTokenRequest {
+  string share_token = 1;
+}
+
+// GetCompetitionByShareTokenResponse is deliberately field-for-field
+// IDENTICAL to GetCompetitionResponse — one Competition, nothing more.
+//
+// A link handed to strangers must never disclose more than the app already
+// shows the same person. Do not add a field here "because it's useful on the
+// landing page" (a host contact, an entrant list, the token itself) without
+// adding it to GetCompetitionResponse too: a regression test compares the two
+// messages field for field and will fail if they drift
+// (internal/competitions/adapter/grpcapi/sharelink_test.go).
+message GetCompetitionByShareTokenResponse {
+  Competition competition = 1;
+}
+
 // ListCompetitionsRequest is the Competitions browse/filter read. Every
 // filter is optional (empty/unset = no filter on that dimension), mirroring
 // ListGamesRequest's convention.
@@ -363,6 +395,50 @@ service CompetitionsService {
   rpc GetCompetition(GetCompetitionRequest) returns (GetCompetitionResponse) {
     option (google.api.http) = {
       get: "/v1/competitions/{competition_id}"
+    };
+  }
+
+  // GetCompetitionByShareToken is the PUBLIC, UNAUTHENTICATED read behind a
+  // Competition's shareable registration link (T9.5): a Host posts the link
+  // to whatever channel they like, a Player follows it, and this is the call
+  // that turns the token in that URL into the Competition to display and
+  // enter. Entry itself then goes through EnterCompetition, this platform's
+  // own API, exactly as an in-app entry does.
+  //
+  // OUTBOUND ONLY. The platform publishes a link; it never reads the channel
+  // it was posted to. There is no reply-scraping, no third-party platform API
+  // read, and no webhook ingestion of anyone's messages anywhere behind this
+  // RPC — an entry exists because someone entered here, not because a service
+  // parsed a comment. Deferred integrations of that kind are ADR-0009's
+  // scope (docs/adr/0009-social-channel-integration-deferred.md), explicitly
+  // not this contract's.
+  //
+  // It returns the SAME projection GetCompetition returns and nothing more —
+  // see GetCompetitionByShareTokenResponse.
+  //
+  // A CANCELLED Competition's token still resolves, returning the Competition
+  // with status COMPETITION_STATUS_CANCELLED rather than NOT_FOUND. Clients
+  // must render that as "this competition was cancelled", never as a broken
+  // link: a link already published to a social channel outlives the
+  // Competition's scheduled state, and a dead link and a cancelled event are
+  // different facts. Entering it is separately rejected (FAILED_PRECONDITION).
+  //
+  // KNOWN GAP — NO REVOCATION, stated so no reader assumes tokens can be
+  // withdrawn: there is NO rotate-token or revoke-token path in T9. Once a
+  // Host publishes a link, it stays valid for the Competition's lifetime;
+  // deleting the post does not invalidate it, and there is no way to issue a
+  // replacement. This is blocked on a prerequisite rather than merely
+  // unfinished. Rotation is an authenticated act on a Competition ("only the
+  // Host may rotate this Competition's token"), and this API has no
+  // authenticated identity yet — actor_user_id elsewhere in this file is a
+  // caller-supplied claim (HANDOFF.md's open cross-cutting Auth item).
+  // Shipping rotation gated on an unverified claim would let ANY caller
+  // invalidate ANY Host's published link, which is strictly worse than no
+  // rotation. TRIGGER: build it alongside real auth, as an authenticated
+  // method reusing the same ownership check CancelCompetition uses.
+  rpc GetCompetitionByShareToken(GetCompetitionByShareTokenRequest) returns (GetCompetitionByShareTokenResponse) {
+    option (google.api.http) = {
+      get: "/v1/competitions/by-share-token/{share_token}"
     };
   }
 

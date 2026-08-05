@@ -153,9 +153,65 @@ UI copy. If a new term is needed, add it here in the same PR that introduces it.
 - **Entry Source** — how a Competition Entry came to exist: `app | social`
   (T9.1). Deliberately the **same two values** `Registration.source` already
   uses, not a new `shared_link` vocabulary — one ubiquitous language
-  (`docs/process/t9-sprint-plan.md` §A3). `social` means the entrant arrived
-  via a shareable registration link the Host published to a channel outside
-  the app; `app` means they found the Competition inside the platform.
+  (`docs/process/t9-sprint-plan.md` §A3).
+  **`social`** means, precisely: *the entering client declared, on its
+  `EnterCompetition` request, that this entrant arrived via a Shareable
+  Registration Link (below) rather than through in-app browsing.* Three
+  things that definition deliberately excludes, each of which someone will
+  otherwise assume:
+  1. It is **a client's declaration the server validates, never a server
+     inference.** The backend checks the value against the closed enum and
+     stores it; it does not derive it from any other signal. In particular
+     resolving a Competition by its share token does **not** make a
+     subsequent entry `social` — how a client reached a Competition is not
+     something the backend can observe, and a guess rendered as a fact on a
+     Host's roster is worse than no attribution (T9.5).
+  2. It says nothing about **which** channel. There is no Facebook/WhatsApp/
+     Instagram distinction anywhere in the model, because the platform never
+     touches those channels (see Shareable Registration Link).
+  3. It is not evidence the link was *used* — an entrant who follows a link
+     and then enters declaring `app` is recorded as `app`. `social` is a
+     self-reported attribution, useful in aggregate, not an audit trail.
+  `app` means the entrant found the Competition inside the platform. An
+  unset/unspecified value on the wire resolves to `app` (an unaware client
+  is by definition an in-app one); an *unrecognised* value is rejected 400,
+  never defaulted. **Producer:** T9.1 modelled both values, but until T9.5
+  nothing produced `social` — Social Play's identically-named
+  `Registration.source` value has still had no producer since T5.2. T9.5's
+  share-link flow is the first real producer of `social` in this codebase.
+- **Shareable Registration Link** — the link a Host posts anywhere they like
+  (a group chat, a club page, a poster QR code) that takes a Player straight
+  to entering their Competition (T9.5). Concretely it is a URL carrying that
+  Competition's **share token**: an opaque, URL-safe, `crypto/rand`-generated
+  value (256 bits, `base64.RawURLEncoding` — `internal/competitions/adapter/
+  sharetoken`, T9.4) minted for every Competition at creation and stored in
+  `competitions.share_token` (`NOT NULL UNIQUE`). It is disclosed exactly
+  once, to the Host, on `CreateCompetitionResponse`; it is deliberately not a
+  field on the `Competition` message, so it cannot leak through the
+  unauthenticated read paths.
+  The token is a **capability, not an identifier**: possession of it is what
+  grants the read (`GetCompetitionByShareToken`), which returns exactly the
+  same public projection `GetCompetition` returns — a link never discloses
+  more than the app already shows. Treat it like a secret: never log it,
+  never put it in an analytics event.
+  **Outbound only.** The platform publishes a link and nothing more. It does
+  not read, scrape, poll, or ingest anything from the channel the link was
+  posted to — no reply parsing, no third-party platform API reads, no
+  webhooks. Every entry arrives through this platform's own
+  `EnterCompetition` API, exactly as an in-app entry does; inbound social
+  integration is deferred (`docs/adr/0009-social-channel-integration-deferred.md`).
+  Two properties a reader must not assume otherwise:
+  * A **cancelled** Competition's link still resolves, returning the
+    Competition with `status: cancelled` rather than a not-found — a link
+    already published outlives the Competition's scheduled state, and "this
+    competition was cancelled" and "this link is broken" are different facts.
+    Entering it is separately rejected.
+  * **There is no revocation.** T9 ships no rotate-token or revoke-token
+    path: once published, a link stays valid for the Competition's lifetime,
+    and deleting the post does not invalidate it. This is blocked on real
+    authentication (rotation is an act only a Host may perform, and
+    `actor_user_id` is still an unverified claim), not merely unfinished —
+    build it alongside auth.
 - **Format** — the play format a Host advertises for a Competition:
   `singles | doubles` (T9.1). **Descriptive, not enforcing** — nothing
   validates entry counts or pairings against it, and partner pairing is not
