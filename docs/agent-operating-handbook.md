@@ -115,8 +115,56 @@ UI copy. If a new term is needed, add it here in the same PR that introduces it.
   exists (cold-start).
 - **Self-reported starting level** — a value a Player sets on their profile at
   signup, used as the matchmaking input until real rating history accrues.
-- **Competition** — an Organiser-run tournament/bracket format; reserves
-  courts the same way a Game does (`competition`-source Booking).
+- **Competition** — an Organiser-run tournament a Host creates at a Facility;
+  reserves courts the same way a Game does (`competition`-source Booking),
+  inheriting the no-double-booking invariant with no change to Booking.
+  (T9.1, `internal/competitions/domain`) Fields: `ID`, `HostID`, `Name`,
+  `VenueFacilityID` (optional, same semantics as `Game.VenueFacilityID`),
+  `Sessions`, `Capacity`, `GuestAllowance`, `PaymentMethod`, `EntryFee`
+  (`Money`; a zero amount is a real value meaning a free competition, not
+  "unset"), `Format`, `Status` (`scheduled | cancelled`), `ShareToken`.
+  **How it differs from a Game:** a Game is a single sitting (one time
+  range, one set of courts); a Competition runs across **one or more
+  Sessions**, potentially on different dates. Brackets, rounds, seeding,
+  match scheduling and results are **deliberately absent in T9** — the
+  reservation-and-entry spine ships first and still produces a complete
+  loop (create → advertise → enter → roster); see
+  `docs/process/t9-sprint-plan.md` §A4. Cancelling a Competition flips only
+  its own status; the cascade to its Bookings and entries is a known gap,
+  the same one `Game.Cancel` has.
+- **Session** — one sitting of a Competition: a time range plus the Courts
+  it reserves for that range (T9.1). A value type inside the Competition
+  aggregate — no identity and no lifecycle of its own. A Competition
+  requires at least one; two Sessions of the same Competition may not
+  reserve the same Court at overlapping times (rejected at construction,
+  since the Booking-level invariant would otherwise only catch it part-way
+  through reserving them). Back-to-back Sessions on one Court are **not** an
+  overlap — ranges are half-open `[start, end)`, as everywhere else.
+- **Competition Entry** — a Player's claim on a Competition's places; the
+  Competitions analogue of a Registration (T9.1). Fields: `ID`,
+  `CompetitionID`, `PlayerID`, `GuestCount`, `Source` (**Entry Source**,
+  below), `PaymentStatus` (`unpaid | paid | refunded`, modelled in T9 with
+  Payments integration deferred), `Status` (`entered | cancelled`). Guests
+  occupy places exactly as the entrant does: the competition-full check is a
+  *weighted* count — `sum(1 + GuestCount)` across active Entries — never a
+  plain entry headcount, and it is weighted from the first commit rather
+  than retrofitted (contrast Guest above, where T8.6 had to reweight Social
+  Play's rule after the fact).
+- **Entry Source** — how a Competition Entry came to exist: `app | social`
+  (T9.1). Deliberately the **same two values** `Registration.source` already
+  uses, not a new `shared_link` vocabulary — one ubiquitous language
+  (`docs/process/t9-sprint-plan.md` §A3). `social` means the entrant arrived
+  via a shareable registration link the Host published to a channel outside
+  the app; `app` means they found the Competition inside the platform.
+- **Format** — the play format a Host advertises for a Competition:
+  `singles | doubles` (T9.1). **Descriptive, not enforcing** — nothing
+  validates entry counts or pairings against it, and partner pairing is not
+  modelled in T9 at all. This does not contradict T8's removal of
+  `CancellationCutoff` ("a cosmetic field that enforces nothing is actively
+  misleading"): the test is whether a field *implies enforcement*. A
+  cancellation cutoff is a rule a Host asserts over other people's
+  behaviour, so a silent no-op is a broken promise; a format label is
+  information for players, complete and honest the moment it is displayed.
 - **Waitlist Entry** — a Player's queued position (`waiting | promoted |
   expired | cancelled`) for a Game that was full when they tried to join
   (T6.6, fulfilling ADR-0006). Ordered FIFO per Game. A cancelled
