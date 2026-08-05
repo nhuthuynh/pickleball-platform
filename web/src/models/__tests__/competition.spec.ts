@@ -34,7 +34,7 @@ describe('mapToCompetitionListing', () => {
     expect(summary.name).toBe('Autumn Doubles Ladder')
     expect(summary.spotsLeft).toBe(6)
     expect(summary.sessions).toHaveLength(2)
-    expect(summary.sessions[0].courtIds).toEqual(['court-1', 'court-2'])
+    expect(summary.sessions[0]?.courtIds).toEqual(['court-1', 'court-2'])
   })
 
   it('reads the int64 entry fee, which protojson sends as a string', () => {

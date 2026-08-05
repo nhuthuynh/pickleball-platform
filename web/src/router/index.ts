@@ -23,6 +23,8 @@ import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
+import DiscoverCompetitions from '../components/discover-competitions/DiscoverCompetitions.vue'
+import CompetitionLanding from '../views/CompetitionLanding.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -47,6 +49,39 @@ export const routes: RouteRecordRaw[] = [
   },
   // T8.10 (Payments UI, Host pending-cash dashboard).
   { path: '/host/payments', name: 'host-payments', component: HostPayments, meta: { title: 'Payments' } },
+  // T9.7 (Discover & Enter Competitions, Player). `/competitions/:id` is the
+  // SAME screen as `/competitions` with an initial selection — the detail is
+  // derived from the ListCompetitions response the list already fetched
+  // (which is also the only read carrying the server-computed spots_left),
+  // so a second route component would only duplicate that fetch. `:id` is
+  // mapped onto the component's `competitionId` prop, keeping the screen
+  // mountable without a router in component tests.
+  {
+    path: '/competitions',
+    name: 'competitions',
+    component: DiscoverCompetitions,
+    meta: { title: 'Competitions' },
+  },
+  {
+    path: '/competitions/:id',
+    name: 'competition-detail',
+    component: DiscoverCompetitions,
+    props: (route) => ({ competitionId: String(route.params.id) }),
+    meta: { title: 'Competition' },
+  },
+  // T9.7: the deep-link a Host's shared registration link lands on.
+  // Deliberately short and top-level (`/c/…`, not `/competitions/share/…`) —
+  // it is pasted into social posts and messages, where length costs. The
+  // token is a CAPABILITY, not an identifier: never log it, never send it to
+  // analytics, never put it in a page title (see
+  // GetCompetitionByShareTokenRequest's doc comment).
+  {
+    path: '/c/:shareToken',
+    name: 'competition-share-link',
+    component: CompetitionLanding,
+    props: (route) => ({ shareToken: String(route.params.shareToken) }),
+    meta: { title: 'Competition invitation' },
+  },
   // No ticket owns these yet (no Bookings-history or Profile/Identity
   // screen exists) — see file header comment.
   { path: '/bookings', name: 'bookings', component: ComingSoonView, meta: { title: 'Bookings' } },

@@ -117,7 +117,8 @@ describe('DiscoverCompetitions', () => {
     await wrapper.get('.competition-list__search').trigger('submit')
     await flushPromises()
 
-    const lastCall = (client.GET as ReturnType<typeof vi.fn>).mock.calls.at(-1)
+    const calls = (client.GET as ReturnType<typeof vi.fn>).mock.calls
+    const lastCall = calls[calls.length - 1]
     const query = (lastCall?.[1] as { params: { query: Record<string, string> } }).params.query
     expect(query.venueFacilityId).toBe('facility-2')
     expect(query.startsAfter).toBeTruthy()

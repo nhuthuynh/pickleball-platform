@@ -71,7 +71,14 @@ describe('CompetitionLanding — the happy path', () => {
   // WCAG 2.4.7 / 2.1.1: this is the one screen a brand-new visitor may hit
   // first, with no prior navigation state to inherit focus from.
   it('moves focus to its own heading on arrival so keyboard users start somewhere real', async () => {
-    const wrapper = mountLanding(fakeClient(), 'tok-123')
+    // `attachTo` is required for a focus assertion: an element that is not
+    // in the document cannot become `document.activeElement`, in jsdom or in
+    // a real browser.
+    const wrapper = mount(CompetitionLanding, {
+      props: { client: fakeClient(), shareToken: 'tok-123' },
+      global: { stubs: { RouterLink: RouterLinkStub } },
+      attachTo: document.body,
+    })
     await flushPromises()
 
     const heading = wrapper.get('.competition-landing__heading')

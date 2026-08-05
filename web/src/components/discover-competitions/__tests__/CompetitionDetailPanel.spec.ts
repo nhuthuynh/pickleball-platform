@@ -55,8 +55,8 @@ describe('CompetitionDetailPanel', () => {
     const wrapper = mount(CompetitionDetailPanel, { props: props() })
     const sessions = wrapper.findAll('.competition-detail__session')
     expect(sessions).toHaveLength(2)
-    expect(sessions[0].text()).toContain('court-1, court-2')
-    expect(sessions[1].text()).toContain('court-3')
+    expect(sessions[0]?.text()).toContain('court-1, court-2')
+    expect(sessions[1]?.text()).toContain('court-3')
   })
 
   it('renders "Free" — the word — for a zero entry fee', () => {

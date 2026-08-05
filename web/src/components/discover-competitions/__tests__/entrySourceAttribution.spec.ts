@@ -124,7 +124,9 @@ describe('entry source attribution: deep link vs. in-app', () => {
     const [inApp] = await enterFromInApp()
     const [deepLink] = await enterFromDeepLink()
 
-    expect(inApp.source).not.toBe(deepLink.source)
+    expect(inApp).toBeDefined()
+    expect(deepLink).toBeDefined()
+    expect(inApp?.source).not.toBe(deepLink?.source)
     // Everything ELSE about the two requests is identical — the only thing
     // the arrival path changes is the attribution.
     expect({ ...inApp, source: undefined }).toEqual({ ...deepLink, source: undefined })
