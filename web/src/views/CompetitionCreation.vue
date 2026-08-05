@@ -54,6 +54,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { facilitiesClient, type FacilitiesClient } from '../api/facilitiesClient'
 import { competitionsClient as defaultCompetitionsClient, type CompetitionsClient } from '../api/competitionsClient'
+import type { components as CompetitionsComponents } from '../api/generated/competitions'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { useFacilityList } from '../composables/useFacilityList'
 import { useFacilityDetail } from '../composables/useFacilityDetail'
@@ -94,13 +95,21 @@ const STEP_LABELS: Record<Step, string> = {
 
 type PaymentMethodOption = 'online' | 'cash' | 'either'
 
+// The wire type generated from v1PaymentMethod (proto/pickleball/
+// competitions/v1/competitions.proto) — PR #91 review finding: this file
+// previously widened every wire constant to `string`, which let a typo
+// compile silently past the exact union TypeScript exists to catch here.
+type CompetitionPaymentMethodWire = NonNullable<
+  CompetitionsComponents['schemas']['v1CreateCompetitionRequest']['paymentMethod']
+>
+
 const PAYMENT_METHOD_OPTIONS: { value: PaymentMethodOption; label: string }[] = [
   { value: 'online', label: 'Online' },
   { value: 'cash', label: 'Cash' },
   { value: 'either', label: 'Either' },
 ]
 
-const PAYMENT_METHOD_WIRE: Record<PaymentMethodOption, string> = {
+const PAYMENT_METHOD_WIRE: Record<PaymentMethodOption, CompetitionPaymentMethodWire> = {
   online: 'PAYMENT_METHOD_ONLINE',
   cash: 'PAYMENT_METHOD_CASH',
   either: 'PAYMENT_METHOD_EITHER',
@@ -111,10 +120,18 @@ const PAYMENT_METHOD_WIRE: Record<PaymentMethodOption, string> = {
 // NewCompetition rejects it (ErrInvalidFormat/400) precisely to make the
 // client state its choice, so a "not sure yet" option here would only
 // produce a guaranteed server rejection.
-const FORMAT_OPTIONS = [
+// The wire type generated from v1CompetitionFormat. UNSPECIFIED is excluded
+// here (see the comment above FORMAT_OPTIONS) so this is deliberately
+// narrower than the full generated union, not a re-derivation of it.
+type CompetitionFormatWire = Exclude<
+  NonNullable<CompetitionsComponents['schemas']['v1CreateCompetitionRequest']['format']>,
+  'COMPETITION_FORMAT_UNSPECIFIED'
+>
+
+const FORMAT_OPTIONS: { value: CompetitionFormatWire; label: string }[] = [
   { value: 'COMPETITION_FORMAT_SINGLES', label: 'Singles' },
   { value: 'COMPETITION_FORMAT_DOUBLES', label: 'Doubles' },
-] as const
+]
 
 const props = withDefaults(
   defineProps<{
@@ -159,7 +176,7 @@ const form = reactive({
   sessions: [blankSession()] as DraftSession[],
   capacity: 8,
   guestAllowance: 0,
-  format: '' as string,
+  format: '' as CompetitionFormatWire | '',
   paymentMethod: '' as PaymentMethodOption | '',
   /** Captured in DOLLARS because that is what a Host thinks and types;
    * converted to the integer minor units the wire expects by
@@ -426,7 +443,7 @@ async function publishCompetition() {
         capacity: form.capacity,
         guestAllowance: form.guestAllowance,
         paymentMethod: form.paymentMethod ? PAYMENT_METHOD_WIRE[form.paymentMethod] : undefined,
-        format: form.format,
+        format: form.format || undefined,
         // int64 on the wire is protojson-encoded as a string. A FREE
         // competition sends an explicit 0 with the launch currency, never
         // an omitted field: "free" is a value the Host chose.
