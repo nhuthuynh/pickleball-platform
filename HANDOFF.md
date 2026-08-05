@@ -157,9 +157,10 @@ replace what would otherwise have been further deferrals: ADR-0009 defers
 OAuth/inbound-messaging custody until real auth exists (a credential-custody
 argument, not budget), and ADR-0010 commits auto-matching to the sprint
 that builds Identity/Users with a binding T10 trigger — the fourth time
-this project touched the question and the first time it produced an actual
-decision rather than a fifth deferral (verified by an adversarial PE+PO
-review that went looking for dressed-up-deferral #4 and didn't find it).
+this project touched the question (after three prior deferrals) and the
+first time it produced an actual decision rather than a fourth deferral
+(verified by an adversarial PE+PO review that went looking for
+dressed-up-deferral #4 and didn't find it).
 
 **Critical fix, found mid-sprint, not part of any ticket (PR #89):** a
 PE+QA review of PR #88 (T9.5) noticed the Competitions ID-keyed read next
@@ -195,7 +196,7 @@ transfer") — flagged in the PR, not yet written.
 
 Two merge conflicts were resolved by hand this sprint (T9.8↔T9.9 on
 `HANDOFF.md`'s Docs-index T9 row, resolved into one row citing both ADRs;
-T9.6↔T9.7 — the largest conflict of the four T5–T9 sprints — on four files
+T9.6↔T9.7 — the largest conflict of the five T5–T9 sprints — on four files
 both tickets independently created: `web/src/api/competitionsClient.ts`,
 `web/src/models/competition.ts` + its test file, and `web/src/router/index.ts`.
 Reconciled by hand rather than picking a side: `CompetitionSummary` gained
@@ -203,9 +204,11 @@ T9.7's nullable `spotsLeft` field, the one genuine signature collision
 (`formatSessionRange`, two-string-args on T9.6's side vs. one-session-object
 on T9.7's) resolved by keeping T9.6's name/signature for its two call sites
 and renaming T9.7's variant to `formatSessionRangeFromSession`, and
-`mapToCompetitionSummary`/`CompetitionEntrySummary` kept as aliases of
-T9.7's `mapToCompetition`/`ConfirmedEntry` so neither PR's naming had to
-change) — every conflict was resolved on the source branch, never a direct
+`mapToCompetitionSummary` kept as an alias of T9.7's `mapToCompetition`,
+and T9.7's `ConfirmedEntry` kept as an alias of T9.6's
+`CompetitionEntrySummary` (the interface's declared name), so neither PR's
+naming had to change) — every conflict was resolved on the source branch,
+never a direct
 push to the shared branch, and re-verified (`go build`/`go vet`/`go test
 -race`/`make test-domain` plus `npm run build`/`npm run test`, 383/383 web
 tests passing post-merge) before merging.
@@ -781,10 +784,13 @@ ADR-0009/ADR-0010's triggers — are next.
   Same status as T7/T8: flagged consistently as "plausible but
   unverifiable," not blocking, but now a three-sprint-old gap (Jenkinsfile
   already exists from T0 — wiring it for real is a real T10 candidate, not
-  a hypothetical one; a real CI run would also have caught the T9.9 panic
-  bug's class of issue automatically rather than needing a review to
-  stumble onto it, which is the strongest argument yet for actually doing
-  this).
+  a hypothetical one). Note this would not by itself have caught the
+  unticketed panic bug below (PR #89): its own root-cause writeup found
+  the *existing* test fixtures minted non-UUID IDs like `"id-1"`, so no
+  test — CI-run or not — could have seen the crash until the fixtures
+  themselves were fixed to mint real UUID-shaped IDs. CI is still worth
+  doing on its own merits; it just isn't a substitute for that class of
+  fixture-fidelity gap.
 - **New this sprint (critical, out-of-band, not a ticket): `cmd/server`
   had zero gRPC interceptors, so any unauthenticated request with a
   malformed ID crashed the entire server process** — found as a byproduct
@@ -803,11 +809,16 @@ ADR-0009/ADR-0010's triggers — are next.
   crash, but still not the specific not-found/empty-list answer the read
   paths got) — lower severity since these are intended to require real
   auth once it lands, but explicitly disclosed rather than silently
-  assumed fixed. Recommend a small follow-up ticket extending the same
-  boundary guard to the write paths, and a `docs/LESSONS.md` entry ("grpc
-  installs no default panic recovery; `net/http`'s per-connection recovery
-  intuition does not transfer") — both flagged in PR #89, neither written
-  yet.
+  assumed fixed. The PR #89 review (not just the PR itself) adds a
+  concrete reason not to leave this indefinitely: each unguarded panic
+  still logs a full goroutine stack trace, so an unauthenticated caller
+  can drive attacker-controlled log volume even though the process no
+  longer crashes — not an outage, but real enough to move this from
+  "someday" toward "worth scheduling." Recommend a small follow-up ticket
+  extending the same boundary guard to the write paths, and a
+  `docs/LESSONS.md` entry ("grpc installs no default panic recovery;
+  `net/http`'s per-connection recovery intuition does not transfer") —
+  both flagged in PR #89, neither written yet.
 - **New this sprint**: T9.6 and T9.7 (issues #75, #76) independently
   reached the same finding while building the Competitions UI —
   `payments.PayableType` has exactly three values (`BOOKING`,
