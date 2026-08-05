@@ -23,7 +23,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
-| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | in flight — ticket reviews posted as GitHub PR reviews, not files, per the naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
+| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | PRs #81 (T9.8) → #84 (T9.1) → #83 (T9.10) → #82 (T9.9) → #85 (T9.2) → #86 (T9.3) → #87 (T9.4) → #88 (T9.5) → #89 (critical fix, unticketed) → #90 (T9.7) → #91 (T9.6), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -132,9 +132,98 @@ amount), no CI is configured on this repo, and the `npm install
 --legacy-peer-deps` friction from T7 was still open at the end of T8
 (closed since, by T9.10 — see Cross-cutting).
 
+**T9 (Competitions context + growth/social decisions): all 10 tickets
+(T9.1–T9.10, 49 points) implemented, reviewed, and MERGED**, plus one
+critical out-of-band fix (PR #89, unticketed — see below). Full re-scope
+reasoning and all 10 tickets: `docs/process/t9-sprint-plan.md`. Merge
+order (verified against each PR's `merged_at` timestamp): #81 (T9.8,
+ADR-0009) → #84 (T9.1, Competition/CompetitionEntry domain) → #83 (T9.10,
+npm chore) → #82 (T9.9, ADR-0010) → #85 (T9.2, Game `EntryFee`, retiring
+T8.10's placeholder) → #86 (T9.3, Competitions app service) → #87 (T9.4,
+Postgres/proto/gRPC + weighted DB capacity guard) → #88 (T9.5, shareable
+registration links) → #89 (critical fix — see below) → #90 (T9.7,
+Player-facing Competition UI) → #91 (T9.6, Host-facing Competition UI).
+There is now a real, fifth bounded context
+(`internal/competitions/{domain,app,port,adapter}` +
+`proto/pickleball/competitions/v1`) reusing Booking's existing
+`competition`-source invariant with zero changes to `internal/booking/`,
+and a real, clickable Flow 5: a Host creates a multi-session Competition at
+a real Facility, gets an honest share link (no fake "Connect account"
+buttons — ADR-0009 at the UI layer), a Player discovers it or follows the
+link, and enters with guests under a DB-level weighted capacity guard
+(`FOR UPDATE`-locked trigger, proven with 10 concurrent-entry runs
+including 3 cold starts against real Postgres). Two real decisions
+replace what would otherwise have been further deferrals: ADR-0009 defers
+OAuth/inbound-messaging custody until real auth exists (a credential-custody
+argument, not budget), and ADR-0010 commits auto-matching to the sprint
+that builds Identity/Users with a binding T10 trigger — the fourth time
+this project touched the question and the first time it produced an actual
+decision rather than a fifth deferral (verified by an adversarial PE+PO
+review that went looking for dressed-up-deferral #4 and didn't find it).
+
+**Critical fix, found mid-sprint, not part of any ticket (PR #89):** a
+PE+QA review of PR #88 (T9.5) noticed the Competitions ID-keyed read next
+to the share-token read had no input guard, and pulled the thread —
+`cmd/server` registered **zero gRPC interceptors**, so any unauthenticated
+request with a malformed ID (e.g. `GET /v1/competitions/not-a-uuid`)
+**crashed the entire server process**, taking every bounded context and
+every in-flight request down with it (`net/http`'s per-connection panic
+recovery does not carry over to grpc, which installs none of its own — the
+reviewer's own words: "review intuition carried over from HTTP handlers is
+wrong here"). Independently reproduced live on both branches (real
+Postgres, real `cmd/server` binary): 6 distinct crash vectors on the base
+branch, all surviving as clean errors on the fix branch, with a normal
+request immediately after each attack still succeeding — the part that
+actually proves recovery rather than just error-code mapping. Fixed with
+two layers: a global gRPC panic-recovery interceptor in `cmd/server`
+(protects all five contexts, present and future, logs a stack trace,
+never echoes panic detail to the public caller) plus boundary-level UUID
+shape validation on the five most obviously-public read handlers across
+all five contexts (malformed IDs return the same not-found answer as an
+unknown-but-well-formed one — no enumeration oracle). A second, independent
+instance of the identical bug was found and fixed in
+`booking.ListCourtBookings` while investigating. Deliberately NOT covered
+by the boundary layer (still relies on the interceptor alone, disclosed
+explicitly, not silently assumed fixed): every write handler taking a
+caller-supplied ID (`CancelCompetition`, `EnterCompetition`, `AddCourt`,
+`RecordOfflinePayment`, `CreateOnlinePayment`, `ConfirmOnlinePayment`) —
+lower severity since they're intended to require real auth once it lands,
+but not yet validated. Follow-up recommended, not yet ticketed: extend the
+same boundary guard to those write paths, and a `docs/LESSONS.md` entry
+("grpc has no default panic recovery; net/http intuition does not
+transfer") — flagged in the PR, not yet written.
+
+Two merge conflicts were resolved by hand this sprint (T9.8↔T9.9 on
+`HANDOFF.md`'s Docs-index T9 row, resolved into one row citing both ADRs;
+T9.6↔T9.7 — the largest conflict of the four T5–T9 sprints — on four files
+both tickets independently created: `web/src/api/competitionsClient.ts`,
+`web/src/models/competition.ts` + its test file, and `web/src/router/index.ts`.
+Reconciled by hand rather than picking a side: `CompetitionSummary` gained
+T9.7's nullable `spotsLeft` field, the one genuine signature collision
+(`formatSessionRange`, two-string-args on T9.6's side vs. one-session-object
+on T9.7's) resolved by keeping T9.6's name/signature for its two call sites
+and renaming T9.7's variant to `formatSessionRangeFromSession`, and
+`mapToCompetitionSummary`/`CompetitionEntrySummary` kept as aliases of
+T9.7's `mapToCompetition`/`ConfirmedEntry` so neither PR's naming had to
+change) — every conflict was resolved on the source branch, never a direct
+push to the shared branch, and re-verified (`go build`/`go vet`/`go test
+-race`/`make test-domain` plus `npm run build`/`npm run test`, 383/383 web
+tests passing post-merge) before merging.
+
+Known gaps carried forward, not silently dropped (see Cross-cutting
+below): Competitions has no online-payment path (`payments.PayableType`
+has no Competition-entry value — verified by two independent
+implementations, T9.6 and T9.7, that separately reached the same
+conclusion and traced the same would-be data-corruption bug; cash-only for
+now), no share-token revocation/rotation (explicitly blocked on real auth,
+not an oversight), and the write-handler malformed-ID validation gap noted
+above.
+
 **Not yet built**
-- Competitions, Statements contexts.
+- Statements context.
 - Auth, real migration tooling, observability, CI.
+- Competitions↔Payments online-payment wiring (needs a new `PayableType`
+  value + port/adapter — see T9's Cross-cutting entry).
 - `internal/gen/**` still needs `make generate` run locally/in CI before
   `go build ./...` (not just the domain/app packages) will succeed — the
   postgres/grpcapi adapters and `cmd/server` are unverified beyond
@@ -255,6 +344,25 @@ social-account-linking, shareable-registration-links, and the WhatsApp/Zalo
 spike — originally roadmapped as part of T8 in `docs/process/
 t7-sprint-plan.md` — move to a new T9 per T8's own re-scope decision; the
 former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
+
+**T9 — Competitions bounded context + growth/social decisions. All 10
+tickets (T9.1–T9.10) implemented, reviewed, and MERGED, plus one critical
+out-of-band fix (see the note above).** Full ticket breakdown, kickoff
+note, and the auto-matching/OAuth-custody reasoning: `docs/process/
+t9-sprint-plan.md`. Sprint goal met: a Host can create a multi-session
+Competition at a real Facility, publish an honest share link, and manage
+its roster; a Player can discover a Competition or follow a shared link
+and enter it with guests, under a DB-authoritative weighted capacity
+guard — reusing Booking's existing `competition`-source invariant with
+zero changes to `internal/booking/`. Two real decisions replace what would
+otherwise have been further deferrals (ADR-0009, ADR-0010 — see the note
+above); social-account-linking's OAuth half and the WhatsApp/Zalo
+messaging bot stay deferred per ADR-0009, in-app RSVP via the shareable
+link being the shipped mechanism in the meantime. Retro not yet written.
+Competitions/social-account-linking's remaining half (real inbound
+messaging), plus the former T9 roadmap items now renumbered T10 (pricing/
+discount UI, Club rentals, WCAG hardening) — both gated on real auth per
+ADR-0009/ADR-0010's triggers — are next.
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
@@ -667,13 +775,56 @@ former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
   at closure; see `web/README.md`'s "TypeScript version pin" section for
   when to revisit the pin.
 - No CI is configured on this repo yet (still 0 GitHub check runs as of
-  T8's reviews) — every "tests pass"/"build green" claim in T5–T8's PRs
+  T9's reviews) — every "tests pass"/"build green" claim in T5–T9's PRs
   was verified by an agent running the commands locally in its own sandbox
   and reporting the result, not by an independently-checkable CI signal.
-  Same status as T7: flagged consistently as "plausible but unverifiable,"
-  not blocking, but now a two-sprint-old gap (Jenkinsfile already exists
-  from T0 — wiring it for real is a real T9/T10 candidate, not a
-  hypothetical one).
+  Same status as T7/T8: flagged consistently as "plausible but
+  unverifiable," not blocking, but now a three-sprint-old gap (Jenkinsfile
+  already exists from T0 — wiring it for real is a real T10 candidate, not
+  a hypothetical one; a real CI run would also have caught the T9.9 panic
+  bug's class of issue automatically rather than needing a review to
+  stumble onto it, which is the strongest argument yet for actually doing
+  this).
+- **New this sprint (critical, out-of-band, not a ticket): `cmd/server`
+  had zero gRPC interceptors, so any unauthenticated request with a
+  malformed ID crashed the entire server process** — found as a byproduct
+  of PR #88's review, fixed same-day in PR #89. Two-layer fix: a global
+  panic-recovery interceptor (protects all five contexts, present and
+  future) plus boundary-level UUID shape validation on the five most
+  obviously-public read handlers. Independently reproduced live on a real
+  server against real Postgres, both the original crash (6 vectors,
+  including a second independent instance in `booking.ListCourtBookings`
+  the review found while investigating) and the fix surviving all of them
+  with a normal request succeeding immediately after each attack. **Not
+  yet closed**: every write handler taking a caller-supplied ID
+  (`CancelCompetition`, `EnterCompetition`, `AddCourt`,
+  `RecordOfflinePayment`, `CreateOnlinePayment`, `ConfirmOnlinePayment`)
+  relies on the interceptor alone (a panic there is now a clean 500, not a
+  crash, but still not the specific not-found/empty-list answer the read
+  paths got) — lower severity since these are intended to require real
+  auth once it lands, but explicitly disclosed rather than silently
+  assumed fixed. Recommend a small follow-up ticket extending the same
+  boundary guard to the write paths, and a `docs/LESSONS.md` entry ("grpc
+  installs no default panic recovery; `net/http`'s per-connection recovery
+  intuition does not transfer") — both flagged in PR #89, neither written
+  yet.
+- **New this sprint**: T9.6 and T9.7 (issues #75, #76) independently
+  reached the same finding while building the Competitions UI —
+  `payments.PayableType` has exactly three values (`BOOKING`,
+  `REGISTRATION`, `NO_SHOW_FEE`), none for a Competition entry, and
+  `internal/payments/app.Service`'s `reconcileRegistrationPaymentStatus`
+  writes any `PAYABLE_TYPE_REGISTRATION` confirmation into **Social
+  Play's** registrations table specifically. Routing a Competition entry
+  through T8.10's existing checkout as-is would have persisted a Payment
+  as paid, then written a Competition entry ID into the wrong context's
+  table at confirm time — a real money-adjacent correctness bug, not
+  extra work skipped. Both PRs' reviews independently verified this by
+  tracing the exact code path rather than trusting the claim. Competitions
+  is cash-only in T9 as a result (online-payment checkout deliberately not
+  built). Recommend a follow-up ticket: a Competitions-shaped
+  `PayableType` value plus the equivalent port/adapter pair
+  `internal/payments/adapter/socialplay` already established for Social
+  Play (T6.5).
 - **New this sprint**: T8.10 (closes issue #58) found that `domain.Game`/
   `domain.Registration` have no price/fee field at all — confirmed by
   inspection, unchanged by T8.6/T8.7's own field additions this same
