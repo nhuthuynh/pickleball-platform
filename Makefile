@@ -22,6 +22,7 @@ generate:
 # Runs `make generate` itself first (see web/scripts/generate-client.mjs), so
 # this is the one command that brings ALL generated code up to date.
 generate-client:
+	@test -d web/node_modules || (echo "web/node_modules missing — running npm ci first"; npm --prefix web ci)
 	npm --prefix web run generate:client
 
 tidy:
