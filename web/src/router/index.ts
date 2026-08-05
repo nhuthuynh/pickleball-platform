@@ -25,6 +25,8 @@ import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
 import CompetitionCreation from '../views/CompetitionCreation.vue'
 import CompetitionManage from '../views/CompetitionManage.vue'
+import DiscoverCompetitions from '../components/discover-competitions/DiscoverCompetitions.vue'
+import CompetitionLanding from '../views/CompetitionLanding.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -53,11 +55,11 @@ export const routes: RouteRecordRaw[] = [
   //
   // These belong to the GAMES area of the nav rather than a sixth
   // top-level tab — see AppNav.vue's own note. `/competitions` and
-  // `/competitions/:id` (the Player-facing browse + detail) and
-  // `/c/:shareToken` (the shared-link landing) are T9.7's, not registered
-  // here. `/competitions/new` and `/competitions/:id` can coexist safely:
-  // vue-router ranks a static segment above a dynamic one, so `new` is
-  // never captured as an id regardless of registration order.
+  // `/competitions/:id` (the Player-facing browse + detail, T9.7 below) and
+  // `/c/:shareToken` (the shared-link landing, also T9.7) are registered
+  // separately. `/competitions/new` and `/competitions/:id` can coexist
+  // safely: vue-router ranks a static segment above a dynamic one, so `new`
+  // is never captured as an id regardless of registration order.
   {
     path: '/competitions/new',
     name: 'competitions-new',
@@ -72,6 +74,39 @@ export const routes: RouteRecordRaw[] = [
     // which is also what lets its spec mount it without a router.
     props: true,
     meta: { title: 'Manage competition' },
+  },
+  // T9.7 (Discover & Enter Competitions, Player). `/competitions/:id` is the
+  // SAME screen as `/competitions` with an initial selection — the detail is
+  // derived from the ListCompetitions response the list already fetched
+  // (which is also the only read carrying the server-computed spots_left),
+  // so a second route component would only duplicate that fetch. `:id` is
+  // mapped onto the component's `competitionId` prop, keeping the screen
+  // mountable without a router in component tests.
+  {
+    path: '/competitions',
+    name: 'competitions',
+    component: DiscoverCompetitions,
+    meta: { title: 'Competitions' },
+  },
+  {
+    path: '/competitions/:id',
+    name: 'competition-detail',
+    component: DiscoverCompetitions,
+    props: (route) => ({ competitionId: String(route.params.id) }),
+    meta: { title: 'Competition' },
+  },
+  // T9.7: the deep-link a Host's shared registration link lands on.
+  // Deliberately short and top-level (`/c/…`, not `/competitions/share/…`) —
+  // it is pasted into social posts and messages, where length costs. The
+  // token is a CAPABILITY, not an identifier: never log it, never send it to
+  // analytics, never put it in a page title (see
+  // GetCompetitionByShareTokenRequest's doc comment).
+  {
+    path: '/c/:shareToken',
+    name: 'competition-share-link',
+    component: CompetitionLanding,
+    props: (route) => ({ shareToken: String(route.params.shareToken) }),
+    meta: { title: 'Competition invitation' },
   },
   // No ticket owns these yet (no Bookings-history or Profile/Identity
   // screen exists) — see file header comment.

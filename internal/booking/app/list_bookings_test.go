@@ -19,30 +19,30 @@ func TestListCourtBookings_ReturnsIntersectingBookings(t *testing.T) {
 	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	// court-1: a morning booking and an evening booking.
+	// courtID(1): a morning booking and an evening booking.
 	morning := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	evening := mustTimeRange(t, "2026-08-03T18:00:00Z", "2026-08-03T19:00:00Z")
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: "court-1", Source: domain.SourceIndividual, Range: morning}); err != nil {
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: morning}); err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: "court-1", Source: domain.SourceGame, Range: evening, ReferenceID: "game-1"}); err != nil {
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceGame, Range: evening, ReferenceID: "game-1"}); err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
-	// court-2: overlaps the same window but is a different court.
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: "court-2", Source: domain.SourceIndividual, Range: morning}); err != nil {
+	// courtID(2): overlaps the same window but is a different court.
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(2), Source: domain.SourceIndividual, Range: morning}); err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
 
 	wholeDay := mustTimeRange(t, "2026-08-03T00:00:00Z", "2026-08-04T00:00:00Z")
-	got, err := svc.ListCourtBookings(ctx, "court-1", wholeDay)
+	got, err := svc.ListCourtBookings(ctx, courtID(1), wholeDay)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if len(got) != 2 {
-		t.Fatalf("got %d bookings, want 2 (both court-1 bookings intersecting the day)", len(got))
+		t.Fatalf("got %d bookings, want 2 (both courtID(1) bookings intersecting the day)", len(got))
 	}
 
-	morningOnly, err := svc.ListCourtBookings(ctx, "court-1", morning)
+	morningOnly, err := svc.ListCourtBookings(ctx, courtID(1), morning)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestListCourtBookings_ReturnsIntersectingBookings(t *testing.T) {
 		t.Fatalf("got %+v, want exactly the morning booking", morningOnly)
 	}
 
-	none, err := svc.ListCourtBookings(ctx, "court-9", wholeDay)
+	none, err := svc.ListCourtBookings(ctx, courtID(9), wholeDay)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestListCourtBookings_ExcludesCancelled(t *testing.T) {
 	ctx := context.Background()
 
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	created, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: "court-1", Source: domain.SourceIndividual, Range: rng})
+	created, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
 	if err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
@@ -76,7 +76,7 @@ func TestListCourtBookings_ExcludesCancelled(t *testing.T) {
 		t.Fatalf("unexpected err cancelling fixture: %v", err)
 	}
 
-	got, err := svc.ListCourtBookings(ctx, "court-1", rng)
+	got, err := svc.ListCourtBookings(ctx, courtID(1), rng)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

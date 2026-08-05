@@ -1,5 +1,6 @@
-// Host-facing view models for the Competitions screens (T9.6,
-// docs/process/t9-sprint-plan.md), built from the raw Competitions API
+// View models for the Competitions screens — T9.6's Host-facing
+// create/advertise/manage flow and T9.7's Player-facing discover/enter flow
+// (docs/process/t9-sprint-plan.md), built from the raw Competitions API
 // response (web/src/api/generated/competitions.d.ts's
 // `components['schemas']`, produced from
 // proto/pickleball/competitions/v1/competitions.proto).
@@ -17,15 +18,36 @@
 // UI. Same rule models/game.ts's `paymentMethodLabel`/`spotsLeftLabel`
 // already apply for Social Play.
 import type { components } from '../api/generated/competitions'
+// Reused verbatim from Social Play's view models rather than re-derived:
+// PaymentMethod's three values, the "spots left" wording, and the "a zero
+// fee is the word Free" rule are one ubiquitous language across contexts
+// (CLAUDE.md rule 7), and a second copy of them is exactly how the two
+// screens would drift apart. Note this is a reuse of pure *presentation*
+// helpers only — nothing here couples the Competitions model to Social
+// Play's data, mirroring how the two protos deliberately keep separate Money
+// messages while agreeing on what the values mean.
+import { paymentMethodLabel, spotsLeftLabel, entryFeeLabel } from './game'
+
+export { paymentMethodLabel, spotsLeftLabel, entryFeeLabel }
 
 export type RawCompetition = components['schemas']['v1Competition']
+export type RawCompetitionListing = components['schemas']['v1CompetitionListing']
 export type RawCompetitionEntry = components['schemas']['v1CompetitionEntry']
 export type RawCompetitionSession = components['schemas']['v1CompetitionSession']
 
-/** One sitting of a Competition, as it comes off the wire. A value type
- * inside the Competition aggregate — deliberately no id, mirroring
- * `CompetitionSession`'s own proto doc comment. */
-export interface CompetitionSessionSummary {
+/** How an entrant arrived. The SAME closed vocabulary Social Play's
+ * registration source uses, not a third one for the same fact (sprint plan
+ * §A3, CLAUDE.md rule 7). The server validates the claimed value rather than
+ * inferring it, so the client is the only place the distinction is made. */
+export type EntrySource = 'ENTRY_SOURCE_APP' | 'ENTRY_SOURCE_SOCIAL'
+
+/** One sitting of a Competition, as it comes off the wire: a time range plus
+ * the courts it reserves for that range. A value type inside the
+ * Competition aggregate — deliberately no id, mirroring
+ * `CompetitionSession`'s own proto doc comment. A Competition runs across
+ * dates, so this is a LIST on the Competition — the one structural
+ * difference from a Game. */
+export interface CompetitionSession {
   startsAt: string
   endsAt: string
   courtIds: string[]
@@ -36,8 +58,11 @@ export interface CompetitionSummary {
   hostId: string
   name: string
   venueFacilityId: string
-  sessions: CompetitionSessionSummary[]
+  sessions: CompetitionSession[]
+  /** Counts PLACES, not entries — an entrant and each of their guests
+   * occupy one place each. */
   capacity: number
+  /** The maximum guests a SINGLE entry may bring; 0 means none permitted. */
   guestAllowance: number
   paymentMethod: string
   /** Integer minor units. 0 means the Competition is FREE — a real,
@@ -47,35 +72,70 @@ export interface CompetitionSummary {
   entryFeeCurrency: string
   format: string
   status: string
+  /**
+   * Server-computed weighted spots left (capacity minus the sum of
+   * `1 + guest_count` across active entries).
+   *
+   * `null` means **the endpoint this came from does not return it** — not
+   * "zero", and not "unknown-so-guess-something". Only `ListCompetitions`
+   * carries `spots_left`; `GetCompetition` and `GetCompetitionByShareToken`
+   * return a bare `Competition` and deliberately nothing more (their
+   * responses are field-for-field identical by design, with a backend
+   * regression test pinning that). The UI omits the figure entirely rather
+   * than inventing one — see CompetitionDetailPanel.vue. T9.6's Host screens
+   * never read this field (a Host's own create/manage flow has no need for
+   * "spots left" framing), so it is always `null` on that path.
+   */
+  spotsLeft: number | null
 }
 
-export function mapToCompetitionSession(raw: RawCompetitionSession): CompetitionSessionSummary {
-  return {
-    startsAt: raw.startsAt ?? '',
-    endsAt: raw.endsAt ?? '',
-    courtIds: raw.courtIds ?? [],
-  }
+function mapSessions(raw: RawCompetitionSession[] | undefined): CompetitionSession[] {
+  return (raw ?? []).map((s) => ({
+    startsAt: s.startsAt ?? '',
+    endsAt: s.endsAt ?? '',
+    courtIds: s.courtIds ?? [],
+  }))
 }
 
-export function mapToCompetitionSummary(raw: RawCompetition): CompetitionSummary {
+function mapCompetitionFields(raw: RawCompetition, spotsLeft: number | null): CompetitionSummary {
   return {
     id: raw.id ?? '',
     hostId: raw.hostId ?? '',
     name: raw.name ?? '',
     venueFacilityId: raw.venueFacilityId ?? '',
-    sessions: (raw.sessions ?? []).map(mapToCompetitionSession),
+    sessions: mapSessions(raw.sessions),
     capacity: raw.capacity ?? 0,
     guestAllowance: raw.guestAllowance ?? 0,
     paymentMethod: raw.paymentMethod ?? 'PAYMENT_METHOD_UNSPECIFIED',
-    // `amountCents` is an int64 in the proto, which protojson (and so the
-    // generated TS types) represents as a *string* — same convention
-    // models/payment.ts's `toMoneyRequest` documents.
+    // `amount_cents` is an int64 in the proto, which protojson (and so the
+    // generated TS types) represents as a *string* — the same convention
+    // models/game.ts and models/payment.ts already document. An absent
+    // entry_fee reads as 0 = free, matching the wire default.
     entryFeeCents: Number(raw.entryFee?.amountCents ?? 0),
     entryFeeCurrency: raw.entryFee?.currencyCode ?? '',
     format: raw.format ?? 'COMPETITION_FORMAT_UNSPECIFIED',
     status: raw.status ?? 'COMPETITION_STATUS_UNSPECIFIED',
+    spotsLeft,
   }
 }
+
+/** From `ListCompetitions` — the one read that carries the server-computed
+ * weighted `spots_left`. */
+export function mapToCompetitionListing(raw: RawCompetitionListing): CompetitionSummary {
+  return mapCompetitionFields(raw.competition ?? {}, raw.spotsLeft ?? 0)
+}
+
+/** From `GetCompetition` / `GetCompetitionByShareToken` — a bare
+ * Competition, so `spotsLeft` stays `null`. See CompetitionSummary. */
+export function mapToCompetition(raw: RawCompetition): CompetitionSummary {
+  return mapCompetitionFields(raw, null)
+}
+
+/** Alias of `mapToCompetition`, kept for T9.6's call sites
+ * (CompetitionCreation.vue, CompetitionManage.vue predate T9.7's
+ * `mapToCompetition` naming) — same function, not a second implementation,
+ * so the two names can never drift apart. */
+export const mapToCompetitionSummary = mapToCompetition
 
 export interface CompetitionEntrySummary {
   id: string
@@ -86,6 +146,10 @@ export interface CompetitionEntrySummary {
   paymentStatus: string
   status: string
 }
+
+/** Alias of `CompetitionEntrySummary` — T9.7's name for the identical
+ * shape returned by `EnterCompetition`. */
+export type ConfirmedEntry = CompetitionEntrySummary
 
 export function mapToCompetitionEntry(raw: RawCompetitionEntry): CompetitionEntrySummary {
   return {
@@ -103,9 +167,10 @@ export function mapToCompetitionEntry(raw: RawCompetitionEntry): CompetitionEntr
  * The Competition's format, as a display label.
  *
  * DESCRIPTIVE ONLY, exactly as `CompetitionFormat`'s proto doc comment
- * insists: it enforces nothing, and the UI must never present it as a rule
- * the backend upholds (no partner-pairing field, no bracket, no seeding —
- * none of that exists in T9).
+ * insists: it enforces nothing (an entrant may enter a doubles Competition
+ * alone and the server accepts it), and the UI must never present it as a
+ * rule the backend upholds (no partner-pairing field, no bracket, no
+ * seeding — none of that exists in T9).
  */
 export function competitionFormatLabel(format: string): string {
   switch (format) {
@@ -128,7 +193,7 @@ export function competitionFormatLabel(format: string): string {
  *
  * `docs/design/v1-external-reference-reconciliation.md` is explicit about
  * this: the design attachment's wireframe labels this list "via WhatsApp
- * reply" / "via Facebook reply", drawing reply-scraping that is not built
+ * reply" / "via Facebook reply", drawing on reply-scraping that is not built
  * and — per ADR-0009 — is not being built. Copying that phrasing would
  * claim a fact the backend does not have (nothing anywhere records which
  * channel a link was pasted into) and would advertise an integration that
@@ -182,10 +247,47 @@ export function entryStatusLabel(status: string): string {
   }
 }
 
-/** Formats one session's date + time range for display — Competitions' own
- * copy of the `Intl.DateTimeFormat` approach `models/game.ts`'s
- * `formatGameRange` uses (that file's own comment establishes the
- * "own copy, no shared formatter module" precedent for this codebase). */
+/** Whether this Competition is cancelled. A cancelled Competition is a real,
+ * displayable state — a share link to one still resolves (T9.5) and must
+ * render as "this was cancelled", never as a broken link. */
+export function isCancelled(status: string): boolean {
+  return status === 'COMPETITION_STATUS_CANCELLED'
+}
+
+/**
+ * The EARLIEST session start across a Competition's sessions.
+ *
+ * This is the single definition of when a Competition "starts" that the
+ * backend already uses for both `starts_after`/`starts_before` filtering and
+ * result ordering (ListCompetitionsRequest's doc comment). A Competition
+ * runs across dates, so the list row has to agree with that definition
+ * rather than picking whichever session happens to be first in array order.
+ */
+export function earliestSessionStart(sessions: CompetitionSession[]): string {
+  let earliest = ''
+  for (const s of sessions) {
+    if (!s.startsAt) continue
+    if (!earliest || new Date(s.startsAt).getTime() < new Date(earliest).getTime()) {
+      earliest = s.startsAt
+    }
+  }
+  return earliest
+}
+
+/** Formats one ISO instant as a date, mirroring models/game.ts's
+ * `Intl.DateTimeFormat` approach. */
+export function formatCompetitionDate(startsAt: string): string {
+  if (!startsAt) return 'Date not set'
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(startsAt))
+}
+
+/** Formats one session's date + time range for display, given its two ISO
+ * instants directly — Competitions' own copy of the `Intl.DateTimeFormat`
+ * approach `models/game.ts`'s `formatGameRange` uses (that file's own
+ * comment establishes the "own copy, no shared formatter module" precedent
+ * for this codebase). An absent range renders as empty: the create/manage
+ * flow this signature serves (CompetitionCreation.vue, CompetitionManage.vue)
+ * always has both instants by the time it renders a row. */
 export function formatSessionRange(startsAt: string, endsAt: string): string {
   if (!startsAt || !endsAt) return ''
   const start = new Date(startsAt)
@@ -193,6 +295,29 @@ export function formatSessionRange(startsAt: string, endsAt: string): string {
   const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
   const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
   return `${dateFmt.format(start)}, ${timeFmt.format(start)}–${timeFmt.format(end)}`
+}
+
+/** Formats a `CompetitionSession`'s date + time range for display — the
+ * Player-facing detail screen's convenience wrapper around
+ * `formatSessionRange`, taking the session object `CompetitionDetailPanel.vue`
+ * already has in hand rather than destructuring it at every call site.
+ * Distinct from `formatSessionRange` (same job, different parameter shape,
+ * disambiguated by name rather than by overload) because the two screens
+ * that need this reached for it independently — T9.6's create/manage flow
+ * works from loose `startsAt`/`endsAt` strings mid-form, T9.7's read-only
+ * detail view already has a whole `CompetitionSession`.
+ *
+ * An absent range renders as the words "Time not set" rather than `Intl`'s
+ * "Invalid Date" — a missing value is stated, never leaked as a formatter
+ * artifact. */
+export function formatSessionRangeFromSession(session: CompetitionSession): string {
+  if (!session.startsAt || !session.endsAt) return 'Time not set'
+  return formatSessionRange(session.startsAt, session.endsAt) || 'Time not set'
+}
+
+/** The courts one session reserves, as text. */
+export function sessionCourtsLabel(session: CompetitionSession): string {
+  return session.courtIds.length > 0 ? session.courtIds.join(', ') : 'Courts not set'
 }
 
 /**
@@ -204,7 +329,7 @@ export function formatSessionRange(startsAt: string, endsAt: string): string {
  * wire to derive a date from, the honest output is nothing at all, not a
  * fabricated placeholder.
  */
-export function competitionDatesLabel(sessions: CompetitionSessionSummary[]): string {
+export function competitionDatesLabel(sessions: CompetitionSession[]): string {
   const starts = sessions.map((s) => new Date(s.startsAt).getTime()).filter((t) => !Number.isNaN(t))
   const ends = sessions.map((s) => new Date(s.endsAt).getTime()).filter((t) => !Number.isNaN(t))
   if (starts.length === 0 || ends.length === 0) return ''
@@ -235,7 +360,7 @@ export interface DraftSession {
 /** The instants a draft row denotes, or null when the row is not yet
  * complete enough to denote any (so an incomplete row never becomes an
  * `Invalid Date` on the wire or a phantom overlap in the check below). */
-export function draftSessionRange(session: DraftSession): { start: number; end: number } | null {
+function draftSessionRange(session: DraftSession): { start: number; end: number } | null {
   if (!session.date || !session.startTime || !session.endTime) return null
   const start = new Date(`${session.date}T${session.startTime}`).getTime()
   const end = new Date(`${session.date}T${session.endTime}`).getTime()
@@ -244,9 +369,7 @@ export function draftSessionRange(session: DraftSession): { start: number; end: 
 }
 
 /** The wire `CompetitionSession` for a draft row, or null if incomplete. */
-export function draftSessionToWire(
-  session: DraftSession,
-): { startsAt: string; endsAt: string; courtIds: string[] } | null {
+export function draftSessionToWire(session: DraftSession): CompetitionSession | null {
   const range = draftSessionRange(session)
   if (!range) return null
   return {

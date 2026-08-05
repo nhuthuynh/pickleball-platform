@@ -25,6 +25,28 @@ import (
 // comment promises never happens.
 var shareTokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// uuidShape matches the canonical 8-4-4-4-12 hex form that
+// internal/platform/idgen mints for every Competition and CompetitionEntry ID.
+//
+// It exists for the same reason shareTokenShape does, one identifier over: a
+// caller-supplied ID arrives as an unvalidated HTTP path parameter, and the
+// Postgres adapter's mustUUID *panics* on anything pgtype.UUID.Scan can't
+// parse. Since grpc installs no recover() of its own, that panic used to take
+// the entire server process down — `GET /v1/competitions/not-a-uuid` was an
+// unauthenticated total outage. Rejecting the ID here means the panic never
+// happens; internal/platform/grpcrecovery is the backstop for the ones nobody
+// anticipated, not a substitute for this.
+//
+// **Deliberately narrower than github.com/google/uuid's Validate, and it must
+// stay that way.** uuid.Validate also accepts the braced form
+// `{6ba7b810-...}` and the `urn:uuid:6ba7b810-...` form; pgtype.UUID.Scan
+// accepts neither, so a guard written with uuid.Validate would have passed both
+// straight through to mustUUID and panicked anyway. A validator that is wider
+// than the thing it protects is not a validator. The 32-char undashed form that
+// pgtype also accepts is likewise rejected — being narrower than the adapter is
+// always safe, and idgen never produces it.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 // Service is the Competitions context's application layer: it orchestrates
 // the domain and its ports but holds no business rules itself — those live
 // in internal/competitions/domain. Mirrors internal/socialplay/app.Service's
@@ -306,6 +328,14 @@ func (s *Service) EnterCompetition(ctx context.Context, in EnterCompetitionInput
 // EnterCompetition has none: reading a Competition is not an act *on* it.
 // Anyone who can see the listing can read the Competition it names.
 func (s *Service) GetCompetition(ctx context.Context, competitionID string) (domain.Competition, error) {
+	// A malformed ID is answered exactly like an unknown one, for the reason
+	// spelled out on uuidShape and on GetCompetitionByShareToken below: this is
+	// a public read, so "that isn't even a valid ID" would be a distinguishable
+	// reply and therefore an oracle. It is also what stops the adapter's
+	// mustUUID from panicking the process on an unauthenticated request.
+	if !uuidShape.MatchString(competitionID) {
+		return domain.Competition{}, domain.ErrCompetitionNotFound
+	}
 	return s.competitions.GetByID(ctx, competitionID)
 }
 
@@ -379,6 +409,14 @@ func (s *Service) ListCompetitions(ctx context.Context, filter port.CompetitionL
 // this is a different method from the capacity check's own
 // ListActiveEntriesForCompetition rather than the same one with a flag.
 func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID string) ([]domain.CompetitionEntry, error) {
+	// Same boundary guard as GetCompetition, but this read is list-shaped: an
+	// unknown Competition yields an empty roster rather than an error, so a
+	// malformed one must yield an empty roster too. Matching *this* method's
+	// own not-found answer is the point — the invariant is "malformed is
+	// indistinguishable from unknown", not "malformed is always NotFound".
+	if !uuidShape.MatchString(competitionID) {
+		return []domain.CompetitionEntry{}, nil
+	}
 	return s.competitions.ListEntriesForCompetition(ctx, competitionID)
 }
 
