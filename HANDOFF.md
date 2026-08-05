@@ -23,6 +23,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
+| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | in flight — ticket reviews posted as GitHub PR reviews, not files, per the naming convention | `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
 
 Requirements research (not phase-tied, referenced across T5/T6 planning):
 `docs/requirements/README.md` (synthesis) +
@@ -210,7 +211,10 @@ ticket breakdown, kickoff note, and PM/PE disagreements:
 Original scope (for reference): `internal/socialplay/{domain,app,port,adapter}` +
 `proto/pickleball/socialplay/v1`, Game aggregate (capacity invariant) +
 Registration, game scheduling reserves courts as `game`-source Bookings
-(inherits the no-overlap invariant). Matchmaking deferred past T5.
+(inherits the no-overlap invariant). Matchmaking was deferred past T5; it
+now has a named owning context and a binding trigger rather than an
+open-ended deferral — **ADR-0010** schedules it with Identity/Users (see
+Cross-cutting below).
 
 **T6 — Payments context (+ Game waitlist, T6.6, technically a Social Play
 ticket scheduled in this sprint). T6.1–T6.5 implemented and review-approved
@@ -649,6 +653,32 @@ former T9 (pricing/discount UI, Club rentals, WCAG hardening) becomes T10.
   `ListRegistrationsForGame`. Both follow the migration-free-read-path
   pattern T8.2/T7.3 already established (no schema change, no new domain
   type, public read, no ownership check).
+- **Auto-matching (level/gender matchmaking, `PlayerRating`, `Match`, the
+  self-reported starting `Level`) is no longer "deferred with no home."**
+  `docs/adr/0010-auto-matching-deferred-to-identity-context.md` (T9.9,
+  transcribing `docs/process/t9-sprint-plan.md` §A2) decides it: it is built
+  in the sprint that stands up the **Identity/Users** context — named as T10
+  in §A5 — and **not before**. Because `Level` belongs to Identity/Users per
+  `docs/agent-operating-handbook.md` A1 and that context does not exist
+  (verified by grep this ceremony; the commands and their empty result are
+  recorded in the ADR); because parking a cross-context field in the wrong
+  context is a bill this project already paid once at real expense
+  (`games.facility_id` → T8.3: a migration, a new port, a new adapter, and
+  deprecated artifacts still sitting in the schema, the domain struct, and
+  the proto today), so knowingly repeating it is a repeat, not a tradeoff;
+  and because T9 builds no brackets (§A4), so the seeding call site that
+  would have justified a minimal rating this sprint does not exist.
+  This is a **sequencing** decision, **not** a reversal of CLAUDE.md's
+  locked "matchmaking is in v1" decision — do not read it as one.
+  **Trigger, binding on the next sprint:** T10's Ceremony 1 must either
+  build auto-matching or supersede ADR-0010 with a new ADR; it may not
+  defer it again in prose. **Two product/legal questions are escalated to
+  the user in that ADR, not resolved by it:** the Player Level formula's
+  weighting (the design handoff's own open question,
+  `docs/design/handoff-2026-08/README.md`), and whether gender-mix matching
+  is in scope at all, given it means collecting and algorithmically acting
+  on a protected attribute — the same class as the two items already
+  awaiting sign-off in `docs/design/v1-system-design.md`'s top blockquote.
 
 ## Definition of Done (per task)
 Acceptance criteria met · new/updated tests green · `make test` green · invariants
