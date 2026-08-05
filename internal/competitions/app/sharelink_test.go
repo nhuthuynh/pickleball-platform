@@ -111,6 +111,14 @@ func TestGetCompetitionByShareToken_NotFoundIsIndistinguishable(t *testing.T) {
 		{"malformed: illegal characters", "not a token!! ***"},
 		{"malformed: empty", ""},
 		{"malformed: whitespace", "   "},
+		// PR #88 review finding: a NUL byte is valid UTF-8 and so reached
+		// Postgres unmodified before this fix, which cannot store one in a
+		// `text` column — the adapter returned a raw, unwrapped driver
+		// error, distinguishable from every other miss and leaking
+		// internal error detail from an unauthenticated public endpoint.
+		{"malformed: NUL byte", "abc\x00def"},
+		// Same class of bug, different byte: 0x80 alone is not valid UTF-8.
+		{"malformed: invalid UTF-8", "abc\x80def"},
 		// A Competition's ID is NOT its token: passing one must not resolve,
 		// and must not be distinguishable from any other miss.
 		{"a competition id, not a token", c.ID},
@@ -220,5 +228,67 @@ func TestGetCompetitionByShareToken_DoesNotInferEntrySource(t *testing.T) {
 	}
 	if entry.Source != domain.EntrySourceApp {
 		t.Fatalf("source = %q, want %q — the server must not infer `social` from the share-token lookup", entry.Source, domain.EntrySourceApp)
+	}
+}
+
+// TestGetCompetitionByShareToken_MalformedShapeNeverReachesRepository is the
+// regression proof for a real bug a review of this ticket found: a NUL byte
+// is valid UTF-8, so it passed GetCompetitionByShareToken's old empty-string-
+// only guard unmodified and reached the repository. Against real Postgres
+// that means a `text` column, which cannot store a NUL byte and raises a raw
+// encoding error — a 500 that leaks internal error detail on a public,
+// unauthenticated endpoint, and (worse, for this endpoint specifically) a way
+// to distinguish "malformed token" from "well-formed but unknown token" that
+// TestGetCompetitionByShareToken_NotFoundIsIndistinguishable exists
+// specifically to rule out.
+//
+// The in-memory fakeRepository used elsewhere in this file can't reproduce
+// that Postgres failure — a Go map indexes a NUL-byte string exactly like any
+// other — so asserting on GetCompetitionByShareToken's return value alone
+// cannot tell a fixed version from a broken one (confirmed: reverting the
+// fix in internal/competitions/app/service.go still passes every other test
+// in this file). The only way to prove the shape check is doing its job is
+// to observe that malformed input never reaches the repository call at all.
+// This is a deliberate exception to "don't write change-detector tests
+// against a call log" (this project's QA dossier §6): here, "never calls the
+// repository" IS the security property, not an incidental implementation
+// detail a refactor might reasonably change.
+func TestGetCompetitionByShareToken_MalformedShapeNeverReachesRepository(t *testing.T) {
+	t.Parallel()
+
+	repo, svc, _ := scheduleFixture(t, 16, 0)
+	ctx := context.Background()
+
+	malformed := []struct {
+		name  string
+		token string
+	}{
+		{"NUL byte", "abc\x00def"},
+		{"invalid UTF-8", "abc\x80def"},
+		{"illegal characters", "not a token!! ***"},
+		{"whitespace", "   "},
+	}
+
+	for _, tc := range malformed {
+		before := repo.getByShareTokenCalls
+		_, err := svc.GetCompetitionByShareToken(ctx, tc.token)
+		if !errors.Is(err, domain.ErrCompetitionNotFound) {
+			t.Fatalf("%s: got err %v, want ErrCompetitionNotFound", tc.name, err)
+		}
+		if repo.getByShareTokenCalls != before {
+			t.Fatalf("%s: repository.GetByShareToken was called for a malformed-shape token — against real Postgres this reaches a `text` column and can raise a raw, distinguishable driver error instead of the uniform not-found this endpoint promises", tc.name)
+		}
+	}
+
+	// Sanity check the negative: a well-formed-but-unknown token (same shape
+	// as a real 43-char base64url token, no such Competition) SHOULD reach
+	// the repository — this test only claims malformed shapes are
+	// short-circuited, not that the repository is never called at all.
+	before := repo.getByShareTokenCalls
+	if _, err := svc.GetCompetitionByShareToken(ctx, "Zm9vYmFyYmF6cXV4Y29ycmVjdGxlbmd0aHRva2VuMDEy"); !errors.Is(err, domain.ErrCompetitionNotFound) {
+		t.Fatalf("got err %v, want ErrCompetitionNotFound", err)
+	}
+	if repo.getByShareTokenCalls != before+1 {
+		t.Fatalf("well-formed-but-unknown token: repository.GetByShareToken call count = %d, want %d — the shape check must not also swallow legitimate lookups", repo.getByShareTokenCalls, before+1)
 	}
 }

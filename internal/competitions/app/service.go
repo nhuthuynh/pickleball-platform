@@ -3,10 +3,27 @@ package app
 import (
 	"context"
 	"fmt"
+	"regexp"
 
 	"github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/competitions/port"
 )
+
+// shareTokenShape matches exactly what adapter/sharetoken.Generator ever
+// produces: base64.RawURLEncoding output, i.e. the URL-safe alphabet with no
+// padding. Anything outside this shape (a NUL byte, invalid UTF-8, stray
+// punctuation) cannot possibly be a real token, so GetCompetitionByShareToken
+// rejects it before it ever reaches Postgres — not as a distinguishable
+// InvalidArgument (that would itself be an oracle: "your guess had the wrong
+// shape" is still a signal to an enumerator), but by folding it into the
+// exact same ErrCompetitionNotFound every other miss already returns. This
+// closes a real gap a review found: a NUL byte is valid UTF-8 and so passed
+// this method unmodified before, reached a `text` column, and came back as a
+// raw Postgres encoding error at 500 — both a leak of internal error detail
+// on a public unauthenticated endpoint and a way to distinguish
+// "malformed" from "well-formed but unknown", which this method's own doc
+// comment promises never happens.
+var shareTokenShape = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // Service is the Competitions context's application layer: it orchestrates
 // the domain and its ports but holds no business rules itself — those live
@@ -342,7 +359,7 @@ func (s *Service) GetCompetition(ctx context.Context, competitionID string) (dom
 // real auth, as an authenticated CompetitionsService method that reuses
 // domain.Competition.EnsureHost, plus an UPDATE of the share_token column.
 func (s *Service) GetCompetitionByShareToken(ctx context.Context, shareToken string) (domain.Competition, error) {
-	if shareToken == "" {
+	if shareToken == "" || !shareTokenShape.MatchString(shareToken) {
 		return domain.Competition{}, domain.ErrCompetitionNotFound
 	}
 	return s.competitions.GetByShareToken(ctx, shareToken)
