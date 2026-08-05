@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,8 +16,27 @@ import (
 // concurrency guarantees (that's the Postgres EXCLUDE constraint's job, see
 // T4). It exists purely to let the app-layer orchestration be tested without
 // a database.
+//
+// Every existing test constructs its own inMemoryRepo (never shared across
+// t.Parallel() subtests), so the unsynchronized bookings map is safe today.
+// listActiveForCourtCalls is atomic regardless — quote_test.go's
+// fakePricingRepo had the identical shape and its equivalent plain-int
+// counter raced under -race the moment a shared-fixture parallel test
+// existed, so this field is atomic from the start rather than waiting for
+// the same class of bug to recur here.
 type inMemoryRepo struct {
 	bookings map[string]domain.Booking
+
+	// listActiveForCourtCalls counts real invocations of ListActiveForCourt,
+	// so a test can prove a malformed-shape courtID never reaches the
+	// repository at all — the in-memory map here can't reproduce Postgres
+	// rejecting a non-UUID against a `uuid` column (it just returns no
+	// matches for any unrecognized key), so the app-layer shape-check
+	// short-circuit can only be proven by observing the call itself never
+	// happens, not by its return value. See
+	// TestListCourtBookings_MalformedCourtIDNeverReachesRepository in
+	// malformed_id_test.go.
+	listActiveForCourtCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -29,6 +49,7 @@ func (r *inMemoryRepo) Create(_ context.Context, b domain.Booking) (domain.Booki
 }
 
 func (r *inMemoryRepo) ListActiveForCourt(_ context.Context, courtID string, rng domain.TimeRange) ([]domain.Booking, error) {
+	r.listActiveForCourtCalls.Add(1)
 	var out []domain.Booking
 	for _, b := range r.bookings {
 		if b.CourtID != courtID || b.Status == domain.StatusCancelled {
