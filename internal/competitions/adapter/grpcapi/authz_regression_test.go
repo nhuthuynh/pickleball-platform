@@ -399,7 +399,7 @@ func TestEnterCompetition_IsNotOwnershipGated(t *testing.T) {
 func TestErrorMapping_NeverInternal(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("ErrCompetitionFull -> FailedPrecondition", func(t *testing.T) {
+	t.Run("ErrCompetitionFull -> AlreadyExists", func(t *testing.T) {
 		h, _ := newTestHandler()
 		// Capacity 2, guest allowance 1: one entry bringing a guest fills it
 		// exactly (weight 2), so the next entry of any size cannot fit.
@@ -417,7 +417,7 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 		if err == nil {
 			t.Fatal("second entry should have been rejected — the competition is full")
 		}
-		assertCode(t, err, codes.FailedPrecondition, "ErrCompetitionFull")
+		assertCode(t, err, codes.AlreadyExists, "ErrCompetitionFull")
 	})
 
 	t.Run("ErrGuestAllowanceExceeded -> InvalidArgument", func(t *testing.T) {
@@ -589,7 +589,7 @@ func TestListCompetitions_SpotsLeftIsWeighted(t *testing.T) {
 	if err == nil {
 		t.Fatal("spots_left reported 0 but a further entry was accepted — the listing and the capacity check disagree")
 	}
-	assertCode(t, err, codes.FailedPrecondition, "ErrCompetitionFull")
+	assertCode(t, err, codes.AlreadyExists, "ErrCompetitionFull")
 }
 
 // listedSpotsLeft reads spots_left for one Competition back through the real

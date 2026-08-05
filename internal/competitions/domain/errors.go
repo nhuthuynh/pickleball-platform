@@ -45,9 +45,10 @@ var (
 	// Entry-time validation and rejections (Enter). Each is a distinct,
 	// stable sentinel rather than a generic validation error because
 	// T9.4's gRPC/REST layer maps each to its own status code
-	// (docs/process/t9-sprint-plan.md T9.4: ErrCompetitionFull ->
-	// FailedPrecondition, ErrGuestAllowanceExceeded -> InvalidArgument,
-	// ErrNotCompetitionHost -> PermissionDenied, never Internal).
+	// (see adapter/grpcapi.toStatus: ErrCompetitionFull -> AlreadyExists
+	// per PR #87 review, matching Social Play's ErrGameFull precedent;
+	// ErrGuestAllowanceExceeded -> InvalidArgument; ErrNotCompetitionHost
+	// -> PermissionDenied; never Internal).
 	ErrEmptyPlayerID          = errors.New("competitions: player id is required")
 	ErrInvalidEntrySource     = errors.New("competitions: invalid entry source")
 	ErrGuestAllowanceExceeded = errors.New("competitions: guest count exceeds this competition's guest allowance")

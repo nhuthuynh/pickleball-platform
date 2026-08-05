@@ -146,34 +146,25 @@ func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitio
 // toStatus, with the four mappings T9.4 requires by name — none of which may
 // ever fall through to Internal:
 //
-//   - ErrCompetitionFull -> FailedPrecondition. This is Competitions' one
-//     deliberate DIVERGENCE from Social Play, which maps its equivalent
-//     ErrGameFull to AlreadyExists. T9.4 specifies FailedPrecondition by
-//     name, and it is the better-fitting gRPC code on its merits:
-//     AlreadyExists says "the thing you tried to create is already there",
-//     which is true of a duplicate entry but not of a full Competition —
-//     nothing about the caller's own entry already exists. The Competition
-//     simply isn't in a state that permits the call, which is precisely what
-//     FailedPrecondition means.
-//
-//     ⚠ HTTP SHAPE, VERIFIED RATHER THAN ASSUMED: T9.4's ticket text
-//     describes this mapping as "409-shaped". It is not. grpc-gateway's
-//     default HTTPStatusFromCode maps FailedPrecondition to **400 Bad
-//     Request**, not 409 Conflict — confirmed empirically against the real
-//     running gateway during this ticket (a full Competition returns
-//     HTTP 400 with code 9). Only AlreadyExists yields 409, which is why
-//     Social Play's ErrGameFull produces one and this does not.
-//
-//     The explicitly-named gRPC code is implemented as specified, since that
-//     is the unambiguous instruction (and the same mapping
-//     internal/competitions/domain/errors.go already documents). The
-//     "409-shaped" parenthetical is recorded here as a disclosed
-//     discrepancy for review rather than silently satisfied by substituting
-//     AlreadyExists — see the T9.4 PR description. If the intended
-//     requirement is genuinely the HTTP status rather than the gRPC code,
-//     the fix is one line (move ErrCompetitionFull into the AlreadyExists
-//     group) plus updating errors.go's comment, and should be a deliberate
-//     decision rather than this adapter's own guess.
+//   - ErrCompetitionFull -> AlreadyExists (409-shaped): matches Social
+//     Play's ErrGameFull precedent exactly (same "capacity conflict" shape,
+//     same status). T9.4's ticket text named FailedPrecondition but also
+//     described the mapping as "409-shaped" — those are inconsistent,
+//     since grpc-gateway's default HTTPStatusFromCode maps FailedPrecondition
+//     to 400, not 409 (confirmed empirically against the real running
+//     gateway during PR review: a full Competition returned HTTP 400 with
+//     code 9 under the FailedPrecondition mapping this comment used to
+//     specify). PE+QA review (PR #87) resolved the inconsistency in favor
+//     of the HTTP shape and the cross-context precedent, for three reasons:
+//     (1) a full Competition is a well-formed request that would have
+//     succeeded moments earlier, which is what 409 Conflict — not 400 Bad
+//     Request — means; (2) FailedPrecondition collapsed onto the same 400
+//     as ErrGuestAllowanceExceeded, defeating the very distinction this
+//     handler's own design wants a client to be able to make (retryable
+//     capacity race vs. non-retryable malformed request); (3) this codebase
+//     already made this exact tradeoff twice (ErrGameFull, ErrCourtUnavailable
+//     below) — a third context choosing differently is the inconsistency,
+//     not the fix.
 //   - ErrFacilityNotFound -> NotFound (404-shaped): an unknown
 //     venue_facility_id is a bad reference, never a 500 and never a silent
 //     accept.
@@ -190,17 +181,20 @@ func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitio
 //
 // The remaining groups follow the same reasoning the other contexts use:
 // not-found sentinels to NotFound, request-shape violations to
-// InvalidArgument, and ErrCourtUnavailable to AlreadyExists (matching
-// Booking's own ErrCourtDoubleBooked, since that IS a genuine "already
-// taken" conflict).
+// InvalidArgument, and ErrCourtUnavailable/ErrAlreadyEntered to
+// AlreadyExists (matching Booking's own ErrCourtDoubleBooked, since those
+// ARE genuine "already taken"/"conflict" cases — ErrCompetitionFull now
+// joins this group too, see above).
 //
-// ErrCompetitionCancelled maps to FailedPrecondition alongside
-// ErrCompetitionFull: both mean "this Competition is not in a state that
-// accepts entries", which is the same category of answer.
+// ErrCompetitionCancelled stays on FailedPrecondition alone: "this
+// Competition is not in a state that accepts entries" because it was
+// deliberately cancelled is a precondition failure on the resource's own
+// lifecycle, not a capacity conflict — it does not share ErrCompetitionFull's
+// "would have succeeded moments earlier" shape, so it does not follow it
+// into the AlreadyExists group.
 func toStatus(err error) error {
 	switch {
-	case errors.Is(err, domain.ErrCompetitionFull),
-		errors.Is(err, domain.ErrCompetitionCancelled):
+	case errors.Is(err, domain.ErrCompetitionCancelled):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrNotCompetitionHost):
 		return status.Error(codes.PermissionDenied, err.Error())
@@ -208,7 +202,8 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrFacilityNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrAlreadyEntered),
-		errors.Is(err, domain.ErrCourtUnavailable):
+		errors.Is(err, domain.ErrCourtUnavailable),
+		errors.Is(err, domain.ErrCompetitionFull):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrGuestAllowanceExceeded),
 		errors.Is(err, domain.ErrInvalidTimeRange),
