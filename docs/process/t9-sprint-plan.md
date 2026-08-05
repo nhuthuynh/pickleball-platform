@@ -40,13 +40,17 @@ check first. Findings, all confirmed by inspection on
    This is a genuine 0→1 bounded context, the fifth in the repo.
 2. **The Booking spine is already ready to carry it.**
    `internal/booking/domain/booking.go:13` defines
-   `SourceCompetition Source = "competition"`, `ValidSource` accepts it,
-   `db/migrations/0001_init.sql:25`'s `CHECK (source IN (...))` already
-   lists `'competition'`, and `booking_test.go` already proves the
-   no-double-booking invariant holds **across** sources (`game vs
-   competition same court overlapping conflicts`, both directions). So
-   Competitions does not need any change to Booking's schema, domain, or
-   tested invariant — it needs its own `port.CourtReservation` +
+   `SourceCompetition Source = "competition"`, `Source.IsValid()` accepts
+   it, `db/migrations/0001_init.sql:25`'s `CHECK (source IN (...))`
+   already lists `'competition'`, and `booking_test.go`'s
+   `TestEnsureNoConflict_CrossSource` already proves the no-double-booking
+   invariant holds **across** sources (`game vs competition same court
+   overlapping conflicts` — the existing Competition/candidate Game
+   direction; the reverse direction isn't separately asserted as a
+   conflict case today, so add it as part of T9.1's own tests rather than
+   assuming it's already covered). So Competitions does not need any
+   change to Booking's schema, domain, or tested invariant — it needs its
+   own `port.CourtReservation` +
    `adapter/booking` pair that passes `SourceCompetition` where Social
    Play's existing one hardcodes `SourceGame`
    (`internal/socialplay/adapter/booking`). This is the single biggest
@@ -528,6 +532,17 @@ lesson **from the start**, not rediscover it.
    - **Zero non-stdlib imports** in `internal/competitions/domain` —
      verify by inspection and state the result in the PR (CLAUDE.md
      rule 2).
+   - **Close a citation gap this ceremony's own review found**: add the
+     reverse-direction case to
+     `internal/booking/domain/booking_test.go`'s
+     `TestEnsureNoConflict_CrossSource` table (existing `SourceGame`,
+     candidate `SourceCompetition`, overlapping, `wantConflict: true`) —
+     today only the existing-Competition/candidate-Game direction is
+     asserted as a conflict; the reverse direction isn't separately
+     proven even though the invariant is source-agnostic by construction.
+     Small, but this ticket is the first to actually build on the
+     cross-source claim, so it's the right place to close it rather than
+     carry the gap into T9.3/T9.4.
    - Table-driven boundary tests, at minimum: capacity exactly reached
      vs. exceeded (both directions — QA dossier §5 item 4: the shadow rule
      "exactly at capacity still succeeds" must also be tested);
