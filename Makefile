@@ -1,5 +1,5 @@
-.PHONY: test-domain test-tools generate generate-client tidy test up down lint lint-web test-web build-web \
-        security security-go security-npm loadtest ci ci-integration tools-check
+.PHONY: test-domain test-tools generate generate-client tidy test up down lint lint-web test-web test-web-ci \
+        build-web security security-go security-npm loadtest ci ci-integration tools-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
 # This is the T0 resume gate (HANDOFF.md): if this isn't green, nothing else matters.
@@ -55,6 +55,11 @@ lint-web:
 
 test-web:
 	npm --prefix web run test
+
+# Same tests, plus a JUnit XML report for Jenkins to publish.
+test-web-ci:
+	mkdir -p build
+	npm --prefix web run test:ci
 
 build-web:
 	npm --prefix web run build
