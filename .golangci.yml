@@ -1,0 +1,39 @@
+# golangci-lint configuration.
+#
+# Exists for CI/local parity (SCRUM-6): without a checked-in config,
+# `golangci-lint run ./...` lints whatever the locally-installed version
+# happens to default to, so a developer and the Jenkins agent can get
+# different answers from the same command. Pinning the enabled set makes
+# `make lint` mean one thing everywhere.
+#
+# The enabled set is deliberately golangci-lint's own default set, stated
+# explicitly rather than implied. Widening it (revive, gosec, errorlint,
+# ...) is a worthwhile follow-up but is NOT part of this ticket: turning on
+# new linters across a five-context codebase would bury a pipeline change
+# under unrelated code churn.
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  exclusions:
+    # golangci-lint's own "sane defaults" preset, which (among other
+    # things) relaxes errcheck inside tests.
+    presets:
+      - comments
+      - common-false-positives
+      - legacy
+      - std-error-handling
+
+issues:
+  # Report every occurrence, not just the first few per linter/file —
+  # a CI gate that hides findings behind "N more issues" is a gate you
+  # cannot act on from the build log alone.
+  max-issues-per-linter: 0
+  max-same-issues: 0
