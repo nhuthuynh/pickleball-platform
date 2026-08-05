@@ -186,7 +186,12 @@ describe('GameJoinPanel', () => {
       await wrapper.find('.game-join__form').trigger('submit')
       await flushPromises()
 
-      expect(wrapper.text()).toContain('Payment: pending (cash at facility)')
+      // T9.2: the pending-cash line now names the real amount owed (the
+      // Game's EntryFee) instead of an unpriced "pending". The behaviour
+      // this test is about — cash pending, no payment buttons, no network
+      // call — is unchanged.
+      expect(wrapper.text()).toContain('pending (cash at facility)')
+      expect(wrapper.text()).toContain('$10.00')
       expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
     })
 
@@ -220,7 +225,12 @@ describe('GameJoinPanel', () => {
       const callsBeforeCashChoice = (client.POST as ReturnType<typeof vi.fn>).mock.calls.length
       await wrapper.find('.game-join__secondary').trigger('click')
 
-      expect(wrapper.text()).toContain('Payment: pending (cash at facility)')
+      // T9.2: the pending-cash line now names the real amount owed (the
+      // Game's EntryFee) instead of an unpriced "pending". The behaviour
+      // this test is about — cash pending, no payment buttons, no network
+      // call — is unchanged.
+      expect(wrapper.text()).toContain('pending (cash at facility)')
+      expect(wrapper.text()).toContain('$10.00')
       expect(wrapper.find('.game-join__payment-choice').exists()).toBe(false)
       expect((client.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeCashChoice)
     })
