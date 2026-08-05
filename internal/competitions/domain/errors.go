@@ -67,14 +67,32 @@ var (
 	// identity: real authentication is HANDOFF.md's open Auth item and
 	// this sentinel must not be read as closing it.
 	ErrNotCompetitionHost = errors.New("competitions: only the host may perform this action on this competition")
-)
 
-// Deliberately NOT declared here yet: the port-level sentinels this context
-// will need once it has ports and adapters (a not-found error per
-// aggregate; a context-local ErrCourtUnavailable translating
-// bookingdomain.ErrCourtDoubleBooked; a context-local ErrFacilityNotFound
-// translating the Facilities context's own — both mirroring
-// internal/socialplay/domain/errors.go). They belong to T9.3, which
-// introduces the code that produces and translates them; declaring them
-// here would ship exported sentinels no code path can return and no test
-// can exercise.
+	// Port-level sentinels, added in T9.3 alongside the ports and adapters
+	// that produce them — T9.1 deliberately left them undeclared rather
+	// than shipping exported sentinels no code path could return (see the
+	// note this block replaces).
+
+	// ErrCompetitionNotFound is port.Repository's not-found answer for a
+	// Competition ID that doesn't resolve. Mirrors
+	// socialplay.ErrGameNotFound / booking.ErrBookingNotFound.
+	ErrCompetitionNotFound = errors.New("competitions: competition not found")
+
+	// ErrCourtUnavailable is this context's local translation of the
+	// Booking context's ErrCourtDoubleBooked, produced by
+	// internal/competitions/adapter/booking (CLAUDE.md rule 5). It means a
+	// court a Competition's session needs is already held by an
+	// overlapping Booking of *any* source — another competition, a game, a
+	// recurring hire, or an individual booking. Competitions code above
+	// the adapter never sees a bookingdomain error type, exactly as
+	// socialplay.ErrCourtUnavailable does for Social Play.
+	ErrCourtUnavailable = errors.New("competitions: court is unavailable for the requested time")
+
+	// ErrFacilityNotFound is this context's local translation of the
+	// Facilities context's own not-found error, produced by
+	// internal/competitions/adapter/facilities. Returned by
+	// app.Service.ScheduleCompetition when a non-empty VenueFacilityID
+	// doesn't refer to a real Facility; T9.4 maps it to a 404-shaped
+	// status.
+	ErrFacilityNotFound = errors.New("competitions: facility not found")
+)
