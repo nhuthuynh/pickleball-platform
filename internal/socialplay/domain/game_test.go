@@ -11,13 +11,21 @@ func validCourtIDs() []string {
 	return []string{"court-1"}
 }
 
+// validEntryFee is the "this test isn't about the fee" fixture (T9.2): a
+// well-formed, non-free EntryFee, so the tables below keep asserting
+// exactly what they asserted before EntryFee existed. Fee-specific
+// behaviour lives in money_test.go.
+func validEntryFee() domain.Money {
+	return domain.Money{Cents: 1500, Currency: "USD"}
+}
+
 // TestNewGame_Valid proves the happy path: a well-formed Game is constructed
 // with Status starting at "scheduled".
 func TestNewGame_Valid(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", validCourtIDs(), r, 4, domain.PaymentMethodOnline, 2)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", validCourtIDs(), r, 4, domain.PaymentMethodOnline, 2, validEntryFee())
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -80,7 +88,7 @@ func TestNewGame_Validation(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := domain.NewGame("g1", tt.hostID, "facility-1", "venue-1", tt.courtIDs, tt.r, tt.capacity, tt.paymentMethod, tt.guestAllowance)
+			_, err := domain.NewGame("g1", tt.hostID, "facility-1", "venue-1", tt.courtIDs, tt.r, tt.capacity, tt.paymentMethod, tt.guestAllowance, validEntryFee())
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("got err %v, want %v", err, tt.wantErr)
 			}
@@ -97,7 +105,7 @@ func TestGame_Cancel(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "venue-1", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0, validEntryFee())
 	if err != nil {
 		t.Fatalf("unexpected err building fixture: %v", err)
 	}
@@ -124,7 +132,7 @@ func TestNewGame_EmptyVenueFacilityIDAccepted(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	g, err := domain.NewGame("g1", "host-1", "facility-1", "", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0)
+	g, err := domain.NewGame("g1", "host-1", "facility-1", "", validCourtIDs(), r, 4, domain.PaymentMethodEither, 0, validEntryFee())
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

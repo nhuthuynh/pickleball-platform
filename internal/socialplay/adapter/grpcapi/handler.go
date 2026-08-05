@@ -53,6 +53,7 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 		Capacity:        int(req.GetCapacity()),
 		PaymentMethod:   fromProtoPaymentMethod(req.GetPaymentMethod()),
 		GuestAllowance:  int(req.GetGuestAllowance()),
+		EntryFee:        fromProtoMoney(req.GetEntryFee()),
 	}, h.reservation, h.facilities)
 	if err != nil {
 		return nil, toStatus(err)
@@ -168,6 +169,10 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 // CreateGameRequest.venue_facility_id is a 404, not a 500 or a silent
 // accept (the ticket's explicit requirement).
 //
+// T9.2 addition: ErrInvalidMoney joins the same InvalidArgument group — a
+// negative entry fee, or a non-zero fee with a missing/malformed currency
+// code, is a malformed request, not a server fault.
+//
 // T8.7 additions: ErrInvalidPaymentMethod, ErrInvalidGuestAllowance, and
 // ErrGuestAllowanceExceeded join the validation-error/InvalidArgument
 // group — all three are precondition violations on the request itself
@@ -197,7 +202,8 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrGameNotFull),
 		errors.Is(err, domain.ErrInvalidPaymentMethod),
 		errors.Is(err, domain.ErrInvalidGuestAllowance),
-		errors.Is(err, domain.ErrGuestAllowanceExceeded):
+		errors.Is(err, domain.ErrGuestAllowanceExceeded),
+		errors.Is(err, domain.ErrInvalidMoney):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -303,6 +309,39 @@ func toProtoGame(g domain.Game) *socialplayv1.Game {
 		Status:          toProtoGameStatus(g.Status),
 		PaymentMethod:   toProtoPaymentMethod(g.PaymentMethod),
 		GuestAllowance:  int32(g.GuestAllowance),
+		EntryFee:        toProtoMoney(g.EntryFee),
+	}
+}
+
+// toProtoMoney/fromProtoMoney translate domain.Money across the wire (T9.2).
+//
+// fromProtoMoney maps an ABSENT entry_fee message (a nil *Money — an older
+// client, or a field simply left unset) onto the zero domain.Money, which
+// means a free Game. That is deliberately not an "unspecified" resolution
+// step of the kind fromProtoPaymentMethod performs: zero is a real,
+// well-formed value here, so there is nothing to resolve. It is also the
+// same value db/migrations/0013_socialplay_entry_fee.sql backfilled onto
+// every pre-existing row, so an unaware client and a pre-T9.2 row agree.
+//
+// toProtoMoney always emits the message, including for a free Game, so a
+// client can distinguish "this Game is free" (amount_cents 0) from a field
+// the server never populated — clients render the former as the word
+// "Free", never as blank or a bare "$0.00" (T9.2 non-functional
+// requirement).
+func toProtoMoney(m domain.Money) *socialplayv1.Money {
+	return &socialplayv1.Money{
+		AmountCents:  m.Cents,
+		CurrencyCode: m.Currency,
+	}
+}
+
+func fromProtoMoney(m *socialplayv1.Money) domain.Money {
+	if m == nil {
+		return domain.Money{}
+	}
+	return domain.Money{
+		Cents:    m.GetAmountCents(),
+		Currency: m.GetCurrencyCode(),
 	}
 }
 
