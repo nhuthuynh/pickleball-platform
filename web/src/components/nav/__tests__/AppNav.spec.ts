@@ -40,9 +40,13 @@ function matchMediaForWidth(width: number): Pick<Window, 'matchMedia'> {
   }
 }
 
-async function mountAtWidth(width: number, client: SocialPlayClient = emptyGamesClient()) {
+async function mountAtWidth(
+  width: number,
+  client: SocialPlayClient = emptyGamesClient(),
+  startAt = '/facilities',
+) {
   const router = createRouter({ history: createMemoryHistory(), routes })
-  router.push('/facilities')
+  router.push(startAt)
   await router.isReady()
   return mount(AppNav, {
     props: { win: matchMediaForWidth(width), client },
@@ -87,6 +91,41 @@ describe('AppNav', () => {
     expect(byLabel['Games']).toBe('/games')
     expect(byLabel['Payments']).toBe('/host/payments')
     expect(byLabel['Profile']).toBe('/profile')
+  })
+
+  // T9.6: Competitions lives UNDER the existing Games area, not as a sixth
+  // top-level tab — T8.1's design-handoff mapping fixed the tab set, so the
+  // nav gains a sub-level rather than a new destination in the tab bar.
+  describe('Competitions (T9.6) sits under the Games area', () => {
+    it('adds NO new top-level tab — the tab set is still exactly the five', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/competitions/new')
+      const labels = wrapper.findAll('.app-nav__item').map((item) => item.text())
+      expect(labels).toEqual(['Discover', 'Bookings', 'Games', 'Payments', 'Profile'])
+    })
+
+    it('shows the Competitions sub-link while the Games area is active', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/games')
+      const sub = wrapper.findAll('.app-nav__subitem')
+      expect(sub.map((s) => s.text())).toContain('Create a competition')
+      expect(sub.find((s) => s.text() === 'Create a competition')!.attributes('href')).toBe(
+        '/competitions/new',
+      )
+    })
+
+    it('stays visible on a /competitions route, so the Host can see where they are', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/competitions/new')
+      expect(wrapper.findAll('.app-nav__subitem').length).toBeGreaterThan(0)
+    })
+
+    it('is not shown while a different area is active', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/facilities')
+      expect(wrapper.findAll('.app-nav__subitem')).toHaveLength(0)
+    })
+
+    it('is reachable on iPhone too, not sidebar-only', async () => {
+      const wrapper = await mountAtWidth(375, emptyGamesClient(), '/games')
+      expect(wrapper.findAll('.app-nav__subitem').length).toBeGreaterThan(0)
+    })
   })
 
   // T8.10: the Payments tab's pending-cash-payments count badge.

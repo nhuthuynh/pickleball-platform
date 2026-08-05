@@ -15,7 +15,7 @@ import type { CompetitionSummary, EntrySource } from '../../models/competition'
 import {
   competitionFormatLabel,
   entryFeeLabel,
-  formatSessionRange,
+  formatSessionRangeFromSession,
   isCancelled,
   paymentMethodLabel,
   sessionCourtsLabel,
@@ -121,7 +121,7 @@ function cancelled(): boolean {
         </h3>
         <ol v-if="competition.sessions.length > 0" class="competition-detail__sessions">
           <li v-for="(session, index) in competition.sessions" :key="index" class="competition-detail__session">
-            <span class="competition-detail__session-time">{{ formatSessionRange(session) }}</span>
+            <span class="competition-detail__session-time">{{ formatSessionRangeFromSession(session) }}</span>
             <span class="competition-detail__session-courts">
               {{ session.courtIds.length === 1 ? 'Court' : 'Courts' }}: {{ sessionCourtsLabel(session) }}
             </span>

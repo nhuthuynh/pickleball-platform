@@ -16,7 +16,7 @@ import { onMounted } from 'vue'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { useHostPayments, MOCK_HOST_ID, type PendingCashPayment } from '../composables/useHostPayments'
 import { setPendingCashPaymentsCount } from '../state/hostPendingPayments'
-import { formatMoneyCents } from '../models/payment'
+import UnpaidCashAmount from '../components/payments/UnpaidCashAmount.vue'
 import type { SocialPlayClient } from '../api/socialplayClient'
 import type { PaymentsClient } from '../api/paymentsClient'
 
@@ -75,10 +75,12 @@ onMounted(() => {
             Player {{ entry.playerId }}
             <span v-if="entry.guestCount > 0"> + {{ entry.guestCount }} guest{{ entry.guestCount === 1 ? '' : 's' }}</span>
           </p>
-          <!-- WCAG 1.4.1: the amount-due/cash label is text, never color-only. -->
-          <p class="host-payments__row-amount">
-            {{ formatMoneyCents(entry.entryFeeCents) }} due (cash at facility)
-          </p>
+          <!-- WCAG 1.4.1: the amount-due/cash label is text, never
+               color-only. Extracted to components/payments/
+               UnpaidCashAmount.vue by T9.6 so the Competition roster
+               surfaces the same obligation with the same affordance
+               instead of duplicating this line. -->
+          <UnpaidCashAmount :amount-cents="entry.entryFeeCents" />
         </div>
         <button
           type="button"
@@ -169,8 +171,7 @@ onMounted(() => {
   font-weight: 600;
 }
 
-.host-payments__row-player,
-.host-payments__row-amount {
+.host-payments__row-player {
   color: var(--ink-soft);
   font-size: var(--font-size-sm);
 }

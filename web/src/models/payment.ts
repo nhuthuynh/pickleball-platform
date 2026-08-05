@@ -75,3 +75,29 @@ export function toMoneyRequest(cents: number, currencyCode: string = DEFAULT_CUR
 export function formatMoneyCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
 }
+
+/**
+ * The player-facing entry-fee label (T9.2).
+ *
+ * A zero fee renders as the word **"Free"**, never as `"$0.00"` and never
+ * as an empty space: a free Game/Competition is a real product state a Host
+ * deliberately chose, not a missing or pending value (NN/g heuristic #2,
+ * match between the system and the real world). This is also the whole
+ * point of the field that replaced `PLACEHOLDER_REGISTRATION_FEE_CENTS` —
+ * the placeholder could not express "free" at all.
+ *
+ * WCAG 1.4.1 (Use of Color): every branch returns text, so the price — and
+ * the fact that an event is free — is never conveyed by styling alone.
+ *
+ * T9.6 note: this moved here from `models/game.ts`, which is where T9.2
+ * first needed it. It is not a Games-specific rule — Competitions' entry
+ * fee is the same `Money`, with the same "0 means free, spell it out"
+ * contract (see competitions.proto's `Money`) — and the shared
+ * `EntryFeeInput.vue` both creation flows now use has no business
+ * importing the Games view model to format a currency amount.
+ * `models/game.ts` re-exports it so every existing call site is unchanged.
+ */
+export function entryFeeLabel(cents: number): string {
+  if (cents <= 0) return 'Free'
+  return `$${(cents / 100).toFixed(2)}`
+}

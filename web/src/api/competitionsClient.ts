@@ -1,6 +1,8 @@
-// Concrete typed client for the Competitions bounded context (T9.7's
-// Player-facing screens: ListCompetitions, GetCompetitionByShareToken,
-// EnterCompetition). Mirrors socialplayClient.ts/facilitiesClient.ts's shape
+// Concrete typed client for the Competitions bounded context — T9.4's Host
+// surface (CreateCompetition/GetCompetition/ListCompetitions/
+// EnterCompetition/CancelCompetition/ListEntriesForCompetition) plus T9.5's
+// GetCompetitionByShareToken, used by both T9.6's Host screens and T9.7's
+// Player screens. Mirrors socialplayClient.ts/facilitiesClient.ts's shape
 // exactly.
 //
 // NOTE: this file only type-checks once `npm run generate:client` has been
@@ -22,6 +24,7 @@ export function createCompetitionsClient(options: CreateTypedClientOptions = {})
 export const competitionsClient = createCompetitionsClient()
 
 /** The shape a component accepts to allow injecting a mock client in tests
- * without needing to mock the ambient `fetch` — mirrors
+ * (e.g. CompetitionCreation.spec.ts, DiscoverCompetitions.spec.ts) without
+ * needing to mock the ambient `fetch` — mirrors
  * SocialPlayClient/FacilitiesClient's identical role. */
 export type CompetitionsClient = ReturnType<typeof createCompetitionsClient>
