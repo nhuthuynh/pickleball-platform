@@ -185,7 +185,8 @@ func TestNewPayment_Validation(t *testing.T) {
 }
 
 // TestPayableType_IsValid proves the extensible enum accepts exactly the
-// three T6 values and nothing else.
+// four values this repo has produced a caller for (booking/registration/
+// no_show_fee from T6, competition_entry from T10.6) and nothing else.
 func TestPayableType_IsValid(t *testing.T) {
 	t.Parallel()
 
@@ -197,6 +198,7 @@ func TestPayableType_IsValid(t *testing.T) {
 		{"booking is valid", domain.PayableTypeBooking, true},
 		{"registration is valid", domain.PayableTypeRegistration, true},
 		{"no_show_fee is valid", domain.PayableTypeNoShowFee, true},
+		{"competition_entry is valid", domain.PayableTypeCompetitionEntry, true},
 		{"recurring_hire is not yet built, invalid", domain.PayableType("recurring_hire"), false},
 		{"subscription is not yet built, invalid", domain.PayableType("subscription"), false},
 		{"empty is invalid", domain.PayableType(""), false},

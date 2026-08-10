@@ -420,6 +420,31 @@ func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID s
 	return s.competitions.ListEntriesForCompetition(ctx, competitionID)
 }
 
+// MarkCompetitionEntryPaymentStatus updates a CompetitionEntry's
+// PaymentStatus (T10.6, closes #96). This is the sole app-layer entry point
+// for changing that field outside of EnterCompetition's initial "unpaid"
+// default — internal/payments/adapter/competitions.EntryUpdater is the only
+// caller, invoked through port.CompetitionEntryPaymentUpdater after a
+// Payment for that CompetitionEntry transitions in the Payments context.
+// Competitions itself never decides when a payment is made; it only records
+// what Payments (the source of truth) reports, which is why this method does
+// no authorization check of its own — the caller crossing the context
+// boundary is Payments' own app.Service, not an end user request. Mirrors
+// internal/socialplay/app.Service.MarkRegistrationPaymentStatus exactly.
+func (s *Service) MarkCompetitionEntryPaymentStatus(ctx context.Context, entryID string, status domain.PaymentStatus) error {
+	entry, err := s.competitions.GetEntryByID(ctx, entryID)
+	if err != nil {
+		return err
+	}
+
+	if err := entry.MarkPaymentStatus(status); err != nil {
+		return err
+	}
+
+	_, err = s.competitions.UpdateEntryPaymentStatus(ctx, entry.ID, entry.PaymentStatus)
+	return err
+}
+
 // CancelCompetition transitions a Competition to cancelled on the Host's
 // behalf.
 //

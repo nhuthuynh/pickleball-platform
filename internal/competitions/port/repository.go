@@ -132,6 +132,25 @@ type Repository interface {
 	// socialplay's ListGames applies to a cancelled Game.
 	ListCompetitions(ctx context.Context, filter CompetitionListingFilter) ([]CompetitionListing, error)
 
+	// GetEntryByID returns a single CompetitionEntry, or
+	// domain.ErrCompetitionEntryNotFound (T10.6). Added alongside
+	// UpdateEntryPaymentStatus for app.Service.MarkCompetitionEntryPaymentStatus,
+	// which needs to load an entry before validating and writing its
+	// PaymentStatus transition — mirrors
+	// internal/socialplay/port.RegistrationRepository.GetByID's role for
+	// Service.MarkRegistrationPaymentStatus exactly.
+	GetEntryByID(ctx context.Context, id string) (domain.CompetitionEntry, error)
+
+	// UpdateEntryPaymentStatus persists a PaymentStatus change for the
+	// CompetitionEntry identified by id (T10.6) — a dedicated,
+	// single-purpose write path (mirroring
+	// RegistrationRepository.UpdatePaymentStatus's one-method-per-
+	// updatable-field convention) rather than overloading a general Update,
+	// so the Postgres adapter's query for it is scoped to exactly the
+	// payment_status column and can't accidentally clobber Status (or vice
+	// versa). Returns domain.ErrCompetitionEntryNotFound for an unknown id.
+	UpdateEntryPaymentStatus(ctx context.Context, id string, status domain.PaymentStatus) (domain.CompetitionEntry, error)
+
 	// ListEntriesForCompetition returns EVERY entry for competitionID,
 	// cancelled ones included — deliberately distinct from
 	// ListActiveEntriesForCompetition above, which exists to feed

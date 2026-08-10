@@ -13,24 +13,29 @@
 // Competition always mounts a fresh instance — no stale guest count or
 // leftover success/error state from a previously viewed Competition.
 //
-// TWO THINGS THAT ARE DELIBERATELY ABSENT, so neither reads as an oversight:
+// ONE THING THAT IS DELIBERATELY ABSENT, so it doesn't read as an oversight:
 //
-// 1. NO WAITLIST. Social Play's waitlist is Game-scoped (T6.6 / ADR-0006), a
-//    different bounded context; T9 gives Competitions none. A full
-//    Competition therefore suggests browsing, not a queue — offering a
-//    waitlist here would be a promise nothing in this system keeps.
+// NO WAITLIST. Social Play's waitlist is Game-scoped (T6.6 / ADR-0006), a
+// different bounded context; T9/T10 give Competitions none. A full
+// Competition therefore suggests browsing, not a queue — offering a
+// waitlist here would be a promise nothing in this system keeps.
 //
-// 2. NO ONLINE CHECKOUT HOP. T8.10's cash path is reused verbatim below. Its
-//    ONLINE path is not, and could not honestly be: the Payments context has
-//    no payable type for a Competition entry, and confirming a
-//    PAYABLE_TYPE_REGISTRATION Payment reconciles the paid status back into
-//    SOCIAL PLAY's registrations (internal/payments/app/service.go's
-//    reconcileRegistrationPaymentStatus). Sending a Competition entry id
-//    down that path would write one context's id into another's table and
-//    fail at confirm time — after the Payment had already been persisted as
-//    paid. Competitions↔Payments wiring is explicitly not a T9 ticket
-//    (competitions.proto's PaymentStatus doc comment). No second checkout
-//    was built; the position is simply stated to the entrant instead.
+// ONLINE CHECKOUT (T10.6, closes #96): T9 shipped this component with no
+// online path at all, because the Payments context had no payable type for
+// a Competition entry — confirming a PAYABLE_TYPE_REGISTRATION Payment
+// against an entry id would have reconciled the paid status back into
+// SOCIAL PLAY's registrations table (internal/payments/app/service.go's
+// reconcileRegistrationPaymentStatus), writing one context's id into
+// another's table and failing at confirm time, after the Payment had
+// already been persisted as paid. That gap is #96, and it's now closed:
+// PAYABLE_TYPE_COMPETITION_ENTRY + internal/payments/adapter/competitions
+// give this a real, safe destination. The "Pay online now" button below
+// mirrors GameJoinPanel.vue's identical control exactly — it only EMITS
+// `payOnline` (this component makes no Payments network call itself, same
+// as GameJoinPanel), and the actual checkout hop lives at
+// `/competitions/:id/checkout` (CompetitionCheckout.vue, reusing
+// GameCheckout.vue's pattern — see that file's header comment for what
+// "reuse, not fork" means here).
 import { computed, ref } from 'vue'
 import { useEnterCompetition, MOCK_PLAYER_ID } from '../../composables/useEnterCompetition'
 import { entryFeeLabel, type CompetitionSummary, type EntrySource } from '../../models/competition'
@@ -44,6 +49,14 @@ const props = defineProps<{
   source: EntrySource
   /** Injectable for tests; defaults to the real competitionsClient. */
   client?: CompetitionsClient
+}>()
+
+const emit = defineEmits<{
+  /** Emitted when the entrant chooses to pay online now, carrying the
+   * confirmed CompetitionEntry's id (the Payment's payableId, T10.6). This
+   * component never navigates itself — mirrors GameJoinPanel.vue's
+   * identical `payOnline` emit exactly, see the file header comment. */
+  payOnline: [entryId: string]
 }>()
 
 const {
@@ -100,6 +113,16 @@ function onIncrement(): void {
 function onEnter(): void {
   void enter(MOCK_PLAYER_ID)
 }
+
+function onPayOnline(): void {
+  if (confirmedEntry.value) {
+    emit('payOnline', confirmedEntry.value.id)
+  }
+}
+
+function onPayCash(): void {
+  cashChosen.value = true
+}
 </script>
 
 <template>
@@ -128,13 +151,26 @@ function onEnter(): void {
         <p class="competition-entry__payment-status">
           Entry fee: {{ entryFeeLabel(competition.entryFeeCents) }}
         </p>
-        <!-- See this file's header comment #2 for why there is no
-             "Pay online now" button here. -->
-        <p class="competition-entry__payment-status" data-testid="entry-online-unavailable">
-          Paying online for a competition is not available yet — the host will confirm how to pay.
-        </p>
-        <div v-if="paymentMode === 'either'" class="competition-entry__payment-choice">
-          <button type="button" class="competition-entry__secondary competition-entry__pay-cash" @click="cashChosen = true">
+        <!-- T10.6 (closes #96): payment choice, driven by the Competition's
+             declared PaymentMethod — mirrors GameJoinPanel.vue's identical
+             T8.10 pattern exactly, see this file's header comment for what
+             changed since T9 shipped this with online unavailable. -->
+        <div class="competition-entry__payment-choice">
+          <button
+            v-if="paymentMode === 'online' || paymentMode === 'either'"
+            type="button"
+            class="competition-entry__primary"
+            data-testid="entry-pay-online"
+            @click="onPayOnline"
+          >
+            Pay online now
+          </button>
+          <button
+            v-if="paymentMode === 'either'"
+            type="button"
+            class="competition-entry__secondary competition-entry__pay-cash"
+            @click="onPayCash"
+          >
             Pay cash at facility
           </button>
         </div>

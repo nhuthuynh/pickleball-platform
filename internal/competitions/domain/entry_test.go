@@ -370,3 +370,49 @@ func TestPaymentStatusIsValid(t *testing.T) {
 		}
 	}
 }
+
+// TestCompetitionEntry_MarkPaymentStatus_Valid proves MarkPaymentStatus
+// (T10.6, mirroring socialplay.Registration.MarkPaymentStatus/T6.5 exactly)
+// accepts every closed-enum PaymentStatus value and writes it through.
+func TestCompetitionEntry_MarkPaymentStatus_Valid(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status domain.PaymentStatus
+	}{
+		{"paid", domain.PaymentStatusPaid},
+		{"refunded", domain.PaymentStatusRefunded},
+		{"unpaid", domain.PaymentStatusUnpaid},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			e := entry("comp-1", "player-1", 0, domain.EntryStatusEntered)
+			if err := e.MarkPaymentStatus(tt.status); err != nil {
+				t.Fatalf("unexpected err: %v", err)
+			}
+			if e.PaymentStatus != tt.status {
+				t.Fatalf("PaymentStatus = %v, want %v", e.PaymentStatus, tt.status)
+			}
+		})
+	}
+}
+
+// TestCompetitionEntry_MarkPaymentStatus_InvalidRejected proves an
+// unrecognised value is rejected rather than silently written, keeping
+// PaymentStatus a closed enum end to end (mirrors
+// socialplay.Registration's identical guard).
+func TestCompetitionEntry_MarkPaymentStatus_InvalidRejected(t *testing.T) {
+	t.Parallel()
+
+	e := entry("comp-1", "player-1", 0, domain.EntryStatusEntered)
+	err := e.MarkPaymentStatus(domain.PaymentStatus("not-a-real-status"))
+	if !errors.Is(err, domain.ErrInvalidPaymentStatus) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrInvalidPaymentStatus)
+	}
+	if e.PaymentStatus != domain.PaymentStatusUnpaid {
+		t.Fatalf("PaymentStatus = %v, want unchanged (unpaid)", e.PaymentStatus)
+	}
+}

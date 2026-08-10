@@ -38,13 +38,15 @@ func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.Reco
 	}
 
 	p, err := h.svc.RecordOfflinePayment(ctx, app.RecordOfflinePaymentInput{
-		PayableType:              payableType,
-		PayableID:                req.GetPayableId(),
-		Amount:                   fromProtoMoney(req.GetAmount()),
-		ActorUserID:              req.GetActorUserId(),
-		BookingHostID:            req.GetBookingHostId(),
-		GameHostID:               req.GetGameHostId(),
-		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
+		PayableType:                     payableType,
+		PayableID:                       req.GetPayableId(),
+		Amount:                          fromProtoMoney(req.GetAmount()),
+		ActorUserID:                     req.GetActorUserId(),
+		BookingHostID:                   req.GetBookingHostId(),
+		GameHostID:                      req.GetGameHostId(),
+		AssignedGameAdminUserIDs:        req.GetAssignedGameAdminUserIds(),
+		EntrantPlayerID:                 req.GetEntrantPlayerId(),
+		AssignedCompetitionAdminUserIDs: req.GetAssignedCompetitionAdminUserIds(),
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -60,9 +62,12 @@ func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.Creat
 	}
 
 	p, err := h.svc.CreateOnlinePayment(ctx, app.CreateOnlinePaymentInput{
-		PayableType: payableType,
-		PayableID:   req.GetPayableId(),
-		Amount:      fromProtoMoney(req.GetAmount()),
+		PayableType:                     payableType,
+		PayableID:                       req.GetPayableId(),
+		Amount:                          fromProtoMoney(req.GetAmount()),
+		ActorUserID:                     req.GetActorUserId(),
+		EntrantPlayerID:                 req.GetEntrantPlayerId(),
+		AssignedCompetitionAdminUserIDs: req.GetAssignedCompetitionAdminUserIds(),
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -133,6 +138,8 @@ func fromProtoPayableType(t paymentsv1.PayableType) (domain.PayableType, error) 
 		return domain.PayableTypeRegistration, nil
 	case paymentsv1.PayableType_PAYABLE_TYPE_NO_SHOW_FEE:
 		return domain.PayableTypeNoShowFee, nil
+	case paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY:
+		return domain.PayableTypeCompetitionEntry, nil
 	default:
 		return "", domain.ErrInvalidPayableType
 	}
@@ -146,6 +153,8 @@ func toProtoPayableType(t domain.PayableType) paymentsv1.PayableType {
 		return paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION
 	case domain.PayableTypeNoShowFee:
 		return paymentsv1.PayableType_PAYABLE_TYPE_NO_SHOW_FEE
+	case domain.PayableTypeCompetitionEntry:
+		return paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY
 	default:
 		return paymentsv1.PayableType_PAYABLE_TYPE_UNSPECIFIED
 	}
