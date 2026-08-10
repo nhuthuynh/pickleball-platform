@@ -129,4 +129,25 @@ var (
 	// VenueFacilityID is non-empty but unknown; grpcapi.toStatus maps it to
 	// codes.NotFound (404), not a 500 or a silent accept.
 	ErrFacilityNotFound = errors.New("socialplay: venue facility not found")
+
+	// T10.3 Match sentinels (docs/process/t10-sprint-plan.md T10.3). Match is
+	// a Social Play fact — a recorded result against an existing Game — not
+	// a PlayerRating computation; see match.go's own doc comment and
+	// ADR-0012 (docs/adr/0012-identity-users-and-match-built-rating-and-
+	// matching-algorithm-blocked-on-escalated-decisions.md) for why no
+	// rating field or computation exists anywhere near this type this
+	// sprint.
+	//
+	//   - ErrEmptyGameID: RecordMatch's gameID argument is empty.
+	//   - ErrEmptyPlayers: RecordMatch's players argument is nil or empty —
+	//     kept distinct from ErrTooFewPlayers (below) rather than folded
+	//     into one generic error, mirroring T10.1/T10.3's own instruction
+	//     that each named validation condition gets its own sentinel.
+	//   - ErrTooFewPlayers: RecordMatch's players argument holds exactly one
+	//     entry — a Match needs at least two participants to mean anything.
+	//     Checked only once ErrEmptyPlayers has already ruled out zero, so
+	//     each condition fires for exactly the input that describes it.
+	ErrEmptyGameID   = errors.New("socialplay: game id is required")
+	ErrEmptyPlayers  = errors.New("socialplay: at least one player is required")
+	ErrTooFewPlayers = errors.New("socialplay: a match requires at least two players")
 )
