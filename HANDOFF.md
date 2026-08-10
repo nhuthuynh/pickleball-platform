@@ -193,7 +193,14 @@ but not yet validated. Follow-up recommended, not yet ticketed: extend the
 same boundary guard to those write paths (still open, still not ticketed).
 The `docs/LESSONS.md` entry PR #89 flagged as owed **has since been
 written** — see `## T9 (2026-08-05) — grpc installs no panic recovery;
-net/http intuition does not transfer`.
+net/http intuition does not transfer`, since corrected there to record that
+PR #89's own Layer 2 pass had also missed `booking.GetQuote` (a second
+public unauthenticated read reaching the same panic, closed by PR #94)
+and had shipped a vacuous regression test for `ListCourtBookings` (also
+fixed by #94). SCRUM-6 (PR #95) has since landed a real CI/CD pipeline
+definition (repo-side only — no Jenkins job/webhook/branch-protection
+configured yet, see the Cross-cutting CI entry below), which is the
+structural direction the T9 retro's CI-gate candidate finding points at.
 
 Two merge conflicts were resolved by hand this sprint (T9.8↔T9.9 on
 `HANDOFF.md`'s Docs-index T9 row, resolved into one row citing both ADRs;

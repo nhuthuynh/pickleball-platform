@@ -393,6 +393,33 @@ rather than restating it.
   *narrower* than the thing it defends, and that relationship should be
   measured, not assumed from a library's name.
 
+- **Correction, added once #94 and #95 had merged (this entry is
+  append-only in spirit, so amending it now is cheaper than a later
+  correction entry the way T4's follow-up was):** the coverage table above
+  was itself incomplete in two ways this PR's own review process found.
+  First, `booking.GetQuote` — a second public, unauthenticated read,
+  reaching the same `mustUUID` panic via `PricingRuleRepository.ListForCourt`
+  — was missed by PR #89's Layer 2 pass entirely; it shipped with the
+  vulnerability this whole entry describes and was only closed by PR #94,
+  a follow-up fix mirroring `ListCourtBookings`'s guard exactly. Second,
+  PR #89's own `ListCourtBookings` regression test was vacuous in exactly
+  the shape the T9 retro's finding 3 names (`docs/process/t9-retro.md`):
+  the in-memory fake can't reproduce Postgres rejecting a non-UUID against
+  a `uuid` column, so the original assertion passed identically whether or
+  not the guard existed. Unlike T9.5's instance of the same bug, this one
+  *shipped* rather than being caught in review — the first instance of
+  this fake-fidelity family to reach the shared branch instead of being
+  stopped by it. PR #94 fixed both: it added `GetQuote`'s guard and
+  retrofitted `ListCourtBookings`'s test with a real
+  "never reaches the repository" assertion alongside the original. The
+  write-handler gap this entry's "Explicitly not fixed" bullet describes
+  is unaffected and remains open. Separately, SCRUM-6 (PR #95) has since
+  landed a real CI/CD pipeline definition — see `docs/adr/0011-*` — which
+  is the structural fix the retro's "candidate finding" on CI-gating
+  points at, though as of this correction it is repo-side only (no
+  Jenkins job/webhook/branch-protection configured yet, per HANDOFF.md),
+  so it does not yet actually run these checks automatically.
+
 ## T9 sprint retro
 
 Held as `docs/process/t9-retro.md`, following the convention T5 set (see

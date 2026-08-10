@@ -100,18 +100,33 @@ A ticket is only "done" when:
    available.
 4. Its PR is **approved and merged** into the project branch by the user
    or an explicitly delegated gate — never self-merged by the implementing
-   agent (CLAUDE.md rule 9).
+   agent (CLAUDE.md rule 9). **Merging on a reviewing agent's recommended
+   verdict, without the merging party independently re-deriving every
+   finding, is a supported mode, not a shortcut around this step** — T9's
+   retro (finding 6, `docs/process/t9-retro.md`) found every T9 merge
+   followed a real review within minutes, every REQUEST_CHANGES verdict
+   was addressed by a fix commit before merge, and none was overridden;
+   the practical safety property in that mode is "the review was correct,"
+   not "a human independently re-checked it." This places the obligation
+   on the *reviewing* agent: lead with a bolded recommended verdict and
+   put any blocking finding where it can't be missed, since the verdict
+   line may be the only part read before the merge decision.
 5. The GitHub issue is linked to the merged PR and closed.
 
 ## Ceremony 3 — Sprint retro (end of sprint)
 
 The six-role team reconvenes and discusses: what went well, what mistakes
-were made, what should change next sprint. Findings are appended to
-`docs/LESSONS.md` under a `## T<N> sprint retro` heading — same append-only,
-don't-rewrite-history discipline the file already follows. A retro that
-produces zero findings is treated as suspicious, not a clean bill of health
-(mirrors QA's "an invariant with no test that could fail is untested, not
-proven" heuristic, applied to process).
+were made, what should change next sprint. Findings are written to
+`docs/process/t<N>-retro.md` (CLAUDE.md's Docs index & naming convention —
+retro-ceremony output is a distinct artifact from `docs/LESSONS.md`'s
+incident postmortems, filed separately rather than folded in), indexed
+from a short `## T<N> sprint retro` stub appended to `docs/LESSONS.md`
+pointing at that file — same append-only, don't-rewrite-history discipline
+`LESSONS.md` already follows, just applied to the stub rather than the
+full findings. A retro that produces zero findings is treated as
+suspicious, not a clean bill of health (mirrors QA's "an invariant with no
+test that could fail is untested, not proven" heuristic, applied to
+process).
 
 ## Execution loop mechanics (within a sprint)
 
@@ -172,6 +187,7 @@ it's applied to an issue if it doesn't already exist).
 ## Definition of Done (sprint-level)
 
 All in-scope tickets merged per the per-ticket DoD above, sprint goal met or
-explicitly descoped with reasoning recorded, retro held and appended to
-`docs/LESSONS.md`, `HANDOFF.md`/`CLAUDE.md` state updated for the next
+explicitly descoped with reasoning recorded, retro held with findings in
+`docs/process/t<N>-retro.md` and indexed via a `## T<N> sprint retro` stub
+in `docs/LESSONS.md`, `HANDOFF.md`/`CLAUDE.md` state updated for the next
 sprint to resume from.
