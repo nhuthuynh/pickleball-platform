@@ -2,13 +2,16 @@ package domain
 
 // PayableType identifies the kind of payable action a Payment records
 // money against. String-backed and extensible by design (t6-sprint-plan.md
-// T6.1 kickoff note): booking, registration, and no_show_fee are the
-// values this sprint produces. recurring_hire and subscription are named
-// as future Payment targets by the glossary's own Payment definition
-// (docs/agent-operating-handbook.md A2) but are deliberately not added as
-// enum values here — nothing produces them yet, and speculative unused
-// enum values are exactly what the PE dossier warns against
-// over-engineering. Add them in the same PR that first produces one.
+// T6.1 kickoff note): booking, registration, and no_show_fee were the
+// values T6 produced; T10.6 (closes #96) adds competition_entry, in the
+// same PR that first produces its caller (internal/payments/adapter/
+// competitions), per this type's own extension policy stated below.
+// recurring_hire and subscription are named as future Payment targets by
+// the glossary's own Payment definition (docs/agent-operating-handbook.md
+// A2) but are deliberately not added as enum values here — nothing
+// produces them yet, and speculative unused enum values are exactly what
+// the PE dossier warns against over-engineering. Add them in the same PR
+// that first produces one.
 type PayableType string
 
 const (
@@ -25,13 +28,25 @@ const (
 	// (T6.3) — there is no automatic no-show detection or trigger yet;
 	// see the T6 kickoff note's P1 #8 resolution.
 	PayableTypeNoShowFee PayableType = "no_show_fee"
+	// PayableTypeCompetitionEntry is a Payment against a Competitions
+	// CompetitionEntry (T10.6, closes #96). Before this value existed,
+	// PayableTypeRegistration was the only non-Booking option, and
+	// routing a Competition entry through it would have written the
+	// entry's ID into Social Play's Registration table via
+	// reconcileRegistrationPaymentStatus — a real, money-adjacent
+	// data-corruption bug T9.6/T9.7 independently found and this value
+	// exists specifically to prevent. See
+	// internal/payments/adapter/competitions (mirrors
+	// internal/payments/adapter/socialplay exactly) for the port this
+	// value routes to.
+	PayableTypeCompetitionEntry PayableType = "competition_entry"
 )
 
-// IsValid reports whether t is one of the payable types this sprint
+// IsValid reports whether t is one of the payable types this codebase
 // recognises.
 func (t PayableType) IsValid() bool {
 	switch t {
-	case PayableTypeBooking, PayableTypeRegistration, PayableTypeNoShowFee:
+	case PayableTypeBooking, PayableTypeRegistration, PayableTypeNoShowFee, PayableTypeCompetitionEntry:
 		return true
 	default:
 		return false

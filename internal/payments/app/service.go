@@ -4,6 +4,8 @@ import (
 	"context"
 	"regexp"
 
+	competitionsdomain "github.com/nhuthuynh/white-label/internal/competitions/domain"
+	competitionsport "github.com/nhuthuynh/white-label/internal/competitions/port"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 	"github.com/nhuthuynh/white-label/internal/payments/port"
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
@@ -46,23 +48,37 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // (docs/agent-operating-handbook.md A1): Payments depends on Social Play,
 // never the reverse — internal/socialplay/domain and internal/socialplay/app
 // must never import anything under internal/payments.
+//
+// T10.6 (closes #96) adds a fifth field, CompetitionEntryUpdater
+// competitionsport.CompetitionEntryPaymentUpdater, to the same
+// ServiceOptions struct — exactly the pattern T6.5 established for
+// RegistrationUpdater, mirrored for Competitions rather than Social Play.
+// Payments importing internal/competitions/port (and, transitively,
+// internal/competitions/domain for the PaymentStatus enum) is the expected,
+// allowed direction per the context map: Payments depends on Competitions,
+// never the reverse — internal/competitions/domain and internal/competitions/app
+// must never import anything under internal/payments.
 type Service struct {
-	payments            port.Repository
-	ids                 port.IDGenerator
-	processor           port.PaymentProcessor
-	registrationUpdater socialplayport.RegistrationPaymentUpdater
+	payments                port.Repository
+	ids                     port.IDGenerator
+	processor               port.PaymentProcessor
+	registrationUpdater     socialplayport.RegistrationPaymentUpdater
+	competitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
 }
 
 // ServiceOptions is the dependency bundle for NewService (T6.4).
-// RegistrationUpdater (T6.5) is optional: leaving it nil is fine for any
-// caller/test that only exercises the Booking-payable path, or doesn't care
-// about the Social Play reconciliation side effect — see
-// reconcileRegistrationPaymentStatus's nil guard.
+// RegistrationUpdater (T6.5) and CompetitionEntryUpdater (T10.6) are both
+// optional: leaving either nil is fine for any caller/test that doesn't
+// exercise the corresponding payable path, or doesn't care about that
+// context's reconciliation side effect — see
+// reconcileRegistrationPaymentStatus's and
+// reconcileCompetitionEntryPaymentStatus's nil guards.
 type ServiceOptions struct {
-	Payments            port.Repository
-	IDs                 port.IDGenerator
-	Processor           port.PaymentProcessor
-	RegistrationUpdater socialplayport.RegistrationPaymentUpdater
+	Payments                port.Repository
+	IDs                     port.IDGenerator
+	Processor               port.PaymentProcessor
+	RegistrationUpdater     socialplayport.RegistrationPaymentUpdater
+	CompetitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
 }
 
 // NewService constructs a Service from opts. IDs is required by every use
@@ -74,10 +90,11 @@ type ServiceOptions struct {
 // deterministic test doubles used in place of Processor/IDs.
 func NewService(opts ServiceOptions) *Service {
 	return &Service{
-		payments:            opts.Payments,
-		ids:                 opts.IDs,
-		processor:           opts.Processor,
-		registrationUpdater: opts.RegistrationUpdater,
+		payments:                opts.Payments,
+		ids:                     opts.IDs,
+		processor:               opts.Processor,
+		registrationUpdater:     opts.RegistrationUpdater,
+		competitionEntryUpdater: opts.CompetitionEntryUpdater,
 	}
 }
 
@@ -113,10 +130,27 @@ func (s *Service) GetPayment(ctx context.Context, id string) (domain.Payment, er
 
 // CreateOnlinePaymentInput is the use-case input for starting an online
 // Payment.
+//
+// ActorUserID/EntrantPlayerID/AssignedCompetitionAdminUserIDs (T10.6, closes
+// #96) are new, competition_entry-scoped fields — the online-path analogue
+// of RecordOfflinePaymentInput's own caller-supplied authorization facts
+// (internal/payments has no live join to Competitions' database, mirroring
+// the reasoning that section's doc comment already gives for Booking/Social
+// Play). They are validated ONLY when PayableType is
+// PayableTypeCompetitionEntry (see authorizeOnlineCreation): every other
+// payable type accepted by this method today (booking, registration,
+// no_show_fee) is unaffected and continues to require no actor at all,
+// exactly as before T10.6 — extending that same authorization posture to
+// those pre-existing types is explicitly out of this ticket's scope.
 type CreateOnlinePaymentInput struct {
 	PayableType domain.PayableType
 	PayableID   string
 	Amount      domain.Money
+
+	ActorUserID string
+
+	EntrantPlayerID                 string
+	AssignedCompetitionAdminUserIDs []string
 }
 
 // CreateOnlinePayment builds an unpaid, online Payment (domain.NewPayment),
@@ -126,11 +160,27 @@ type CreateOnlinePaymentInput struct {
 // as StripeReference but is still unpaid — creating an intent authorizes
 // funds, it does not capture them.
 //
+// authorizeOnlineCreation runs first (T10.6): for a PayableTypeCompetitionEntry
+// payable it requires the actor to be the entrant or an assigned Competition
+// Admin, mirroring RecordOfflinePayment's authorization-before-construction
+// ordering so an unauthorized actor never learns anything about why the
+// input would otherwise be invalid. Every other payable type is unaffected
+// (the check is a no-op for them, see authorizeOnlineCreation's doc
+// comment).
+//
 // The Postgres adapter's UNIQUE (payable_type, payable_id) constraint is
 // the authoritative guard against recording two Payments for the same
 // payable action (CLAUDE.md rule 4); Create translates a 23505 violation
 // into domain.ErrPaymentAlreadyRecorded (CLAUDE.md rule 5).
 func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymentInput) (domain.Payment, error) {
+	// Authorization runs first (T10.6), before the shape guard below (T10.7)
+	// — same ordering RecordOfflinePayment already uses, so an unauthorized
+	// actor never learns anything about whether the rest of the input would
+	// otherwise be valid, malformed PayableID included.
+	if err := authorizeOnlineCreation(in); err != nil {
+		return domain.Payment{}, err
+	}
+
 	// A malformed PayableID is rejected with the same ErrEmptyPayableID/
 	// InvalidArgument domain.NewPayment below already returns for an EMPTY
 	// PayableID (T10.7, closing issue #97) — extending that existing
@@ -194,6 +244,9 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment) (d
 	if err := s.reconcileRegistrationPaymentStatus(ctx, updated); err != nil {
 		return updated, err
 	}
+	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, updated); err != nil {
+		return updated, err
+	}
 	return updated, nil
 }
 
@@ -242,6 +295,18 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment) (d
 // no-show fee is, per the T6 kickoff note, "structurally just another
 // payable action" against the same Registration/Game, and the required
 // test (P1 #8) is that recording one takes zero new code paths.
+//
+// EntrantPlayerID and AssignedCompetitionAdminUserIDs (T10.6, closes #96)
+// are the equivalent caller-supplied facts for a PayableTypeCompetitionEntry
+// payable — the Competitions analogue of GameHostID/AssignedGameAdminUserIDs
+// above, with one deliberate difference: the authorized actor set for a
+// competition entry is "the entrant OR an assigned Competition Admin", not
+// "the Host or an assigned Admin". A competition entry's payment is most
+// often recorded by the entrant paying for their own place (the issue's own
+// framing: "as a Player entering a Competition, I want to pay online"), so
+// EntrantPlayerID — the CompetitionEntry's own PlayerID — is itself an
+// authorized actor, unlike GameHostID/BookingHostID which never name the
+// paying Player.
 type RecordOfflinePaymentInput struct {
 	PayableType domain.PayableType
 	PayableID   string
@@ -252,6 +317,9 @@ type RecordOfflinePaymentInput struct {
 
 	GameHostID               string
 	AssignedGameAdminUserIDs []string
+
+	EntrantPlayerID                 string
+	AssignedCompetitionAdminUserIDs []string
 }
 
 // RecordOfflinePayment builds a Payment (domain.NewPayment, Method:
@@ -297,6 +365,9 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 	if err := s.reconcileRegistrationPaymentStatus(ctx, created); err != nil {
 		return created, err
 	}
+	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, created); err != nil {
+		return created, err
+	}
 	return created, nil
 }
 
@@ -332,6 +403,35 @@ func (s *Service) reconcileRegistrationPaymentStatus(ctx context.Context, p doma
 	return s.registrationUpdater.UpdatePaymentStatus(ctx, p.PayableID, socialplaydomain.PaymentStatusPaid)
 }
 
+// reconcileCompetitionEntryPaymentStatus pushes a successfully-paid
+// Payment's status through to Competitions (T10.6, closes #96), when, and
+// only when, it pays for a CompetitionEntry: called only for
+// PayableTypeCompetitionEntry, mirroring reconcileRegistrationPaymentStatus
+// exactly, alongside it (both are called, unconditionally, from
+// ConfirmOnlinePayment and RecordOfflinePayment — each is a no-op for the
+// PayableType the other one owns, so only ever one of the two ever actually
+// calls its port for a given Payment).
+//
+// competitionEntryUpdater is optional (ServiceOptions doc comment) — a
+// Service built without one (e.g. most pre-T10.6 tests, or a deployment
+// that hasn't wired Competitions for some reason) simply skips this step
+// rather than panicking on a nil interface call.
+//
+// A failure here is returned to the caller rather than swallowed, for the
+// identical reason reconcileRegistrationPaymentStatus's doc comment gives:
+// the Payment itself is already correctly persisted as paid (the source of
+// truth is not at risk), but the Competitions projection is now stale until
+// the caller retries or a background reconciliation job picks it up.
+func (s *Service) reconcileCompetitionEntryPaymentStatus(ctx context.Context, p domain.Payment) error {
+	if p.PayableType != domain.PayableTypeCompetitionEntry {
+		return nil
+	}
+	if s.competitionEntryUpdater == nil {
+		return nil
+	}
+	return s.competitionEntryUpdater.UpdatePaymentStatus(ctx, p.PayableID, competitionsdomain.PaymentStatusPaid)
+}
+
 // authorizeOfflineRecording is the actor-scoped (BOLA-shaped) check T6.3
 // requires, mirroring socialplay.domain.Registration.Cancel's ownership
 // check but living in the app layer rather than the domain: unlike
@@ -364,10 +464,57 @@ func authorizeOfflineRecording(in RecordOfflinePaymentInput) error {
 		return nil
 	}
 
+	// PayableTypeCompetitionEntry (T10.6, closes #96): the authorized actor
+	// set is "the entrant OR an assigned Competition Admin" — see
+	// RecordOfflinePaymentInput's doc comment for why this differs from the
+	// Registration/no_show_fee branch below (which never treats the paying
+	// Player themself as authorized).
+	if in.PayableType == domain.PayableTypeCompetitionEntry {
+		if in.EntrantPlayerID != "" && in.ActorUserID == in.EntrantPlayerID {
+			return nil
+		}
+		for _, adminID := range in.AssignedCompetitionAdminUserIDs {
+			if adminID != "" && adminID == in.ActorUserID {
+				return nil
+			}
+		}
+		return domain.ErrNotPaymentRecorder
+	}
+
 	if in.GameHostID != "" && in.ActorUserID == in.GameHostID {
 		return nil
 	}
 	for _, adminID := range in.AssignedGameAdminUserIDs {
+		if adminID != "" && adminID == in.ActorUserID {
+			return nil
+		}
+	}
+	return domain.ErrNotPaymentRecorder
+}
+
+// authorizeOnlineCreation is CreateOnlinePayment's authorization check
+// (T10.6, closes #96) — deliberately scoped to PayableTypeCompetitionEntry
+// only. Every other payable type CreateOnlinePayment accepts today
+// (booking, registration, no_show_fee) had no online-path authorization
+// check before this ticket and keeps none now: extending this check to
+// those pre-existing types is real, separate scope this ticket does not
+// take on (see CreateOnlinePaymentInput's doc comment). The authorized
+// actor set mirrors authorizeOfflineRecording's PayableTypeCompetitionEntry
+// branch exactly — the entrant, or an assigned Competition Admin — since
+// both are the same underlying rule applied to the two different points a
+// Payment can be created at (online-intent-creation vs. offline-recording).
+func authorizeOnlineCreation(in CreateOnlinePaymentInput) error {
+	if in.PayableType != domain.PayableTypeCompetitionEntry {
+		return nil
+	}
+
+	if in.ActorUserID == "" {
+		return domain.ErrNotPaymentRecorder
+	}
+	if in.EntrantPlayerID != "" && in.ActorUserID == in.EntrantPlayerID {
+		return nil
+	}
+	for _, adminID := range in.AssignedCompetitionAdminUserIDs {
 		if adminID != "" && adminID == in.ActorUserID {
 			return nil
 		}

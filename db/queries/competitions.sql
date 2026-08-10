@@ -190,3 +190,25 @@ SELECT id, competition_id, player_id, guest_count, source, status, payment_statu
 FROM competition_entries
 WHERE competition_id = $1
 ORDER BY created_at;
+
+-- name: GetCompetitionEntryByID :one
+-- T10.6 (closes #96): the read app.Service.MarkCompetitionEntryPaymentStatus
+-- needs before validating and writing a PaymentStatus transition — mirrors
+-- socialplay.sql's GetRegistrationByID exactly.
+SELECT id, competition_id, player_id, guest_count, source, status, payment_status
+FROM competition_entries
+WHERE id = $1;
+
+-- name: UpdateCompetitionEntryPaymentStatus :one
+-- Dedicated single-column update for PaymentStatus (T10.6, closes #96),
+-- mirroring UpdateCompetitionStatus's/socialplay's UpdateRegistrationPaymentStatus's
+-- shape: a separate query per updatable field rather than one generic
+-- "update everything" statement, so this write path can never accidentally
+-- touch status (or guest_count, or anything else) — or vice versa. The sole
+-- caller is app.Service.MarkCompetitionEntryPaymentStatus, itself only
+-- called through port.CompetitionEntryPaymentUpdater by
+-- internal/payments/adapter/competitions.
+UPDATE competition_entries
+SET payment_status = $2
+WHERE id = $1
+RETURNING id, competition_id, player_id, guest_count, source, status, payment_status;

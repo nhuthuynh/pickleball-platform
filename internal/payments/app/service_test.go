@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	competitionsdomain "github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	"github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
@@ -559,6 +560,206 @@ func TestRecordOfflinePayment_AuthorizationCheckedBeforeDomainConstruction(t *te
 	}
 }
 
+// --- T10.6: competition_entry payable authorization (closes #96) ----------
+//
+// Mirrors the registration-payable authorization tests above, with one
+// deliberate difference: for a competition_entry payable, the entrant
+// themself (the CompetitionEntry's own PlayerID) is an authorized actor,
+// not just a Host/assigned Admin — the ticket's own AC ("as a Player
+// entering a Competition, I want to pay online"). An assigned Competition
+// Admin may also record on the entrant's behalf, mirroring the
+// Registration/no_show_fee branch's Host-or-Admin shape.
+
+// TestRecordOfflinePayment_CompetitionEntryPayable_EntrantSucceeds proves
+// the entrant may record their own competition entry payment offline.
+func TestRecordOfflinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing.T) {
+	t.Parallel()
+
+	svc := app.NewService(app.ServiceOptions{
+		Payments: newFakeRepository(),
+		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+	})
+
+	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          offlineFixtureAmount(),
+		ActorUserID:     "player-1",
+		EntrantPlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if p.Status != domain.StatusPaid {
+		t.Fatalf("Status = %v, want paid", p.Status)
+	}
+}
+
+// TestRecordOfflinePayment_CompetitionEntryPayable_AssignedCompetitionAdminSucceeds
+// proves a Competition Admin assigned to the specific Competition may record
+// an offline payment against one of its entries on the entrant's behalf,
+// even though they are not the entrant.
+func TestRecordOfflinePayment_CompetitionEntryPayable_AssignedCompetitionAdminSucceeds(t *testing.T) {
+	t.Parallel()
+
+	svc := app.NewService(app.ServiceOptions{
+		Payments: newFakeRepository(),
+		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+	})
+
+	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType:                     domain.PayableTypeCompetitionEntry,
+		PayableID:                       "entry-1",
+		Amount:                          offlineFixtureAmount(),
+		ActorUserID:                     "admin-2",
+		EntrantPlayerID:                 "player-1",
+		AssignedCompetitionAdminUserIDs: []string{"admin-1", "admin-2"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if p.RecordedByUserID != "admin-2" {
+		t.Fatalf("RecordedByUserID = %q, want admin-2", p.RecordedByUserID)
+	}
+}
+
+// TestRecordOfflinePayment_CompetitionEntryPayable_UnauthorizedActorRejected
+// proves an actor who is neither the entrant nor an assigned Competition
+// Admin cannot record an offline payment against a CompetitionEntry —
+// ErrNotPaymentRecorder (the ticket's required BOLA regression at the app
+// layer; the handler-level proof lives in
+// internal/payments/adapter/grpcapi).
+func TestRecordOfflinePayment_CompetitionEntryPayable_UnauthorizedActorRejected(t *testing.T) {
+	t.Parallel()
+
+	svc := app.NewService(app.ServiceOptions{
+		Payments: newFakeRepository(),
+		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType:                     domain.PayableTypeCompetitionEntry,
+		PayableID:                       "entry-1",
+		Amount:                          offlineFixtureAmount(),
+		ActorUserID:                     "random-player",
+		EntrantPlayerID:                 "player-1",
+		AssignedCompetitionAdminUserIDs: []string{"admin-1"},
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+}
+
+// TestCreateOnlinePayment_CompetitionEntryPayable_EntrantSucceeds proves the
+// online-checkout half of the same authorization rule: the entrant supplies
+// actor_user_id claiming to be themself and CreateOnlinePayment succeeds.
+func TestCreateOnlinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:  repo,
+		IDs:       &fixedIDs{ids: []string{"pay-1"}},
+		Processor: proc,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          fixtureAmount(),
+		ActorUserID:     "player-1",
+		EntrantPlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if p.Status != domain.StatusUnpaid {
+		t.Fatalf("Status = %v, want unpaid (creating an intent does not capture funds)", p.Status)
+	}
+}
+
+// TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected
+// proves an empty actor_user_id is rejected outright for a competition_entry
+// payable — a caller must claim to be someone before the online path will
+// authorize a Payment against another Player's entry.
+func TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:  newFakeRepository(),
+		IDs:       &fixedIDs{ids: []string{"pay-1"}},
+		Processor: proc,
+	})
+
+	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          fixtureAmount(),
+		EntrantPlayerID: "player-1",
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+}
+
+// TestCreateOnlinePayment_CompetitionEntryPayable_UnauthorizedActorRejected
+// proves an actor who is neither the entrant nor an assigned Competition
+// Admin cannot start an online payment against another Player's
+// CompetitionEntry — the ticket's required BOLA regression for the online
+// path.
+func TestCreateOnlinePayment_CompetitionEntryPayable_UnauthorizedActorRejected(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:  repo,
+		IDs:       &fixedIDs{ids: []string{"pay-1"}},
+		Processor: proc,
+	})
+
+	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType:                     domain.PayableTypeCompetitionEntry,
+		PayableID:                       "entry-1",
+		Amount:                          fixtureAmount(),
+		ActorUserID:                     "random-player",
+		EntrantPlayerID:                 "player-1",
+		AssignedCompetitionAdminUserIDs: []string{"admin-1"},
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+	if _, err := repo.GetByID(context.Background(), "pay-1"); !errors.Is(err, domain.ErrPaymentNotFound) {
+		t.Fatalf("expected nothing persisted on a rejected authorization attempt, got err %v", err)
+	}
+}
+
+// TestCreateOnlinePayment_BookingPayable_NoActorFieldsRequired is a
+// regression guard: the new competition_entry-only authorization check must
+// not start requiring actor_user_id for the pre-existing payable types this
+// ticket does not touch — CreateOnlinePayment for a booking (or a
+// registration) stays exactly as open as it was before T10.6.
+func TestCreateOnlinePayment_BookingPayable_NoActorFieldsRequired(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:  newFakeRepository(),
+		IDs:       &fixedIDs{ids: []string{"pay-1"}},
+		Processor: proc,
+	})
+
+	if _, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeBooking,
+		PayableID:   "booking-1",
+		Amount:      fixtureAmount(),
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+}
+
 // --- T6.4: persistence (duplicate-recording AC) ----------------------------
 
 // TestRecordOfflinePayment_DuplicateForSamePayableRejected proves the T6.4
@@ -835,5 +1036,204 @@ func TestConfirmOnlinePayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) 
 
 	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
 		t.Fatalf("unexpected err confirming with a nil RegistrationUpdater: %v", err)
+	}
+}
+
+// --- T10.6: CompetitionEntry.PaymentStatus reconciliation (closes #96) ----
+//
+// Mirrors the T6.5 Registration reconciliation tests above exactly: an
+// in-memory fake CompetitionEntryPaymentUpdater proves
+// ConfirmOnlinePayment/RecordOfflinePayment call it exactly once with the
+// right entry id and status on success, and not at all when
+// PayableType != competition_entry — and, symmetrically, that a
+// competition_entry-payable Payment never calls the RegistrationUpdater.
+
+// TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry proves a
+// successful online capture for a competition_entry-payable Payment calls
+// CompetitionEntryUpdater.UpdatePaymentStatus exactly once, with PayableID
+// as the entry id and PaymentStatusPaid as the status.
+func TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	updater := &fakeCompetitionEntryUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:                repo,
+		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
+		Processor:               proc,
+		CompetitionEntryUpdater: updater,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          fixtureAmount(),
+		ActorUserID:     "player-1",
+		EntrantPlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming: %v", err)
+	}
+
+	if len(updater.calls) != 1 {
+		t.Fatalf("CompetitionEntryUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
+	}
+	if updater.calls[0].entryID != "entry-1" {
+		t.Fatalf("entryID = %q, want entry-1", updater.calls[0].entryID)
+	}
+	if updater.calls[0].status != competitionsdomain.PaymentStatusPaid {
+		t.Fatalf("status = %v, want paid", updater.calls[0].status)
+	}
+}
+
+// TestConfirmOnlinePayment_RegistrationPayable_DoesNotUpdateCompetitionEntry
+// is the symmetric negative case: a registration-payable Payment must never
+// trigger a CompetitionEntry update.
+func TestConfirmOnlinePayment_RegistrationPayable_DoesNotUpdateCompetitionEntry(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	entryUpdater := &fakeCompetitionEntryUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:                repo,
+		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
+		Processor:               proc,
+		CompetitionEntryUpdater: entryUpdater,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   "reg-1",
+		Amount:      fixtureAmount(),
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming: %v", err)
+	}
+
+	if len(entryUpdater.calls) != 0 {
+		t.Fatalf("CompetitionEntryUpdater called %d times, want 0 for a registration-payable Payment: %+v", len(entryUpdater.calls), entryUpdater.calls)
+	}
+}
+
+// TestConfirmOnlinePayment_CompetitionEntryPayable_DoesNotUpdateRegistration
+// is the mirror-image negative case: a competition_entry-payable Payment
+// must never trigger a Registration update — the exact routing mistake #96
+// exists to prevent (a Competition entry ID must never reach Social Play's
+// RegistrationPaymentUpdater).
+func TestConfirmOnlinePayment_CompetitionEntryPayable_DoesNotUpdateRegistration(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	regUpdater := &fakeRegistrationUpdater{}
+	entryUpdater := &fakeCompetitionEntryUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:                repo,
+		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
+		Processor:               proc,
+		RegistrationUpdater:     regUpdater,
+		CompetitionEntryUpdater: entryUpdater,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          fixtureAmount(),
+		ActorUserID:     "player-1",
+		EntrantPlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming: %v", err)
+	}
+
+	if len(regUpdater.calls) != 0 {
+		t.Fatalf("RegistrationUpdater called %d times, want 0 for a competition_entry-payable Payment: %+v", len(regUpdater.calls), regUpdater.calls)
+	}
+	if len(entryUpdater.calls) != 1 {
+		t.Fatalf("CompetitionEntryUpdater called %d times, want exactly 1: %+v", len(entryUpdater.calls), entryUpdater.calls)
+	}
+	if entryUpdater.calls[0].entryID != "entry-1" {
+		t.Fatalf("entryID = %q, want entry-1", entryUpdater.calls[0].entryID)
+	}
+}
+
+// TestRecordOfflinePayment_CompetitionEntryPayable_UpdatesEntry mirrors
+// TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry for the
+// offline path: RecordOfflinePayment's immediate MarkPaid must also
+// reconcile the CompetitionEntry.
+func TestRecordOfflinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T) {
+	t.Parallel()
+
+	updater := &fakeCompetitionEntryUpdater{}
+	svc := app.NewService(app.ServiceOptions{
+		Payments:                newFakeRepository(),
+		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
+		CompetitionEntryUpdater: updater,
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          offlineFixtureAmount(),
+		ActorUserID:     "player-1",
+		EntrantPlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(updater.calls) != 1 {
+		t.Fatalf("CompetitionEntryUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
+	}
+	if updater.calls[0].entryID != "entry-1" {
+		t.Fatalf("entryID = %q, want entry-1", updater.calls[0].entryID)
+	}
+	if updater.calls[0].status != competitionsdomain.PaymentStatusPaid {
+		t.Fatalf("status = %v, want paid", updater.calls[0].status)
+	}
+}
+
+// TestConfirmOnlinePayment_NilCompetitionEntryUpdater_DoesNotPanic proves a
+// Service constructed without a CompetitionEntryUpdater still works —
+// CompetitionEntryUpdater is optional, not a hard dependency every
+// ServiceOptions must supply, mirroring RegistrationUpdater's own
+// optionality.
+func TestConfirmOnlinePayment_NilCompetitionEntryUpdater_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:  newFakeRepository(),
+		IDs:       &fixedIDs{ids: []string{"pay-1"}},
+		Processor: proc,
+	})
+
+	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType:     domain.PayableTypeCompetitionEntry,
+		PayableID:       "entry-1",
+		Amount:          fixtureAmount(),
+		ActorUserID:     "player-1",
+		EntrantPlayerID: "player-1",
+	})
+	if err != nil {
+		t.Fatalf("unexpected err creating: %v", err)
+	}
+
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+		t.Fatalf("unexpected err confirming with a nil CompetitionEntryUpdater: %v", err)
 	}
 }

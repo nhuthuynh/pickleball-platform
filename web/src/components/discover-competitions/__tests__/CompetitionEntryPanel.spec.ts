@@ -200,16 +200,44 @@ describe('CompetitionEntryPanel — payment (T8.10 paths, unchanged)', () => {
     expect(wrapper.find('.competition-entry__pay-cash').exists()).toBe(false)
   })
 
-  // Competitions are not wired to the Payments context in T9 (the proto says
-  // so explicitly, and payments' ConfirmOnlinePayment reconciles a
-  // PAYABLE_TYPE_REGISTRATION back into SOCIAL PLAY's registrations). So the
-  // UI states the position honestly instead of starting a checkout that
-  // would write a Competition entry id into another context's table.
-  it('states plainly that online payment is not available yet, rather than starting a checkout', async () => {
+  // T10.6 (closes #96): Competitions is now wired to the Payments context
+  // via PAYABLE_TYPE_COMPETITION_ENTRY + internal/payments/adapter/
+  // competitions, so the former "not available yet" disclosure is replaced
+  // by a real "Pay online now" button — mirrors GameJoinPanel.vue's
+  // identical T8.10 tests exactly.
+  it('an online-only Competition shows a "Pay online now" button and no cash option', async () => {
     const wrapper = mountPanel({ competition: competition({ paymentMethod: 'PAYMENT_METHOD_ONLINE' }) })
     await wrapper.get('.competition-entry__form').trigger('submit')
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="entry-online-unavailable"]').text()).toMatch(/not available yet/i)
+    const buttons = wrapper.findAll('.competition-entry__payment-choice button').map((b) => b.text())
+    expect(buttons).toEqual(['Pay online now'])
+  })
+
+  it('clicking "Pay online now" emits payOnline with the confirmed entry id, and makes no Payments network call itself', async () => {
+    const wrapper = mountPanel({ competition: competition({ paymentMethod: 'PAYMENT_METHOD_ONLINE' }) })
+    await wrapper.get('.competition-entry__form').trigger('submit')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="entry-pay-online"]').trigger('click')
+
+    expect(wrapper.emitted('payOnline')).toEqual([['e1']])
+  })
+
+  it('an "either" Competition offers both options; choosing cash switches to the pending text without any network call', async () => {
+    const client = fakeClient(() => okEntry())
+    const wrapper = mountPanel({ client })
+    await wrapper.get('.competition-entry__form').trigger('submit')
+    await flushPromises()
+
+    const buttons = wrapper.findAll('.competition-entry__payment-choice button').map((b) => b.text())
+    expect(buttons).toEqual(['Pay online now', 'Pay cash at facility'])
+
+    const callsBeforeCashChoice = (client.POST as ReturnType<typeof vi.fn>).mock.calls.length
+    await wrapper.find('.competition-entry__pay-cash').trigger('click')
+
+    expect(wrapper.text()).toContain('pending (cash at facility)')
+    expect((client.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(callsBeforeCashChoice)
+    expect(wrapper.emitted('payOnline')).toBeUndefined()
   })
 })

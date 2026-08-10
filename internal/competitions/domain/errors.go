@@ -96,4 +96,19 @@ var (
 	// doesn't refer to a real Facility; T9.4 maps it to a 404-shaped
 	// status.
 	ErrFacilityNotFound = errors.New("competitions: facility not found")
+
+	// ErrCompetitionEntryNotFound is port.Repository's not-found answer for
+	// a CompetitionEntry ID that doesn't resolve (T10.6, GetEntryByID).
+	// Mirrors socialplay.ErrRegistrationNotFound.
+	ErrCompetitionEntryNotFound = errors.New("competitions: competition entry not found")
+
+	// ErrInvalidPaymentStatus is returned by CompetitionEntry.
+	// MarkPaymentStatus (T10.6) when asked to write a value outside
+	// PaymentStatus's closed enum. Mirrors
+	// socialplay.ErrInvalidPaymentStatus exactly — same role, same
+	// boundary (the only thing checked is "is this a recognised value at
+	// all"; the Payments context, not this one, owns whether the
+	// unpaid -> paid -> refunded transition itself is legal, see
+	// MarkPaymentStatus's doc comment).
+	ErrInvalidPaymentStatus = errors.New("competitions: invalid payment status")
 )

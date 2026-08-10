@@ -244,6 +244,29 @@ func (r *fakeRepository) ListEntriesForCompetition(_ context.Context, competitio
 	return out, nil
 }
 
+// GetEntryByID mirrors the real Postgres adapter's contract (T10.6):
+// domain.ErrCompetitionEntryNotFound for a miss, the stored entry otherwise.
+func (r *fakeRepository) GetEntryByID(_ context.Context, id string) (domain.CompetitionEntry, error) {
+	e, ok := r.entries[id]
+	if !ok {
+		return domain.CompetitionEntry{}, domain.ErrCompetitionEntryNotFound
+	}
+	return e, nil
+}
+
+// UpdateEntryPaymentStatus mirrors the real Postgres adapter's contract
+// (T10.6): a single-column write, domain.ErrCompetitionEntryNotFound for an
+// unknown id.
+func (r *fakeRepository) UpdateEntryPaymentStatus(_ context.Context, id string, status domain.PaymentStatus) (domain.CompetitionEntry, error) {
+	e, ok := r.entries[id]
+	if !ok {
+		return domain.CompetitionEntry{}, domain.ErrCompetitionEntryNotFound
+	}
+	e.PaymentStatus = status
+	r.entries[id] = e
+	return e, nil
+}
+
 // ListCompetitions mirrors the real Postgres adapter's contract: only
 // scheduled Competitions, each paired with its WEIGHTED SpotsLeft. It
 // deliberately delegates that computation to domain.SpotsLeft — the same
@@ -882,5 +905,84 @@ func TestCancelCompetition_AlreadyCancelledRejected(t *testing.T) {
 	}
 	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); !errors.Is(err, domain.ErrIllegalStatusTransition) {
 		t.Fatalf("got err %v, want ErrIllegalStatusTransition", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// MarkCompetitionEntryPaymentStatus (T10.6, closes #96 — mirrors
+// internal/socialplay/app.Service.MarkRegistrationPaymentStatus exactly)
+// ---------------------------------------------------------------------------
+
+// TestMarkCompetitionEntryPaymentStatus_Succeeds proves the happy path: an
+// existing CompetitionEntry's PaymentStatus is updated and the change is
+// actually persisted (not just returned in-memory) — mirrors
+// TestMarkRegistrationPaymentStatus_Succeeds's "prove it via a fresh
+// GetEntryByID" standard.
+func TestMarkCompetitionEntryPaymentStatus_Succeeds(t *testing.T) {
+	t.Parallel()
+
+	repo, svc, c := scheduleFixture(t, 16, 0)
+	ctx := context.Background()
+
+	entry, err := svc.EnterCompetition(ctx, app.EnterCompetitionInput{
+		CompetitionID: c.ID,
+		PlayerID:      "player-a",
+		Source:        domain.EntrySourceApp,
+	})
+	if err != nil {
+		t.Fatalf("fixture entry should succeed, got %v", err)
+	}
+	if entry.PaymentStatus != domain.PaymentStatusUnpaid {
+		t.Fatalf("fixture PaymentStatus = %v, want unpaid", entry.PaymentStatus)
+	}
+
+	if err := svc.MarkCompetitionEntryPaymentStatus(ctx, entry.ID, domain.PaymentStatusPaid); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	stored, err := repo.GetEntryByID(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("GetEntryByID err: %v", err)
+	}
+	if stored.PaymentStatus != domain.PaymentStatusPaid {
+		t.Fatalf("persisted PaymentStatus = %v, want paid", stored.PaymentStatus)
+	}
+}
+
+// TestMarkCompetitionEntryPaymentStatus_NotFound proves a bogus entry id
+// surfaces domain.ErrCompetitionEntryNotFound, the sentinel
+// port.CompetitionEntryPaymentUpdater's doc comment promises callers.
+func TestMarkCompetitionEntryPaymentStatus_NotFound(t *testing.T) {
+	t.Parallel()
+
+	svc := newTestService(newFakeRepository(), newFakeReservation(), newFakeFacilityLookup(), &fakeShareTokens{})
+
+	err := svc.MarkCompetitionEntryPaymentStatus(context.Background(), "no-such-entry", domain.PaymentStatusPaid)
+	if !errors.Is(err, domain.ErrCompetitionEntryNotFound) {
+		t.Fatalf("got err %v, want ErrCompetitionEntryNotFound", err)
+	}
+}
+
+// TestMarkCompetitionEntryPaymentStatus_InvalidStatusRejected proves the
+// domain's closed-enum guard (CompetitionEntry.MarkPaymentStatus) is
+// actually wired, not bypassed, at the app layer.
+func TestMarkCompetitionEntryPaymentStatus_InvalidStatusRejected(t *testing.T) {
+	t.Parallel()
+
+	_, svc, c := scheduleFixture(t, 16, 0)
+	ctx := context.Background()
+
+	entry, err := svc.EnterCompetition(ctx, app.EnterCompetitionInput{
+		CompetitionID: c.ID,
+		PlayerID:      "player-a",
+		Source:        domain.EntrySourceApp,
+	})
+	if err != nil {
+		t.Fatalf("fixture entry should succeed, got %v", err)
+	}
+
+	err = svc.MarkCompetitionEntryPaymentStatus(ctx, entry.ID, domain.PaymentStatus("not-a-real-status"))
+	if !errors.Is(err, domain.ErrInvalidPaymentStatus) {
+		t.Fatalf("got err %v, want ErrInvalidPaymentStatus", err)
 	}
 }

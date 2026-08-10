@@ -266,6 +266,30 @@ func (r *Repository) ListEntriesForCompetition(ctx context.Context, competitionI
 	return out, nil
 }
 
+// GetEntryByID returns a single CompetitionEntry, or
+// domain.ErrCompetitionEntryNotFound (T10.6, closes #96).
+func (r *Repository) GetEntryByID(ctx context.Context, id string) (domain.CompetitionEntry, error) {
+	row, err := r.q.GetCompetitionEntryByID(ctx, mustUUID(id))
+	if err != nil {
+		return domain.CompetitionEntry{}, translateEntryErr(err)
+	}
+	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus), nil
+}
+
+// UpdateEntryPaymentStatus persists a PaymentStatus transition
+// (app.Service.MarkCompetitionEntryPaymentStatus, T10.6) via its own
+// single-column query, which cannot touch any other column.
+func (r *Repository) UpdateEntryPaymentStatus(ctx context.Context, id string, status domain.PaymentStatus) (domain.CompetitionEntry, error) {
+	row, err := r.q.UpdateCompetitionEntryPaymentStatus(ctx, competitionsdb.UpdateCompetitionEntryPaymentStatusParams{
+		ID:            mustUUID(id),
+		PaymentStatus: string(status),
+	})
+	if err != nil {
+		return domain.CompetitionEntry{}, translateEntryErr(err)
+	}
+	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus), nil
+}
+
 // ListCompetitions is the browse/list read path. SpotsLeft is computed by
 // the query itself, using the weighted formula (see
 // db/queries/competitions.sql's ListCompetitions and domain.SpotsLeft), so
@@ -341,6 +365,13 @@ func translateErr(err error) error {
 // entire point of CLAUDE.md rule 5 here: the DB guard exists to close a race
 // the pre-check can't, and it would be a poor trade if closing it introduced
 // a second error vocabulary for clients to learn.
+//
+// pgx.ErrNoRows becomes domain.ErrCompetitionEntryNotFound (T10.6, closes
+// #96) — before GetEntryByID/UpdateEntryPaymentStatus this branch was
+// unreachable dead code (every prior caller of translateEntryErr was an
+// insert or a :many query, neither of which can produce pgx.ErrNoRows), so
+// there was no wrong-sentinel bug to inherit; this is that branch's first
+// real caller and the entry-scoped sentinel it now returns.
 func translateEntryErr(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -352,7 +383,7 @@ func translateEntryErr(err error) error {
 		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
-		return domain.ErrCompetitionNotFound
+		return domain.ErrCompetitionEntryNotFound
 	}
 	return fmt.Errorf("competitions postgres adapter (entries): %w", err)
 }

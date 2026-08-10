@@ -151,6 +151,29 @@ func (r *fakeRepo) ListEntriesForCompetition(_ context.Context, competitionID st
 	return out, nil
 }
 
+// GetEntryByID and UpdateEntryPaymentStatus (T10.6, closes #96) round out
+// port.Repository — this authz-regression suite never exercises either
+// (neither RPC under test here touches PaymentStatus), but fakeRepo
+// implements the interface directly rather than embedding it, so both must
+// exist to keep compiling.
+func (r *fakeRepo) GetEntryByID(_ context.Context, id string) (domain.CompetitionEntry, error) {
+	e, ok := r.entries[id]
+	if !ok {
+		return domain.CompetitionEntry{}, domain.ErrCompetitionEntryNotFound
+	}
+	return e, nil
+}
+
+func (r *fakeRepo) UpdateEntryPaymentStatus(_ context.Context, id string, status domain.PaymentStatus) (domain.CompetitionEntry, error) {
+	e, ok := r.entries[id]
+	if !ok {
+		return domain.CompetitionEntry{}, domain.ErrCompetitionEntryNotFound
+	}
+	e.PaymentStatus = status
+	r.entries[id] = e
+	return e, nil
+}
+
 // ListCompetitions mirrors the real Postgres adapter's contract: scheduled
 // Competitions only, each paired with its WEIGHTED SpotsLeft. It delegates
 // that computation to domain.SpotsLeft — the same rule the production SQL
