@@ -106,6 +106,17 @@ func (s *Service) CancelBooking(ctx context.Context, bookingID string) (domain.B
 // lives in domain.ResolvePrice; this method's only job is the repository
 // round trip.
 func (s *Service) GetQuote(ctx context.Context, courtID string, r domain.TimeRange) (domain.PricingRule, error) {
+	// A malformed courtID is answered exactly like a well-formed one with no
+	// rules configured (ErrNoPricingRule) — this get-shaped read already
+	// returns that error for an unknown Court, so a malformed Court must
+	// produce the same answer rather than reaching the Postgres adapter's
+	// mustUUID, which panics on non-UUID input (PR #89's review found this
+	// endpoint, GetQuote, was the one public unauthenticated read PR #89
+	// itself missed; ListCourtBookings' identical guard just above is the
+	// pattern this mirrors).
+	if !uuidShape.MatchString(courtID) {
+		return domain.PricingRule{}, domain.ErrNoPricingRule
+	}
 	rules, err := s.pricingRepo.ListForCourt(ctx, courtID)
 	if err != nil {
 		return domain.PricingRule{}, err
