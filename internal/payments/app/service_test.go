@@ -11,6 +11,23 @@ import (
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 )
 
+// fixtureBookingID/fixtureRegistrationID are deterministic, UUID-shaped
+// PayableID fixtures. They used to be the literals "booking-1"/"reg-1" — a
+// shape internal/platform/idgen never produces and the Postgres adapter's
+// mustUUID panics on (db/migrations/0005_payments.sql's payable_id column is
+// `uuid NOT NULL`, un-FK'd but still typed). T10.7 (closing issue #97) adds a
+// uuidShape guard on PayableID for exactly the class of bug LESSONS.md's T9
+// entry describes ("the test fixtures made the bug invisible"): every
+// existing test in this file used a PayableID no real request could ever
+// send, which would have made the new guard's own regression tests the only
+// ones exercising a realistic value. Renamed here instead, mirroring how
+// internal/booking, internal/competitions, and internal/facilities app
+// tests already fixed the identical fixture infidelity on their own IDs.
+const (
+	fixtureBookingID      = "6ba7b810-0000-4000-8000-000000000001"
+	fixtureRegistrationID = "6ba7b810-0000-4000-8000-000000000002"
+)
+
 func fixtureAmount() domain.Money {
 	return domain.Money{Cents: 3000, Currency: "USD"}
 }
@@ -39,7 +56,7 @@ func TestCreateOnlinePayment_Succeeds(t *testing.T) {
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -83,7 +100,7 @@ func TestCreateOnlinePayment_InvalidInputRejectedByDomain(t *testing.T) {
 
 	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      domain.Money{Cents: 0, Currency: "USD"},
 	})
 	if !errors.Is(err, domain.ErrInvalidAmount) {
@@ -99,7 +116,7 @@ func TestCreateOnlinePayment_ProcessorUnavailable(t *testing.T) {
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
-	proc.SeedUnavailable("booking-1")
+	proc.SeedUnavailable(fixtureBookingID)
 	repo := newFakeRepository()
 	svc := app.NewService(app.ServiceOptions{
 		Payments:  repo,
@@ -109,7 +126,7 @@ func TestCreateOnlinePayment_ProcessorUnavailable(t *testing.T) {
 
 	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if !errors.Is(err, domain.ErrPaymentProcessorUnavailable) {
@@ -136,7 +153,7 @@ func TestConfirmOnlinePayment_Succeeds(t *testing.T) {
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -172,7 +189,7 @@ func TestConfirmOnlinePayment_Declined(t *testing.T) {
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
-	proc.SeedDecline("booking-1")
+	proc.SeedDecline(fixtureBookingID)
 	repo := newFakeRepository()
 	svc := app.NewService(app.ServiceOptions{
 		Payments:  repo,
@@ -182,7 +199,7 @@ func TestConfirmOnlinePayment_Declined(t *testing.T) {
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -227,7 +244,7 @@ func TestConfirmOnlinePayment_ProcessorUnavailable(t *testing.T) {
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -263,7 +280,7 @@ func TestConfirmOnlinePayment_AlreadyPaidIsIllegal(t *testing.T) {
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -299,7 +316,7 @@ func TestRecordOfflinePayment_BookingPayable_HostSucceeds(t *testing.T) {
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:   domain.PayableTypeBooking,
-		PayableID:     "booking-1",
+		PayableID:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
 		ActorUserID:   "host-1",
 		BookingHostID: "host-1",
@@ -342,7 +359,7 @@ func TestRecordOfflinePayment_BookingPayable_WrongActorRejected(t *testing.T) {
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:   domain.PayableTypeBooking,
-		PayableID:     "booking-1",
+		PayableID:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
 		ActorUserID:   "some-other-player",
 		BookingHostID: "host-1",
@@ -367,7 +384,7 @@ func TestRecordOfflinePayment_BookingPayable_NoHostRejected(t *testing.T) {
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:   domain.PayableTypeBooking,
-		PayableID:     "booking-1",
+		PayableID:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
 		ActorUserID:   "",
 		BookingHostID: "",
@@ -389,7 +406,7 @@ func TestRecordOfflinePayment_RegistrationPayable_GameHostSucceeds(t *testing.T)
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
 		GameHostID:  "host-1",
@@ -417,7 +434,7 @@ func TestRecordOfflinePayment_RegistrationPayable_AssignedGameAdminSucceeds(t *t
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:              domain.PayableTypeRegistration,
-		PayableID:                "reg-1",
+		PayableID:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
 		ActorUserID:              "admin-2",
 		GameHostID:               "host-1",
@@ -445,7 +462,7 @@ func TestRecordOfflinePayment_RegistrationPayable_UnassignedActorRejected(t *tes
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:              domain.PayableTypeRegistration,
-		PayableID:                "reg-1",
+		PayableID:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
 		ActorUserID:              "random-player",
 		GameHostID:               "host-1",
@@ -473,7 +490,7 @@ func TestRecordOfflinePayment_NoShowFee_GameAdmin_SameCodePath(t *testing.T) {
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:              domain.PayableTypeNoShowFee,
-		PayableID:                "reg-1",
+		PayableID:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
 		ActorUserID:              "admin-2",
 		GameHostID:               "host-1",
@@ -507,7 +524,7 @@ func TestRecordOfflinePayment_InvalidAmountRejectedByDomain(t *testing.T) {
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:   domain.PayableTypeBooking,
-		PayableID:     "booking-1",
+		PayableID:     fixtureBookingID,
 		Amount:        domain.Money{Cents: 0, Currency: "USD"},
 		ActorUserID:   "host-1",
 		BookingHostID: "host-1",
@@ -532,7 +549,7 @@ func TestRecordOfflinePayment_AuthorizationCheckedBeforeDomainConstruction(t *te
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:   domain.PayableTypeBooking,
-		PayableID:     "booking-1",
+		PayableID:     fixtureBookingID,
 		Amount:        domain.Money{Cents: 0, Currency: "USD"},
 		ActorUserID:   "wrong-actor",
 		BookingHostID: "host-1",
@@ -561,7 +578,7 @@ func TestRecordOfflinePayment_DuplicateForSamePayableRejected(t *testing.T) {
 
 	in := app.RecordOfflinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
 		GameHostID:  "host-1",
@@ -603,7 +620,7 @@ func TestConfirmOnlinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -617,7 +634,7 @@ func TestConfirmOnlinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 	if len(updater.calls) != 1 {
 		t.Fatalf("RegistrationUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
 	}
-	if updater.calls[0].registrationID != "reg-1" {
+	if updater.calls[0].registrationID != fixtureRegistrationID {
 		t.Fatalf("registrationID = %q, want reg-1", updater.calls[0].registrationID)
 	}
 	if updater.calls[0].status != socialplaydomain.PaymentStatusPaid {
@@ -643,7 +660,7 @@ func TestConfirmOnlinePayment_BookingPayable_DoesNotUpdateRegistration(t *testin
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -667,7 +684,7 @@ func TestConfirmOnlinePayment_Declined_DoesNotUpdateRegistration(t *testing.T) {
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
-	proc.SeedDecline("reg-1")
+	proc.SeedDecline(fixtureRegistrationID)
 	repo := newFakeRepository()
 	updater := &fakeRegistrationUpdater{}
 	svc := app.NewService(app.ServiceOptions{
@@ -679,7 +696,7 @@ func TestConfirmOnlinePayment_Declined_DoesNotUpdateRegistration(t *testing.T) {
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -711,7 +728,7 @@ func TestRecordOfflinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
 		GameHostID:  "host-1",
@@ -723,7 +740,7 @@ func TestRecordOfflinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 	if len(updater.calls) != 1 {
 		t.Fatalf("RegistrationUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
 	}
-	if updater.calls[0].registrationID != "reg-1" {
+	if updater.calls[0].registrationID != fixtureRegistrationID {
 		t.Fatalf("registrationID = %q, want reg-1", updater.calls[0].registrationID)
 	}
 	if updater.calls[0].status != socialplaydomain.PaymentStatusPaid {
@@ -745,7 +762,7 @@ func TestRecordOfflinePayment_BookingPayable_DoesNotUpdateRegistration(t *testin
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:   domain.PayableTypeBooking,
-		PayableID:     "booking-1",
+		PayableID:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
 		ActorUserID:   "host-1",
 		BookingHostID: "host-1",
@@ -778,7 +795,7 @@ func TestRecordOfflinePayment_NoShowFeePayable_DoesNotUpdateRegistration(t *test
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType: domain.PayableTypeNoShowFee,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
 		GameHostID:  "host-1",
@@ -809,7 +826,7 @@ func TestConfirmOnlinePayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) 
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {

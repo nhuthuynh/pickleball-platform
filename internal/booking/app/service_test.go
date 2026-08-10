@@ -37,6 +37,13 @@ type inMemoryRepo struct {
 	// TestListCourtBookings_MalformedCourtIDNeverReachesRepository in
 	// malformed_id_test.go.
 	listActiveForCourtCalls atomic.Int64
+
+	// getByIDCalls counts real invocations of GetByID, so a test can prove
+	// a malformed-shape bookingID never reaches the repository at all
+	// (T10.7, closing issue #97, CancelBooking's own guard) — same
+	// reasoning as listActiveForCourtCalls above, applied to the other
+	// caller-supplied id this package's write paths take.
+	getByIDCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -63,6 +70,7 @@ func (r *inMemoryRepo) ListActiveForCourt(_ context.Context, courtID string, rng
 }
 
 func (r *inMemoryRepo) GetByID(_ context.Context, id string) (domain.Booking, error) {
+	r.getByIDCalls.Add(1)
 	b, ok := r.bookings[id]
 	if !ok {
 		return domain.Booking{}, domain.ErrBookingNotFound
@@ -82,9 +90,21 @@ func (r *inMemoryRepo) Update(_ context.Context, b domain.Booking) (domain.Booki
 // don't depend on real UUID generation.
 type sequentialIDs struct{ n int }
 
+// NewID mints UUID-shaped ids (T10.7, closing issue #97). It used to return
+// "booking-1", "booking-2", ... — a shape the real port.IDGenerator
+// (internal/platform/idgen.UUID) never produces and the Postgres adapter's
+// mustUUID panics on, which is why no existing test could see
+// CancelBooking's malformed-id crash before this ticket added its guard:
+// every Booking these tests ever cancelled had a non-UUID id already, the
+// same "fixture infidelity" LESSONS.md's T9 entry documents for
+// internal/socialplay and internal/facilities' equivalent generators.
 func (g *sequentialIDs) NewID() string {
 	g.n++
-	return fmt.Sprintf("booking-%d", g.n)
+	// The "a000" group (vs. courtID's "9000" in malformed_id_test.go) keeps
+	// a Booking's own id visibly distinct from a Court id in test output,
+	// even though the two are stored in unrelated keyspaces and a value
+	// collision between them would not actually be a bug.
+	return fmt.Sprintf("00000000-0000-4000-a000-%012d", g.n)
 }
 
 func mustTimeRange(t *testing.T, start, end string) domain.TimeRange {

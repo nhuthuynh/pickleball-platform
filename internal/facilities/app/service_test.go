@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/nhuthuynh/white-label/internal/facilities/app"
@@ -22,6 +23,17 @@ type inMemoryRepo struct {
 	// deterministically, mirroring the Postgres adapter's `ORDER BY
 	// created_at`.
 	courtOrder []string
+
+	// getFacilityByIDCalls counts real invocations of GetFacilityByID, so a
+	// test can prove a malformed-shape facilityID never reaches the
+	// repository at all (T10.7's AddCourt guard) — the in-memory map here
+	// can't reproduce Postgres rejecting a non-UUID against a `uuid` column,
+	// so the app-layer shape-check short-circuit can only be proven by
+	// observing the call itself never happens, not by GetFacility's return
+	// value alone. atomic.Int64 for the same reason
+	// internal/booking/app's inMemoryRepo.listActiveForCourtCalls is: safe
+	// even if a future test shares one fixture across t.Parallel() subtests.
+	getFacilityByIDCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -40,6 +52,7 @@ func (r *inMemoryRepo) CreateFacility(_ context.Context, f domain.Facility) (dom
 // Postgres adapter's GetFacilityByID (row + a separate courtsFor fetch) so
 // app-layer tests can prove the merge without a database.
 func (r *inMemoryRepo) GetFacilityByID(_ context.Context, id string) (domain.Facility, error) {
+	r.getFacilityByIDCalls.Add(1)
 	f, ok := r.facilities[id]
 	if !ok {
 		return domain.Facility{}, domain.ErrFacilityNotFound

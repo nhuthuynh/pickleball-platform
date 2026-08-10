@@ -2,12 +2,28 @@ package app
 
 import (
 	"context"
+	"regexp"
 
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 	"github.com/nhuthuynh/white-label/internal/payments/port"
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 	socialplayport "github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
+
+// uuidShape matches the canonical 8-4-4-4-12 hex form internal/platform/idgen
+// mints for every Payment id, and for the Booking/Registration ids that flow
+// in as PayableID.
+//
+// Boundary guard for caller-supplied ids (T10.7, closing issue #97): the
+// Postgres adapter's mustUUID panics on anything pgtype.UUID.Scan can't
+// parse, and grpc installs no recover() of its own, so an unvalidated id off
+// the wire could take the whole process down. Deliberately narrower than
+// github.com/google/uuid's Validate, which accepts braced and `urn:uuid:`
+// forms that pgtype rejects — a guard wider than the thing it protects is
+// not a guard. The canonical write-up lives on internal/competitions/app's
+// copy; reused here verbatim rather than re-derived, per this ticket's own
+// instructions.
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // Service is the Payments context's application layer: it orchestrates the
 // domain and its outbound ports, but holds no business rules itself — those
@@ -65,13 +81,34 @@ func NewService(opts ServiceOptions) *Service {
 	}
 }
 
-// Payments exposes the persistence port so a caller (e.g.
-// internal/payments/adapter/grpcapi's ConfirmOnlinePayment handler) can do
-// the id -> Payment lookup a payment_id-only wire request needs before
-// calling ConfirmOnlinePayment, without internal/payments/adapter/grpcapi
-// needing its own separate handle on port.Repository wired in cmd/server.
+// Payments exposes the persistence port so a caller that genuinely needs
+// direct repository access can get it without cmd/server wiring a second
+// handle. Prefer GetPayment below for the id -> Payment lookup
+// ConfirmOnlinePayment's handler needs — Payments() is kept for any other
+// caller, but the guarded lookup is the one path that used to bypass the app
+// layer's boundary validation entirely (T10.7, closing issue #97).
 func (s *Service) Payments() port.Repository {
 	return s.payments
+}
+
+// GetPayment resolves a Payment by id, or domain.ErrPaymentNotFound.
+//
+// Added by T10.7 (closing issue #97): before this method existed,
+// internal/payments/adapter/grpcapi's ConfirmOnlinePayment handler called
+// h.svc.Payments().GetByID(ctx, req.GetPaymentId()) directly — the ONE
+// caller-supplied-id lookup in this codebase that reached a repository
+// straight from the gRPC adapter rather than through app.Service, and so was
+// the one place PR #89's Layer 2 pattern (a uuidShape guard living next to
+// every other get-shaped read) couldn't be applied without this change. A
+// malformed id is answered exactly like an unknown one — the same
+// domain.ErrPaymentNotFound port.Repository.GetByID already returns for a
+// miss — rather than reaching the Postgres adapter's mustUUID, which panics
+// on non-UUID input.
+func (s *Service) GetPayment(ctx context.Context, id string) (domain.Payment, error) {
+	if !uuidShape.MatchString(id) {
+		return domain.Payment{}, domain.ErrPaymentNotFound
+	}
+	return s.payments.GetByID(ctx, id)
 }
 
 // CreateOnlinePaymentInput is the use-case input for starting an online
@@ -94,6 +131,21 @@ type CreateOnlinePaymentInput struct {
 // payable action (CLAUDE.md rule 4); Create translates a 23505 violation
 // into domain.ErrPaymentAlreadyRecorded (CLAUDE.md rule 5).
 func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymentInput) (domain.Payment, error) {
+	// A malformed PayableID is rejected with the same ErrEmptyPayableID/
+	// InvalidArgument domain.NewPayment below already returns for an EMPTY
+	// PayableID (T10.7, closing issue #97) — extending that existing
+	// sentinel to a non-empty-but-malformed-shape value rather than
+	// inventing a new one. PayableID has no existence check in this context
+	// (see malformed_id_test.go's doc comment), so unlike a get-shaped
+	// handler there is no "unknown but well-formed" NotFound answer to
+	// match instead; this is the closest existing precedent on the same
+	// field. Checked here, before NewPayment, so the malformed value never
+	// reaches port.PaymentProcessor.CreateIntent or port.Repository.Create
+	// — both would otherwise see it, and Create's mustUUID panics on it.
+	if !uuidShape.MatchString(in.PayableID) {
+		return domain.Payment{}, domain.ErrEmptyPayableID
+	}
+
 	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOnline, "")
 	if err != nil {
 		return domain.Payment{}, err
@@ -217,6 +269,15 @@ type RecordOfflinePaymentInput struct {
 func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaymentInput) (domain.Payment, error) {
 	if err := authorizeOfflineRecording(in); err != nil {
 		return domain.Payment{}, err
+	}
+
+	// Same T10.7 guard CreateOnlinePayment applies to the same field, kept
+	// after authorization so an unauthorized actor learns nothing about
+	// whether their PayableID was even well-formed (mirrors the existing
+	// ordering, where domain.NewPayment's own empty-PayableID check already
+	// ran after authorizeOfflineRecording).
+	if !uuidShape.MatchString(in.PayableID) {
+		return domain.Payment{}, domain.ErrEmptyPayableID
 	}
 
 	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOffline, in.ActorUserID)

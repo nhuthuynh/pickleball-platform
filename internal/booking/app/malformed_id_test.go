@@ -267,3 +267,72 @@ func TestGetQuote_WellFormedCourtIDStillReads(t *testing.T) {
 		t.Fatalf("price = %d, want 2000 — the guard is rejecting a valid Court ID", quote.PriceCents)
 	}
 }
+
+// --- T10.7 (closing issue #97): CancelBooking's own malformed-id guard ----
+//
+// CancelBooking was found by this ticket's required inspection sweep
+// (grepping cmd/server/main.go's route registrations for any other public
+// write handler taking a caller-supplied id — issue #97's own instruction
+// not to assume its named handler list was exhaustive): it calls
+// Repository.GetByID(bookingID) first, exactly the same shape
+// ListCourtBookings/GetQuote's already-guarded reads have, and already
+// returns the bare domain.ErrBookingNotFound for an unknown-but-well-formed
+// id (TestCancelBooking_UnknownBookingReturnsNotFound in
+// cancel_booking_test.go pins that today) — but, unlike those two reads, it
+// had no uuidShape guard at all, so a malformed bookingID reached
+// mustUUID unguarded.
+
+func TestCancelBooking_MalformedBookingIDIsNotFoundAndNeverReachesRepository(t *testing.T) {
+	t.Parallel()
+
+	malformed := []string{
+		"",
+		"not-a-uuid",
+		"booking-1",
+		"0",
+		"'; DROP TABLE bookings;--",
+		"../../etc/passwd",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c\x00",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c",
+		"zzzzzzzz-9dad-11d1-80b4-00c04fd430c8",
+		"{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+		"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+	}
+
+	for _, id := range malformed {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+
+			repo := newInMemoryRepo()
+			svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+
+			_, err := svc.CancelBooking(context.Background(), id)
+			if !errors.Is(err, domain.ErrBookingNotFound) {
+				t.Fatalf("CancelBooking(%q) error = %v, want %v", id, err, domain.ErrBookingNotFound)
+			}
+			if calls := repo.getByIDCalls.Load(); calls != 0 {
+				t.Errorf("malformed bookingID %q reached the repository (%d calls); it must be rejected at the boundary", id, calls)
+			}
+		})
+	}
+}
+
+// TestCancelBooking_WellFormedUnknownBookingIDStillReachesRepository is the
+// too-strict guard rail: a well-formed but unknown bookingID must still
+// reach the repository and get its own ErrBookingNotFound, or every real
+// cancel-by-id would silently 404.
+func TestCancelBooking_WellFormedUnknownBookingIDStillReachesRepository(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+
+	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+	_, err := svc.CancelBooking(context.Background(), unknown)
+	if !errors.Is(err, domain.ErrBookingNotFound) {
+		t.Fatalf("CancelBooking(%q) error = %v, want %v", unknown, err, domain.ErrBookingNotFound)
+	}
+	if calls := repo.getByIDCalls.Load(); calls != 1 {
+		t.Fatalf("well-formed unknown bookingID did not reach the repository (%d calls)", calls)
+	}
+}

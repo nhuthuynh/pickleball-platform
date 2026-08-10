@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
@@ -37,6 +38,19 @@ func (f *fixedIDs) NewID() string {
 type fakeRepository struct {
 	byID      map[string]domain.Payment
 	byPayable map[string]string // "payableType:payableID" -> payment id
+
+	// createCalls/getByIDCalls count real invocations of Create/GetByID, so
+	// a test can prove a malformed-shape PayableID/id never reaches the
+	// repository at all (T10.7, closing issue #97) — the in-memory maps
+	// here can't reproduce Postgres rejecting a non-UUID against a `uuid`
+	// column, so the app-layer shape-check short-circuit can only be proven
+	// by observing the call itself never happens, not by the return value
+	// alone. atomic.Int64, mirroring internal/booking/app/service_test.go's
+	// inMemoryRepo.listActiveForCourtCalls exactly, for the same reason:
+	// safe even if a future test shares one fixture across t.Parallel()
+	// subtests.
+	createCalls  atomic.Int64
+	getByIDCalls atomic.Int64
 }
 
 func newFakeRepository() *fakeRepository {
@@ -51,6 +65,7 @@ func payableKey(t domain.PayableType, id string) string {
 }
 
 func (r *fakeRepository) Create(_ context.Context, p domain.Payment) (domain.Payment, error) {
+	r.createCalls.Add(1)
 	key := payableKey(p.PayableType, p.PayableID)
 	if _, exists := r.byPayable[key]; exists {
 		return domain.Payment{}, domain.ErrPaymentAlreadyRecorded
@@ -61,6 +76,7 @@ func (r *fakeRepository) Create(_ context.Context, p domain.Payment) (domain.Pay
 }
 
 func (r *fakeRepository) GetByID(_ context.Context, id string) (domain.Payment, error) {
+	r.getByIDCalls.Add(1)
 	p, ok := r.byID[id]
 	if !ok {
 		return domain.Payment{}, domain.ErrPaymentNotFound

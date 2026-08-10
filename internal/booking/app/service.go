@@ -88,6 +88,16 @@ func (s *Service) ListCourtBookings(ctx context.Context, courtID string, r domai
 // ignores cancelled bookings (T0), so no separate "free the slot" step is
 // needed here beyond persisting the status change itself.
 func (s *Service) CancelBooking(ctx context.Context, bookingID string) (domain.Booking, error) {
+	// A malformed bookingID is answered exactly like an unknown one (T10.7,
+	// closing issue #97): this method already calls GetByID first and
+	// already returns the bare domain.ErrBookingNotFound for a miss —
+	// found by this ticket's required inspection sweep, since CancelBooking
+	// (unlike ListCourtBookings/GetQuote just above) had never had this
+	// guard applied, though it reaches the identical mustUUID panic path.
+	if !uuidShape.MatchString(bookingID) {
+		return domain.Booking{}, domain.ErrBookingNotFound
+	}
+
 	b, err := s.repo.GetByID(ctx, bookingID)
 	if err != nil {
 		return domain.Booking{}, err

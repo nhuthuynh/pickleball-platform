@@ -78,8 +78,17 @@ func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.Creat
 // service.go's doc comment), so this handler is the "caller" that does the
 // id -> Payment lookup the wire contract's payment_id-only request
 // implies.
+//
+// T10.7 (closing issue #97): this used to call h.svc.Payments().GetByID
+// directly, bypassing app.Service's boundary validation entirely — the one
+// caller-supplied-id lookup in this codebase that reached a repository
+// straight from a gRPC adapter. Now goes through app.Service.GetPayment,
+// which applies the same uuidShape guard every other context's get-shaped
+// read already has, so a malformed payment_id answers with the same
+// domain.ErrPaymentNotFound an unknown one gets, instead of reaching the
+// Postgres adapter's mustUUID and panicking.
 func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.ConfirmOnlinePaymentRequest) (*paymentsv1.ConfirmOnlinePaymentResponse, error) {
-	p, err := h.svc.Payments().GetByID(ctx, req.GetPaymentId())
+	p, err := h.svc.GetPayment(ctx, req.GetPaymentId())
 	if err != nil {
 		return nil, toStatus(err)
 	}

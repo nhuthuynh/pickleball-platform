@@ -210,6 +210,16 @@ type RegisterForGameInput struct {
 // a promotion gets "confirmed": the promoted player simply calls
 // RegisterForGame like anyone else, no separate confirm RPC needed.
 func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) (domain.Registration, error) {
+	// A malformed GameID is answered exactly like an unknown one (T10.7,
+	// closing issue #97): this method already calls GetByID first and
+	// already returns the bare domain.ErrGameNotFound for a miss — found by
+	// this ticket's required inspection sweep, since RegisterForGame
+	// (unlike ListRegistrationsForGame just above) had never had this guard
+	// applied, though it reaches the identical mustUUID panic path.
+	if !uuidShape.MatchString(in.GameID) {
+		return domain.Registration{}, domain.ErrGameNotFound
+	}
+
 	game, err := s.games.GetByID(ctx, in.GameID)
 	if err != nil {
 		return domain.Registration{}, err
@@ -261,6 +271,14 @@ func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) 
 // checks the error can still see what happened to the thing they asked to
 // cancel.
 func (s *Service) CancelRegistration(ctx context.Context, registrationID, actorPlayerID string) (domain.Registration, error) {
+	// Same T10.7 guard RegisterForGame applies above, for the same reason:
+	// this method calls GetByID(registrationID) first, before Cancel's own
+	// ownership check even runs, and already returns the bare
+	// domain.ErrRegistrationNotFound for an unknown-but-well-formed id.
+	if !uuidShape.MatchString(registrationID) {
+		return domain.Registration{}, domain.ErrRegistrationNotFound
+	}
+
 	reg, err := s.registrations.GetByID(ctx, registrationID)
 	if err != nil {
 		return domain.Registration{}, err
@@ -315,6 +333,13 @@ type JoinWaitlistInput struct {
 // error, same relationship domain.Register has with its own DB backstop
 // (CLAUDE.md rule 4).
 func (s *Service) JoinWaitlist(ctx context.Context, in JoinWaitlistInput) (domain.WaitlistEntry, error) {
+	// Same T10.7 guard RegisterForGame applies above, on the same field:
+	// this method also calls GetByID(GameID) first and already returns the
+	// bare domain.ErrGameNotFound for an unknown-but-well-formed id.
+	if !uuidShape.MatchString(in.GameID) {
+		return domain.WaitlistEntry{}, domain.ErrGameNotFound
+	}
+
 	game, err := s.games.GetByID(ctx, in.GameID)
 	if err != nil {
 		return domain.WaitlistEntry{}, err

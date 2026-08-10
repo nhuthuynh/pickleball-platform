@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -85,9 +86,23 @@ func (f *fakeFacilityLookup) FacilityExists(_ context.Context, facilityID string
 // internal/platform/idgen) so its prefix is generic rather than "game-".
 type sequentialIDs struct{ n int }
 
+// NewID mints UUID-shaped ids (T10.7, closing issue #97). It used to return
+// "id-1", "id-2", ... — a shape internal/platform/idgen.UUID never produces
+// and the Postgres adapter's mustUUID panics on. This is the exact fixture
+// infidelity LESSONS.md's T9 entry names ("g-1" in the same family): T10.7
+// adds a uuidShape guard to RegisterForGame/CancelRegistration/JoinWaitlist
+// (found by that ticket's required inspection sweep, alongside its six
+// named handlers), and every existing happy-path test in this file that
+// creates a Game/Registration via this generator and then registers/
+// cancels/joins-waitlist against it would otherwise start failing the new
+// guard — the same reason internal/booking/app's identical generator was
+// fixed by the same ticket. The "b000" group keeps it visually distinct
+// from malformed_id_test.go's own gameID() helper ("a000"), though a value
+// collision between the two would not actually be a bug (different
+// counters, and Game/Registration ids live in unrelated keyspaces here).
 func (g *sequentialIDs) NewID() string {
 	g.n++
-	return fmt.Sprintf("id-%d", g.n)
+	return fmt.Sprintf("00000000-0000-4000-b000-%012d", g.n)
 }
 
 // fakeGameRepository is a minimal in-memory port.GameRepository fake, mirroring
@@ -102,6 +117,13 @@ type fakeGameRepository struct {
 	// LEFT JOIN against the registrations table (this fake has no
 	// connection to fakeRegistrationRepository).
 	registrations map[string]domain.Registration
+
+	// getByIDCalls counts real invocations of GetByID, so a test can prove
+	// a malformed-shape gameID never reaches the repository at all (T10.7,
+	// closing issue #97 — RegisterForGame/JoinWaitlist's own guards). See
+	// internal/booking/app's identical listActiveForCourtCalls for why
+	// atomic.Int64 rather than a plain int.
+	getByIDCalls atomic.Int64
 }
 
 func newFakeGameRepository() *fakeGameRepository {
@@ -117,6 +139,7 @@ func (r *fakeGameRepository) Create(_ context.Context, g domain.Game) (domain.Ga
 }
 
 func (r *fakeGameRepository) GetByID(_ context.Context, id string) (domain.Game, error) {
+	r.getByIDCalls.Add(1)
 	g, ok := r.games[id]
 	if !ok {
 		return domain.Game{}, domain.ErrGameNotFound
@@ -177,6 +200,11 @@ func countActiveRegistrationsWeight(registrations map[string]domain.Registration
 // fake.
 type fakeRegistrationRepository struct {
 	registrations map[string]domain.Registration
+
+	// getByIDCalls counts real invocations of GetByID, so a test can prove
+	// a malformed-shape registrationID never reaches the repository at all
+	// (T10.7, closing issue #97 — CancelRegistration's own guard).
+	getByIDCalls atomic.Int64
 }
 
 func newFakeRegistrationRepository() *fakeRegistrationRepository {
@@ -194,6 +222,7 @@ func (r *fakeRegistrationRepository) Create(_ context.Context, reg domain.Regist
 }
 
 func (r *fakeRegistrationRepository) GetByID(_ context.Context, id string) (domain.Registration, error) {
+	r.getByIDCalls.Add(1)
 	reg, ok := r.registrations[id]
 	if !ok {
 		return domain.Registration{}, domain.ErrRegistrationNotFound
