@@ -38,7 +38,14 @@ const props = defineProps<{
   client?: CompetitionsClient
 }>()
 
-const emit = defineEmits<{ retry: [] }>()
+const emit = defineEmits<{
+  retry: []
+  /** Forwarded unchanged from CompetitionEntryPanel's own `payOnline` emit
+   * (T10.6, closes #96) — this component stays router-free (see the header
+   * comment: it's reused by both DiscoverCompetitions.vue and
+   * CompetitionLanding.vue, each of which owns its own navigation). */
+  payOnline: [entryId: string]
+}>()
 
 /** A cancelled Competition cannot be entered, so no entry form is rendered
  * for one — not a disabled button, which would leave a visitor guessing why
@@ -136,6 +143,7 @@ function cancelled(): boolean {
         :competition="competition"
         :source="source"
         :client="client"
+        @pay-online="(entryId) => emit('payOnline', entryId)"
       />
     </div>
   </section>

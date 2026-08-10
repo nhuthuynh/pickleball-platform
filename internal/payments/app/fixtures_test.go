@@ -3,6 +3,7 @@ package app_test
 import (
 	"context"
 
+	competitionsdomain "github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 )
@@ -98,5 +99,31 @@ type fakeRegistrationUpdater struct {
 
 func (u *fakeRegistrationUpdater) UpdatePaymentStatus(_ context.Context, registrationID string, status socialplaydomain.PaymentStatus) error {
 	u.calls = append(u.calls, registrationUpdateCall{registrationID: registrationID, status: status})
+	return u.err
+}
+
+// entryUpdateCall records one call to
+// fakeCompetitionEntryUpdater.UpdatePaymentStatus, for asserting exact
+// call-count/argument expectations (T10.6's required test, mirroring T6.5's
+// registrationUpdateCall).
+type entryUpdateCall struct {
+	entryID string
+	status  competitionsdomain.PaymentStatus
+}
+
+// fakeCompetitionEntryUpdater is an in-memory
+// competitionsport.CompetitionEntryPaymentUpdater test double (T10.6's
+// required test, mirroring fakeRegistrationUpdater exactly): it records
+// every call it receives rather than talking to a real (or fake)
+// Competitions repository, so tests can assert exactly how many times it
+// was called and with what arguments — including the "not called at all
+// for a non-competition_entry-payable Payment" negative case.
+type fakeCompetitionEntryUpdater struct {
+	calls []entryUpdateCall
+	err   error // optional: simulate the port call itself failing
+}
+
+func (u *fakeCompetitionEntryUpdater) UpdatePaymentStatus(_ context.Context, entryID string, status competitionsdomain.PaymentStatus) error {
+	u.calls = append(u.calls, entryUpdateCall{entryID: entryID, status: status})
 	return u.err
 }

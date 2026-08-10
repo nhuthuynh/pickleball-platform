@@ -29,7 +29,7 @@
 //    somewhere sensible; this one cannot. Every interactive control here has
 //    an explicit visible focus indicator.
 import { onMounted, ref, computed, useTemplateRef } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useCompetitionByShareToken } from '../composables/useCompetitionByShareToken'
 import { isCancelled } from '../models/competition'
 import CompetitionDetailPanel from '../components/discover-competitions/CompetitionDetailPanel.vue'
@@ -46,6 +46,10 @@ const props = defineProps<{
 // `useRoute()` returns undefined without a router plugin installed, so the
 // prop is the source of truth in tests and the route supplies it in the app.
 const route = useRoute()
+// `useRouter()` is likewise undefined in a standalone component test — same
+// pattern DiscoverCompetitions.vue/DiscoverGames.vue use. Needed here for
+// T10.6's checkout navigation (closes #96): `onPayOnline` below.
+const router = useRouter()
 
 const token = computed(() => props.shareToken ?? String(route?.params?.shareToken ?? ''))
 
@@ -74,6 +78,17 @@ async function resolveToken(): Promise<void> {
 onMounted(() => {
   void resolveToken()
 })
+
+// T10.6 (closes #96): mirrors DiscoverCompetitions.vue's identical
+// `onPayOnline` — navigates to the checkout route, carrying the
+// CompetitionEntry id as a query param. This landing knows the Competition
+// id from the already-loaded `competition`, since (unlike
+// DiscoverCompetitions.vue) there is no separate "selected id" state here —
+// the whole screen is about the one Competition the share link named.
+function onPayOnline(entryId: string): void {
+  if (!competition.value) return
+  void router?.push({ name: 'competition-checkout', params: { id: competition.value.id }, query: { entryId } })
+}
 </script>
 
 <template>
@@ -129,6 +144,7 @@ onMounted(() => {
         :has-selection="true"
         source="ENTRY_SOURCE_SOCIAL"
         :client="client"
+        @pay-online="onPayOnline"
       />
 
       <p v-if="!cancelled" class="competition-landing__footer">

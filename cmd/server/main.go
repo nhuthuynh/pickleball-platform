@@ -8,8 +8,12 @@
 // Payments' RegistrationUpdater dependency (socialplayport.
 // RegistrationPaymentUpdater, satisfied by internal/payments/adapter/
 // socialplay, T6.5) is wired against the same, real socialplaySvc instance
-// Social Play's own gRPC handler uses below, not a second/separate stack:
-// one grpc.Server, one grpc-gateway mux, one RegisterXServiceServer/
+// Social Play's own gRPC handler uses below, not a second/separate stack;
+// its CompetitionEntryUpdater dependency (competitionsport.
+// CompetitionEntryPaymentUpdater, satisfied by internal/payments/adapter/
+// competitions, T10.6, closes #96) is wired the identical way against the
+// same, real competitionsSvc instance Competitions' own gRPC handler uses
+// below. One grpc.Server, one grpc-gateway mux, one RegisterXServiceServer/
 // RegisterXServiceHandlerFromEndpoint pair per context.
 package main
 
@@ -45,6 +49,7 @@ import (
 	facilitiesv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/facilities/v1"
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
+	paymentscompetitions "github.com/nhuthuynh/white-label/internal/payments/adapter/competitions"
 	paymentsgrpc "github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
 	paymentspg "github.com/nhuthuynh/white-label/internal/payments/adapter/postgres"
 	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
@@ -114,27 +119,6 @@ func run(logger *slog.Logger) error {
 	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo)
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
 
-	// Payments (T6.4). stripestub stands in for a real Stripe adapter
-	// (internal/payments/adapter/stripe, not yet built — T6.2's ACL is
-	// designed so that swap is adapter-only, see port.PaymentProcessor's
-	// doc comment) — there is no real Stripe SDK dependency this sprint.
-	// RegistrationUpdater (T6.5) is the mirror image of Social Play's own
-	// internal/socialplay/adapter/booking: it lets Payments push a
-	// Registration's PaymentStatus forward without Social Play importing
-	// anything under internal/payments (CLAUDE.md rule 3, context-map
-	// direction in docs/process/t6-sprint-plan.md's kickoff note). It's
-	// built against the same, real socialplaySvc instance Social Play's own
-	// gRPC handler uses above, not a second/separate Social Play stack.
-	paymentsRepo := paymentspg.NewRepository(pool)
-	registrationUpdater := paymentssocialplay.NewRegistrationUpdater(socialplaySvc)
-	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
-		Payments:            paymentsRepo,
-		IDs:                 idgen.UUID{},
-		Processor:           stripestub.NewProcessor(),
-		RegistrationUpdater: registrationUpdater,
-	})
-	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
-
 	// Competitions (T9.4). Same shape as Social Play's wiring above, one
 	// level deeper: its Repository is Postgres-backed, its CourtReservation
 	// port is implemented against the real Booking app.Service (reserving
@@ -148,6 +132,11 @@ func run(logger *slog.Logger) error {
 	// (internal/competitions/adapter/sharetoken): CreateCompetition mints a
 	// real token for every Competition from the moment this endpoint is
 	// live, so it must not be a placeholder — see that package's doc comment.
+	//
+	// Built BEFORE Payments below (T10.6, closes #96): Payments'
+	// CompetitionEntryUpdater dependency needs the real competitionsSvc
+	// instance already constructed, the same reordering constraint
+	// RegistrationUpdater already imposed on Social Play above.
 	competitionsRepo := competitionspg.NewRepository(pool)
 	competitionsSvc := competitionsapp.NewService(competitionsapp.ServiceOptions{
 		Competitions: competitionsRepo,
@@ -157,6 +146,32 @@ func run(logger *slog.Logger) error {
 		ShareTokens:  sharetoken.Generator{},
 	})
 	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
+
+	// Payments (T6.4). stripestub stands in for a real Stripe adapter
+	// (internal/payments/adapter/stripe, not yet built — T6.2's ACL is
+	// designed so that swap is adapter-only, see port.PaymentProcessor's
+	// doc comment) — there is no real Stripe SDK dependency this sprint.
+	// RegistrationUpdater (T6.5) is the mirror image of Social Play's own
+	// internal/socialplay/adapter/booking: it lets Payments push a
+	// Registration's PaymentStatus forward without Social Play importing
+	// anything under internal/payments (CLAUDE.md rule 3, context-map
+	// direction in docs/process/t6-sprint-plan.md's kickoff note). It's
+	// built against the same, real socialplaySvc instance Social Play's own
+	// gRPC handler uses above, not a second/separate Social Play stack.
+	// CompetitionEntryUpdater (T10.6, closes #96) is the identical pattern
+	// mirrored for Competitions: built against the same, real
+	// competitionsSvc instance Competitions' own gRPC handler uses above.
+	paymentsRepo := paymentspg.NewRepository(pool)
+	registrationUpdater := paymentssocialplay.NewRegistrationUpdater(socialplaySvc)
+	competitionEntryUpdater := paymentscompetitions.NewEntryUpdater(competitionsSvc)
+	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
+		Payments:                paymentsRepo,
+		IDs:                     idgen.UUID{},
+		Processor:               stripestub.NewProcessor(),
+		RegistrationUpdater:     registrationUpdater,
+		CompetitionEntryUpdater: competitionEntryUpdater,
+	})
+	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
 
 	// The recovery interceptors are the process's panic safety net and must
 	// stay installed. grpc, unlike net/http, installs no recover() of its own:

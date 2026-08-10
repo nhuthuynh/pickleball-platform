@@ -231,6 +231,25 @@ func SpotsLeft(competition Competition, existing []CompetitionEntry) int {
 // Enter enforces, instead of a second copy that can drift from it. That is
 // exactly the reuse socialplay's countActiveRegistrations was extracted for
 // in T6.6.
+// MarkPaymentStatus sets PaymentStatus to a new value reported by the
+// Payments context (T10.6), via port.CompetitionEntryPaymentUpdater ->
+// internal/payments/adapter/competitions ->
+// Service.MarkCompetitionEntryPaymentStatus. This is the only path, besides
+// Enter's initial "unpaid" default, that may change PaymentStatus — mirrors
+// socialplay.Registration.MarkPaymentStatus exactly, including its scope:
+// Payments is the single source of truth for whether a status transition
+// itself (unpaid -> paid -> refunded) is legal, so this method deliberately
+// does not re-derive that state machine — it only guards that status is a
+// recognised PaymentStatus value at all (IsValid), so garbage input can
+// never be written to the field.
+func (e *CompetitionEntry) MarkPaymentStatus(status PaymentStatus) error {
+	if !status.IsValid() {
+		return ErrInvalidPaymentStatus
+	}
+	e.PaymentStatus = status
+	return nil
+}
+
 func countActiveEntries(competitionID string, existing []CompetitionEntry, playerID string) (activeWeight int, playerAlreadyActive bool) {
 	for _, e := range existing {
 		if e.CompetitionID != competitionID {

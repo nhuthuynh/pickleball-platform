@@ -24,6 +24,7 @@ import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
 import CompetitionCreation from '../views/CompetitionCreation.vue'
+import CompetitionCheckout from '../views/CompetitionCheckout.vue'
 import CompetitionManage from '../views/CompetitionManage.vue'
 import DiscoverCompetitions from '../components/discover-competitions/DiscoverCompetitions.vue'
 import CompetitionLanding from '../views/CompetitionLanding.vue'
@@ -74,6 +75,19 @@ export const routes: RouteRecordRaw[] = [
     // which is also what lets its spec mount it without a router.
     props: true,
     meta: { title: 'Manage competition' },
+  },
+  // T10.6 (closes #96, Payments UI): the online checkout step reached from
+  // CompetitionEntryPanel.vue's "Pay online now" button (via
+  // DiscoverCompetitions.vue's/CompetitionLanding.vue's router push).
+  // `:id` is the Competition id; the CompetitionEntry id (the actual
+  // Payment payableId) travels as `?entryId=` — mirrors `/games/:id/checkout`
+  // exactly, see CompetitionCheckout.vue's header comment for why a
+  // CompetitionEntry id doesn't fit this route's own path shape.
+  {
+    path: '/competitions/:id/checkout',
+    name: 'competition-checkout',
+    component: CompetitionCheckout,
+    meta: { title: 'Checkout' },
   },
   // T9.7 (Discover & Enter Competitions, Player). `/competitions/:id` is the
   // SAME screen as `/competitions` with an initial selection — the detail is

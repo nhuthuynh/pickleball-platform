@@ -7,8 +7,11 @@ import "google/api/annotations.proto";
 option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1;paymentsv1";
 
 // PayableType mirrors internal/payments/domain.PayableType — extensible by
-// design (T6.1): booking, registration, and no_show_fee are the values T6
-// produces. See domain.PayableType's doc comment for why recurring_hire /
+// design (T6.1): booking, registration, and no_show_fee were the values T6
+// produced; T10.6 (closes #96) adds PAYABLE_TYPE_COMPETITION_ENTRY, in the
+// same PR that first produces its caller
+// (internal/payments/adapter/competitions), per this enum's own extension
+// policy. See domain.PayableType's doc comment for why recurring_hire /
 // subscription are named as future values but not added as enum values
 // yet.
 enum PayableType {
@@ -16,6 +19,7 @@ enum PayableType {
   PAYABLE_TYPE_BOOKING = 1;
   PAYABLE_TYPE_REGISTRATION = 2;
   PAYABLE_TYPE_NO_SHOW_FEE = 3;
+  PAYABLE_TYPE_COMPETITION_ENTRY = 4;
 }
 
 // PaymentMethod mirrors internal/payments/domain.Method.
@@ -78,6 +82,14 @@ message Payment {
 // needs — internal/payments has no live join to Booking's or Social
 // Play's database yet (T6.5 wires the Social Play projection), see
 // internal/payments/app/service.go's doc comment for the full reasoning.
+//
+// entrant_player_id / assigned_competition_admin_user_ids (T10.6, closes
+// #96) are the equivalent caller-supplied facts for
+// PAYABLE_TYPE_COMPETITION_ENTRY — the authorized actor for a competition
+// entry is the entrant themself OR an assigned Competition Admin, unlike
+// game_host_id above which never names the paying Player (see
+// app.RecordOfflinePaymentInput's doc comment for why that asymmetry is
+// deliberate).
 message RecordOfflinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
@@ -88,6 +100,9 @@ message RecordOfflinePaymentRequest {
 
   string game_host_id = 6;
   repeated string assigned_game_admin_user_ids = 7;
+
+  string entrant_player_id = 8;
+  repeated string assigned_competition_admin_user_ids = 9;
 }
 
 message RecordOfflinePaymentResponse {
@@ -100,10 +115,26 @@ message RecordOfflinePaymentResponse {
 // the PCI guardrail on the Money message above; the client tokenizes the
 // card directly with Stripe before this call, and confirms via
 // ConfirmOnlinePayment below.
+//
+// actor_user_id / entrant_player_id / assigned_competition_admin_user_ids
+// (T10.6, closes #96) are new, PAYABLE_TYPE_COMPETITION_ENTRY-scoped
+// fields — a caller-claimed identity, the same known-gap caveat every
+// other actor_user_id field in this codebase carries (not yet a verified
+// identity; see RecordOfflinePaymentRequest's doc comment). They are
+// validated only when payable_type is PAYABLE_TYPE_COMPETITION_ENTRY; every
+// other payable type this request accepts is unaffected and continues to
+// require no actor at all, exactly as before T10.6 (see
+// app.CreateOnlinePaymentInput's doc comment for why extending this to
+// those pre-existing types is out of this ticket's scope).
 message CreateOnlinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
   Money amount = 3;
+
+  string actor_user_id = 4;
+
+  string entrant_player_id = 5;
+  repeated string assigned_competition_admin_user_ids = 6;
 }
 
 message CreateOnlinePaymentResponse {

@@ -74,6 +74,16 @@ function onSelect(id: string): void {
   void router?.push({ name: 'competition-detail', params: { id } })
 }
 
+// T10.6 (closes #96): navigates to the checkout route, carrying the
+// CompetitionEntry id as a query param — CompetitionCheckout.vue reads it
+// via `route.query.entryId` (the route's own `:id` path param is the
+// Competition id, per router/index.ts). Mirrors DiscoverGames.vue's
+// `onPayOnline` exactly.
+function onPayOnline(entryId: string): void {
+  if (!selectedId.value) return
+  void router?.push({ name: 'competition-checkout', params: { id: selectedId.value }, query: { entryId } })
+}
+
 onMounted(() => {
   void search()
 })
@@ -105,6 +115,7 @@ onMounted(() => {
         source="ENTRY_SOURCE_APP"
         :client="client"
         @retry="search"
+        @pay-online="onPayOnline"
       />
     </section>
   </div>

@@ -121,4 +121,48 @@ describe('useGamePayment', () => {
     expect(step.value).toBe('review')
     expect(confirmError.value).toBeTruthy()
   })
+
+  // T10.6 (closes #96): the same composable, constructed with
+  // 'PAYABLE_TYPE_COMPETITION_ENTRY', drives a CompetitionEntry checkout —
+  // proving the reuse (not a fork) this ticket's own instructions require.
+  describe('PAYABLE_TYPE_COMPETITION_ENTRY (T10.6)', () => {
+    it('sends payableType competition_entry and the actor fields when constructed for a competition entry', async () => {
+      const client = fakeClient({
+        createOnline: () => paymentOk('pay-1', 'PAYMENT_STATUS_UNPAID'),
+        confirmOnline: () => paymentOk('pay-1', 'PAYMENT_STATUS_PAID'),
+      })
+      const { step, startCheckout } = useGamePayment(client, 'PAYABLE_TYPE_COMPETITION_ENTRY')
+
+      await startCheckout('entry-1', 2500, 'AUD', {
+        actorUserId: 'player-mock-1',
+        entrantPlayerId: 'player-mock-1',
+      })
+
+      expect(step.value).toBe('review')
+      expect(client.POST).toHaveBeenCalledWith('/v1/payments:createOnline', {
+        body: {
+          payableType: 'PAYABLE_TYPE_COMPETITION_ENTRY',
+          payableId: 'entry-1',
+          amount: { amountCents: '2500', currencyCode: 'AUD' },
+          actorUserId: 'player-mock-1',
+          entrantPlayerId: 'player-mock-1',
+        },
+      })
+    })
+
+    it('omits the actor fields when none is supplied (the PAYABLE_TYPE_REGISTRATION-shaped call, unaffected)', async () => {
+      const client = fakeClient({ createOnline: () => paymentOk('pay-1', 'PAYMENT_STATUS_UNPAID') })
+      const { startCheckout } = useGamePayment(client)
+
+      await startCheckout('reg-1', 1000, 'USD')
+
+      expect(client.POST).toHaveBeenCalledWith('/v1/payments:createOnline', {
+        body: {
+          payableType: 'PAYABLE_TYPE_REGISTRATION',
+          payableId: 'reg-1',
+          amount: { amountCents: '1000', currencyCode: 'USD' },
+        },
+      })
+    })
+  })
 })
