@@ -23,7 +23,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T6 | `docs/process/t6-sprint-plan.md` | not yet written | PRs #23, #27, #28 merged (T6.1–T6.5, in that dependency order — #24/#26 closed without their own merge, since their commits already landed as ancestors of #27's own hand-resolved 3-way merge); #25 merged (T6.6) — all reviewed via GitHub review comments, see naming convention. T6.7 not yet implemented, no PR | `adr/0005` (currency column, referenced by T6.1), `adr/0006`'s Status section (rewritten by #25 to say what actually shipped) | `docs/design/v1-system-design.md` + `docs/design/v1-review-round-{1..10-final}.md` (10-round Designer+PM+PE+PO review of the requirements list gathered mid-T6; two open items need the user's product/legal sign-off — see the design doc's top blockquote) |
 | T7 | `docs/process/t7-sprint-plan.md` | not yet written | PRs #40 (T7.2) → #41 (T7.1) → #42 (T7.3) → #43 (T7.7) → #45 (T7.5) → #44 (T7.4, loop 2) → #46 (T7.6), in that merge order — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/design/v1-external-reference-reconciliation.md` (reconciles the external design handoff against the v1 review, resolves T7's five open UX questions) + `docs/design/handoff-2026-08/` (the external handoff itself) |
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
-| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | not yet written | PRs #81 (T9.8) → #84 (T9.1) → #83 (T9.10) → #82 (T9.9) → #85 (T9.2) → #86 (T9.3) → #87 (T9.4) → #88 (T9.5) → #89 (critical fix, unticketed) → #90 (T9.7) → #91 (T9.6), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
+| T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | `docs/process/t9-retro.md` (8 findings, 3 recorded as unresolved disagreements; indexed from `docs/LESSONS.md`'s `## T9 sprint retro`) | PRs #81 (T9.8) → #84 (T9.1) → #83 (T9.10) → #82 (T9.9) → #85 (T9.2) → #86 (T9.3) → #87 (T9.4) → #88 (T9.5) → #89 (critical fix, unticketed) → #90 (T9.7) → #91 (T9.6), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -192,9 +192,17 @@ caller-supplied ID (`CancelCompetition`, `EnterCompetition`, `AddCourt`,
 `RecordOfflinePayment`, `CreateOnlinePayment`, `ConfirmOnlinePayment`) —
 lower severity since they're intended to require real auth once it lands,
 but not yet validated. Follow-up recommended, not yet ticketed: extend the
-same boundary guard to those write paths, and a `docs/LESSONS.md` entry
-("grpc has no default panic recovery; net/http intuition does not
-transfer") — flagged in the PR, not yet written.
+same boundary guard to those write paths (still open, still not ticketed).
+The `docs/LESSONS.md` entry PR #89 flagged as owed **has since been
+written** — see `## T9 (2026-08-05) — grpc installs no panic recovery;
+net/http intuition does not transfer`, since corrected there to record that
+PR #89's own Layer 2 pass had also missed `booking.GetQuote` (a second
+public unauthenticated read reaching the same panic, closed by PR #94)
+and had shipped a vacuous regression test for `ListCourtBookings` (also
+fixed by #94). SCRUM-6 (PR #95) has since landed a real CI/CD pipeline
+definition (repo-side only — no Jenkins job/webhook/branch-protection
+configured yet, see the Cross-cutting CI entry below), which is the
+structural direction the T9 retro's CI-gate candidate finding points at.
 
 Two merge conflicts were resolved by hand this sprint (T9.8↔T9.9 on
 `HANDOFF.md`'s Docs-index T9 row, resolved into one row citing both ADRs;
@@ -367,7 +375,12 @@ zero changes to `internal/booking/`. Two real decisions replace what would
 otherwise have been further deferrals (ADR-0009, ADR-0010 — see the note
 above); social-account-linking's OAuth half and the WhatsApp/Zalo
 messaging bot stay deferred per ADR-0009, in-app RSVP via the shareable
-link being the shipped mechanism in the meantime. Retro not yet written.
+link being the shipped mechanism in the meantime. Retro:
+`docs/process/t9-retro.md` — 8 findings, 3 left as recorded unresolved
+disagreements; its adopted changes bind T10's Ceremony 1 and 2 (dispatch
+isolation as a planning checklist item, a cross-context dependency check
+when a ticket calls into another context, gRPC-code-only error specs in
+ticket text, and three untracked T9 follow-ups to open as real issues).
 Competitions/social-account-linking's remaining half (real inbound
 messaging), plus the former T9 roadmap items now renumbered T10 (pricing/
 discount UI, Club rentals, WCAG hardening) — both gated on real auth per

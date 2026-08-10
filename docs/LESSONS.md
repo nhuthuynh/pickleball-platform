@@ -280,3 +280,168 @@ growing section here. See that file for the T5 retro in full.
   a governance rule, the exemption needs to be written into the rule
   itself, deliberately, before it's relied on — not inferred from what
   happened to be convenient in each prior instance.
+
+## T9 (2026-08-05) — grpc installs no panic recovery; `net/http` intuition does not transfer
+
+Incident postmortem for PR #89, the critical out-of-band fix in T9. Owed
+since that PR, which flagged the entry as warranted and deliberately did
+not write it in order to keep a severity-critical fix small and reviewable.
+The T9 sprint retro (`docs/process/t9-retro.md`) references this entry
+rather than restating it.
+
+- **Mistake:** `cmd/server/main.go` called `grpc.NewServer()` with no
+  options at all — **zero interceptors, and therefore no panic recovery
+  anywhere in the process**. Separately, all five contexts' Postgres
+  adapters carry a `mustUUID(s string) pgtype.UUID` that panics on a
+  non-UUID, documented as "fail loudly on a caller bug." That reasoning is
+  sound *only* if a malformed ID cannot reach it. It could:
+  `Service.GetCompetition` passed `req.GetCompetitionId()` — an HTTP path
+  parameter, straight off the wire — through to `Repository.GetByID`, on a
+  read that is deliberately public and unauthenticated. The two faults
+  lined up into an unauthenticated, total-outage denial of service:
+
+  ```
+  curl http://host/v1/competitions/not-a-uuid
+  ```
+
+  did not return a 500. **The server process died** — every bounded
+  context, every tenant, every in-flight request went with it. No
+  credentials, no rate limit to exhaust, no state to set up; a single
+  `curl` in a loop is a permanent platform-wide outage. Reproduced before
+  fixing on a real server against a real Postgres: the process exited on
+  the panic, and `/v1/facilities` — a *different* bounded context —
+  returned connection-refused immediately afterward. That cross-context
+  death is the point: this was never a Competitions bug, it was a platform
+  bug that Competitions happened to expose. A second, independent instance
+  of the identical crash was found in `booking.ListCourtBookings`
+  (`GET /v1/courts/not-a-uuid/bookings`) while investigating the first.
+
+- **What was missed, and why.** Three separate reasons this survived nine
+  phases, all worth naming because each is reusable:
+
+  1. **The framework assumption.** `net/http` recovers panics
+     per-connection and keeps serving, so a panicking handler is a 500 and
+     nothing more. **grpc installs no `recover()` of its own** — a panic
+     in any handler unwinds past the server and terminates the process.
+     Review intuition carried over from HTTP handlers is simply wrong
+     here, and nobody checked it against grpc's actual behaviour.
+  2. **The test fixtures made the bug invisible.** Several fakes minted
+     IDs like `"id-1"`, `"court-1"`, `"g-1"` — shapes the real
+     `idgen.UUID` never produces and the real Postgres adapter cannot
+     store. No existing test could see this crash, because the fixtures
+     were the only place those values were ever valid IDs. CI would not
+     have caught it either; the fixture infidelity, not the absence of CI,
+     is what hid it.
+  3. **It was found by accident.** The bug surfaced as a side effect of an
+     unrelated PE+QA review of PR #88 (T9.5) — the reviewers were looking
+     at the share-token read path, noticed the ID-keyed read next to it
+     had no equivalent guard, and pulled the thread. It was not found by
+     planned testing, and no ticket in T9 (or T0–T8) would have found it.
+
+- **Fix (PR #89), deliberately two layers because either alone is
+  insufficient:** *Layer 1* — a global panic-recovery interceptor
+  (`internal/platform/grpcrecovery`, hand-written with stdlib `recover()`,
+  no new dependency) wired via `grpc.ChainUnaryInterceptor` /
+  `ChainStreamInterceptor`. It protects every handler in all five
+  contexts, present and future, against every panic; logs a
+  `runtime/debug.Stack()` trace; and returns a constant `codes.Internal`
+  **without echoing the panic value**, since `mustUUID`'s panic string
+  embeds the caller's raw input and the adapter's package path and these
+  endpoints are public — otherwise the fix converts a crash into an
+  information disclosure. The stream interceptor is registered too, even
+  though no streaming RPC exists, because registering only the unary one
+  would leave the first streaming method anyone adds silently unprotected,
+  re-opening this exact hole. *Layer 2* — app-layer UUID shape validation
+  on the public read paths, so the panic never happens: malformed IDs
+  return each context's own not-found answer (`NotFound` for get-shaped
+  reads, empty list for list-shaped ones), matching what an
+  *unknown-but-well-formed* ID already returns, byte-identically — a
+  distinguishable "that isn't even a valid ID" is an enumeration oracle.
+  **The validator choice was load-bearing and nearly went wrong:**
+  `github.com/google/uuid` was already a dependency and `uuid.Validate`
+  was the obvious pick, but it *accepts* `{...}`-braced and `urn:uuid:`
+  forms that `pgtype.UUID.Scan` rejects — a guard built on it would have
+  passed both through the "validated" boundary and panicked anyway. The
+  shipped guard is a strict canonical 8-4-4-4-12 check, deliberately
+  *narrower* than what the adapter accepts. **A validator wider than the
+  thing it protects is not a validator.**
+
+- **Explicitly not fixed, disclosed rather than assumed:** every
+  write/mutating handler taking a caller-supplied ID (`CancelCompetition`,
+  `EnterCompetition`, `AddCourt`, `RecordOfflinePayment`,
+  `CreateOnlinePayment`, `ConfirmOnlinePayment`) still relies on Layer 1
+  alone — a panic there is now a contained 500 with the process alive, not
+  a crash, but it is not the specific not-found answer the reads get. This
+  was verified rather than assumed (`POST /v1/competitions/not-a-uuid:cancel`
+  still panics, returns 500, process still serving). Lower severity since
+  these are intended to require real auth once it exists, but each
+  unguarded panic still logs a full goroutine stack, so an unauthenticated
+  caller can drive attacker-controlled log volume. Follow-up recommended,
+  not yet ticketed.
+
+- **Lesson.** *When wiring `cmd/server` for a new bounded context — or
+  auditing an existing one — check for panic-recovery coverage
+  explicitly. It is not implied by the framework the way it is for
+  `net/http`.* More generally: a "this can only happen on a programmer
+  error" panic is a claim about reachability, and that claim needs to be
+  re-checked every time a new caller appears — `mustUUID`'s reasoning was
+  correct when written, and became false the moment a handler passed wire
+  input to it. Two concrete checks to carry forward: (a) any helper whose
+  contract is "panics on bad input" should have every call site traced to
+  a source, and any call site fed from the wire is a bug regardless of how
+  well the process recovers; (b) a defence added at a boundary must be
+  *narrower* than the thing it defends, and that relationship should be
+  measured, not assumed from a library's name.
+
+- **Correction, added once #94 and #95 had merged (this entry is
+  append-only in spirit, so amending it now is cheaper than a later
+  correction entry the way T4's follow-up was):** the coverage table above
+  was itself incomplete in two ways this PR's own review process found.
+  First, `booking.GetQuote` — a second public, unauthenticated read,
+  reaching the same `mustUUID` panic via `PricingRuleRepository.ListForCourt`
+  — was missed by PR #89's Layer 2 pass entirely; it shipped with the
+  vulnerability this whole entry describes and was only closed by PR #94,
+  a follow-up fix mirroring `ListCourtBookings`'s guard exactly. Second,
+  PR #89's own `ListCourtBookings` regression test was vacuous in exactly
+  the shape the T9 retro's finding 3 names (`docs/process/t9-retro.md`):
+  the in-memory fake can't reproduce Postgres rejecting a non-UUID against
+  a `uuid` column, so the original assertion passed identically whether or
+  not the guard existed. Unlike T9.5's instance of the same bug, this one
+  *shipped* rather than being caught in review — the first instance of
+  this fake-fidelity family to reach the shared branch instead of being
+  stopped by it. PR #94 fixed both: it added `GetQuote`'s guard and
+  retrofitted `ListCourtBookings`'s test with a real
+  "never reaches the repository" assertion alongside the original. The
+  write-handler gap this entry's "Explicitly not fixed" bullet describes
+  is unaffected and remains open. Separately, SCRUM-6 (PR #95) has since
+  landed a real CI/CD pipeline definition — see `docs/adr/0011-*` — which
+  is the structural fix the retro's "candidate finding" on CI-gating
+  points at, though as of this correction it is repo-side only (no
+  Jenkins job/webhook/branch-protection configured yet, per HANDOFF.md),
+  so it does not yet actually run these checks automatically.
+
+## T9 sprint retro
+
+Held as `docs/process/t9-retro.md`, following the convention T5 set (see
+the `## T5 sprint retro` entry above) and CLAUDE.md's **Docs index &
+naming convention**: retro-ceremony output — six-role findings against a
+sprint plan — is a distinct artifact type from this file's
+incident-postmortem entries, and lives in `docs/process/t{N}-retro.md`.
+See that file for the T9 retro in full.
+
+Eight findings, three of them recorded as unresolved disagreements (PE vs.
+QA on the shared-checkout collision; PE vs. PM on cross-context planning
+timing and on throttling fast merges; PE/QA vs. PdE on whether one-loop
+convergence signals quality). The two process changes with the widest
+reach: **dispatch isolation becomes a Ceremony 2 checklist item** after
+five batch-1 implementers collided in one unisolated working directory and
+each rediscovered the same worktree fix independently without anyone
+writing it down; and **a regression test for an infrastructure-originated
+bug must either run against that infrastructure or assert a property
+observable without it**, after T9.5's first regression-test attempt proved
+vacuous against an in-memory fake. That second finding is this project's
+third encounter with the fake-fidelity boundary (after T4's single-run
+concurrency claim and T5.4's TOCTOU-invisible unit tests) and the first
+time it has been stated as a general rule — the T9 incident entry directly
+above is a fourth instance of the same family, since its own root cause
+was test fixtures minting IDs the real system could never produce.
