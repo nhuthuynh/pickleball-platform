@@ -12,9 +12,20 @@ This is a **sequencing** decision. It is **not** a reversal of `CLAUDE.md`'s
 locked decision that matchmaking is in v1 scope — see "Not a scope reversal"
 below, which is part of this decision, not a footnote to it.
 
-Supersedes nothing. Superseded by nothing yet; T10's Ceremony 1 must either
-build auto-matching or replace this ADR with a new one (see "Trigger
-condition").
+Supersedes nothing. **Superseded by ADR-0012 (T10 Ceremony 1, 2026-08-10)**,
+which resolves this ADR's own trigger: Q1 and Q2 below were still
+unanswered when T10's Ceremony 1 ran, which this ADR's own trigger text
+says does not license a fifth roll-forward — it licenses exit (b),
+superseding with a new ADR. **This ADR's sequencing analysis (§(a)–(c) below
+— why `Level` is structurally an Identity concept, why parking it in the
+wrong context has already cost this project once, why T9 had no call site
+to justify building it early) is not overturned and remains the
+authoritative record of that reasoning; read ADR-0012 for what changed.**
+ADR-0012's summary: Identity/Users and `Match` are built in T10 (the parts
+of "auto-matching" that do not require Q1/Q2's answers); `PlayerRating`,
+the rating/matching algorithm, and gender-mix matching remain blocked,
+named precisely rather than silently dropped, with a trigger tied to the
+user answering Q1/Q2 rather than to another sprint boundary.
 
 ## Context
 
