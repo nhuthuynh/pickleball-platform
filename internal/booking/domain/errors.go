@@ -16,4 +16,23 @@ var (
 	ErrNoPricingRule                = errors.New("booking: no pricing rule matches the requested slot")
 	ErrAmbiguousPricingRule         = errors.New("booking: more than one pricing rule matches the requested slot")
 	ErrPricingSlotSpansMultipleDays = errors.New("booking: pricing slot must fall within a single calendar day")
+
+	// ErrInvalidCourtReference is CreateBooking's malformed-CourtID guard
+	// sentinel (T10.7, closing issue #97). It deliberately maps to Internal
+	// (the default, unclassified case in adapter/grpcapi's toStatus — see
+	// that switch's comment), matching this codebase's own existing,
+	// pre-T10.7 behavior for a well-formed-but-*unknown* CourtID: Postgres
+	// adapter's Create INSERTs against bookings.court_id REFERENCES
+	// courts(id), so an unknown court hits a 23503 FK violation that
+	// translateErr does not specifically classify, and it falls through to
+	// the same default Internal today. This is a real, disclosed gap (a
+	// clean NotFound would be better — see the PR description's scope
+	// note), but not this ticket's to fix: T10.7 only needs a malformed
+	// *shape* (e.g. "not-a-uuid") to answer no worse than an unknown
+	// well-formed one already does, without panicking to get there. A
+	// malformed shape previously reached Repository.ListActiveForCourt's
+	// mustUUID and panicked before Create was ever called; this sentinel is
+	// what CreateBooking now returns instead, from the app-layer guard,
+	// before either repository call happens.
+	ErrInvalidCourtReference = errors.New("booking: court id does not reference a usable court")
 )

@@ -37,6 +37,13 @@ type inMemoryRepo struct {
 	// TestListCourtBookings_MalformedCourtIDNeverReachesRepository in
 	// malformed_id_test.go.
 	listActiveForCourtCalls atomic.Int64
+
+	// getByIDCalls counts real invocations of GetByID, so a test can prove
+	// a malformed-shape bookingID never reaches the repository at all
+	// (T10.7, closing issue #97, CancelBooking's own guard) — same
+	// reasoning as listActiveForCourtCalls above, applied to the other
+	// caller-supplied id this package's write paths take.
+	getByIDCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -63,6 +70,7 @@ func (r *inMemoryRepo) ListActiveForCourt(_ context.Context, courtID string, rng
 }
 
 func (r *inMemoryRepo) GetByID(_ context.Context, id string) (domain.Booking, error) {
+	r.getByIDCalls.Add(1)
 	b, ok := r.bookings[id]
 	if !ok {
 		return domain.Booking{}, domain.ErrBookingNotFound
@@ -82,9 +90,21 @@ func (r *inMemoryRepo) Update(_ context.Context, b domain.Booking) (domain.Booki
 // don't depend on real UUID generation.
 type sequentialIDs struct{ n int }
 
+// NewID mints UUID-shaped ids (T10.7, closing issue #97). It used to return
+// "booking-1", "booking-2", ... — a shape the real port.IDGenerator
+// (internal/platform/idgen.UUID) never produces and the Postgres adapter's
+// mustUUID panics on, which is why no existing test could see
+// CancelBooking's malformed-id crash before this ticket added its guard:
+// every Booking these tests ever cancelled had a non-UUID id already, the
+// same "fixture infidelity" LESSONS.md's T9 entry documents for
+// internal/socialplay and internal/facilities' equivalent generators.
 func (g *sequentialIDs) NewID() string {
 	g.n++
-	return fmt.Sprintf("booking-%d", g.n)
+	// The "a000" group (vs. courtID's "9000" in malformed_id_test.go) keeps
+	// a Booking's own id visibly distinct from a Court id in test output,
+	// even though the two are stored in unrelated keyspaces and a value
+	// collision between them would not actually be a bug.
+	return fmt.Sprintf("00000000-0000-4000-a000-%012d", g.n)
 }
 
 func mustTimeRange(t *testing.T, start, end string) domain.TimeRange {
@@ -119,7 +139,7 @@ func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
 
 	competitionRange := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T11:00:00Z")
 	_, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceCompetition, Range: competitionRange, ReferenceID: "competition-1",
+		CourtID: courtID(1), Source: domain.SourceCompetition, Range: competitionRange, ReferenceID: "competition-1",
 	})
 	if err != nil {
 		t.Fatalf("competition booking should succeed, got %v", err)
@@ -127,7 +147,7 @@ func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
 
 	gameRange := mustTimeRange(t, "2026-08-03T10:00:00Z", "2026-08-03T12:00:00Z")
 	_, err = svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceGame, Range: gameRange, ReferenceID: "game-1",
+		CourtID: courtID(1), Source: domain.SourceGame, Range: gameRange, ReferenceID: "game-1",
 	})
 	if !errors.Is(err, domain.ErrCourtDoubleBooked) {
 		t.Fatalf("overlapping game booking should be rejected, got %v", err)
@@ -144,13 +164,13 @@ func TestCreateBooking_AllowsDifferentCourts(t *testing.T) {
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceIndividual, Range: rng,
+		CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng,
 	}); err != nil {
 		t.Fatalf("first booking should succeed, got %v", err)
 	}
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-2", Source: domain.SourceIndividual, Range: rng,
+		CourtID: courtID(2), Source: domain.SourceIndividual, Range: rng,
 	}); err != nil {
 		t.Fatalf("booking on a different court at the same time should succeed, got %v", err)
 	}
@@ -167,13 +187,13 @@ func TestCreateBooking_AllowsBackToBack(t *testing.T) {
 	second := mustTimeRange(t, "2026-08-03T10:00:00Z", "2026-08-03T11:00:00Z")
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceIndividual, Range: first,
+		CourtID: courtID(1), Source: domain.SourceIndividual, Range: first,
 	}); err != nil {
 		t.Fatalf("first booking should succeed, got %v", err)
 	}
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceGame, Range: second, ReferenceID: "game-1",
+		CourtID: courtID(1), Source: domain.SourceGame, Range: second, ReferenceID: "game-1",
 	}); err != nil {
 		t.Fatalf("back-to-back booking should succeed, got %v", err)
 	}
@@ -188,7 +208,7 @@ func TestCreateBooking_InvalidSourceRejectedBeforeTouchingRepo(t *testing.T) {
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	_, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.Source("bogus"), Range: rng,
+		CourtID: courtID(1), Source: domain.Source("bogus"), Range: rng,
 	})
 	if !errors.Is(err, domain.ErrInvalidSource) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrInvalidSource)

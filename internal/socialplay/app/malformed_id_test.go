@@ -8,6 +8,7 @@ package app_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -81,4 +82,164 @@ func TestListRegistrationsForGame_WellFormedIDStillReads(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("got %d registrations for a real Game, want 1 — the guard is rejecting valid IDs", len(got))
 	}
+}
+
+// --- T10.7 (closing issue #97): RegisterForGame, CancelRegistration, and
+// JoinWaitlist's own malformed-id guards -------------------------------
+//
+// All three were found by this ticket's required inspection sweep (grepping
+// cmd/server/main.go's route registrations for any other public write
+// handler taking a caller-supplied id — issue #97's own instruction not to
+// assume its named handler list was exhaustive): each calls
+// GameRepository.GetByID or RegistrationRepository.GetByID first, the
+// identical shape ListRegistrationsForGame's already-guarded read has, and
+// each already returns the bare domain.ErrGameNotFound/
+// ErrRegistrationNotFound for an unknown-but-well-formed id — but, unlike
+// that read, none had a uuidShape guard at all.
+
+func TestRegisterForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *testing.T) {
+	t.Parallel()
+
+	malformed := []string{
+		"", "not-a-uuid", "g-1", "0",
+		"'; DROP TABLE games;--", "../../etc/passwd",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c\x00",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c",
+		"zzzzzzzz-9dad-11d1-80b4-00c04fd430c8",
+		"{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+		"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+	}
+
+	for _, id := range malformed {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+
+			games := newFakeGameRepository()
+			svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+
+			_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{
+				GameID: id, PlayerID: "player-1",
+			})
+			if !errors.Is(err, domain.ErrGameNotFound) {
+				t.Fatalf("RegisterForGame(GameID=%q) error = %v, want %v", id, err, domain.ErrGameNotFound)
+			}
+			if calls := games.getByIDCalls.Load(); calls != 0 {
+				t.Errorf("malformed GameID %q reached the repository (%d calls); it must be rejected at the boundary", id, calls)
+			}
+		})
+	}
+}
+
+func TestJoinWaitlist_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *testing.T) {
+	t.Parallel()
+
+	malformed := []string{
+		"", "not-a-uuid", "g-1", "0",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c\x00",
+		"{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+		"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+	}
+
+	for _, id := range malformed {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+
+			games := newFakeGameRepository()
+			svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+
+			_, err := svc.JoinWaitlist(context.Background(), app.JoinWaitlistInput{
+				GameID: id, PlayerID: "player-1",
+			})
+			if !errors.Is(err, domain.ErrGameNotFound) {
+				t.Fatalf("JoinWaitlist(GameID=%q) error = %v, want %v", id, err, domain.ErrGameNotFound)
+			}
+			if calls := games.getByIDCalls.Load(); calls != 0 {
+				t.Errorf("malformed GameID %q reached the repository (%d calls); it must be rejected at the boundary", id, calls)
+			}
+		})
+	}
+}
+
+func TestCancelRegistration_MalformedRegistrationIDIsNotFoundAndNeverReachesRepository(t *testing.T) {
+	t.Parallel()
+
+	malformed := []string{
+		"", "not-a-uuid", "r-1", "0",
+		"'; DROP TABLE registrations;--", "../../etc/passwd",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c\x00",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c",
+		"zzzzzzzz-9dad-11d1-80b4-00c04fd430c8",
+		"{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
+		"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+	}
+
+	for _, id := range malformed {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+
+			registrations := newFakeRegistrationRepository()
+			svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository())
+
+			_, err := svc.CancelRegistration(context.Background(), id, "player-1")
+			if !errors.Is(err, domain.ErrRegistrationNotFound) {
+				t.Fatalf("CancelRegistration(%q) error = %v, want %v", id, err, domain.ErrRegistrationNotFound)
+			}
+			if calls := registrations.getByIDCalls.Load(); calls != 0 {
+				t.Errorf("malformed RegistrationID %q reached the repository (%d calls); it must be rejected at the boundary", id, calls)
+			}
+		})
+	}
+}
+
+// TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownIDsStillReachTheRepository
+// is the too-strict guard rail for all three new guards at once: a
+// well-formed but unknown id must still reach the repository and get the
+// repository's own not-found sentinel, or every real Game/Registration
+// would silently fail.
+func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownIDsStillReachTheRepository(t *testing.T) {
+	t.Parallel()
+
+	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+	t.Run("RegisterForGame", func(t *testing.T) {
+		t.Parallel()
+		games := newFakeGameRepository()
+		svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+
+		_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{GameID: unknown, PlayerID: "player-1"})
+		if !errors.Is(err, domain.ErrGameNotFound) {
+			t.Fatalf("RegisterForGame(%q) error = %v, want %v", unknown, err, domain.ErrGameNotFound)
+		}
+		if calls := games.getByIDCalls.Load(); calls != 1 {
+			t.Fatalf("well-formed unknown GameID did not reach the repository (%d calls)", calls)
+		}
+	})
+
+	t.Run("JoinWaitlist", func(t *testing.T) {
+		t.Parallel()
+		games := newFakeGameRepository()
+		svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository())
+
+		_, err := svc.JoinWaitlist(context.Background(), app.JoinWaitlistInput{GameID: unknown, PlayerID: "player-1"})
+		if !errors.Is(err, domain.ErrGameNotFound) {
+			t.Fatalf("JoinWaitlist(%q) error = %v, want %v", unknown, err, domain.ErrGameNotFound)
+		}
+		if calls := games.getByIDCalls.Load(); calls != 1 {
+			t.Fatalf("well-formed unknown GameID did not reach the repository (%d calls)", calls)
+		}
+	})
+
+	t.Run("CancelRegistration", func(t *testing.T) {
+		t.Parallel()
+		registrations := newFakeRegistrationRepository()
+		svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository())
+
+		_, err := svc.CancelRegistration(context.Background(), unknown, "player-1")
+		if !errors.Is(err, domain.ErrRegistrationNotFound) {
+			t.Fatalf("CancelRegistration(%q) error = %v, want %v", unknown, err, domain.ErrRegistrationNotFound)
+		}
+		if calls := registrations.getByIDCalls.Load(); calls != 1 {
+			t.Fatalf("well-formed unknown RegistrationID did not reach the repository (%d calls)", calls)
+		}
+	})
 }

@@ -95,6 +95,16 @@ func (s *Service) ListFacilities(ctx context.Context, nameFilter string) ([]doma
 // actorUserID is a caller-supplied claim, not a verified identity — see
 // domain.ErrNotFacilityOwner's doc comment.
 func (s *Service) AddCourt(ctx context.Context, facilityID, actorUserID, name string) (domain.Court, error) {
+	// A malformed FacilityID is answered exactly like an unknown one (T10.7,
+	// closing issue #97): this method already calls GetFacilityByID first,
+	// before EnsureOwner, and already returns the bare
+	// domain.ErrFacilityNotFound for a miss — matching GetFacility's own
+	// guard on the same field, applied here because AddCourt is a write path
+	// PR #89's original Layer 2 pass didn't cover.
+	if !uuidShape.MatchString(facilityID) {
+		return domain.Court{}, domain.ErrFacilityNotFound
+	}
+
 	f, err := s.repo.GetFacilityByID(ctx, facilityID)
 	if err != nil {
 		return domain.Court{}, err
@@ -123,6 +133,14 @@ func (s *Service) AddCourt(ctx context.Context, facilityID, actorUserID, name st
 // ErrNotFacilityOwner to non-500 statuses — see HANDOFF.md T7.3's
 // smoke-test AC and T7.7's authz regression test.
 func (s *Service) AddCameraLink(ctx context.Context, facilityID, actorUserID, url string) (domain.Facility, error) {
+	// Same T10.7 guard AddCourt applies above (closing issue #97), found by
+	// this ticket's required inspection sweep — this method also calls
+	// GetFacilityByID(facilityID) first and already returns the bare
+	// domain.ErrFacilityNotFound for an unknown-but-well-formed id.
+	if !uuidShape.MatchString(facilityID) {
+		return domain.Facility{}, domain.ErrFacilityNotFound
+	}
+
 	f, err := s.repo.GetFacilityByID(ctx, facilityID)
 	if err != nil {
 		return domain.Facility{}, err
@@ -152,6 +170,11 @@ func (s *Service) AddCameraLink(ctx context.Context, facilityID, actorUserID, ur
 // ErrCameraConsentRequired. Idempotent, per domain.Facility.
 // AttestCameraConsent's doc comment.
 func (s *Service) AttestCameraConsent(ctx context.Context, facilityID, actorUserID string) (domain.Facility, error) {
+	// Same T10.7 guard as AddCourt/AddCameraLink above (closing issue #97).
+	if !uuidShape.MatchString(facilityID) {
+		return domain.Facility{}, domain.ErrFacilityNotFound
+	}
+
 	f, err := s.repo.GetFacilityByID(ctx, facilityID)
 	if err != nil {
 		return domain.Facility{}, err

@@ -291,6 +291,17 @@ type EnterCompetitionInput struct {
 // entrant may not enter is one that is cancelled or full, and both of those
 // are domain rules domain.Enter already enforces.
 func (s *Service) EnterCompetition(ctx context.Context, in EnterCompetitionInput) (domain.CompetitionEntry, error) {
+	// A malformed CompetitionID is answered exactly like an unknown one
+	// (T10.7, closing issue #97): this method already calls GetByID first
+	// and returns the bare domain.ErrCompetitionNotFound for a miss, so a
+	// malformed id must produce the same sentinel rather than reaching the
+	// adapter's mustUUID, which panics on non-UUID input — the same guard
+	// GetCompetition already applies to the same field, applied here because
+	// this is a write path PR #89's original Layer 2 pass didn't cover.
+	if !uuidShape.MatchString(in.CompetitionID) {
+		return domain.CompetitionEntry{}, domain.ErrCompetitionNotFound
+	}
+
 	competition, err := s.competitions.GetByID(ctx, in.CompetitionID)
 	if err != nil {
 		return domain.CompetitionEntry{}, err
@@ -471,6 +482,15 @@ func (s *Service) MarkCompetitionEntryPaymentStatus(ctx context.Context, entryID
 // reserved and existing entries keep their status", not "a cancelled
 // Competition still takes entries".
 func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUserID string) (domain.Competition, error) {
+	// Same T10.7 guard as EnterCompetition above, for the same reason: this
+	// method calls GetByID(competitionID) first, before EnsureHost even
+	// runs, and already returns the bare domain.ErrCompetitionNotFound for
+	// an unknown-but-well-formed id — a malformed one must match that
+	// exactly rather than reaching mustUUID and panicking.
+	if !uuidShape.MatchString(competitionID) {
+		return domain.Competition{}, domain.ErrCompetitionNotFound
+	}
+
 	competition, err := s.competitions.GetByID(ctx, competitionID)
 	if err != nil {
 		return domain.Competition{}, err
