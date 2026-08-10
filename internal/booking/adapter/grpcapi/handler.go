@@ -97,6 +97,14 @@ func (h *Handler) CancelBooking(ctx context.Context, req *bookingv1.CancelBookin
 // those codes onto HTTP statuses: AlreadyExists -> 409, InvalidArgument ->
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking
 // returns 409" smoke test true end-to-end.
+//
+// domain.ErrInvalidCourtReference (CreateBooking's malformed-CourtID guard,
+// T10.7) is deliberately left unmatched here, not given an explicit case:
+// it falls through to the same default Internal branch below, matching —
+// on purpose, see that sentinel's own doc comment — this codebase's
+// existing, pre-T10.7, still-not-fully-fixed behavior for a well-formed-
+// but-*unknown* CourtID (an untranslated Postgres FK violation, also
+// unmatched, also Internal today).
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrCourtDoubleBooked):

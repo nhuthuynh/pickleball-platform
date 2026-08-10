@@ -139,7 +139,7 @@ func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
 
 	competitionRange := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T11:00:00Z")
 	_, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceCompetition, Range: competitionRange, ReferenceID: "competition-1",
+		CourtID: courtID(1), Source: domain.SourceCompetition, Range: competitionRange, ReferenceID: "competition-1",
 	})
 	if err != nil {
 		t.Fatalf("competition booking should succeed, got %v", err)
@@ -147,7 +147,7 @@ func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
 
 	gameRange := mustTimeRange(t, "2026-08-03T10:00:00Z", "2026-08-03T12:00:00Z")
 	_, err = svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceGame, Range: gameRange, ReferenceID: "game-1",
+		CourtID: courtID(1), Source: domain.SourceGame, Range: gameRange, ReferenceID: "game-1",
 	})
 	if !errors.Is(err, domain.ErrCourtDoubleBooked) {
 		t.Fatalf("overlapping game booking should be rejected, got %v", err)
@@ -164,13 +164,13 @@ func TestCreateBooking_AllowsDifferentCourts(t *testing.T) {
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceIndividual, Range: rng,
+		CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng,
 	}); err != nil {
 		t.Fatalf("first booking should succeed, got %v", err)
 	}
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-2", Source: domain.SourceIndividual, Range: rng,
+		CourtID: courtID(2), Source: domain.SourceIndividual, Range: rng,
 	}); err != nil {
 		t.Fatalf("booking on a different court at the same time should succeed, got %v", err)
 	}
@@ -187,13 +187,13 @@ func TestCreateBooking_AllowsBackToBack(t *testing.T) {
 	second := mustTimeRange(t, "2026-08-03T10:00:00Z", "2026-08-03T11:00:00Z")
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceIndividual, Range: first,
+		CourtID: courtID(1), Source: domain.SourceIndividual, Range: first,
 	}); err != nil {
 		t.Fatalf("first booking should succeed, got %v", err)
 	}
 
 	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.SourceGame, Range: second, ReferenceID: "game-1",
+		CourtID: courtID(1), Source: domain.SourceGame, Range: second, ReferenceID: "game-1",
 	}); err != nil {
 		t.Fatalf("back-to-back booking should succeed, got %v", err)
 	}
@@ -208,7 +208,7 @@ func TestCreateBooking_InvalidSourceRejectedBeforeTouchingRepo(t *testing.T) {
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	_, err := svc.CreateBooking(ctx, app.CreateBookingInput{
-		CourtID: "court-1", Source: domain.Source("bogus"), Range: rng,
+		CourtID: courtID(1), Source: domain.Source("bogus"), Range: rng,
 	})
 	if !errors.Is(err, domain.ErrInvalidSource) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrInvalidSource)

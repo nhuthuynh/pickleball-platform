@@ -55,6 +55,21 @@ func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (dom
 		return domain.Booking{}, err
 	}
 
+	// A malformed (non-empty, wrong-shape) CourtID is rejected here, before
+	// either repository call, with domain.ErrInvalidCourtReference (T10.7
+	// follow-up, closing issue #97): ListActiveForCourt below is the same
+	// mustUUID-backed adapter method ListCourtBookings' own already-guarded
+	// read calls, and a malformed CourtID reached it unguarded — panicking
+	// there, one step before Create's own FK-violation path, which is what
+	// this sentinel's gRPC code (Internal, via adapter/grpcapi's default
+	// toStatus case — see the sentinel's own doc comment) is chosen to
+	// match. An empty CourtID is unaffected: domain.NewBooking's own
+	// ErrEmptyCourtID check above already runs first and still fires for
+	// that case, exactly as before this guard was added.
+	if !uuidShape.MatchString(in.CourtID) {
+		return domain.Booking{}, domain.ErrInvalidCourtReference
+	}
+
 	existing, err := s.repo.ListActiveForCourt(ctx, in.CourtID, in.Range)
 	if err != nil {
 		return domain.Booking{}, err
