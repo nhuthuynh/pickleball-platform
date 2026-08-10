@@ -215,22 +215,6 @@ func SpotsLeft(competition Competition, existing []CompetitionEntry) int {
 	return 0
 }
 
-// countActiveEntries scans existing for non-cancelled entries scoped to
-// competitionID, returning both the total *weighted* number of places those
-// entries occupy (each counts as 1 + its own GuestCount) and whether
-// playerID already holds one of them.
-//
-// The competitionID filter mirrors booking.EnsureNoConflict's own-scope
-// filtering, so a caller may safely pass an unfiltered slice — a T9.3
-// adapter that hands over every entry it loaded cannot accidentally count
-// another Competition's entrants against this one's capacity.
-//
-// Kept as one helper (rather than counting inline in Enter) so that any
-// later question of the form "is this Competition full?" — a spots-left
-// projection, a waitlist, an admin view — is answered by the same rule
-// Enter enforces, instead of a second copy that can drift from it. That is
-// exactly the reuse socialplay's countActiveRegistrations was extracted for
-// in T6.6.
 // MarkPaymentStatus sets PaymentStatus to a new value reported by the
 // Payments context (T10.6), via port.CompetitionEntryPaymentUpdater ->
 // internal/payments/adapter/competitions ->
@@ -250,6 +234,22 @@ func (e *CompetitionEntry) MarkPaymentStatus(status PaymentStatus) error {
 	return nil
 }
 
+// countActiveEntries scans existing for non-cancelled entries scoped to
+// competitionID, returning both the total *weighted* number of places those
+// entries occupy (each counts as 1 + its own GuestCount) and whether
+// playerID already holds one of them.
+//
+// The competitionID filter mirrors booking.EnsureNoConflict's own-scope
+// filtering, so a caller may safely pass an unfiltered slice — a T9.3
+// adapter that hands over every entry it loaded cannot accidentally count
+// another Competition's entrants against this one's capacity.
+//
+// Kept as one helper (rather than counting inline in Enter) so that any
+// later question of the form "is this Competition full?" — a spots-left
+// projection, a waitlist, an admin view — is answered by the same rule
+// Enter enforces, instead of a second copy that can drift from it. That is
+// exactly the reuse socialplay's countActiveRegistrations was extracted for
+// in T6.6.
 func countActiveEntries(competitionID string, existing []CompetitionEntry, playerID string) (activeWeight int, playerAlreadyActive bool) {
 	for _, e := range existing {
 		if e.CompetitionID != competitionID {
