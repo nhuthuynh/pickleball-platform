@@ -372,6 +372,11 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
 
 <template>
   <div class="game-creation" :data-breakpoint="breakpoint">
+    <!-- T11.7 fix (WCAG 2.4.6/2.4.10, axe page-has-heading-one): this
+         multi-step wizard had per-step <h2>s (below) but no page-level
+         <h1> at all. -->
+    <h1 class="gc-heading">Create a game</h1>
+
     <!-- WCAG 4.1.3 Status Messages: announced to assistive tech whenever
          statusMessage changes, independent of any visual toast. -->
     <p class="gc-status" role="status">{{ statusMessage }}</p>
@@ -643,6 +648,12 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
   font-family: var(--font-family-ui);
   color: var(--ink);
   max-width: 720px;
+}
+
+.gc-heading {
+  font-size: var(--font-size-lg);
+  margin: 0;
+  color: var(--court);
 }
 
 /* Status live region: small, always in the layout (so it can receive focus

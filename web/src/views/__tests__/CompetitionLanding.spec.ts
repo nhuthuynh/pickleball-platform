@@ -95,6 +95,24 @@ describe('CompetitionLanding — the happy path', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('Loading this competition')
   })
 
+  // T11.7 fix: this view used to root itself in a <main>, which — mounted
+  // standalone here — looks harmless, but this screen ALWAYS renders inside
+  // App.vue's own <main class="app-shell__main">, making it a second, nested
+  // <main> landmark on the real page (invalid: WCAG 1.3.1/landmark
+  // structure — axe-core's landmark-main-is-top-level/
+  // landmark-no-duplicate-main/landmark-unique rules all fired on this,
+  // caught by src/__tests__/accessibility.spec.ts's full-App route sweep,
+  // which this component-level test alone could never catch since it has no
+  // outer <main> to nest inside). Asserted here too, at the component level,
+  // so a regression is caught right at its source even before the full-page
+  // sweep would also catch it.
+  it('roots itself in a <section>, not a <main> — this view always nests inside the app shell\'s own <main>', async () => {
+    const wrapper = mountLanding(fakeClient())
+    await flushPromises()
+    expect(wrapper.element.tagName).toBe('SECTION')
+    expect(wrapper.find('main').exists()).toBe(false)
+  })
+
   // WCAG 2.4.7 / 2.1.1: this is the one screen a brand-new visitor may hit
   // first, with no prior navigation state to inherit focus from.
   it('moves focus to its own heading on arrival so keyboard users start somewhere real', async () => {

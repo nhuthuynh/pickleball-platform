@@ -1,10 +1,24 @@
 <!DOCTYPE html>
-<html lang="">
+<!-- lang="en" (T11.7 fix, WCAG 3.1.1 Language of Page, Level A): this was an
+     EMPTY lang attribute — present, but with no value — which still fails
+     3.1.1 exactly like a missing one does (a screen reader has no real
+     signal to pick pronunciation/voice rules from an empty string). "en" per
+     the spec's own "single launch market" assumption
+     (docs/requirements/research-accessibility-i18n.md §3) — revisit if/when
+     a second market's locale is added. Caught by axe-core's html-has-lang
+     rule once web/src/__tests__/accessibility.spec.ts's route sweep was
+     scoped to the real `document` (not just the mounted Vue subtree) — see
+     that file's own comment for why the scope mattered here. -->
+<html lang="en">
   <head>
     <meta charset="UTF-8">
     <link rel="icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Vite App</title>
+    <!-- Static fallback only — real navigation sets a per-route title via
+         router/index.ts's afterEach guard (T11.7 fix, WCAG 2.4.2 Page
+         Titled). This value is what a user sees only in the instant before
+         Vue Router's first navigation resolves. -->
+    <title>Court&amp;Play</title>
   </head>
   <body>
     <div id="app"></div>

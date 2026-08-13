@@ -99,6 +99,11 @@ onMounted(() => {
 
 <template>
   <div class="discover-competitions-page">
+    <!-- T11.7 fix (WCAG 2.4.6/2.4.10, axe page-has-heading-one): this screen
+         had no page-level heading at all — same static text for both
+         `/competitions` and `/competitions/:id`, since a selected
+         competition doesn't change what the SCREEN itself is. -->
+    <h1 class="discover-competitions__heading">Competitions</h1>
     <section class="discover-competitions" :data-breakpoint="breakpoint">
       <CompetitionsListPanel
         class="discover-competitions__list"
@@ -136,6 +141,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.discover-competitions__heading {
+  font-size: var(--font-size-lg);
+  margin: 0;
+  color: var(--court);
 }
 
 /* iPhone (default): a single stacked column. */

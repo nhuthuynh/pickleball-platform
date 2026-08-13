@@ -103,7 +103,26 @@ function onPayOnline(entryId: string): void {
 </script>
 
 <template>
-  <main class="competition-landing">
+  <section class="competition-landing" aria-label="Competition invitation">
+    <!-- `<section>`, not `<main>` (T11.7 fix — WCAG 1.3.1/landmark
+         structure): this view always mounts inside App.vue's own <main
+         class="app-shell__main">, so a second <main> here was a NESTED,
+         duplicate landmark — invalid regardless of how this screen is
+         reached, and specifically flagged by axe-core's
+         landmark-main-is-top-level/landmark-no-duplicate-main/
+         landmark-unique rules (src/__tests__/accessibility.spec.ts's route
+         sweep). The "no prior nav context" reasoning in this file's header
+         comment #3 still holds and still matters for focus handling — it
+         just doesn't require a second page-level landmark, since the app
+         shell already provides the one <main> a page needs; `aria-label`
+         above gives this section its own accessible name instead, the same
+         `aria-label="<screen>"` convention every other top-level screen
+         root already uses (see e.g. GameCheckout.vue/
+         CompetitionCheckout.vue). (Kept as the section's first CHILD, not a
+         sibling before it — a comment placed before the root element turns
+         a single-root Vue 3 template into a multi-root fragment, which
+         silently breaks anything that assumes one root DOM node, e.g.
+         `wrapper.element` in this file's own component tests.) -->
     <h1 ref="heading" class="competition-landing__heading" tabindex="-1">{{ headingText }}</h1>
 
     <!-- LOADING: a designed state, matching the text-status loading idiom
@@ -166,7 +185,7 @@ function onPayOnline(entryId: string): void {
         </RouterLink>
       </p>
     </template>
-  </main>
+  </section>
 </template>
 
 <style scoped>

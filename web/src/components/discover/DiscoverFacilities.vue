@@ -95,6 +95,11 @@ onMounted(() => {
 
 <template>
   <div class="discover-page">
+    <!-- T11.7 fix (WCAG 2.4.6/2.4.10, axe page-has-heading-one): this screen
+         had no page-level heading at all, only FacilityDetailPanel.vue's
+         own <h2> for a SELECTED facility's name — nothing described the
+         screen itself. -->
+    <h1 class="discover__heading">Discover facilities</h1>
     <section class="discover" :data-breakpoint="breakpoint">
       <FacilityListPanel
         class="discover__list"
@@ -139,6 +144,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
+}
+
+.discover__heading {
+  font-size: var(--font-size-lg);
+  margin: 0;
+  color: var(--court);
 }
 
 .discover {

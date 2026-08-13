@@ -186,5 +186,81 @@ describe('AppNav', () => {
 
       expect(wrapper.find('.app-nav__badge').text()).toContain('1')
     })
+
+    // T11.7 (WCAG 4.1.3 Status Messages): this badge changes with no direct
+    // user action on it — marking a payment paid elsewhere in the app
+    // updates the count while AppNav stays mounted, unchanged, in the
+    // persistent chrome (App.vue). Before this fix there was no role and no
+    // aria-live anywhere on it. The live region must exist REGARDLESS of
+    // whether the badge is currently showing a count — an aria-live element
+    // that only gets inserted into the DOM once the count becomes nonzero
+    // is exactly the unreliable shape DisplayName.vue/VenueName.vue's own
+    // T10.8 fix avoided (a persistent element AT is already watching, not
+    // one that pops into existence with the change already applied).
+    it('carries a persistent aria-live region for the Payments count, even with nothing pending', async () => {
+      __resetPendingCashPaymentsCountForTests()
+      const wrapper = await mountAtWidth(1440, emptyGamesClient())
+      await flushPromises()
+
+      const liveRegion = wrapper.find('.app-nav__badge-live')
+      expect(liveRegion.exists()).toBe(true)
+      expect(liveRegion.attributes('aria-live')).toBe('polite')
+      // No visible badge yet, but the live region itself is already there.
+      expect(liveRegion.find('.app-nav__badge').exists()).toBe(false)
+    })
+
+    it('keeps the count inside the same persistent aria-live region once pending payments exist', async () => {
+      __resetPendingCashPaymentsCountForTests()
+      const client: SocialPlayClient = {
+        GET: vi.fn(async (path: string) => {
+          if (path === '/v1/games') {
+            return {
+              data: {
+                games: [
+                  {
+                    game: {
+                      id: 'g1',
+                      hostId: 'host-mock-1',
+                      venueFacilityId: 'facility-1',
+                      courtIds: ['court-1'],
+                      startsAt: '2026-09-01T10:00:00Z',
+                      endsAt: '2026-09-01T11:00:00Z',
+                      capacity: 8,
+                      status: 'GAME_STATUS_SCHEDULED',
+                      paymentMethod: 'PAYMENT_METHOD_CASH',
+                      guestAllowance: 2,
+                      entryFee: { amountCents: '1000', currencyCode: 'USD' },
+                    },
+                    spotsLeft: 5,
+                  },
+                ],
+              },
+              error: undefined,
+              response: { status: 200 },
+            }
+          }
+          return {
+            data: {
+              registrations: [
+                { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 },
+              ],
+            },
+            error: undefined,
+            response: { status: 200 },
+          }
+        }),
+        POST: vi.fn(),
+      } as unknown as SocialPlayClient
+
+      const wrapper = await mountAtWidth(1440, client)
+      await flushPromises()
+      await wrapper.vm.$nextTick()
+
+      const liveRegion = wrapper.find('.app-nav__badge-live')
+      expect(liveRegion.exists()).toBe(true)
+      expect(liveRegion.attributes('aria-live')).toBe('polite')
+      expect(liveRegion.find('.app-nav__badge').exists()).toBe(true)
+      expect(liveRegion.text()).toContain('1')
+    })
   })
 })

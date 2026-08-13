@@ -289,6 +289,11 @@ defineExpose({ submitCameraLink, currentStep })
 
 <template>
   <div class="facility-onboarding" :data-breakpoint="breakpoint">
+    <!-- T11.7 fix (WCAG 2.4.6/2.4.10, axe page-has-heading-one): this
+         four-step wizard had per-step <h2>s (below) but no page-level <h1>
+         at all — an <h2> with no ancestor <h1> anywhere on the page. -->
+    <h1 class="fo-heading">Add a facility</h1>
+
     <!-- WCAG 4.1.3 Status Messages: announced to assistive tech whenever
          statusMessage changes, independent of any visual toast. -->
     <p class="fo-status" role="status">{{ statusMessage }}</p>
@@ -474,6 +479,12 @@ defineExpose({ submitCameraLink, currentStep })
   font-family: var(--font-family-ui);
   color: var(--ink);
   max-width: 720px;
+}
+
+.fo-heading {
+  font-size: var(--font-size-lg);
+  margin: 0;
+  color: var(--court);
 }
 
 /* Status live region: small, always in the layout (so it can receive focus
