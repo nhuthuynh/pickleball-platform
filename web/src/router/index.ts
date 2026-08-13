@@ -19,7 +19,7 @@
 //     /profile gained a real screen in T10.5 once Identity/Users existed
 //     to back it (see that route entry below); /bookings remains a
 //     placeholder — no Bookings-history ticket has landed yet.
-import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHistory, type Router, type RouteRecordRaw } from 'vue-router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
@@ -36,8 +36,17 @@ import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/facilities' },
-  { path: '/facilities', name: 'facilities', component: DiscoverFacilities },
-  { path: '/facilities/onboard', name: 'facilities-onboard', component: FacilityOnboarding },
+  // meta.title on these two (T11.7 fix): every other route already carried
+  // one; these were the only two gaps, silently relying on index.html's
+  // static <title> never actually updating on navigation — see this file's
+  // new afterEach guard below (WCAG 2.4.2 Page Titled).
+  { path: '/facilities', name: 'facilities', component: DiscoverFacilities, meta: { title: 'Facilities' } },
+  {
+    path: '/facilities/onboard',
+    name: 'facilities-onboard',
+    component: FacilityOnboarding,
+    meta: { title: 'Add a facility' },
+  },
   // T8.9 (Discover & Join Games) — real screen, replacing T8.1's placeholder.
   { path: '/games', name: 'games', component: DiscoverGames, meta: { title: 'Games' } },
   // T8.8 (Social Game Creation, Host/Owner) — real screen, replacing T8.1's placeholder.
@@ -135,6 +144,32 @@ export const routes: RouteRecordRaw[] = [
   { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Profile' } },
 ]
 
+/** Shown as the fallback/suffix half of every page title — matches the
+ * brand text App.vue's own header already renders literally
+ * (`.app-shell__brand`), not invented separately here. */
+const APP_NAME = 'Court&Play'
+
+/**
+ * Sets `document.title` on every navigation from the matched route's
+ * `meta.title` (T11.7 fix — WCAG 2.4.2 Page Titled, Level A: an SPA that
+ * never updates the browser tab title away from index.html's static
+ * fallback fails this criterion on every route after the first, even though
+ * `meta.title` has existed on almost every route since T8.1 — it was never
+ * actually wired to anything). Exported separately from `createAppRouter`
+ * so a caller building its own router with `createMemoryHistory` (this is
+ * exactly what src/__tests__/accessibility.spec.ts's route sweep and
+ * src/__tests__/App.spec.ts's routing tests both do, rather than going
+ * through the factory below) can install the SAME guard the real app runs —
+ * a second, parallel title-setting mechanism just for tests would be able to
+ * drift from what production actually does.
+ */
+export function installTitleGuard(router: Router): void {
+  router.afterEach((to) => {
+    const screenTitle = to.meta.title as string | undefined
+    document.title = screenTitle ? `${screenTitle} — ${APP_NAME}` : APP_NAME
+  })
+}
+
 /**
  * Factory (rather than a single module-level instance) so tests can build
  * their own router with an isolated history (`createMemoryHistory`) against
@@ -142,8 +177,10 @@ export const routes: RouteRecordRaw[] = [
  * src/__tests__/App.spec.ts.
  */
 export function createAppRouter() {
-  return createRouter({
+  const router = createRouter({
     history: createWebHistory(),
     routes,
   })
+  installTitleGuard(router)
+  return router
 }

@@ -37,14 +37,21 @@ import GameJoinPanel from '../components/discover-games/GameJoinPanel.vue'
 import type { BookingClient } from '../api/bookingClient'
 import type { GameSummary } from '../models/game'
 import type { SocialPlayClient } from '../api/socialplayClient'
-import { expectNoA11yViolations } from '../test-support/axe'
+import { expectNoA11yViolations, COMPONENT_MOUNT_OPTIONS } from '../test-support/axe'
 
 async function runAxeOn(wrapper: VueWrapper): Promise<void> {
   // Same `attachTo` requirement as accessibility.spec.ts's App-level sweep —
   // axe-core needs a node connected to `document` to run.
   document.body.appendChild(wrapper.element)
   try {
-    await expectNoA11yViolations(wrapper.element)
+    // COMPONENT_MOUNT_OPTIONS: these mount CourtBookingFlow/GameJoinPanel
+    // standalone, with no surrounding App shell — so there is legitimately
+    // no page-level <main>/landmark structure for the region/
+    // landmark-one-main rules to find, unlike accessibility.spec.ts's
+    // full-App mounts (which run with those rules ON — see test-support/
+    // axe.ts's header comment for why the distinction is enforced here,
+    // not just claimed in a comment).
+    await expectNoA11yViolations(wrapper.element, COMPONENT_MOUNT_OPTIONS)
   } finally {
     wrapper.element.remove()
   }

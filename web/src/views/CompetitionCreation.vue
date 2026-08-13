@@ -568,6 +568,11 @@ defineExpose({ publishCompetition, currentStep, removeSession, addSession, decre
 
 <template>
   <div class="competition-creation" :data-breakpoint="breakpoint">
+    <!-- T11.7 fix (WCAG 2.4.6/2.4.10, axe page-has-heading-one): this
+         multi-step wizard had per-step <h2>s (below) but no page-level
+         <h1> at all. -->
+    <h1 class="cc-heading">Create a competition</h1>
+
     <!-- WCAG 4.1.3: announced whenever publishStatus changes. -->
     <p class="cc-status" role="status" data-testid="publish-status">{{ publishStatus }}</p>
 
@@ -983,6 +988,12 @@ defineExpose({ publishCompetition, currentStep, removeSession, addSession, decre
   padding: 1.5rem 1rem;
   /* iPhone <600px: a single stacked column. */
   max-width: 720px;
+}
+
+.cc-heading {
+  font-size: var(--font-size-lg);
+  margin: 0;
+  color: var(--court);
 }
 
 /* Live regions: always in the layout so they can be announced; empty text

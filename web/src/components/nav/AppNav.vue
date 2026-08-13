@@ -205,12 +205,23 @@ onMounted(() => {
   background: var(--paper-raised);
 }
 
-/* The aria-live wrapper itself (T11.7): a plain inline pass-through with no
-   box of its own — it exists purely to give the live region a stable home,
-   never to introduce visible layout. `.app-nav__badge` inside it still does
-   all the actual visual styling. */
+/* The aria-live wrapper itself (T11.7). Deliberately NOT `display: contents`
+   — that's a well-documented accessibility footgun: several browser/AT
+   engine combinations strip an element carrying ARIA attributes (including
+   aria-live) out of the accessibility tree entirely when it has `display:
+   contents`, which would make the aria-live fix this wrapper exists for a
+   no-op for real screen-reader users (jsdom doesn't model that pruning, so
+   nothing in this repo's test suite could have caught it — a PR review
+   caught it instead; see AppNav.spec.ts's tests for the regression this is
+   guarding). `inline-flex` keeps the wrapper a normal, always-in-the-tree
+   box while staying visually inert: `.app-nav__item` (this wrapper's
+   parent) is itself `display: flex`, so this wrapper is a plain flex item
+   sized to its content either way, exactly as `.app-nav__badge` alone was
+   before this wrapper existed — `.app-nav__badge` still does all the actual
+   visual styling (margin, colour, shape). */
 .app-nav__badge-live {
-  display: contents;
+  display: inline-flex;
+  align-items: center;
 }
 
 .app-nav__badge {
