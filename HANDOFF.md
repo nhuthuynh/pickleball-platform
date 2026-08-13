@@ -25,7 +25,9 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T8 | `docs/process/t8-sprint-plan.md` (re-scopes T7's roadmapped T8/T9 — see its own re-scope notice at the top) | not yet written | PRs #59 (T8.1) → #60 (T8.5) → #62 (T8.6) → #61 (T8.2) → #63 (T8.4) → #64 (T8.3) → #65 (T8.7) → #66 (T8.8) → #67 (T8.9) → #68 (T8.10), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | none new this phase | `docs/process/t8-sprint-plan.md`'s own re-scope notice (supersedes T7 plan's T8/T9 lines) |
 | T9 | `docs/process/t9-sprint-plan.md` (supersedes T8 plan's T9/T10 lines — see its §A5 roadmap update) | `docs/process/t9-retro.md` (8 findings, 3 recorded as unresolved disagreements; indexed from `docs/LESSONS.md`'s `## T9 sprint retro`) | PRs #81 (T9.8) → #84 (T9.1) → #83 (T9.10) → #82 (T9.9) → #85 (T9.2) → #86 (T9.3) → #87 (T9.4) → #88 (T9.5) → #89 (critical fix, unticketed) → #90 (T9.7) → #91 (T9.6), in that merge order (verified against each PR's `merged_at` timestamp) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0009` (owned-channel messaging + social-account OAuth custody deferred until real auth, T9.8), `adr/0010` (auto-matching is built with the Identity/Users context and not before — a **sequencing** decision, not a scope reversal, with a binding T10 Ceremony 1 trigger and two product/legal questions escalated to the user; T9.9) | — |
 
-| T10 | `docs/process/t10-sprint-plan.md` (Ceremony 1 resolves ADR-0010's binding trigger; Ceremony 2 tickets Identity/Users + `Match` plus three T9 follow-up issues #96–#98) | not yet written | not yet opened | `adr/0012` (supersedes `adr/0010`: Identity/Users + `Match` built this sprint; `PlayerRating`, the matching algorithm, and gender-mix matching remain named-blocked on Q1/Q2, escalated to the user, trigger tied to the user's answer rather than another sprint boundary) | — |
+| T10 | `docs/process/t10-sprint-plan.md` (Ceremony 1 resolves ADR-0010's binding trigger; Ceremony 2 tickets Identity/Users + `Match` plus three T9 follow-up issues #96–#98) | `docs/process/t10-retro.md` (6 findings, 2 recorded as unresolved disagreements; indexed from `docs/LESSONS.md`'s `## T10 sprint retro`) | PRs #99 (Ceremony 1/2 doc + ADR-0012) → #102 (T10.6) → #101 (T10.7, later found to contain an un-staged fixture fix — see retro finding 1) → #106 (T10.2) → #107 (fix for finding-1's regression) → #105 (T10.4) → #103 (T10.3) → #108 (T10.8) → #109 (T10.5) → #104 (finding-1's actual landed fix) → #110 (retro doc), verified against `merged_at` per this project's standing convention — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0012` (supersedes `adr/0010`: Identity/Users + `Match` built this sprint; `PlayerRating`, the matching algorithm, and gender-mix matching remain named-blocked on Q1/Q2, escalated to the user, trigger tied to the user's answer rather than another sprint boundary) | — |
+
+| T11 | `docs/process/t11-sprint-plan.md` (Ceremony 1 re-verifies T10's A2 "not gated on real auth" analysis and tickets pricing/discount UI, Club rentals, and a WCAG 2.2 AA audit; Ceremony 2 tickets 9 items, 47 points, threading all five of T10 retro's adopted process changes into ticket text) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -387,6 +389,52 @@ Competitions/social-account-linking's remaining half (real inbound
 messaging), plus the former T9 roadmap items now renumbered T10 (pricing/
 discount UI, Club rentals, WCAG hardening) — both gated on real auth per
 ADR-0009/ADR-0010's triggers — are next.
+
+**T10 — Identity/Users + Social Play `Match`, plus three T9 follow-ups.
+All 8 tickets (T10.1–T10.8, 37 points) implemented, reviewed, and
+MERGED.** Full ticket breakdown, the ADR-0010-exit-(b) reasoning, and all
+5 A7 dispatch-isolation predictions: `docs/process/t10-sprint-plan.md`.
+Sprint goal met: `internal/identity/{domain,app,port,adapter}` +
+`proto/pickleball/identity/v1` is a real, fifth-and-a-half bounded context
+(a `User` aggregate with `Roles` — including the new `club` role — and a
+`SelfReportedStartingLevel`), Social Play gained a real `Match` value
+recording a Game's result under Host/Game-Admin authorization, and all
+three T9 follow-up issues (#96 Competitions `PayableType`, #97 the
+write-handler malformed-ID guard extension, #98 the host/venue
+display-name join) are implemented. `ADR-0012` supersedes `ADR-0010`:
+`PlayerRating`, the matching algorithm, and gender-mix matching remain
+named-blocked on two escalated product/legal questions (Q1: Level
+weighting, Q2: whether gender-mix matching is in scope at all), not
+deferred a fifth time in prose — trigger is the user answering, not
+another sprint boundary. Merge order and the full incident record:
+`docs/process/t10-retro.md` (6 findings). **The two most consequential**:
+(1) a merge-conflict fixture fix (PR #101) was verified against the
+working tree but never `git add`'d, so the pushed commit silently kept
+broken content for 2 days 21 hours before PR #104 caught and fixed it —
+verified against a live commit re-run in the retro itself, not taken on
+the PRs' own word; a second independent instance of the identical mistake
+shape (a green claim checked against the wrong commit) was found the same
+retro. (2) `T10.2`'s `CreateUser` shipped two real gaps
+(unauthenticated `User.ID` squatting — a caller can permanently occupy a
+UUID a real identity will later need — and unrestricted role
+self-assignment) that the implementer's own thorough Postgres/CHECK-
+constraint testing didn't surface, because `CreateUser` is this
+codebase's first *creation* RPC where a caller-supplied value becomes a
+permanent primary key rather than gating a mutation on an object that
+already exists — a new adversarial checklist item is adopted from this
+(see `docs/process/t11-sprint-plan.md` A4 for it threaded into T11's own
+creation-RPC tickets). Also found, project-wide and not specific to T10:
+no GitHub issue has ever actually auto-closed in this project's history,
+because every PR merges into `claude/go-backend-pickleball-7up34j`, never
+the repo's actual default branch — `docs/process/t11-sprint-plan.md`
+tickets the retroactive fix (issue #111, T11.8).
+
+**T11 — Pricing/discount UI (Flow 2), Club rentals (Flow 7), a WCAG 2.2
+AA audit, and T10 retro's adopted process fixes threaded into planning.**
+Ceremony 1/2 complete, full ticket breakdown, cross-context checks,
+dispatch-isolation waves, and all five T10-retro-adopted changes threaded
+into ticket text (not just cited): `docs/process/t11-sprint-plan.md`.
+Not yet implemented as of this entry.
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
@@ -904,24 +952,22 @@ ADR-0009/ADR-0010's triggers — are next.
   server against real Postgres, both the original crash (6 vectors,
   including a second independent instance in `booking.ListCourtBookings`
   the review found while investigating) and the fix surviving all of them
-  with a normal request succeeding immediately after each attack. **Not
-  yet closed**: every write handler taking a caller-supplied ID
+  with a normal request succeeding immediately after each attack.
+  **Closed by T10.7 (issue #97, PR #101):** the same boundary guard was
+  extended to every write handler taking a caller-supplied ID
   (`CancelCompetition`, `EnterCompetition`, `AddCourt`,
-  `RecordOfflinePayment`, `CreateOnlinePayment`, `ConfirmOnlinePayment`)
-  relies on the interceptor alone (a panic there is now a clean 500, not a
-  crash, but still not the specific not-found/empty-list answer the read
-  paths got) — lower severity since these are intended to require real
-  auth once it lands, but explicitly disclosed rather than silently
-  assumed fixed. The PR #89 review (not just the PR itself) adds a
-  concrete reason not to leave this indefinitely: each unguarded panic
-  still logs a full goroutine stack trace, so an unauthenticated caller
-  can drive attacker-controlled log volume even though the process no
-  longer crashes — not an outage, but real enough to move this from
-  "someday" toward "worth scheduling." Recommend a small follow-up ticket
-  extending the same boundary guard to the write paths, and a
-  `docs/LESSONS.md` entry ("grpc installs no default panic recovery;
-  `net/http`'s per-connection recovery intuition does not transfer") —
-  both flagged in PR #89, neither written yet.
+  `RecordOfflinePayment`, `CreateOnlinePayment`, `ConfirmOnlinePayment`,
+  plus any others found by re-checking `main.go` routing at the time),
+  each answering a malformed ID the same way that handler's existing
+  not-found/precondition semantics already answer an unknown-but-
+  well-formed one — verified non-vacuously (guard disabled, regression
+  tests confirmed failing, restored, confirmed green). This entry
+  previously read "not yet closed" — corrected here since it had gone
+  stale (T10.7 closed it, but this bullet was never updated to say so
+  until `docs/process/t11-sprint-plan.md`'s Ceremony 1 checked it). The
+  `docs/LESSONS.md` entry PR #89 flagged as owed for this class of bug
+  (grpc installs no default panic recovery) was written separately — see
+  the T9 entry above.
 - **New this sprint**: T9.6 and T9.7 (issues #75, #76) independently
   reached the same finding while building the Competitions UI —
   `payments.PayableType` has exactly three values (`BOOKING`,
