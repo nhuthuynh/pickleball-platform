@@ -4,6 +4,7 @@ import { nextTick } from 'vue'
 import Profile from '../Profile.vue'
 import { MOCK_PLAYER_ID } from '../../composables/useProfile'
 import type { IdentityClient } from '../../api/identityClient'
+import { findGenderControls } from '../../test-support/genderControlAssertions'
 
 function rawUser(level: number, displayName = 'Alex Rivera') {
   return { id: MOCK_PLAYER_ID, displayName, roles: ['ROLE_PLAYER'], selfReportedStartingLevel: level }
@@ -150,13 +151,13 @@ describe('Profile — no matching control of any kind', () => {
     const wrapper = mountProfile(makeClient())
     await flushPromises()
 
-    const genderControls = wrapper
-      .findAll('input, select')
-      .filter((el) => /gender/i.test(el.attributes('name') ?? '') || /gender/i.test(el.attributes('id') ?? ''))
-    expect(genderControls).toHaveLength(0)
     // "gender-mix" legitimately appears in the disclosure prose (naming
     // ADR-0012's Q2) — that is not a control, so it is not banned here;
-    // what's asserted is that no *element* is gender-related.
+    // what's asserted (via the shared helper, checking native id/name,
+    // aria-label, label association, and ARIA radiogroup/radio — see that
+    // file's header for why an id/name-only check missed real shapes) is
+    // that no *element* is gender-related.
+    expect(findGenderControls(wrapper)).toHaveLength(0)
   })
 
   it('has no auto-match toggle, "find a match" button, or seeding/bracket control', async () => {

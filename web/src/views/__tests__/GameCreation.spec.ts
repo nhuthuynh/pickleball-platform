@@ -4,6 +4,7 @@ import GameCreation from '../GameCreation.vue'
 import type { FacilitiesClient } from '../../api/facilitiesClient'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import { hasHostEvidence, __resetHostEvidenceForTests } from '../../state/roleEvidence'
+import { findGenderControls } from '../../test-support/genderControlAssertions'
 
 // jsdom doesn't implement matchMedia — same stub FacilityOnboarding.spec.ts
 // uses, since GameCreation calls useBreakpoint() with the real ambient
@@ -192,11 +193,11 @@ describe('GameCreation — omitted matching step (T8.8 kickoff note decision #2)
     // as a specific blocked decision, not a live feature), so a blanket
     // ban on the word would fail on the honest disclosure text this ticket
     // requires. What must still be absent is any actual gender FIELD or
-    // CONTROL — asserted directly, not by banning the word everywhere.
-    const genderControls = wrapper
-      .findAll('input, select')
-      .filter((el) => /gender/i.test(el.attributes('name') ?? '') || /gender/i.test(el.attributes('id') ?? ''))
-    expect(genderControls).toHaveLength(0)
+    // CONTROL — asserted via the shared helper (checks native id/name,
+    // aria-label, label association, and ARIA radiogroup/radio — see that
+    // file's header for why an id/name-only check missed real shapes),
+    // not by banning the word everywhere.
+    expect(findGenderControls(wrapper)).toHaveLength(0)
   })
 })
 

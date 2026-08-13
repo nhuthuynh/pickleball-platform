@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import CompetitionManage from '../CompetitionManage.vue'
 import type { CompetitionsClient } from '../../api/competitionsClient'
+import { findGenderControls } from '../../test-support/genderControlAssertions'
 
 function matchMediaForWidth(width: number): Pick<Window, 'matchMedia'> {
   return {
@@ -288,11 +289,10 @@ describe('CompetitionManage — honest omissions', () => {
     // note itself (naming Q2 as a specific blocked decision, not a live
     // feature) — see GameCreation.spec.ts's identical note on this same
     // change. What must still be absent is any actual gender FIELD or
-    // CONTROL, asserted directly rather than by banning the word.
-    const genderControls = wrapper
-      .findAll('input, select')
-      .filter((el) => /gender/i.test(el.attributes('name') ?? '') || /gender/i.test(el.attributes('id') ?? ''))
-    expect(genderControls).toHaveLength(0)
+    // CONTROL — asserted via the shared helper (checks native id/name,
+    // aria-label, label association, and ARIA radiogroup/radio), not by
+    // banning the word everywhere.
+    expect(findGenderControls(wrapper)).toHaveLength(0)
 
     expect(wrapper.get('[data-testid="matching-note"]').text()).toContain(
       "Automated matching isn't available yet",

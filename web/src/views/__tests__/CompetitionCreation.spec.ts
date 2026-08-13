@@ -4,6 +4,7 @@ import CompetitionCreation from '../CompetitionCreation.vue'
 import type { FacilitiesClient } from '../../api/facilitiesClient'
 import type { CompetitionsClient } from '../../api/competitionsClient'
 import { hasHostEvidence, __resetHostEvidenceForTests } from '../../state/roleEvidence'
+import { findGenderControls } from '../../test-support/genderControlAssertions'
 
 // jsdom doesn't implement matchMedia — same stub GameCreation.spec.ts uses.
 beforeAll(() => {
@@ -665,11 +666,10 @@ describe('CompetitionCreation — honest omissions (ADR-0009 at the UI layer)', 
     // note itself (naming Q2 as a specific blocked decision, not a live
     // feature) — see GameCreation.spec.ts's identical note on this same
     // change. What must still be absent is any actual gender FIELD or
-    // CONTROL, asserted directly rather than by banning the word.
-    const genderControls = wrapper
-      .findAll('input, select')
-      .filter((el) => /gender/i.test(el.attributes('name') ?? '') || /gender/i.test(el.attributes('id') ?? ''))
-    expect(genderControls).toHaveLength(0)
+    // CONTROL — asserted via the shared helper (checks native id/name,
+    // aria-label, label association, and ARIA radiogroup/radio), not by
+    // banning the word everywhere.
+    expect(findGenderControls(wrapper)).toHaveLength(0)
   })
 
   // T10.5: the note now names precisely what's built and what's still
