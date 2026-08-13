@@ -140,3 +140,59 @@ func TestNewGame_EmptyVenueFacilityIDAccepted(t *testing.T) {
 		t.Fatalf("VenueFacilityID = %q, want empty", g.VenueFacilityID)
 	}
 }
+
+// --- T10.4: EnsureHostOrGameAdmin / EnsureNotCancelled ---------------------
+
+// TestGame_EnsureHostOrGameAdmin is the required table-driven boundary
+// coverage for RecordMatchResult's object-level (BOLA) authorization check:
+// the Host is always allowed, an assigned Game Admin is allowed, and every
+// other actor -- including an empty one, even against a Game with an empty
+// HostID -- is rejected with the single, flat ErrNotGameHostOrAdmin
+// sentinel (mirrors competitions.Competition.EnsureHost's table shape).
+func TestGame_EnsureHostOrGameAdmin(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		hostID         string
+		actorUserID    string
+		assignedAdmins []string
+		wantErr        error
+	}{
+		{"host is allowed", "host-1", "host-1", nil, nil},
+		{"assigned game admin is allowed", "host-1", "admin-2", []string{"admin-1", "admin-2"}, nil},
+		{"mismatched actor is rejected", "host-1", "random-player", []string{"admin-1"}, domain.ErrNotGameHostOrAdmin},
+		{"empty actor is rejected", "host-1", "", []string{"admin-1"}, domain.ErrNotGameHostOrAdmin},
+		{"empty actor against an empty host is still rejected", "", "", nil, domain.ErrNotGameHostOrAdmin},
+		{"a blank entry in the admin list never matches", "host-1", "", []string{""}, domain.ErrNotGameHostOrAdmin},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := domain.Game{HostID: tt.hostID}
+			err := g.EnsureHostOrGameAdmin(tt.actorUserID, tt.assignedAdmins)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("got err %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestGame_EnsureNotCancelled proves the precondition RecordMatchResult
+// needs: a scheduled Game passes, a cancelled Game is rejected with
+// ErrGameCancelled.
+func TestGame_EnsureNotCancelled(t *testing.T) {
+	t.Parallel()
+
+	scheduled := domain.Game{Status: domain.StatusScheduled}
+	if err := scheduled.EnsureNotCancelled(); err != nil {
+		t.Fatalf("scheduled game: got err %v, want nil", err)
+	}
+
+	cancelled := domain.Game{Status: domain.StatusCancelled}
+	if err := cancelled.EnsureNotCancelled(); !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("cancelled game: got err %v, want %v", err, domain.ErrGameCancelled)
+	}
+}

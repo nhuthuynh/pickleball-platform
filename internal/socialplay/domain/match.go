@@ -44,10 +44,14 @@ type Match struct {
 	// minimal since nothing downstream consumes it this sprint") — a
 	// richer shape (set-by-set breakdown, a winner/loser pair, etc.) is
 	// left for whichever future ticket actually needs it, not guessed at
-	// now. Not required to cover every entry in Players, and RecordMatch
-	// does not validate its contents beyond accepting whatever is given —
-	// nothing downstream reads Score yet, so there is nothing here for a
-	// stricter check to protect.
+	// now. Not required to cover every entry in Players — RecordMatch does
+	// not check that every Players entry has a Score key, or that a Score
+	// key names a real Players entry — only that the map itself is
+	// non-empty (ErrEmptyScore, T10.4's own error-handling requirement:
+	// "empty score -> InvalidArgument"). Nothing downstream reads Score's
+	// per-player contents yet, so there is nothing here for a stricter,
+	// per-key check to protect; a wholesale-empty Score is different — it
+	// isn't a result at all.
 	Score map[string]int
 	// RecordedAt is when this result was recorded — the input timestamp
 	// any future rating/matching algorithm would need, though nothing
@@ -57,11 +61,14 @@ type Match struct {
 
 // RecordMatch constructs a new Match, validating the invariants that don't
 // require any infrastructure: gameID must be non-empty (ErrEmptyGameID),
-// players must be non-empty (ErrEmptyPlayers), and players must hold at
-// least two entries (ErrTooFewPlayers) — checked in that order, so a caller
-// with multiple invalid fields gets the most fundamental error first
-// (mirrors NewGame's own precedence discipline, e.g. capacity checked ahead
-// of the time range).
+// players must be non-empty (ErrEmptyPlayers), players must hold at least
+// two entries (ErrTooFewPlayers), and score must be non-empty (ErrEmptyScore,
+// T10.4) — checked in that order, so a caller with multiple invalid fields
+// gets the most fundamental error first (mirrors NewGame's own precedence
+// discipline, e.g. capacity checked ahead of the time range). ErrEmptyScore
+// is checked last since T10.3 already established GameID/Players as the
+// more fundamental identity/participant facts; a Match with no players at
+// all is a more basic problem than one with no score.
 //
 // Whether gameID refers to a real, non-cancelled Game, and whether the
 // caller is that Game's Host or an assigned Game Admin, are both
@@ -80,6 +87,9 @@ func RecordMatch(gameID string, players []string, score map[string]int, recorded
 	}
 	if len(players) < 2 {
 		return Match{}, ErrTooFewPlayers
+	}
+	if len(score) == 0 {
+		return Match{}, ErrEmptyScore
 	}
 
 	return Match{

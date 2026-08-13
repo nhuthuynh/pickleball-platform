@@ -31,6 +31,8 @@ package grpcapi_test
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"testing"
 	"time"
@@ -180,9 +182,19 @@ func (f *fakeWaitlistRepo) ExpirePromotion(_ context.Context, id string, now tim
 // predictable sequence instead of random UUIDs).
 type fakeIDs struct{ n int }
 
+// NewID mints UUID-shaped ids. It used to return "id-1", "id-2", ... — a
+// shape uuidShape (internal/socialplay/app/service.go) rejects, so once
+// T10.7 added its GameID/RegistrationID boundary guards, every test in this
+// package that registers/joins-waitlist/cancels/records-a-match against a
+// Game or Registration id minted by this generator started failing that
+// guard (the identical class of pre-existing regression seedGameUUID's doc
+// comment above describes and fixes for Game ids — see this PR's
+// description). Mirrors internal/socialplay/app's sequentialIDs fix
+// (service_test.go), which T10.7 already applied to that package's own
+// fake generator but not to this one.
 func (f *fakeIDs) NewID() string {
 	f.n++
-	return fmt.Sprintf("id-%d", f.n)
+	return fmt.Sprintf("00000000-0000-4000-d000-%012d", f.n)
 }
 
 // --- test setup ------------------------------------------------------------
@@ -195,10 +207,43 @@ func (f *fakeIDs) NewID() string {
 func newTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
-	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, newFakeWaitlistRepo())
+	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, newFakeWaitlistRepo(), newFakeMatchRepo())
 	return grpcapi.NewHandler(svc, nil, nil), gameRepo, regRepo
 }
 
+// seedGameUUID deterministically maps a human-readable fixture label (e.g.
+// "game-1") onto a UUID-shaped id, so seedGame's callers can keep using
+// short, readable, distinguishable labels while every id actually stored
+// in the fake repository (and sent over the wire in a handler-level test)
+// satisfies uuidShape (internal/socialplay/app/service.go) — see seedGame's
+// own doc comment for why this mapping exists at all. md5 is used purely
+// as a deterministic 16-byte hash (not for anything security-sensitive):
+// its 32 hex digits fit uuidShape's 8-4-4-4-12 grouping exactly, with no
+// truncation needed, and distinct labels this package actually uses never
+// collide.
+func seedGameUUID(label string) string {
+	sum := md5.Sum([]byte(label))
+	h := hex.EncodeToString(sum[:])
+	return fmt.Sprintf("%s-%s-%s-%s-%s", h[0:8], h[8:12], h[12:16], h[16:20], h[20:32])
+}
+
+// seedGame constructs and persists a fixture Game against the given
+// in-memory fakeGameRepo, returning the persisted Game so callers can read
+// back its (real, UUID-shaped) ID.
+//
+// id is a human-readable fixture label ("game-1", "game-2", ...), not the
+// literal persisted ID: T10.7 added a uuidShape boundary guard to every
+// public write handler taking a caller-supplied GameID (RegisterForGame,
+// CancelRegistration's registration lookup, JoinWaitlist, and — this
+// ticket — RecordMatchResult/ListMatchesForGame), so a non-UUID-shaped
+// fixture id like the ones this file originally used would now be rejected
+// at the boundary before ever reaching the fake repository, breaking every
+// test that seeds one (a real regression this ticket found already present
+// on this branch, via seedGameUUID's deterministic mapping below — see this
+// PR's description). Every existing call site keeps passing its original
+// short label unchanged; only this helper's internal ID assignment
+// changed, since callers only ever consume the *returned* Game's ID field,
+// never the raw label string.
 func seedGame(t *testing.T, gameRepo *fakeGameRepo, id string, capacity int) domain.Game {
 	t.Helper()
 	start := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
@@ -207,7 +252,7 @@ func seedGame(t *testing.T, gameRepo *fakeGameRepo, id string, capacity int) dom
 	if err != nil {
 		t.Fatalf("bad fixture range: %v", err)
 	}
-	g, err := domain.NewGame(id, "host-1", "facility-1", "venue-1", []string{"court-1"}, rng, capacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	g, err := domain.NewGame(seedGameUUID(id), "host-1", "facility-1", "venue-1", []string{"court-1"}, rng, capacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}

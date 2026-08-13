@@ -291,6 +291,63 @@ message ListRegistrationsForGameResponse {
   repeated Registration registrations = 1;
 }
 
+// Match mirrors internal/socialplay/domain.Match (T10.3/T10.4): a recorded
+// result against an existing Game. score is a per-player point-total map,
+// keyed by the same player-id strings that appear in players — deliberately
+// the simplest shape that records a real result (see domain.Match.Score's
+// doc comment for why a richer shape, e.g. set-by-set, is left for a future
+// ticket that actually needs it).
+//
+// Explicitly not on this message, per ADR-0012 (docs/adr/
+// 0012-identity-users-and-match-built-rating-and-matching-algorithm-blocked-
+// on-escalated-decisions.md): no player_rating field or anything deriving a
+// rating from this result. A Match is a recorded fact only.
+message Match {
+  string id = 1;
+  string game_id = 2;
+  repeated string players = 3;
+  map<string, int32> score = 4;
+  google.protobuf.Timestamp recorded_at = 5;
+}
+
+// RecordMatchResultRequest.actor_user_id is a claimed identity, not a
+// verified one — same known gap as every other actor field on this service
+// (RegisterForGameRequest.player_id, CancelRegistrationRequest.
+// actor_player_id, ...): no JWT/session layer yet (HANDOFF.md cross-cutting
+// Auth backlog). The object-level check this enables (only the Game's Host
+// or an assigned Game Admin may record a result,
+// domain.Game.EnsureHostOrGameAdmin) is real; the identity behind
+// actor_user_id is not authenticated yet.
+//
+// assigned_game_admin_user_ids is a caller-supplied fact, not a persisted
+// one — this codebase has never built a durable Game-Admin-assignment
+// mechanism (mirrors pickleball.payments.v1.RecordOfflinePaymentRequest's
+// identical assigned_game_admin_user_ids field and its own doc comment for
+// the same gap, T6.3).
+message RecordMatchResultRequest {
+  string game_id = 1;
+  repeated string players = 2;
+  map<string, int32> score = 3;
+  string actor_user_id = 4;
+  repeated string assigned_game_admin_user_ids = 5;
+}
+
+message RecordMatchResultResponse {
+  Match match = 1;
+}
+
+// ListMatchesForGameRequest/Response (T10.4). Unlike
+// ListRegistrationsForGameRequest's "empty roster for an unknown game"
+// read, an unknown game_id here answers NOT_FOUND (see
+// app.Service.ListMatchesForGame's doc comment for why).
+message ListMatchesForGameRequest {
+  string game_id = 1;
+}
+
+message ListMatchesForGameResponse {
+  repeated Match matches = 1;
+}
+
 // SocialPlayService is the API contract for the Social Play bounded
 // context, mirroring BookingService's style (proto/pickleball/booking/v1) —
 // buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
@@ -357,6 +414,27 @@ service SocialPlayService {
   rpc ListRegistrationsForGame(ListRegistrationsForGameRequest) returns (ListRegistrationsForGameResponse) {
     option (google.api.http) = {
       get: "/v1/games/{game_id}/registrations"
+    };
+  }
+
+  // RecordMatchResult records a Match result against an existing Game
+  // (T10.4), authorized to the Game's Host or an assigned Game Admin only
+  // (domain.Game.EnsureHostOrGameAdmin) — see RecordMatchResultRequest's
+  // doc comment on the known actor-verification gap.
+  rpc RecordMatchResult(RecordMatchResultRequest) returns (RecordMatchResultResponse) {
+    option (google.api.http) = {
+      post: "/v1/games/{game_id}/matches"
+      body: "*"
+    };
+  }
+
+  // ListMatchesForGame lists every Match recorded against a Game (T10.4) —
+  // see ListMatchesForGameRequest's doc comment for why an unknown game_id
+  // answers NOT_FOUND here, unlike ListRegistrationsForGame's "empty
+  // roster" convention.
+  rpc ListMatchesForGame(ListMatchesForGameRequest) returns (ListMatchesForGameResponse) {
+    option (google.api.http) = {
+      get: "/v1/games/{game_id}/matches"
     };
   }
 }
