@@ -34,10 +34,21 @@ import { useCompetitionByShareToken } from '../composables/useCompetitionByShare
 import { isCancelled } from '../models/competition'
 import CompetitionDetailPanel from '../components/discover-competitions/CompetitionDetailPanel.vue'
 import type { CompetitionsClient } from '../api/competitionsClient'
+import type { IdentityClient } from '../api/identityClient'
+import type { FacilitiesClient } from '../api/facilitiesClient'
 
 const props = defineProps<{
   /** Injectable for tests; defaults to the real competitionsClient. */
   client?: CompetitionsClient
+  /** Injectable for tests (T10.8, closes #98); defaults to the real
+   * identityClient. Forwarded to CompetitionDetailPanel — this landing is
+   * exactly the audience T10.8's story names ("a stranger arriving from a
+   * social link with no other context"), so the Host name matters here
+   * more than anywhere else in the app. */
+  identityClient?: IdentityClient
+  /** Injectable for tests (T10.8); defaults to the real facilitiesClient.
+   * Forwarded to CompetitionDetailPanel to resolve the venue's name. */
+  facilitiesClient?: FacilitiesClient
   /** From the `/c/:shareToken` route. Injectable so this view mounts in a
    * test without a router. */
   shareToken?: string
@@ -144,6 +155,8 @@ function onPayOnline(entryId: string): void {
         :has-selection="true"
         source="ENTRY_SOURCE_SOCIAL"
         :client="client"
+        :identity-client="identityClient"
+        :facilities-client="facilitiesClient"
         @pay-online="onPayOnline"
       />
 

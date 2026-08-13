@@ -3,6 +3,8 @@ import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import DiscoverCompetitions from '../DiscoverCompetitions.vue'
 import type { CompetitionsClient } from '../../../api/competitionsClient'
+import type { IdentityClient } from '../../../api/identityClient'
+import type { FacilitiesClient } from '../../../api/facilitiesClient'
 
 /** Mirrors DiscoverGames.spec.ts's identical fixed-viewport matchMedia stand-in. */
 function matchMediaForWidth(width: number): Pick<Window, 'matchMedia'> {
@@ -47,8 +49,32 @@ function fakeClient(list?: (...args: unknown[]) => unknown): CompetitionsClient 
   return { GET, POST: vi.fn() } as unknown as CompetitionsClient
 }
 
+/** T10.8 (closes #98): DiscoverCompetitions forwards these to
+ * CompetitionDetailPanel so its Host/Venue name joins resolve without a
+ * real network call. */
+function fakeIdentityClient(): IdentityClient {
+  return {
+    GET: vi.fn(async () => ({ data: { user: { displayName: 'Ada Lovelace' } } })),
+    POST: vi.fn(),
+  } as unknown as IdentityClient
+}
+
+function fakeFacilitiesClient(): FacilitiesClient {
+  return {
+    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    POST: vi.fn(),
+  } as unknown as FacilitiesClient
+}
+
 function mountScreen(client: CompetitionsClient, width = 1024) {
-  return mount(DiscoverCompetitions, { props: { client, win: matchMediaForWidth(width) } })
+  return mount(DiscoverCompetitions, {
+    props: {
+      client,
+      identityClient: fakeIdentityClient(),
+      facilitiesClient: fakeFacilitiesClient(),
+      win: matchMediaForWidth(width),
+    },
+  })
 }
 
 describe('DiscoverCompetitions', () => {
@@ -96,7 +122,8 @@ describe('DiscoverCompetitions', () => {
     await wrapper.get('.competition-list__item').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('host-1')
+    // T10.8 (closes #98): the resolved Host name, not the raw hostId.
+    expect(wrapper.text()).toContain('Ada Lovelace')
     expect(wrapper.text()).toContain('Doubles')
     // No second round trip: ListCompetitions already returned everything the
     // detail view needs, including the server-computed spots_left.
@@ -159,11 +186,18 @@ describe('DiscoverCompetitions', () => {
       response: { status: 200 },
     }))
     const wrapper = mount(DiscoverCompetitions, {
-      props: { client, win: matchMediaForWidth(1024), competitionId: 'c1' },
+      props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+        competitionId: 'c1',
+      },
     })
     await flushPromises()
 
-    expect(wrapper.get('.competition-detail').text()).toContain('host-1')
+    // T10.8 (closes #98): the resolved Host name, not the raw hostId.
+    expect(wrapper.get('.competition-detail').text()).toContain('Ada Lovelace')
   })
 
   it('explains a selection that no longer resolves, rather than rendering nothing', async () => {
@@ -173,7 +207,13 @@ describe('DiscoverCompetitions', () => {
       response: { status: 200 },
     }))
     const wrapper = mount(DiscoverCompetitions, {
-      props: { client, win: matchMediaForWidth(1024), competitionId: 'gone' },
+      props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+        competitionId: 'gone',
+      },
     })
     await flushPromises()
 

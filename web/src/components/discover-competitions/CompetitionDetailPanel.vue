@@ -22,6 +22,10 @@ import {
   spotsLeftLabel,
 } from '../../models/competition'
 import type { CompetitionsClient } from '../../api/competitionsClient'
+import type { IdentityClient } from '../../api/identityClient'
+import type { FacilitiesClient } from '../../api/facilitiesClient'
+import DisplayName from '../identity/DisplayName.vue'
+import VenueName from '../facilities/VenueName.vue'
 
 const props = defineProps<{
   competition: CompetitionSummary | null
@@ -36,6 +40,14 @@ const props = defineProps<{
   /** Injectable for tests; defaults to the real competitionsClient. Passed
    * through to CompetitionEntryPanel. */
   client?: CompetitionsClient
+  /** Injectable for tests (T10.8, closes #98); defaults to the real
+   * identityClient. Passed through to DisplayName — resolves `Host` below
+   * from a raw hostId, mirroring GameDetailPanel.vue's identical field. */
+  identityClient?: IdentityClient
+  /** Injectable for tests (T10.8); defaults to the real facilitiesClient.
+   * Passed through to VenueName — resolves `Venue` below from a raw
+   * venueFacilityId, mirroring GameDetailPanel.vue's identical field. */
+  facilitiesClient?: FacilitiesClient
 }>()
 
 const emit = defineEmits<{
@@ -83,11 +95,19 @@ function cancelled(): boolean {
       <dl class="competition-detail__fields">
         <div class="competition-detail__field">
           <dt>Host</dt>
-          <dd>{{ competition.hostId }}</dd>
+          <dd>
+            <DisplayName :user-id="competition.hostId" fallback="Unknown host" :client="identityClient" />
+          </dd>
         </div>
         <div class="competition-detail__field">
           <dt>Venue</dt>
-          <dd>{{ competition.venueFacilityId || 'No venue set' }}</dd>
+          <dd>
+            <VenueName
+              :facility-id="competition.venueFacilityId"
+              empty-label="No venue set"
+              :client="facilitiesClient"
+            />
+          </dd>
         </div>
         <div class="competition-detail__field">
           <!-- Descriptive only: CompetitionFormat enforces nothing

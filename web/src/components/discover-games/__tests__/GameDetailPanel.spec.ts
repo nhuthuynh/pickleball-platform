@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import GameDetailPanel from '../GameDetailPanel.vue'
 import type { GameSummary } from '../../../models/game'
 import type { SocialPlayClient } from '../../../api/socialplayClient'
+import type { IdentityClient } from '../../../api/identityClient'
+import type { FacilitiesClient } from '../../../api/facilitiesClient'
 
 const game: GameSummary = {
   id: 'g1',
@@ -29,6 +31,24 @@ function fakeClient(): SocialPlayClient {
   return { GET: vi.fn(), POST: vi.fn() } as unknown as SocialPlayClient
 }
 
+/** T10.8: resolves any user id to a fixed DisplayName, so tests unrelated
+ * to the Host join don't need to special-case the fetch. */
+function fakeIdentityClient(): IdentityClient {
+  return {
+    GET: vi.fn(async () => ({ data: { user: { displayName: 'Ada Lovelace' } } })),
+    POST: vi.fn(),
+  } as unknown as IdentityClient
+}
+
+/** T10.8: resolves any facility id to a fixed Name, same reasoning as
+ * fakeIdentityClient above. */
+function fakeFacilitiesClient(): FacilitiesClient {
+  return {
+    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    POST: vi.fn(),
+  } as unknown as FacilitiesClient
+}
+
 function baseProps() {
   return {
     game: null as GameSummary | null,
@@ -36,6 +56,8 @@ function baseProps() {
     error: null as string | null,
     hasSelection: false,
     client: fakeClient(),
+    identityClient: fakeIdentityClient(),
+    facilitiesClient: fakeFacilitiesClient(),
   }
 }
 
@@ -63,15 +85,44 @@ describe('GameDetailPanel', () => {
     expect(wrapper.emitted('retry')).toBeTruthy()
   })
 
-  it('renders host, court, facility, spots left, and a payment-method label (not a price) for a selected game', () => {
+  it('renders host, court, facility, spots left, and a payment-method label (not a price) for a selected game', async () => {
     const wrapper = mount(GameDetailPanel, { props: { ...baseProps(), hasSelection: true, game } })
+    await flushPromises()
 
-    expect(wrapper.text()).toContain('host-1')
-    expect(wrapper.text()).toContain('facility-1')
+    // T10.8 (closes #98): the resolved Host DisplayName and venue Name, not
+    // the raw hostId/venueFacilityId.
+    expect(wrapper.text()).toContain('Ada Lovelace')
+    expect(wrapper.text()).toContain('Riverside Courts')
+    expect(wrapper.text()).not.toContain('host-1')
+    expect(wrapper.text()).not.toContain('facility-1')
     expect(wrapper.text()).toContain('court-1, court-2')
     // WCAG 1.4.1: spots-left and payment method are text, not color-only.
     expect(wrapper.text()).toContain('3 spots left')
     expect(wrapper.text()).toContain('Cash at facility')
+  })
+
+  it('degrades honestly to a named empty state when the Host lookup fails — never a fabricated name', async () => {
+    const failingIdentityClient = {
+      GET: vi.fn(async () => ({ data: undefined, error: { code: 5, message: 'not found' } })),
+      POST: vi.fn(),
+    } as unknown as IdentityClient
+    const wrapper = mount(GameDetailPanel, {
+      props: { ...baseProps(), hasSelection: true, game, identityClient: failingIdentityClient },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unknown host')
+  })
+
+  it('shows an honest "Not set" for a Game with no venue, without a facility lookup', async () => {
+    const facilitiesClient = fakeFacilitiesClient()
+    const wrapper = mount(GameDetailPanel, {
+      props: { ...baseProps(), hasSelection: true, game: { ...game, venueFacilityId: '' }, facilitiesClient },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Not set')
+    expect(facilitiesClient.GET).not.toHaveBeenCalled()
   })
 
   it.each([

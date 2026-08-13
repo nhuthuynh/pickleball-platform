@@ -16,12 +16,20 @@ import { useRouter } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
 import { useGameList } from '../../composables/useGameList'
 import type { SocialPlayClient } from '../../api/socialplayClient'
+import type { IdentityClient } from '../../api/identityClient'
+import type { FacilitiesClient } from '../../api/facilitiesClient'
 import GamesListPanel from './GamesListPanel.vue'
 import GameDetailPanel from './GameDetailPanel.vue'
 
 const props = defineProps<{
   /** Injectable for tests; defaults to the real socialplayClient. */
   client?: SocialPlayClient
+  /** Injectable for tests (T10.8); defaults to the real identityClient.
+   * Forwarded to GameDetailPanel to resolve the Host's display name. */
+  identityClient?: IdentityClient
+  /** Injectable for tests (T10.8); defaults to the real facilitiesClient.
+   * Forwarded to GameDetailPanel to resolve the venue's name. */
+  facilitiesClient?: FacilitiesClient
   /** Injectable for tests; defaults to the ambient `window` (matchMedia). */
   win?: Pick<Window, 'matchMedia'>
 }>()
@@ -110,6 +118,8 @@ onMounted(() => {
         :error="detailError"
         :has-selection="selectedId !== null"
         :client="client"
+        :identity-client="identityClient"
+        :facilities-client="facilitiesClient"
         @retry="onDetailRetry"
         @pay-online="onPayOnline"
       />
