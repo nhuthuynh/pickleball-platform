@@ -76,6 +76,51 @@ func TestRecordMatch_Validation(t *testing.T) {
 	}
 }
 
+// TestRecordMatch_ScoreValidation is T10.4's own boundary coverage (this
+// ticket's error-handling instructions: "empty score -> InvalidArgument"),
+// added alongside T10.3's GameID/Players table above rather than folded into
+// it, since it's a distinct requirement landing a sprint later. Checked
+// after GameID/Players so a Match missing everything still reports the most
+// fundamental problem first (RecordMatch's own doc comment).
+func TestRecordMatch_ScoreValidation(t *testing.T) {
+	t.Parallel()
+
+	recordedAt := time.Date(2026, 8, 10, 18, 0, 0, 0, time.UTC)
+
+	tests := []struct {
+		name    string
+		score   map[string]int
+		wantErr error
+	}{
+		{"nil score is rejected", nil, domain.ErrEmptyScore},
+		{"empty score map is rejected", map[string]int{}, domain.ErrEmptyScore},
+		{"well-formed score is accepted", validScore(), nil},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := domain.RecordMatch("g1", validPlayers(), tt.score, recordedAt)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("got err %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestRecordMatch_TooFewPlayersCheckedBeforeScore proves the precedence
+// order RecordMatch's doc comment claims: a Match with only one player and
+// no score gets ErrTooFewPlayers, not ErrEmptyScore.
+func TestRecordMatch_TooFewPlayersCheckedBeforeScore(t *testing.T) {
+	t.Parallel()
+
+	_, err := domain.RecordMatch("g1", []string{"player-1"}, nil, time.Now())
+	if !errors.Is(err, domain.ErrTooFewPlayers) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrTooFewPlayers)
+	}
+}
+
 // TestRecordMatch_EmptyGameIDCheckedBeforePlayers proves empty GameID wins
 // even when Players is also invalid, so a caller gets the most fundamental
 // error first rather than an arbitrary one (mirrors NewGame's own

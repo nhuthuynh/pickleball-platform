@@ -105,6 +105,72 @@ func TestTranslateWaitlistErr(t *testing.T) {
 	}
 }
 
+// TestTranslateMatchErr mirrors TestTranslateGameErr for the Match
+// repository (T10.4): a 23503 foreign_key_violation on matches.game_id
+// becomes domain.ErrGameNotFound (db/migrations/0015_socialplay_matches.sql
+// has no unique-constraint/capacity-guard case to prove, unlike
+// registrations/waitlist_entries — see that migration's own doc comment on
+// why matches carries no such invariant).
+func TestTranslateMatchErr(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{"foreign key violation (23503) becomes ErrGameNotFound", &pgconn.PgError{Code: "23503"}, domain.ErrGameNotFound},
+		{"no rows becomes ErrGameNotFound", pgx.ErrNoRows, domain.ErrGameNotFound},
+		{"unrelated pg error is wrapped, not silently mapped", &pgconn.PgError{Code: "42601"}, nil},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := translateMatchErr(tt.err)
+			if tt.wantErr != nil {
+				if !errors.Is(got, tt.wantErr) {
+					t.Fatalf("translateMatchErr(%v) = %v, want errors.Is match for %v", tt.err, got, tt.wantErr)
+				}
+				return
+			}
+			if errors.Is(got, domain.ErrGameNotFound) {
+				t.Fatalf("translateMatchErr(%v) = %v, an unrelated pg error must not be mismapped to ErrGameNotFound", tt.err, got)
+			}
+		})
+	}
+}
+
+// TestMarshalUnmarshalScore_RoundTrips proves domain.Match.Score survives
+// the jsonb marshal/unmarshal round trip this adapter's first jsonb column
+// needs (CreateMatchParams.Score's doc comment) — every key and value comes
+// back exactly as given.
+func TestMarshalUnmarshalScore_RoundTrips(t *testing.T) {
+	t.Parallel()
+
+	want := map[string]int{"player-1": 11, "player-2": 7}
+
+	b, err := marshalScore(want)
+	if err != nil {
+		t.Fatalf("marshalScore: %v", err)
+	}
+
+	got, err := unmarshalScore(b)
+	if err != nil {
+		t.Fatalf("unmarshalScore: %v", err)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("unmarshalScore round trip = %v, want %v", got, want)
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Fatalf("unmarshalScore round trip = %v, want %v", got, want)
+		}
+	}
+}
+
 // TestMustUUID_PanicsOnMalformedInput proves mustUUID treats a malformed ID
 // as the programmer error it documents (upstream invariant already
 // violated), mirroring internal/booking/adapter/postgres's identical helper.

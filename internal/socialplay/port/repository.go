@@ -86,3 +86,29 @@ type RegistrationRepository interface {
 	// vice versa). Returns domain.ErrRegistrationNotFound for an unknown id.
 	UpdatePaymentStatus(ctx context.Context, id string, status domain.PaymentStatus) (domain.Registration, error)
 }
+
+// MatchRepository is Social Play's persistence boundary for the Match
+// aggregate (T10.4). Mirrors GameRepository/RegistrationRepository's shape:
+// the domain and app layers only ever see this interface;
+// internal/socialplay/adapter/postgres implements it against the real
+// database, and tests implement it in-memory.
+type MatchRepository interface {
+	// Create persists a new Match. Callers (app.Service.RecordMatchResult)
+	// have already assigned m.ID (mirrors RegistrationRepository.Create /
+	// WaitlistRepository.Create's identical relationship with
+	// Register/JoinWaitlist — see those constructors' doc comments for why
+	// the ID is assigned at the app layer, not by this method or by
+	// domain.RecordMatch itself).
+	Create(ctx context.Context, m domain.Match) (domain.Match, error)
+
+	// ListForGame returns every Match recorded against gameID, ordered by
+	// RecordedAt ascending (see db/queries/socialplay.sql's
+	// ListMatchesForGame). An unknown gameID returns an empty slice, not an
+	// error, at THIS layer — unlike ListRegistrationsForGame's identical
+	// "empty roster for an unknown game" read, T10.4's own error-handling
+	// instructions require ListMatchesForGame's RPC to answer an unknown
+	// GameID with NotFound, so app.Service.ListMatchesForGame does its own
+	// GameRepository.GetByID existence check before calling this method —
+	// see that method's doc comment.
+	ListForGame(ctx context.Context, gameID string) ([]domain.Match, error)
+}

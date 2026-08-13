@@ -130,9 +130,14 @@ func run(logger *slog.Logger) error {
 	gameRepo := socialplaypg.NewGameRepository(pool)
 	registrationRepo := socialplaypg.NewRegistrationRepository(pool)
 	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
+	// matchRepo (T10.4) is Postgres-backed the same way; RecordMatchResult/
+	// ListMatchesForGame reuse Social Play's existing Host/Game-Admin
+	// authorization shape, not a new mechanism, so no new port beyond this
+	// one repository is wired here.
+	matchRepo := socialplaypg.NewMatchRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
 	facilityLookup := socialplayfacilities.NewLookup(facilitiesSvc)
-	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo)
+	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo, matchRepo)
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
 
 	// Competitions (T9.4). Same shape as Social Play's wiring above, one

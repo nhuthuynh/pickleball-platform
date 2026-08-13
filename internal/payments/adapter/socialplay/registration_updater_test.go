@@ -113,6 +113,20 @@ func (fakeWaitlist) ExpirePromotion(context.Context, string, time.Time) (socialp
 	return socialplaydomain.WaitlistEntry{}, socialplaydomain.ErrWaitlistEntryNotFound
 }
 
+// fakeMatches is a minimal, empty-always port.MatchRepository stub (T10.4),
+// mirroring fakeWaitlist's identical role: MarkRegistrationPaymentStatus
+// never touches matches, but socialplayapp.NewService has required a
+// port.MatchRepository argument since T10.4 — required only to satisfy
+// that constructor signature, not exercised by any test in this file.
+type fakeMatches struct{}
+
+func (fakeMatches) Create(context.Context, socialplaydomain.Match) (socialplaydomain.Match, error) {
+	return socialplaydomain.Match{}, nil
+}
+func (fakeMatches) ListForGame(context.Context, string) ([]socialplaydomain.Match, error) {
+	return nil, nil
+}
+
 // TestRegistrationUpdater_ImplementsPort is a compile-time proof that
 // *paymentssocialplay.RegistrationUpdater satisfies
 // socialplayport.RegistrationPaymentUpdater — the whole point of this
@@ -132,7 +146,7 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 		Status:        socialplaydomain.RegistrationStatusRegistered,
 		PaymentStatus: socialplaydomain.PaymentStatusUnpaid,
 	})
-	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, regs, fakeWaitlist{})
+	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, regs, fakeWaitlist{}, fakeMatches{})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
 	if err := updater.UpdatePaymentStatus(context.Background(), "reg-1", socialplaydomain.PaymentStatusPaid); err != nil {
@@ -155,7 +169,7 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 func TestUpdatePaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, newFakeRegistrations(), fakeWaitlist{})
+	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, newFakeRegistrations(), fakeWaitlist{}, fakeMatches{})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
 	err := updater.UpdatePaymentStatus(context.Background(), "no-such-registration", socialplaydomain.PaymentStatusPaid)

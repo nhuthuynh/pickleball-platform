@@ -131,6 +131,28 @@ ORDER BY position;
 SELECT id, game_id, player_id, position, status, promoted_at
 FROM promote_next_waiting($1, $2);
 
+-- name: CreateMatch :one
+-- T10.4. score is jsonb (db/migrations/0015_socialplay_matches.sql) — the
+-- adapter marshals domain.Match.Score (map[string]int) to []byte before
+-- calling this, and unmarshals it back on every read (CreateMatch's own
+-- RETURNING included), since sqlc's pgx/v5 driver maps a jsonb column to
+-- []byte, not a Go map.
+INSERT INTO matches (id, game_id, players, score, recorded_at)
+VALUES ($1, $2, $3, $4, $5)
+RETURNING id, game_id, players, score, recorded_at;
+
+-- name: ListMatchesForGame :many
+-- Every Match recorded against game_id, oldest first — the read path
+-- app.Service.ListMatchesForGame uses (T10.4). Existence of game_id itself
+-- is checked by the app layer via GameRepository.GetByID before this runs
+-- (see that method's doc comment for why this RPC's error-handling
+-- requirements differ from ListActiveRegistrationsForGame's identical-
+-- looking read).
+SELECT id, game_id, players, score, recorded_at
+FROM matches
+WHERE game_id = $1
+ORDER BY recorded_at;
+
 -- name: ExpireWaitlistPromotion :one
 -- Compare-and-swap: only actually transitions a row that is still
 -- 'promoted' at the moment this runs, so a concurrent confirm (the
