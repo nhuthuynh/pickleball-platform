@@ -1586,6 +1586,50 @@ func TestRecordMatchResult_CancelledGameRejected(t *testing.T) {
 	}
 }
 
+// TestRecordMatchResult_AuthorizationCheckedBeforeCancelledPrecondition
+// proves the ORDERING RecordMatchResult's own doc comment claims, not just
+// the two checks individually: a non-Host/non-Game-Admin actor attempting
+// to record a result against a *cancelled* Game gets ErrNotGameHostOrAdmin
+// (PermissionDenied), not ErrGameCancelled (FailedPrecondition) —
+// TestRecordMatchResult_RejectsNonHostNonAdmin above only proves the
+// authorization check against a non-cancelled Game, and
+// TestRecordMatchResult_CancelledGameRejected only proves the cancelled
+// check against the Game's own Host, so neither alone pins down which
+// check wins when both would independently reject the same call. Without
+// this test, a future refactor that swapped the two checks would leak
+// whether a Game is cancelled to an unauthorized caller (mirrors
+// TestRecordOfflinePayment_AuthorizationCheckedBeforeDomainConstruction's
+// identical reasoning, internal/payments/app/service_test.go) with nothing
+// here failing red — exactly the gap this test closes.
+func TestRecordMatchResult_AuthorizationCheckedBeforeCancelledPrecondition(t *testing.T) {
+	t.Parallel()
+
+	svc, g, games, matches := newMatchTestService(t)
+
+	cancelled := g
+	if err := cancelled.Cancel(); err != nil {
+		t.Fatalf("fixture cancel should succeed: %v", err)
+	}
+	games.games[cancelled.ID] = cancelled
+
+	_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
+		GameID:                   cancelled.ID,
+		Players:                  validMatchPlayers(),
+		Score:                    validMatchScore(),
+		ActorUserID:              "random-player",
+		AssignedGameAdminUserIDs: []string{"admin-1"},
+	})
+	if !errors.Is(err, domain.ErrNotGameHostOrAdmin) {
+		t.Fatalf("got err %v, want %v (an unauthorized actor must be rejected before the cancelled-Game precondition ever runs, so it never learns whether the Game is cancelled)", err, domain.ErrNotGameHostOrAdmin)
+	}
+	if errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v — must not be (or wrap) ErrGameCancelled, which would leak the Game's cancelled state to an unauthorized actor", err)
+	}
+	if matches.createCalls.Load() != 0 {
+		t.Errorf("rejected RecordMatchResult reached the repository (%d Create calls), want 0", matches.createCalls.Load())
+	}
+}
+
 // TestRecordMatchResult_TooFewPlayersRejected and
 // TestRecordMatchResult_EmptyScoreRejected prove domain.RecordMatch's own
 // validation surfaces through the app layer unchanged, for an authorized,
