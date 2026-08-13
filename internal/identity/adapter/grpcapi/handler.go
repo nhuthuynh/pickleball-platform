@@ -80,6 +80,7 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrEmptyDisplayName),
 		errors.Is(err, domain.ErrEmptyRoles),
 		errors.Is(err, domain.ErrInvalidRole),
+		errors.Is(err, domain.ErrRoleNotSelfAssignable),
 		errors.Is(err, domain.ErrInvalidSelfReportedStartingLevel):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:

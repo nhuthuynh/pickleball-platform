@@ -437,6 +437,34 @@ ADR-0009/ADR-0010's triggers — are next.
   tests fail, then restoring it. Same caveat as above, not re-litigated:
   object-level check given a claimed `actor_user_id`, not real
   authentication.
+- **T10.2 (`internal/identity`) is a second place the caveat above is NOT
+  "the same caveat again," and a materially worse one — flagged by PR #106
+  review, not discovered later.** Every other `actor_user_id`/
+  `actor_player_id` check in this codebase (T5.5 Social Play, T6.3/T6.7→T8.5
+  Payments, T7.7 Facilities, above) only gates a *mutation on an object that
+  already exists*: a false claim is rejected and leaves no trace. Identity/
+  Users' `CreateUser` is structurally different — the caller-supplied
+  `actor_user_id` becomes the row's own **permanent primary key**
+  (`identity_users.id`; see `internal/identity/app.CreateUserInput`'s doc
+  comment for the full reasoning this bullet does not restate). An anonymous
+  caller can call `CreateUser` with any UUID they choose — including one a
+  future real-auth integration will eventually mint deterministically for a
+  real person — and permanently occupy that identity; the real owner's later
+  registration attempt then fails with `domain.ErrUserAlreadyExists` and can
+  never claim their own account. That is a **persistent, targeted
+  denial-of-service**, not a rejected mutation, and has no equivalent
+  anywhere else in this codebase: nothing else lets an unauthenticated
+  caller-supplied claim become a permanent artifact another real identity
+  will later collide with. Not mitigated by real auth in this ticket (out of
+  scope per ADR-0012) — only *narrowed*, not closed, by T10.2's other fix
+  (public `CreateUser` accepts only `RolePlayer`, so a squatted ID can't also
+  carry an elevated role). **Must close the moment real auth exists**: at
+  that point `CreateUser` should mint `User.ID` from the authenticated
+  principal's own verified subject claim (e.g. a JWT `sub`), never accept it
+  as a bare, unverified client-supplied field the way it does today. Track
+  this alongside the JWT/Auth0 item above; do not let it get silently folded
+  into the generic "claimed actor" caveat again — it is a different and
+  worse failure mode (permanent artifact vs. a rejected mutation).
 - **The one place the caveat above is NOT "the same caveat again":
   third-party OAuth tokens — see `docs/adr/0009-social-channel-integration-deferred.md`.**
   T9's ceremony (§A1 of `docs/process/t9-sprint-plan.md`) found that

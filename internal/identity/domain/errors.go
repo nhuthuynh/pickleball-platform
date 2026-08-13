@@ -55,4 +55,21 @@ var (
 	// answer honestly (-> codes.AlreadyExists via grpcapi.toStatus) rather
 	// than surface as a raw Postgres unique-violation.
 	ErrUserAlreadyExists = errors.New("identity: user already exists")
+
+	// ErrRoleNotSelfAssignable is T10.2's PR-review fix (PR #106): returned
+	// when a CreateUser request names any Role other than RolePlayer.
+	// CreateUser is Identity's only unauthenticated, self-service entry
+	// point, so unlike a mismatched actor_user_id on an *existing* object
+	// (which is simply rejected, leaving no trace — the caveat every other
+	// actor_user_id field in this codebase carries, see
+	// HANDOFF.md's Cross-cutting section), an unchecked Roles field here
+	// would let any anonymous caller mint a brand-new,
+	// permanently-persisted RolePlatformAdmin (or any other privileged
+	// role) for themselves out of nothing. This sentinel is the app layer's
+	// (internal/identity/app.Service.CreateUser) enforcement that the
+	// public path only ever accepts RolePlayer — every self-registering
+	// caller needs exactly that role. A real mechanism for creating a User
+	// with an elevated role is a different, auth-gated capability this
+	// ticket does not build.
+	ErrRoleNotSelfAssignable = errors.New("identity: role is not self-assignable via public registration")
 )

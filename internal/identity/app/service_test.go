@@ -123,6 +123,56 @@ func TestCreateUser_EmptyActorUserIDRejected(t *testing.T) {
 	}
 }
 
+// TestCreateUser_NonPlayerRoleRejected is the PR #106 review fix: the
+// public, unauthenticated CreateUser path must not let a caller
+// self-assign an elevated role (e.g. ROLE_PLATFORM_ADMIN) — it only ever
+// accepts RolePlayer. This is a distinct failure mode from
+// TestCreateUser_InvalidRoleRejected below (an unrecognized enum value):
+// ROLE_HOST_ORGANISER here is a perfectly valid, recognized Role — it's
+// just not self-assignable via this RPC.
+func TestCreateUser_NonPlayerRoleRejected(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, app.CreateUserInput{
+		ActorUserID:               "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		DisplayName:               "Ada Lovelace",
+		Roles:                     []domain.Role{domain.RolePlatformAdmin},
+		SelfReportedStartingLevel: domain.SelfReportedStartingLevel(3),
+	})
+	if !errors.Is(err, domain.ErrRoleNotSelfAssignable) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrRoleNotSelfAssignable)
+	}
+	if len(repo.users) != 0 {
+		t.Fatalf("a rejected non-player role must not be persisted, repo has %d entries", len(repo.users))
+	}
+}
+
+// TestCreateUser_PlayerRoleAmongOthersRejected proves the check applies to
+// every element, not just a single-role request: RolePlayer alongside
+// RoleHostOrganiser is still rejected, not silently downgraded to just
+// RolePlayer.
+func TestCreateUser_PlayerRoleAmongOthersRejected(t *testing.T) {
+	t.Parallel()
+
+	repo := newInMemoryRepo()
+	svc := app.NewService(repo)
+	ctx := context.Background()
+
+	_, err := svc.CreateUser(ctx, app.CreateUserInput{
+		ActorUserID:               "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		DisplayName:               "Ada Lovelace",
+		Roles:                     []domain.Role{domain.RolePlayer, domain.RoleHostOrganiser},
+		SelfReportedStartingLevel: domain.SelfReportedStartingLevel(3),
+	})
+	if !errors.Is(err, domain.ErrRoleNotSelfAssignable) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrRoleNotSelfAssignable)
+	}
+}
+
 func TestCreateUser_InvalidRoleRejected(t *testing.T) {
 	t.Parallel()
 

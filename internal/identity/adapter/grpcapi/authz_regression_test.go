@@ -207,3 +207,77 @@ func TestGetUser_MalformedIDIsMappedNotFound(t *testing.T) {
 		t.Fatalf("GetUser(not-a-uuid) status code = %v, want NotFound", st.Code())
 	}
 }
+
+// --- CreateUser: self-elevation regression, through the real handler ------
+//
+// PR #106 review finding 2: CreateUser is Identity's only unauthenticated,
+// self-service entry point, so an unchecked Roles field would let any
+// anonymous caller mint themselves a brand-new, permanently-persisted
+// ROLE_PLATFORM_ADMIN (or any other privileged role) out of nothing — worse
+// than every other actor_user_id caveat in this codebase (see
+// HANDOFF.md's Cross-cutting section), which only ever gates a mutation on
+// an object that already exists. Verified non-vacuous per CLAUDE.md rule
+// 10: temporarily removed the role-restriction loop in
+// app.Service.CreateUser, confirmed
+// TestCreateUser_RejectsSelfElevationToPlatformAdmin below FAILED (the
+// request succeeded and a ROLE_PLATFORM_ADMIN User was persisted), then
+// restored it and confirmed green again.
+
+// TestCreateUser_RejectsSelfElevationToPlatformAdmin proves the real
+// handler -> app -> domain path rejects a public CreateUser request
+// claiming an elevated role, mapped to InvalidArgument (not Internal), and
+// that no User is persisted.
+func TestCreateUser_RejectsSelfElevationToPlatformAdmin(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHandler()
+
+	_, err := h.CreateUser(ctx, &identityv1.CreateUserRequest{
+		ActorUserId:               fixtureUserID,
+		DisplayName:               "Attacker",
+		Roles:                     []identityv1.Role{identityv1.Role_ROLE_PLATFORM_ADMIN},
+		SelfReportedStartingLevel: 3,
+	})
+	if err == nil {
+		t.Fatal("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) succeeded silently — an anonymous caller was able to self-elevate to platform admin")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) returned a non-gRPC-status error: %v", err)
+	}
+	if st.Code() == codes.Internal {
+		t.Fatalf("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) mapped to Internal (500-shaped) — want InvalidArgument (400-shaped): %v", err)
+	}
+	if st.Code() != codes.InvalidArgument {
+		t.Fatalf("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) status code = %v, want InvalidArgument", st.Code())
+	}
+
+	if _, exists := repo.users[fixtureUserID]; exists {
+		t.Error("a User was persisted for a rejected self-elevation CreateUser call, want none")
+	}
+}
+
+// TestCreateUser_AllowsPlayerRole is the symmetric positive-path case:
+// without it, TestCreateUser_RejectsSelfElevationToPlatformAdmin alone
+// couldn't tell "the role restriction correctly rejects an elevated role"
+// apart from "CreateUser is broken and rejects everyone."
+func TestCreateUser_AllowsPlayerRole(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHandler()
+
+	resp, err := h.CreateUser(ctx, &identityv1.CreateUserRequest{
+		ActorUserId:               fixtureUserID,
+		DisplayName:               "Ada Lovelace",
+		Roles:                     []identityv1.Role{identityv1.Role_ROLE_PLAYER},
+		SelfReportedStartingLevel: 3,
+	})
+	if err != nil {
+		t.Fatalf("CreateUser(roles=[ROLE_PLAYER]) (the only self-assignable role) should succeed, got: %v", err)
+	}
+	if len(resp.GetUser().GetRoles()) != 1 || resp.GetUser().GetRoles()[0] != identityv1.Role_ROLE_PLAYER {
+		t.Errorf("Roles = %v, want [ROLE_PLAYER]", resp.GetUser().GetRoles())
+	}
+	if _, exists := repo.users[fixtureUserID]; !exists {
+		t.Error("User was not persisted after a successful CreateUser")
+	}
+}

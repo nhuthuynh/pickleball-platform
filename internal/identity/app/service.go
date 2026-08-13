@@ -55,6 +55,26 @@ func NewService(repo port.Repository) *Service {
 // HostID (T6.3): the only sensible "same claimed-actor pattern" reading
 // for a *creation* RPC with no prior object is that the actor is claiming
 // to create their own identity, so their claim IS the created User's ID.
+//
+// NAMED RISK (PR #106 review, HANDOFF.md's Cross-cutting section carries
+// the full writeup — this is not the same as the generic "claimed actor,
+// not authentication" caveat every other actor_user_id field in this
+// codebase carries, and must not be folded into it): because ActorUserID
+// becomes a PERMANENT PRIMARY KEY rather than gating a mutation on an
+// object that already exists, an anonymous caller can call CreateUser with
+// any UUID they choose — including one a future real-auth integration will
+// eventually mint deterministically for a real person — and permanently
+// occupy that identity. The real owner's later registration attempt then
+// fails with domain.ErrUserAlreadyExists and can never claim their own
+// account: a persistent, targeted denial-of-service, not a rejected
+// mutation, with no equivalent anywhere else in this codebase. NOT
+// mitigated here (real auth is out of scope per ADR-0012) — only narrowed
+// by CreateUser's role restriction below (a squatted ID at least can't
+// also carry an elevated role). MUST be closed the moment real auth
+// exists: CreateUser should then mint User.ID from the authenticated
+// principal's own verified subject claim, never accept it as a bare
+// client-supplied field the way it does today.
+//
 // A second CreateUser call for the same ActorUserID is a real, reachable
 // case (unlike every server-generated-ID aggregate) — see
 // domain.ErrUserAlreadyExists.
@@ -86,6 +106,32 @@ func (s *Service) CreateUser(ctx context.Context, in CreateUserInput) (domain.Us
 	// caller that constructs a User directly against the domain package).
 	if !uuidShape.MatchString(in.ActorUserID) {
 		return domain.User{}, domain.ErrEmptyID
+	}
+
+	// PR #106 review fix: CreateUser is Identity's only unauthenticated,
+	// self-service entry point. Unlike a mismatched actor_user_id on an
+	// *existing* object elsewhere in this codebase (rejected, no trace
+	// left — see CreateUserInput's doc comment for why this is a
+	// materially different, worse risk), an unchecked Roles field here
+	// would let any anonymous caller mint themselves a brand-new,
+	// permanently-persisted RolePlatformAdmin (or any other privileged
+	// role) out of nothing. The public path therefore only ever accepts
+	// RolePlayer — every self-registering caller needs exactly that role.
+	// A real mechanism for creating a User with an elevated role
+	// (Host/Game Admin/Facility Owner/Club/Platform Admin) is a different,
+	// auth-gated capability this ticket does not build. Checked before
+	// domain.NewUser so an unrecognized role (ErrInvalidRole) and a
+	// recognized-but-not-self-assignable one (ErrRoleNotSelfAssignable)
+	// stay distinguishable — a caller sending ROLE_HOST_ORGANISER should
+	// not be told their role value is invalid, just that it isn't
+	// self-assignable here. A garbage/unrecognized role is deliberately
+	// left for domain.NewUser's own IsValid loop below to reject as
+	// ErrInvalidRole, not caught here — this loop only ever rejects a
+	// role that IS a recognized, valid Role value but isn't RolePlayer.
+	for _, r := range in.Roles {
+		if r != domain.RolePlayer && r.IsValid() {
+			return domain.User{}, domain.ErrRoleNotSelfAssignable
+		}
 	}
 
 	u, err := domain.NewUser(in.ActorUserID, in.DisplayName, in.Roles, in.SelfReportedStartingLevel)
