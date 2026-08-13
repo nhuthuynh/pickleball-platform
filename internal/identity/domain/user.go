@@ -55,3 +55,40 @@ func NewUser(id, displayName string, roles []Role, level SelfReportedStartingLev
 		SelfReportedStartingLevel: level,
 	}, nil
 }
+
+// EnsureSelf returns ErrNotSelf unless actorUserID matches u.ID exactly (an
+// empty actorUserID is always rejected). This is T10.2's object-level (BOLA)
+// authorization check for UpdateSelfReportedLevel — mirrors
+// internal/facilities/domain.Facility.EnsureOwner/internal/socialplay/domain.
+// Registration's actorPlayerID-vs-PlayerID check applied to a User's own
+// identity fact instead: only the User themself may update their own
+// self-reported level. As with those precedents, actorUserID is a
+// caller-supplied claim, not a verified identity — see ErrNotSelf's doc
+// comment and HANDOFF.md's Auth cross-cutting item for the caveat this must
+// not re-litigate.
+func (u User) EnsureSelf(actorUserID string) error {
+	if actorUserID == "" || actorUserID != u.ID {
+		return ErrNotSelf
+	}
+	return nil
+}
+
+// UpdateSelfReportedLevel returns a copy of u with a new
+// SelfReportedStartingLevel, but only once the caller has been proven to be
+// this User (EnsureSelf, checked first — mirrors
+// internal/facilities/domain.Facility.AddCameraLink's check ordering: a
+// mismatched actor is rejected with ErrNotSelf without ever learning
+// whether the new level itself would have been valid) and only once level
+// falls within the bounded range NewUser enforces at construction
+// (ErrInvalidSelfReportedStartingLevel otherwise) — the range invariant
+// applies on update too, not only at construction.
+func (u User) UpdateSelfReportedLevel(actorUserID string, level SelfReportedStartingLevel) (User, error) {
+	if err := u.EnsureSelf(actorUserID); err != nil {
+		return User{}, err
+	}
+	if !level.IsValid() {
+		return User{}, ErrInvalidSelfReportedStartingLevel
+	}
+	u.SelfReportedStartingLevel = level
+	return u, nil
+}
