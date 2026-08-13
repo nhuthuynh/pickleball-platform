@@ -22,6 +22,12 @@
 //     ticket's scope — see T10.8's instructions). An unknown/deleted
 //     player or a lookup failure degrades to "Unknown player", never a
 //     fabricated name.
+//     KNOWN LIMITATION: one `DisplayName` per roster row means one
+//     `GetUser` call per row (N+1) — `identity.IdentityService` only has a
+//     single-id `GetUser`, no batch/`ListUsers` RPC, so real batching would
+//     need a new backend endpoint, which is out of this ticket's scope.
+//     Fine at today's roster sizes; worth a `BatchGetUsers`-shaped RPC if a
+//     large-roster Competition makes this screen's load time noticeable.
 //
 //  2. NO SHARE LINK. `share_token` is returned ONCE, on
 //     `CreateCompetitionResponse`, and is deliberately NOT a field on

@@ -48,6 +48,58 @@ describe('useDisplayName', () => {
     expect(failed.value).toBe(true)
   })
 
+  // T10.8 PR review: DisplayName.vue is never remounted when its userId
+  // prop changes (unlike GameJoinPanel.vue's `:key="game.id"`), so a
+  // component instance's `load()` can be called again for a new id while an
+  // earlier call is still in flight. Without the request-sequencing guard,
+  // this test fails: the earlier ('host-a') response lands last and
+  // overwrites the correct, newer ('host-b') state.
+  it('discards a stale response that resolves after a newer request has already started', async () => {
+    const resolvers: Array<(v: unknown) => void> = []
+    const GET = vi.fn(() => new Promise((resolve) => { resolvers.push(resolve) }))
+    const client = { GET, POST: vi.fn() } as unknown as IdentityClient
+    const { displayName, failed, load } = useDisplayName(client)
+
+    const first = load('host-a') // starts first, resolves SLOWER
+    const second = load('host-b') // starts second, resolves FASTER
+
+    expect(resolvers).toHaveLength(2)
+
+    // The later request (host-b) resolves first.
+    resolvers[1]!({ data: { user: { displayName: 'Grace Hopper' } } })
+    await second
+    expect(displayName.value).toBe('Grace Hopper')
+    expect(failed.value).toBe(false)
+
+    // The earlier, now-stale request (host-a) finally resolves — must be
+    // discarded, not clobber the newer state.
+    resolvers[0]!({ data: { user: { displayName: 'Ada Lovelace' } } })
+    await first
+    expect(displayName.value).toBe('Grace Hopper')
+    expect(failed.value).toBe(false)
+  })
+
+  // Same scenario, opposite order: an earlier request's FAILURE arriving
+  // late must not clobber a newer request's success either.
+  it('discards a stale failure that resolves after a newer request has already succeeded', async () => {
+    const resolvers: Array<(v: unknown) => void> = []
+    const GET = vi.fn(() => new Promise((resolve) => { resolvers.push(resolve) }))
+    const client = { GET, POST: vi.fn() } as unknown as IdentityClient
+    const { displayName, failed, load } = useDisplayName(client)
+
+    const first = load('host-a')
+    const second = load('host-b')
+
+    resolvers[1]!({ data: { user: { displayName: 'Grace Hopper' } } })
+    await second
+    expect(displayName.value).toBe('Grace Hopper')
+
+    resolvers[0]!({ data: undefined, error: { code: 5, message: 'not found' } })
+    await first
+    expect(displayName.value).toBe('Grace Hopper')
+    expect(failed.value).toBe(false)
+  })
+
   it('tracks loading state across the request', async () => {
     let resolveGet: (v: unknown) => void = () => {}
     const client = {

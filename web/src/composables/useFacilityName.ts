@@ -25,13 +25,27 @@ export interface UseFacilityNameResult {
  * and is heavier than a Games/Competitions display panel needs just to
  * show a venue name. `client` injectable for tests (defaults to the real
  * `facilitiesClient`), same pattern as `useFacilityDetail`/`useFacilityList`.
+ * Request-sequencing guard against a stale response, same as
+ * `useDisplayName`.
+ *
+ * KNOWN DUPLICATION (T10.8 PR review, flagged not fixed): see
+ * `useDisplayName`'s identical note — this composable is near-identical in
+ * shape, left as a separate copy rather than a shared generic for now.
  */
 export function useFacilityName(client: FacilitiesClient = facilitiesClient): UseFacilityNameResult {
   const name = ref<string | null>(null)
   const loading = ref(false)
   const failed = ref(false)
 
+  // Request-sequencing guard (T10.8 PR review) — same reasoning as
+  // useDisplayName.ts's identical guard: VenueName.vue is never remounted
+  // when the facility id it resolves changes, so an earlier, slower `load()`
+  // call can resolve AFTER a later, faster one and must not clobber the
+  // newer state. See useDisplayName.ts for the full scenario.
+  let requestId = 0
+
   async function load(facilityId: string): Promise<void> {
+    const thisRequestId = ++requestId
     name.value = null
     failed.value = false
     loading.value = false
@@ -47,15 +61,23 @@ export function useFacilityName(client: FacilitiesClient = facilitiesClient): Us
       const { data, error } = await client.GET('/v1/facilities/{facilityId}', {
         params: { path: { facilityId } },
       })
+      // A newer load() call has started since this one began — discard this
+      // (now stale) response rather than let it overwrite the newer state.
+      if (thisRequestId !== requestId) return
       if (error || !data?.facility?.name) {
         failed.value = true
         return
       }
       name.value = data.facility.name
     } catch {
+      if (thisRequestId !== requestId) return
       failed.value = true
     } finally {
-      loading.value = false
+      // Only the latest request gets to clear `loading` — see
+      // useDisplayName.ts's identical guard for why.
+      if (thisRequestId === requestId) {
+        loading.value = false
+      }
     }
   }
 

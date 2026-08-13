@@ -49,7 +49,13 @@ watch(
 </script>
 
 <template>
-  <span class="display-name" data-testid="display-name">
+  <!-- aria-live (T10.8 PR review): this text changes asynchronously
+       ("Loading…" -> a resolved name or a fallback) with no user action in
+       between, so a screen-reader user needs the same announcement this
+       codebase already gives every other async-resolving label — mirrors
+       GameJoinPanel.vue's guest-count span's identical `aria-live="polite"`
+       usage. -->
+  <span class="display-name" data-testid="display-name" aria-live="polite">
     <template v-if="loading">{{ loadingLabel }}</template>
     <template v-else-if="failed || !displayName">{{ fallback }}</template>
     <template v-else>{{ displayName }}</template>

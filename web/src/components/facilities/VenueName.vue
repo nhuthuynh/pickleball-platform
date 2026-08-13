@@ -53,7 +53,10 @@ watch(
 </script>
 
 <template>
-  <span class="venue-name" data-testid="venue-name">
+  <!-- aria-live (T10.8 PR review): same reasoning as DisplayName.vue's
+       identical addition — this text changes asynchronously with no user
+       action in between, mirroring GameJoinPanel.vue's guest-count span. -->
+  <span class="venue-name" data-testid="venue-name" aria-live="polite">
     <template v-if="!facilityId">{{ emptyLabel }}</template>
     <template v-else-if="loading">{{ loadingLabel }}</template>
     <template v-else-if="failed || !name">{{ failedLabel }}</template>
