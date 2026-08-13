@@ -445,3 +445,106 @@ concurrency claim and T5.4's TOCTOU-invisible unit tests) and the first
 time it has been stated as a general rule — the T9 incident entry directly
 above is a fourth instance of the same family, since its own root cause
 was test fixtures minting IDs the real system could never produce.
+
+## T10 (2026-08-10/13) — verified the working tree, shipped the git index
+
+Incident postmortem for the mechanism behind `docs/process/t10-retro.md`
+finding 1. Full investigation (exact red-branch duration, who built on
+the broken commit, and a second independent instance of the same claim-
+vs-reality mismatch this retro caught by directly re-running the test
+suite against the commit in question) lives in that retro; this entry is
+the reusable mechanism, not a restatement of the sprint-level analysis.
+
+- **Mistake:** during PR #101's (T10.7) merge-conflict resolution against
+  the already-merged PR #102 (T10.6) — both PRs had added a guard clause
+  to the same line of `internal/payments/app.Service.CreateOnlinePayment`
+  — the coordinating session also fixed an unrelated fixture-infidelity
+  bug the merge exposed: T10.6's new competition-entry tests in
+  `internal/payments/app/service_test.go` used non-UUID literals
+  (`"entry-1"`, plus stray `"booking-1"`/`"reg-1"`) that T10.7's new
+  `uuidShape` guard on `PayableID` correctly rejects. The fix was made
+  correctly: the file was edited, `gofmt -w` was run, `make test-domain`
+  was run and came back green, and the fix was reported as verified in
+  the PR's own review. **What didn't happen: the edited file was never
+  `git add`ed again.** Git's own automatic merge resolution had already
+  staged the file with its pre-fix content; the commit went through
+  without re-staging, so the commit that was actually pushed and merged
+  (`306df838`) silently kept the broken, un-fixed content. The
+  `make test-domain` run that passed was real — it read the working tree
+  from disk, which had the fix — but the working tree was never what got
+  committed. Verifying the working tree proved nothing about what shipped.
+  The shared branch was red (`make test-domain` failing, 9 tests in
+  `internal/payments/app`, all `"payments: payable id is required"`) from
+  `306df838`'s merge (2026-08-10T11:02:38Z) until PR #104's fix merged
+  (2026-08-13T08:15:14Z) — **2 days, 21 hours, 12 minutes, 36 seconds**,
+  computed from the two merges' own timestamps, not estimated.
+- **Fix (PR #104):** identical content to the original intended fix, but
+  verified three different ways this time, each closing a different gap
+  the first attempt had: (1) `git diff --cached` — the **staged** diff,
+  not the working tree, confirming the fix was actually part of what
+  would be committed; (2) a full local `make test-domain` run; (3) a
+  completely fresh `git worktree add` off the **pushed remote branch**,
+  independent of any local working-directory state at all — the only one
+  of the three that would have caught the original mistake, since it
+  cannot see anything that wasn't actually committed and pushed.
+- **What the retro's own re-verification found, beyond the incident PR
+  #104 already disclosed:** PR #103 (T10.3) branched from `306df838` —
+  the exact commit that was red — and its own PR body claims
+  `make test-domain` was green "across the entire repo." Checked directly
+  in this retro by checking out `306df838` in an isolated worktree and
+  re-running the domain/app suite: 9 failures, same file, same error
+  string PR #104 already reported for that commit. PR #103's claim does
+  not hold at the commit it says it was checked against. No defect
+  shipped from this second instance (T10.3's own diff never touches the
+  broken code), but it is a second, independent occurrence of the same
+  underlying mistake this entry's title names — a verification claim
+  describing a different state than the one actually checked — caught
+  only because this retro re-ran the test itself instead of trusting
+  either PR's prose.
+- **Lesson.** "Tests pass" is a claim about *some* state; after a
+  merge-conflict resolution that includes a manual edit, the state that
+  matters is the one that gets pushed, which is not automatically the one
+  a plain test run just checked. Two concrete, generalizable checks:
+  (a) after resolving a conflict with a manual edit, run `git diff
+  --cached` (or read the resulting commit directly) before pushing — not
+  just re-run the tests, since a passing test run says nothing about
+  whether the edit that made it pass was actually staged; (b) when
+  auditing a claim that a specific commit was green, check that specific
+  commit — a fresh `git worktree` off the actual pushed ref is the only
+  one of the three verification layers used here that cannot be fooled by
+  stale local state, and it is the cheapest of the three to make
+  mandatory for exactly the situations (merge-conflict resolutions, and
+  audits of another PR's green claim) where the other two have now both
+  independently failed to catch this same mistake once each.
+
+## T10 sprint retro
+
+Held as `docs/process/t10-retro.md`, following the convention T5/T9 set
+(see the `## T5 sprint retro`/`## T9 sprint retro` entries above) and
+CLAUDE.md's **Docs index & naming convention**.
+
+Six findings, two recorded as unresolved disagreements (PE vs. QA on
+whether the three-way "staged diff + local suite + fresh worktree"
+verification from finding 1 becomes a mandatory step or stays a cheap
+`git diff --cached` floor; PdE vs. QA on how far to generalize finding
+4's shared-namespace dispatch-isolation gap beyond migration numbers).
+The widest-reaching adopted changes: **verify the staged/pushed state,
+not the working tree, after any merge-conflict resolution that includes
+a manual edit** (finding 1, full mechanism in the entry directly above);
+**`make test-domain`'s scope excludes `adapter/**` by design, so a
+fixture-infidelity regression living there can survive indefinitely
+unless a full `go test ./...` run happens to hit it** (finding 2, this
+project's third and fourth instance of the fixture-fidelity bug class in
+one sprint alone); **creation RPCs need their own adversarial checklist
+item, distinct from this project's well-worn mutation-on-existing-object
+one**, since a caller-supplied ID that becomes a permanent primary key is
+a new failure shape T10.2's `CreateUser` was the first to expose (finding
+3); and **A7's dispatch-isolation checklist covers file-level overlap but
+not shared numeric-sequence resources like migration numbers**, which
+collided for the second time in this project's history, unpredicted by
+planning both times (finding 4). Finding 6, found while checking finding
+4's "closes #N" claims rather than as an assigned investigation point,
+is a project-wide discovery: no issue has ever actually auto-closed on
+this branch's topology, for any sprint since T5, because GitHub's
+`Closes #N` only fires against the default branch and this project has
+never merged into it.
