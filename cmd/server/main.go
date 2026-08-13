@@ -1,9 +1,11 @@
-// Command server wires the Booking, Social Play, Payments, and Facilities
-// contexts' gRPC services and their grpc-gateway REST mappings into one
-// process, backed by Postgres. It only compiles after `make generate` (see
-// CLAUDE.md gotchas) since it depends on internal/gen/pickleball/booking/v1,
-// internal/gen/pickleball/socialplay/v1, internal/gen/pickleball/
-// payments/v1, and internal/gen/pickleball/facilities/v1.
+// Command server wires the Booking, Social Play, Payments, Facilities,
+// Competitions, and Identity/Users contexts' gRPC services and their
+// grpc-gateway REST mappings into one process, backed by Postgres. It only
+// compiles after `make generate` (see CLAUDE.md gotchas) since it depends on
+// internal/gen/pickleball/booking/v1, internal/gen/pickleball/socialplay/v1,
+// internal/gen/pickleball/payments/v1, internal/gen/pickleball/facilities/v1,
+// internal/gen/pickleball/competitions/v1, and
+// internal/gen/pickleball/identity/v1 (T10.2).
 //
 // Payments' RegistrationUpdater dependency (socialplayport.
 // RegistrationPaymentUpdater, satisfied by internal/payments/adapter/
@@ -47,8 +49,12 @@ import (
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
 	competitionsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/competitions/v1"
 	facilitiesv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/facilities/v1"
+	identityv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/identity/v1"
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
+	identitygrpc "github.com/nhuthuynh/white-label/internal/identity/adapter/grpcapi"
+	identitypg "github.com/nhuthuynh/white-label/internal/identity/adapter/postgres"
+	identityapp "github.com/nhuthuynh/white-label/internal/identity/app"
 	paymentscompetitions "github.com/nhuthuynh/white-label/internal/payments/adapter/competitions"
 	paymentsgrpc "github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
 	paymentspg "github.com/nhuthuynh/white-label/internal/payments/adapter/postgres"
@@ -101,6 +107,16 @@ func run(logger *slog.Logger) error {
 	facilitiesRepo := facilitiespg.NewRepository(pool)
 	facilitiesSvc := facilitiesapp.NewService(facilitiesRepo, idgen.UUID{})
 	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
+
+	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
+	// other contexts'; unlike every other context here it takes no
+	// port.IDGenerator — a User's id is the caller-claimed actor_user_id
+	// itself, not server-generated (see identityapp.CreateUserInput's doc
+	// comment). No cross-context dependency yet (T10.5/T10.8 are the future
+	// consumers of GetUser via a port, not this ticket).
+	identityRepo := identitypg.NewRepository(pool)
+	identitySvc := identityapp.NewService(identityRepo)
+	identityHandler := identitygrpc.NewHandler(identitySvc)
 
 	// Social Play (T5.4): its GameRepository/RegistrationRepository are
 	// Postgres-backed like Booking's; its CourtReservation port is
@@ -199,6 +215,7 @@ func run(logger *slog.Logger) error {
 	paymentsv1.RegisterPaymentsServiceServer(grpcServer, paymentsHandler)
 	facilitiesv1.RegisterFacilitiesServiceServer(grpcServer, facilitiesHandler)
 	competitionsv1.RegisterCompetitionsServiceServer(grpcServer, competitionsHandler)
+	identityv1.RegisterIdentityServiceServer(grpcServer, identityHandler)
 
 	lis, err := net.Listen("tcp", grpcAddr)
 	if err != nil {
@@ -227,6 +244,9 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 	if err := competitionsv1.RegisterCompetitionsServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
+		return err
+	}
+	if err := identityv1.RegisterIdentityServiceHandlerFromEndpoint(ctx, mux, grpcAddr, dialOpts); err != nil {
 		return err
 	}
 

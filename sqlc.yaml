@@ -75,3 +75,18 @@ sql:
         sql_package: "pgx/v5"
         emit_json_tags: true
         emit_interface: true
+  # Identity/Users context (identity_users), T10.2. Its own generated
+  # package (identitydb) mirrors bookingdb's shape but stays a separate Go
+  # package, keeping the context boundary visible in generated code too —
+  # every other context here does the same.
+  - engine: "postgresql"
+    queries:
+      - "db/queries/identity.sql"
+    schema: "db/migrations"
+    gen:
+      go:
+        package: "identitydb"
+        out: "internal/gen/identitydb"
+        sql_package: "pgx/v5"
+        emit_json_tags: true
+        emit_interface: true

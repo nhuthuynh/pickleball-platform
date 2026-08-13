@@ -1,0 +1,209 @@
+// T10.2 — object-level authorization regression test for
+// UpdateSelfReportedLevel, run through the real gRPC handler (not just the
+// domain-level unit tests internal/identity/domain/ensure_self_test.go and
+// the app-level test internal/identity/app/service_test.go already have).
+// This is the "does the guarantee survive the full stack" test T5.5 (Social
+// Play), T6.7 (Payments), and T7.7 (Facilities) already established this
+// pattern for.
+//
+// This is a handler-level test (real grpcapi.Handler + real app.Service +
+// real domain, with an in-memory fake standing in for
+// internal/identity/adapter/postgres) rather than a `-tags=integration`
+// testcontainers-go test, for the identical two reasons T7.7's
+// authz_regression_test.go documents: (1) the check under test lives
+// entirely in domain.User.EnsureSelf/UpdateSelfReportedLevel, which
+// port.Repository doesn't influence, so a real Postgres round trip would
+// add infrastructure, not proof; (2) this environment has no Docker daemon
+// reachable.
+//
+// Verified per CLAUDE.md rule 10 / T7.7's own verification pattern:
+// temporarily commented out the EnsureSelf call inside
+// domain.User.UpdateSelfReportedLevel (internal/identity/domain/user.go),
+// confirmed TestUpdateSelfReportedLevel_RejectsMismatchedActor below FAILED
+// (the attacker's call succeeded and the level flipped to the attacker's
+// requested value), then restored the check and confirmed the test PASSES
+// again. Stated in the PR description per the ticket's own instruction.
+package grpcapi_test
+
+import (
+	"context"
+	"testing"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
+	"github.com/nhuthuynh/white-label/internal/identity/adapter/grpcapi"
+	"github.com/nhuthuynh/white-label/internal/identity/app"
+	"github.com/nhuthuynh/white-label/internal/identity/domain"
+
+	identityv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/identity/v1"
+)
+
+// --- in-memory port.Repository fake -----------------------------------
+//
+// Stands in for internal/identity/adapter/postgres for this test only.
+// Implements the exact same port.Repository interface the real Postgres
+// adapter does, so app.Service and grpcapi.Handler run unmodified, real
+// production code — only the persistence boundary is faked. Mirrors
+// internal/facilities/adapter/grpcapi/authz_regression_test.go's fakeRepo.
+type fakeRepo struct {
+	users map[string]domain.User
+}
+
+func newFakeRepo() *fakeRepo {
+	return &fakeRepo{users: make(map[string]domain.User)}
+}
+
+func (r *fakeRepo) Create(_ context.Context, u domain.User) (domain.User, error) {
+	if _, exists := r.users[u.ID]; exists {
+		return domain.User{}, domain.ErrUserAlreadyExists
+	}
+	r.users[u.ID] = u
+	return u, nil
+}
+
+func (r *fakeRepo) GetByID(_ context.Context, id string) (domain.User, error) {
+	u, ok := r.users[id]
+	if !ok {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+	return u, nil
+}
+
+func (r *fakeRepo) UpdateSelfReportedLevel(_ context.Context, id string, level domain.SelfReportedStartingLevel) (domain.User, error) {
+	u, ok := r.users[id]
+	if !ok {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+	u.SelfReportedStartingLevel = level
+	r.users[id] = u
+	return u, nil
+}
+
+// newTestHandler wires the real app.Service and the real grpcapi.Handler —
+// exactly what cmd/server wires in production — against the in-memory
+// fakeRepo above.
+func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
+	repo := newFakeRepo()
+	svc := app.NewService(repo)
+	return grpcapi.NewHandler(svc), repo
+}
+
+// seedUser is a fixed, valid, UUID-shaped id — CreateUser's id is
+// caller-claimed (app.CreateUserInput's doc comment), so this test seeds
+// one deterministically rather than minting one from a port.IDGenerator
+// fake the way internal/facilities/adapter/grpcapi's authz_regression_test.go
+// does (Identity has no such port — see internal/identity/port's absence of
+// an idgenerator.go, a deliberate difference from every other context).
+func seedUser(t *testing.T, h *grpcapi.Handler, id string) *identityv1.User {
+	t.Helper()
+	resp, err := h.CreateUser(context.Background(), &identityv1.CreateUserRequest{
+		ActorUserId:               id,
+		DisplayName:               "Ada Lovelace",
+		Roles:                     []identityv1.Role{identityv1.Role_ROLE_PLAYER},
+		SelfReportedStartingLevel: 3,
+	})
+	if err != nil {
+		t.Fatalf("failed to seed fixture user: %v", err)
+	}
+	return resp.GetUser()
+}
+
+const fixtureUserID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+// --- UpdateSelfReportedLevel: object-level (BOLA) regression --------------
+
+// TestUpdateSelfReportedLevel_RejectsMismatchedActor is the ticket's
+// required test: create a User, then attempt UpdateSelfReportedLevel as a
+// different actor_user_id, through the real handler -> app -> domain path,
+// and assert the request is rejected with the correctly mapped status —
+// not a 500, not a silent success.
+func TestUpdateSelfReportedLevel_RejectsMismatchedActor(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHandler()
+
+	user := seedUser(t, h, fixtureUserID)
+
+	// The BOLA attempt: "attacker", a different actor_user_id than the
+	// User's own id, tries to update that User's self-reported level.
+	_, err := h.UpdateSelfReportedLevel(ctx, &identityv1.UpdateSelfReportedLevelRequest{
+		UserId:                    user.GetId(),
+		ActorUserId:               "attacker",
+		SelfReportedStartingLevel: 5,
+	})
+	if err == nil {
+		t.Fatal("UpdateSelfReportedLevel(attacker) succeeded silently — a non-self actor was able to update another User's self-reported level (BOLA regression)")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("UpdateSelfReportedLevel(attacker) returned a non-gRPC-status error: %v (a client can't map this to a clean HTTP status)", err)
+	}
+	if st.Code() == codes.Internal {
+		t.Fatalf("UpdateSelfReportedLevel(attacker) mapped to Internal (500-shaped) — want PermissionDenied (403-shaped): %v", err)
+	}
+	if st.Code() != codes.PermissionDenied {
+		t.Fatalf("UpdateSelfReportedLevel(attacker) status code = %v, want PermissionDenied (403-shaped)", st.Code())
+	}
+
+	// Belt-and-braces, per the ticket's "not a silent success": prove the
+	// level was never changed, not just that an error came back on the
+	// wire.
+	if repo.users[user.GetId()].SelfReportedStartingLevel != 3 {
+		t.Errorf("SelfReportedStartingLevel = %d after a rejected UpdateSelfReportedLevel, want unchanged 3 (the attacker's rejected attempt must not have any side effect)", repo.users[user.GetId()].SelfReportedStartingLevel)
+	}
+}
+
+// TestUpdateSelfReportedLevel_AllowsOwningActor is the symmetric
+// positive-path case: without it, TestUpdateSelfReportedLevel_
+// RejectsMismatchedActor alone couldn't tell "the self check correctly
+// rejects a mismatched actor" apart from "UpdateSelfReportedLevel is broken
+// and rejects everyone" — this pins down that the real owning User's own
+// call still succeeds through the same handler path.
+func TestUpdateSelfReportedLevel_AllowsOwningActor(t *testing.T) {
+	ctx := context.Background()
+	h, repo := newTestHandler()
+
+	user := seedUser(t, h, fixtureUserID)
+
+	resp, err := h.UpdateSelfReportedLevel(ctx, &identityv1.UpdateSelfReportedLevelRequest{
+		UserId:                    user.GetId(),
+		ActorUserId:               user.GetId(),
+		SelfReportedStartingLevel: 5,
+	})
+	if err != nil {
+		t.Fatalf("UpdateSelfReportedLevel(self) (the owning actor) should succeed, got: %v", err)
+	}
+	if resp.GetUser().GetSelfReportedStartingLevel() != 5 {
+		t.Errorf("SelfReportedStartingLevel = %d, want 5", resp.GetUser().GetSelfReportedStartingLevel())
+	}
+	if repo.users[user.GetId()].SelfReportedStartingLevel != 5 {
+		t.Errorf("repo SelfReportedStartingLevel = %d, want 5 after the owning actor's successful update", repo.users[user.GetId()].SelfReportedStartingLevel)
+	}
+}
+
+// --- GetUser: malformed-ID boundary guard, through the real handler ------
+
+// TestGetUser_MalformedIDIsMappedNotFound is the handler-level companion to
+// internal/identity/app/malformed_id_test.go's app-level proof: through the
+// real handler, a malformed id maps to the NotFound gRPC status (-> HTTP
+// 404 via grpc-gateway), not Internal (-> HTTP 500).
+func TestGetUser_MalformedIDIsMappedNotFound(t *testing.T) {
+	ctx := context.Background()
+	h, _ := newTestHandler()
+
+	_, err := h.GetUser(ctx, &identityv1.GetUserRequest{UserId: "not-a-uuid"})
+	if err == nil {
+		t.Fatal("GetUser(not-a-uuid) succeeded, want a NotFound error")
+	}
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("GetUser(not-a-uuid) returned a non-gRPC-status error: %v", err)
+	}
+	if st.Code() == codes.Internal {
+		t.Fatalf("GetUser(not-a-uuid) mapped to Internal (500-shaped) — want NotFound (404-shaped): %v", err)
+	}
+	if st.Code() != codes.NotFound {
+		t.Fatalf("GetUser(not-a-uuid) status code = %v, want NotFound", st.Code())
+	}
+}

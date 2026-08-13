@@ -14,4 +14,45 @@ var (
 	ErrEmptyRoles                       = errors.New("identity: at least one role is required")
 	ErrInvalidRole                      = errors.New("identity: invalid role")
 	ErrInvalidSelfReportedStartingLevel = errors.New("identity: self-reported starting level must be between 1 and 5")
+
+	// ErrUserNotFound is returned when a User lookup by ID has no match.
+	// Added in T10.2 (postgres/grpc wiring) alongside the persistence
+	// adapter, mirroring facilities.ErrFacilityNotFound — CLAUDE.md rule 5
+	// requires adapters to translate infra errors (e.g. a Postgres
+	// pgx.ErrNoRows) into a domain sentinel like this one, not let the raw
+	// infra error cross into app/grpcapi. Also the answer the app layer's
+	// malformed-ID boundary guard gives for a caller-supplied ID that never
+	// reaches the repository at all (T10.2 item 4, mirrors
+	// facilities.app's uuidShape guard) — a malformed ID and an
+	// unknown-but-well-formed one must be indistinguishable to the caller.
+	ErrUserNotFound = errors.New("identity: user not found")
+
+	// ErrNotSelf is T10.2's object-level (BOLA) authorization sentinel:
+	// returned by User.EnsureSelf when a caller-supplied actor_user_id does
+	// not match the target User's own ID. Mirrors
+	// internal/facilities/domain.ErrNotFacilityOwner (T7.7) and
+	// internal/socialplay/domain.ErrNotRegistrationOwner (T5.2/T5.5): a
+	// distinct sentinel (not a generic "unauthorized" string) so
+	// grpcapi.toStatus can map it to codes.PermissionDenied (-> HTTP 403)
+	// rather than a 500, and so a mismatched actor is distinguishable by
+	// type from any other rejection. As with those two precedents, this
+	// only proves the *object-level* check given a claimed actor_user_id —
+	// it is not itself authentication; see HANDOFF.md's Auth cross-cutting
+	// item.
+	ErrNotSelf = errors.New("identity: actor is not authorized to modify this user")
+
+	// ErrUserAlreadyExists is returned when Create is called with an ID
+	// that already belongs to another User. Unlike every other aggregate in
+	// this codebase (Facility, Court, Booking, Payment — all server-generate
+	// their ID via a port.IDGenerator, so an ID collision on Create is
+	// unreachable in practice), a User's ID is the caller-claimed
+	// actor_user_id itself (see CreateUserRequest's doc comment in
+	// proto/pickleball/identity/v1/identity.proto for why): Identity is the
+	// bounded context that represents the concept of a caller's own claimed
+	// identity, so there is no separate context to generate one on the
+	// caller's behalf, and a second CreateUser call for the same
+	// actor_user_id is a real, reachable case this sentinel exists to
+	// answer honestly (-> codes.AlreadyExists via grpcapi.toStatus) rather
+	// than surface as a raw Postgres unique-violation.
+	ErrUserAlreadyExists = errors.New("identity: user already exists")
 )

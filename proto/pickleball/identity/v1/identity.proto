@@ -1,0 +1,134 @@
+syntax = "proto3";
+
+package pickleball.identity.v1;
+
+import "google/api/annotations.proto";
+
+option go_package = "github.com/nhuthuynh/white-label/internal/gen/pickleball/identity/v1;identityv1";
+
+// Role mirrors internal/identity/domain.Role (T10.1) — a closed enum, per
+// docs/agent-operating-handbook.md A1's Identity/Users bounded-context
+// summary. A single User can hold more than one Role at once (e.g. a Host
+// who is also a Player) — see User.roles below, a repeated field, not a
+// single value.
+enum Role {
+  ROLE_UNSPECIFIED = 0;
+  ROLE_PLAYER = 1;
+  ROLE_HOST_ORGANISER = 2;
+  ROLE_GAME_ADMIN = 3;
+  ROLE_FACILITY_OWNER = 4;
+  ROLE_CLUB = 5;
+  ROLE_PLATFORM_ADMIN = 6;
+}
+
+// User mirrors internal/identity/domain.User (T10.1).
+//
+// Explicitly not built here, per ADR-0012
+// (docs/adr/0012-identity-users-and-match-built-rating-and-matching-algorithm-blocked-on-escalated-decisions.md):
+// no player_rating field, no derived level, no gender field, no
+// matching-mode flag. self_reported_starting_level below is the raw
+// self-reported input the locked CLAUDE.md decision specifies for
+// cold-start seeding ("new players seeded by a self-reported starting
+// level") — it is NOT an answer to ADR-0012's still-open Q1 (the
+// tenure+win-rate-weighted, history-derived Level formula); see domain.
+// User's doc comment for the full reasoning this message deliberately does
+// not restate.
+message User {
+  string id = 1;
+  string display_name = 2;
+  repeated Role roles = 3;
+  // self_reported_starting_level is a 1..5 self-assessment scale
+  // (domain.SelfReportedStartingLevel) — see this message's doc comment.
+  int32 self_reported_starting_level = 4;
+}
+
+// CreateUserRequest's actor_user_id is not a separate claimed-owner field
+// checked against some pre-existing object the way AddCourtRequest.
+// actor_user_id (proto/pickleball/facilities/v1/facilities.proto) is
+// checked against a Facility's own owner_id, or RecordOfflinePaymentRequest.
+// actor_user_id is checked against a Booking's/Game's own host — those
+// checks all presuppose an object that already exists. CreateUser has none:
+// Identity/Users is the first entity in this codebase that represents the
+// concept of a caller's own claimed identity, so there is no separate
+// context to mint an id on the caller's behalf. actor_user_id here BECOMES
+// the created User's own id (app.CreateUserInput's doc comment,
+// internal/identity/app/service.go) — the caller is claiming to create
+// their own identity, and the claim IS the id. As with every other
+// actor_user_id field in this codebase, this is a caller-supplied claim,
+// not a verified identity — there is no JWT/Auth0 layer yet (HANDOFF.md's
+// Auth cross-cutting item); this ticket does not re-litigate that gap.
+//
+// A malformed (non-empty, non-UUID-shaped) actor_user_id and an empty one
+// are both rejected the same way (InvalidArgument) — see
+// app.Service.CreateUser's doc comment. A well-formed actor_user_id that
+// collides with an existing User's id is rejected too (AlreadyExists) —
+// see domain.ErrUserAlreadyExists's doc comment for why this is a real,
+// reachable case here unlike every other server-generated-id aggregate in
+// this codebase.
+message CreateUserRequest {
+  string actor_user_id = 1;
+  string display_name = 2;
+  repeated Role roles = 3;
+  int32 self_reported_starting_level = 4;
+}
+
+message CreateUserResponse {
+  User user = 1;
+}
+
+// GetUserRequest.user_id is a public, unauthenticated read — a malformed id
+// and an unknown-but-well-formed one must be indistinguishable to the
+// caller (NotFound for both), the same convention every other read RPC in
+// this codebase's malformed-ID boundary guard establishes (see
+// app.Service.GetUser's doc comment, PR #89's postmortem in
+// docs/LESSONS.md).
+message GetUserRequest {
+  string user_id = 1;
+}
+
+message GetUserResponse {
+  User user = 1;
+}
+
+// UpdateSelfReportedLevelRequest requires actor_user_id == the target
+// user_id exactly (domain.User.EnsureSelf, T10.2) — only a User may update
+// their own self-reported level, nobody else's. A mismatch is rejected with
+// a mapped, non-500 status (PermissionDenied), not a silent success. As
+// with CreateUserRequest.actor_user_id, this is a caller-supplied claim,
+// not a verified identity (see that field's doc comment for the same
+// caveat, not re-litigated here).
+message UpdateSelfReportedLevelRequest {
+  string user_id = 1;
+  string actor_user_id = 2;
+  int32 self_reported_starting_level = 3;
+}
+
+message UpdateSelfReportedLevelResponse {
+  User user = 1;
+}
+
+// IdentityService is the API contract for the Identity/Users bounded
+// context, mirroring FacilitiesService's/BookingService's style
+// (proto/pickleball/facilities/v1, proto/pickleball/booking/v1) — buf
+// generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this file.
+service IdentityService {
+  rpc CreateUser(CreateUserRequest) returns (CreateUserResponse) {
+    option (google.api.http) = {
+      post: "/v1/users"
+      body: "*"
+    };
+  }
+
+  rpc GetUser(GetUserRequest) returns (GetUserResponse) {
+    option (google.api.http) = {
+      get: "/v1/users/{user_id}"
+    };
+  }
+
+  rpc UpdateSelfReportedLevel(UpdateSelfReportedLevelRequest) returns (UpdateSelfReportedLevelResponse) {
+    option (google.api.http) = {
+      post: "/v1/users/{user_id}/selfReportedLevel"
+      body: "*"
+    };
+  }
+}
