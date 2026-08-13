@@ -55,6 +55,22 @@ import (
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 )
 
+// fixtureBookingID/fixtureRegistrationID/fixtureCompetitionEntryID are
+// deterministic, UUID-shaped PayableId fixtures shared by every test in this
+// package (grpcapi_test) — including competition_entry_authz_regression_test.go.
+// They used to be the literals "booking-1"/"reg-1"/"entry-1", a shape
+// internal/platform/idgen never produces and T10.7's uuidShape guard on
+// CreateOnlinePayment/RecordOfflinePayment correctly rejects (the same
+// fixture-infidelity class docs/LESSONS.md's T9 entry already documents,
+// and the identical fix already applied once in
+// internal/payments/app/service_test.go — this package's own test fixtures
+// were a separate, undiscovered instance of the same bug).
+const (
+	fixtureBookingID          = "6ba7b810-0000-4000-8000-000000000001"
+	fixtureRegistrationID     = "6ba7b810-0000-4000-8000-000000000002"
+	fixtureCompetitionEntryID = "6ba7b810-0000-4000-8000-000000000003"
+)
+
 // --- in-memory port.Repository fake -----------------------------------
 //
 // Stands in for internal/payments/adapter/postgres for this test only.
@@ -155,10 +171,10 @@ func TestRecordOfflinePayment_RegistrationPayable_RejectsMismatchedActor(t *test
 	h, repo := newTestHandler("pay-1")
 
 	// The BOLA attempt: "random-player", neither game-1's Host nor one of
-	// its assigned Game Admins, tries to record a Payment against reg-1.
+	// its assigned Game Admins, tries to record a Payment against fixtureRegistrationID.
 	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:              paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
-		PayableId:                "reg-1",
+		PayableId:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
 		ActorUserId:              "random-player",
 		GameHostId:               "host-1",
@@ -199,7 +215,7 @@ func TestRecordOfflinePayment_RegistrationPayable_AllowsGameHost(t *testing.T) {
 
 	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
-		PayableId:   "reg-1",
+		PayableId:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserId: "host-1",
 		GameHostId:  "host-1",
@@ -226,7 +242,7 @@ func TestRecordOfflinePayment_RegistrationPayable_AllowsAssignedGameAdmin(t *tes
 
 	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:              paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
-		PayableId:                "reg-1",
+		PayableId:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
 		ActorUserId:              "admin-2",
 		GameHostId:               "host-1",
@@ -252,17 +268,17 @@ func TestRecordOfflinePayment_BookingPayable_RejectsMismatchedActor(t *testing.T
 	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
-	// The BOLA attempt: "some-other-player", not booking-1's owning Host,
+	// The BOLA attempt: "some-other-player", not fixtureBookingID's owning Host,
 	// tries to record a Payment against it.
 	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
-		PayableId:     "booking-1",
+		PayableId:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
 		ActorUserId:   "some-other-player",
 		BookingHostId: "host-1",
 	})
 	if err == nil {
-		t.Fatal("RecordOfflinePayment(some-other-player) succeeded silently — a non-Host was able to record a payment against booking-1 (BOLA regression)")
+		t.Fatal("RecordOfflinePayment(some-other-player) succeeded silently — a non-Host was able to record a payment against fixtureBookingID (BOLA regression)")
 	}
 
 	st, ok := status.FromError(err)
@@ -290,7 +306,7 @@ func TestRecordOfflinePayment_BookingPayable_AllowsOwningHost(t *testing.T) {
 
 	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
-		PayableId:     "booking-1",
+		PayableId:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
 		ActorUserId:   "host-1",
 		BookingHostId: "host-1",
@@ -319,7 +335,7 @@ func TestRecordOfflinePayment_RejectionNotConflatedWithOtherErrors(t *testing.T)
 
 	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
-		PayableId:     "booking-1",
+		PayableId:     fixtureBookingID,
 		Amount:        &paymentsv1.Money{AmountCents: 0, CurrencyCode: "USD"}, // invalid amount
 		ActorUserId:   "host-1",
 		BookingHostId: "host-1",
