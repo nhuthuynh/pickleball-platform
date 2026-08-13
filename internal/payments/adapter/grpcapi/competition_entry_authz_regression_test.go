@@ -64,12 +64,12 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *
 	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
-	// The BOLA attempt: "random-player", neither entry-1's entrant nor one
+	// The BOLA attempt: "random-player", neither fixtureCompetitionEntryID's entrant nor one
 	// of its assigned Competition Admins, tries to record a Payment against
 	// it.
 	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:                       "entry-1",
+		PayableId:                       fixtureCompetitionEntryID,
 		Amount:                          competitionEntryFixtureAmount(),
 		ActorUserId:                     "random-player",
 		EntrantPlayerId:                 "player-1",
@@ -106,7 +106,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T
 
 	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:       "entry-1",
+		PayableId:       fixtureCompetitionEntryID,
 		Amount:          competitionEntryFixtureAmount(),
 		ActorUserId:     "player-1",
 		EntrantPlayerId: "player-1",
@@ -132,7 +132,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsAssignedCompetitionA
 
 	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:                       "entry-1",
+		PayableId:                       fixtureCompetitionEntryID,
 		Amount:                          competitionEntryFixtureAmount(),
 		ActorUserId:                     "admin-2",
 		EntrantPlayerId:                 "player-1",
@@ -166,7 +166,7 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *t
 
 	_, err := h.CreateOnlinePayment(ctx, &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:                       "entry-1",
+		PayableId:                       fixtureCompetitionEntryID,
 		Amount:                          competitionEntryFixtureAmount(),
 		ActorUserId:                     "random-player",
 		EntrantPlayerId:                 "player-1",
@@ -201,7 +201,7 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T)
 
 	resp, err := h.CreateOnlinePayment(ctx, &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType:     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:       "entry-1",
+		PayableId:       fixtureCompetitionEntryID,
 		Amount:          competitionEntryFixtureAmount(),
 		ActorUserId:     "player-1",
 		EntrantPlayerId: "player-1",
@@ -228,7 +228,7 @@ func TestCreateOnlinePayment_BookingPayable_StillNeedsNoActor(t *testing.T) {
 
 	if _, err := h.CreateOnlinePayment(ctx, &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
-		PayableId:   "booking-1",
+		PayableId:   fixtureBookingID,
 		Amount:      competitionEntryFixtureAmount(),
 	}); err != nil {
 		t.Fatalf("CreateOnlinePayment for a booking payable with no actor fields should still succeed (unaffected by T10.6), got: %v", err)
