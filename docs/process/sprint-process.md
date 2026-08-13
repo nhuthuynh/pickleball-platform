@@ -65,9 +65,18 @@ gets:
   `docs/roles/product-owner.md`'s estimation section — relative sizing, not
   time-boxed.
 - **GitHub link**: the ticket *is* the GitHub issue; once work starts, the
-  issue is linked to its branch and PR (GitHub does this automatically via
-  "Closes #N" in the PR body, or manual linking if the PR doesn't close the
-  issue outright).
+  issue is linked to its branch and PR. **Closing is always a manual step
+  on this project, never automatic**: GitHub's `Closes #N` auto-close only
+  fires for a PR merged into the repository's **default branch** (`main`),
+  and every PR in this project's history merges into
+  `claude/go-backend-pickleball-7up34j` instead — a different branch, not
+  the default one. That means the auto-close mechanism structurally cannot
+  fire here, regardless of PR body wording, and it silently never had for
+  any ticket from T5 through T10 until this was caught and fixed
+  retroactively (see issue #111 / T11.8, `docs/process/t11-sprint-plan.md`,
+  and `docs/process/t10-retro.md` finding 6). The merging party (or a
+  follow-up chore ticket) must close the issue explicitly after merge —
+  see the Execution section's DoD step 5 for exactly how.
 - **Labels**: `sprint:t<N>`, `role:<primary-owner-role>`,
   `type:story|bug|chore|spike`, `points:<n>`.
 
@@ -111,7 +120,16 @@ A ticket is only "done" when:
    on the *reviewing* agent: lead with a bolded recommended verdict and
    put any blocking finding where it can't be missed, since the verdict
    line may be the only part read before the merge decision.
-5. The GitHub issue is linked to the merged PR and closed.
+5. **The GitHub issue is closed, via an explicit manual step, after the
+   PR merges.** This does not happen automatically (see Ceremony 1's
+   GitHub-link bullet for why) — the merging party (or a designated
+   follow-up chore, as T11.8 was for the T5–T10 backlog) must call the
+   GitHub issue-write API directly: `state: closed`,
+   `state_reason: completed`, plus a comment naming the merged PR(s) that
+   implemented the ticket, so the close is traceable without relying on
+   the (non-functional) auto-link. Writing "Closes #N" in the PR body is
+   still good practice for human/PR-review legibility, but it is not
+   sufficient by itself and must not be treated as satisfying this step.
 
 ## Ceremony 3 — Sprint retro (end of sprint)
 
