@@ -92,7 +92,7 @@ func NewDiscountRule(id, facilityID string, discountType DiscountType, amount Di
 			return DiscountRule{}, ErrInvalidDiscountAmount
 		}
 	case DiscountTypeFixedAmount:
-		if !amount.Fixed.IsPositive() {
+		if amount.Fixed.Cents <= 0 {
 			return DiscountRule{}, ErrInvalidDiscountAmount
 		}
 	}

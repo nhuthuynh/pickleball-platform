@@ -14,11 +14,7 @@ func validPercentAmount() domain.DiscountAmount {
 
 func validFixedAmount(t *testing.T) domain.DiscountAmount {
 	t.Helper()
-	m, err := domain.NewMoney(500, "USD")
-	if err != nil {
-		t.Fatalf("bad fixture money: %v", err)
-	}
-	return domain.DiscountAmount{Fixed: m}
+	return domain.DiscountAmount{Fixed: domain.Money{Cents: 500, Currency: "USD"}}
 }
 
 // TestNewDiscountRule_Validation exercises every distinct sentinel error the
@@ -134,7 +130,7 @@ func TestNewDiscountRule_Validation(t *testing.T) {
 			name:         "negative fixed amount is rejected",
 			facilityID:   "facility-1",
 			discountType: domain.DiscountTypeFixedAmount,
-			amount:       domain.DiscountAmount{Fixed: domain.Money{AmountCents: -100, CurrencyCode: "USD"}},
+			amount:       domain.DiscountAmount{Fixed: domain.Money{Cents: -100, Currency: "USD"}},
 			appliesTo:    []domain.Source{domain.SourceIndividual},
 			startsAt:     starts,
 			endCondition: domain.NoEnd(),
