@@ -3,6 +3,8 @@ import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import DiscoverGames from '../DiscoverGames.vue'
 import type { SocialPlayClient } from '../../../api/socialplayClient'
+import type { IdentityClient } from '../../../api/identityClient'
+import type { FacilitiesClient } from '../../../api/facilitiesClient'
 
 /** Mirrors DiscoverFacilities.spec.ts's identical fixed-viewport-width
  * matchMedia stand-in. */
@@ -45,10 +47,31 @@ function fakeClient(list?: (...args: unknown[]) => unknown): SocialPlayClient {
   return { GET, POST: vi.fn() } as unknown as SocialPlayClient
 }
 
+/** T10.8 (closes #98): DiscoverGames forwards these to GameDetailPanel so
+ * its Host/Facility name joins resolve without a real network call. */
+function fakeIdentityClient(): IdentityClient {
+  return {
+    GET: vi.fn(async () => ({ data: { user: { displayName: 'Ada Lovelace' } } })),
+    POST: vi.fn(),
+  } as unknown as IdentityClient
+}
+
+function fakeFacilitiesClient(): FacilitiesClient {
+  return {
+    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    POST: vi.fn(),
+  } as unknown as FacilitiesClient
+}
+
 describe('DiscoverGames', () => {
   it('shows the loading state, then the list, on mount', async () => {
     const client = fakeClient(async () => ({ data: { games: [GAME_LISTING] }, error: undefined }))
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(1024) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      } })
 
     await nextTick()
     expect(wrapper.text()).toContain('Loading games')
@@ -60,7 +83,12 @@ describe('DiscoverGames', () => {
 
   it('shows the empty state when there are no games yet', async () => {
     const client = fakeClient(async () => ({ data: { games: [] }, error: undefined }))
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(1024) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      } })
     await flushPromises()
 
     expect(wrapper.text()).toContain('No games yet')
@@ -70,7 +98,12 @@ describe('DiscoverGames', () => {
     const client = fakeClient(async () => {
       throw new TypeError('Failed to fetch')
     })
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(1024) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      } })
     await flushPromises()
 
     expect(wrapper.find('[role="alert"]').exists()).toBe(true)
@@ -78,20 +111,31 @@ describe('DiscoverGames', () => {
 
   it('shows game details (derived from the already-fetched list, no second fetch) when a game is selected', async () => {
     const client = fakeClient(async () => ({ data: { games: [GAME_LISTING] }, error: undefined }))
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(1024) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      } })
     await flushPromises()
 
     await wrapper.find('.game-list__item').trigger('click')
     await flushPromises()
 
-    expect(wrapper.text()).toContain('host-1')
-    expect(wrapper.text()).toContain('facility-1')
+    // T10.8 (closes #98): the resolved Host/venue names, not the raw ids.
+    expect(wrapper.text()).toContain('Ada Lovelace')
+    expect(wrapper.text()).toContain('Riverside Courts')
     expect(client.GET).toHaveBeenCalledTimes(1)
   })
 
   it('on iPhone, does not render the detail panel until a game is selected', async () => {
     const client = fakeClient(async () => ({ data: { games: [GAME_LISTING] }, error: undefined }))
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(375) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(375),
+      } })
     await flushPromises()
 
     expect(wrapper.find('.game-detail').exists()).toBe(false)
@@ -104,7 +148,12 @@ describe('DiscoverGames', () => {
 
   it('on iPad/web, renders the detail panel with a placeholder before any selection', async () => {
     const client = fakeClient(async () => ({ data: { games: [] }, error: undefined }))
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(1024) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      } })
     await flushPromises()
 
     expect(wrapper.find('.game-detail').exists()).toBe(true)
@@ -113,7 +162,12 @@ describe('DiscoverGames', () => {
 
   it('exposes the resolved breakpoint on the root element for responsive styling', async () => {
     const client = fakeClient()
-    const wrapper = mount(DiscoverGames, { props: { client, win: matchMediaForWidth(1024) } })
+    const wrapper = mount(DiscoverGames, { props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      } })
     await flushPromises()
 
     expect(wrapper.get('.discover-games').attributes('data-breakpoint')).toBe('ipad')

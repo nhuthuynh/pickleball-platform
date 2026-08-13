@@ -3,6 +3,8 @@ import { nextTick } from 'vue'
 import { mount, flushPromises, RouterLinkStub } from '@vue/test-utils'
 import CompetitionLanding from '../CompetitionLanding.vue'
 import type { CompetitionsClient } from '../../api/competitionsClient'
+import type { IdentityClient } from '../../api/identityClient'
+import type { FacilitiesClient } from '../../api/facilitiesClient'
 
 const COMPETITION = {
   id: 'c1',
@@ -37,9 +39,27 @@ function fakeClient(handlers: { byToken?: () => unknown; list?: () => unknown } 
   return { GET, POST: vi.fn() } as unknown as CompetitionsClient
 }
 
+/** T10.8 (closes #98): this landing is the audience the ticket's story
+ * names directly — "a stranger arriving from a social link with no other
+ * context" — so it forwards these to CompetitionDetailPanel too. Fakes
+ * here keep the test suite from making a real network call. */
+function fakeIdentityClient(): IdentityClient {
+  return {
+    GET: vi.fn(async () => ({ data: { user: { displayName: 'Ada Lovelace' } } })),
+    POST: vi.fn(),
+  } as unknown as IdentityClient
+}
+
+function fakeFacilitiesClient(): FacilitiesClient {
+  return {
+    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    POST: vi.fn(),
+  } as unknown as FacilitiesClient
+}
+
 function mountLanding(client: CompetitionsClient, shareToken = 'tok-123') {
   return mount(CompetitionLanding, {
-    props: { client, shareToken },
+    props: { client, identityClient: fakeIdentityClient(), facilitiesClient: fakeFacilitiesClient(), shareToken },
     global: { stubs: { RouterLink: RouterLinkStub } },
   })
 }
@@ -60,6 +80,13 @@ describe('CompetitionLanding — the happy path', () => {
     expect(wrapper.text()).toContain('Autumn Doubles Ladder')
     expect(wrapper.text()).toContain('4 spots left')
     expect(wrapper.find('.competition-entry__form').exists()).toBe(true)
+
+    // T10.8 (closes #98): a stranger arriving from this link sees a real
+    // Host and venue name, not raw ids — the whole point of this ticket.
+    expect(wrapper.text()).toContain('Ada Lovelace')
+    expect(wrapper.text()).toContain('Riverside Courts')
+    expect(wrapper.text()).not.toContain('host-1')
+    expect(wrapper.text()).not.toContain('facility-1')
   })
 
   it('shows a designed loading state first, never a blank screen', async () => {
@@ -75,7 +102,12 @@ describe('CompetitionLanding — the happy path', () => {
     // in the document cannot become `document.activeElement`, in jsdom or in
     // a real browser.
     const wrapper = mount(CompetitionLanding, {
-      props: { client: fakeClient(), shareToken: 'tok-123' },
+      props: {
+        client: fakeClient(),
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        shareToken: 'tok-123',
+      },
       global: { stubs: { RouterLink: RouterLinkStub } },
       attachTo: document.body,
     })

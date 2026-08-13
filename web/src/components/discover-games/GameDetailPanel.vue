@@ -8,10 +8,21 @@
 // here needs more than ListGames already returns). The Join flow itself
 // (network-calling) is delegated to GameJoinPanel.vue — see that file's
 // header comment for why it isn't purely presentational too.
+//
+// Host/Facility names (T10.8, closes #98): this panel stays presentational
+// for `game`'s own fields, but Host and Facility are resolved from raw ids
+// (`hostId`/`venueFacilityId`) via two small network-calling child
+// components, DisplayName.vue/VenueName.vue — the same "network-calling
+// child of a presentational parent" split GameJoinPanel already uses, just
+// applied to a read instead of a write.
 import type { GameSummary } from '../../models/game'
 import { formatGameRange, paymentMethodLabel, spotsLeftLabel, entryFeeLabel } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
+import type { IdentityClient } from '../../api/identityClient'
+import type { FacilitiesClient } from '../../api/facilitiesClient'
 import GameJoinPanel from './GameJoinPanel.vue'
+import DisplayName from '../identity/DisplayName.vue'
+import VenueName from '../facilities/VenueName.vue'
 
 defineProps<{
   game: GameSummary | null
@@ -24,6 +35,12 @@ defineProps<{
   /** Injectable for tests; defaults to the real socialplayClient. Passed
    * through to GameJoinPanel. */
   client?: SocialPlayClient
+  /** Injectable for tests (T10.8); defaults to the real identityClient.
+   * Passed through to DisplayName. */
+  identityClient?: IdentityClient
+  /** Injectable for tests (T10.8); defaults to the real facilitiesClient.
+   * Passed through to VenueName. */
+  facilitiesClient?: FacilitiesClient
 }>()
 
 const emit = defineEmits<{
@@ -61,11 +78,15 @@ const emit = defineEmits<{
       <dl class="game-detail__fields">
         <div class="game-detail__field">
           <dt>Host</dt>
-          <dd>{{ game.hostId }}</dd>
+          <dd>
+            <DisplayName :user-id="game.hostId" fallback="Unknown host" :client="identityClient" />
+          </dd>
         </div>
         <div class="game-detail__field">
           <dt>Facility</dt>
-          <dd>{{ game.venueFacilityId || 'Not set' }}</dd>
+          <dd>
+            <VenueName :facility-id="game.venueFacilityId" :client="facilitiesClient" />
+          </dd>
         </div>
         <div class="game-detail__field">
           <dt>Court{{ game.courtIds.length > 1 ? 's' : '' }}</dt>
