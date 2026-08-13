@@ -19,12 +19,20 @@ import { useRouter } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
 import { useCompetitionList } from '../../composables/useCompetitionList'
 import type { CompetitionsClient } from '../../api/competitionsClient'
+import type { IdentityClient } from '../../api/identityClient'
+import type { FacilitiesClient } from '../../api/facilitiesClient'
 import CompetitionsListPanel from './CompetitionsListPanel.vue'
 import CompetitionDetailPanel from './CompetitionDetailPanel.vue'
 
 const props = defineProps<{
   /** Injectable for tests; defaults to the real competitionsClient. */
   client?: CompetitionsClient
+  /** Injectable for tests (T10.8); defaults to the real identityClient.
+   * Forwarded to CompetitionDetailPanel to resolve the Host's display name. */
+  identityClient?: IdentityClient
+  /** Injectable for tests (T10.8); defaults to the real facilitiesClient.
+   * Forwarded to CompetitionDetailPanel to resolve the venue's name. */
+  facilitiesClient?: FacilitiesClient
   /** Injectable for tests; defaults to the ambient `window` (matchMedia). */
   win?: Pick<Window, 'matchMedia'>
   /** From the `/competitions/:id` route, so a link to one competition opens
@@ -114,6 +122,8 @@ onMounted(() => {
         :has-selection="selectedId !== null"
         source="ENTRY_SOURCE_APP"
         :client="client"
+        :identity-client="identityClient"
+        :facilities-client="facilitiesClient"
         @retry="search"
         @pay-online="onPayOnline"
       />

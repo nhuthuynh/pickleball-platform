@@ -1,8 +1,10 @@
 import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 import CompetitionDetailPanel from '../CompetitionDetailPanel.vue'
 import { mapToCompetitionListing, type CompetitionSummary } from '../../../models/competition'
 import type { CompetitionsClient } from '../../../api/competitionsClient'
+import type { IdentityClient } from '../../../api/identityClient'
+import type { FacilitiesClient } from '../../../api/facilitiesClient'
 
 const RAW = {
   id: 'c1',
@@ -25,6 +27,24 @@ const COMPETITION: CompetitionSummary = mapToCompetitionListing({ competition: R
 
 const client = { GET: vi.fn(), POST: vi.fn() } as unknown as CompetitionsClient
 
+/** T10.8: resolves any user id to a fixed DisplayName, so tests unrelated
+ * to the Host join don't need to special-case the fetch. */
+function fakeIdentityClient(): IdentityClient {
+  return {
+    GET: vi.fn(async () => ({ data: { user: { displayName: 'Ada Lovelace' } } })),
+    POST: vi.fn(),
+  } as unknown as IdentityClient
+}
+
+/** T10.8: resolves any facility id to a fixed Name, same reasoning as
+ * fakeIdentityClient above. */
+function fakeFacilitiesClient(): FacilitiesClient {
+  return {
+    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    POST: vi.fn(),
+  } as unknown as FacilitiesClient
+}
+
 function props(overrides: Record<string, unknown> = {}) {
   return {
     competition: COMPETITION,
@@ -33,22 +53,51 @@ function props(overrides: Record<string, unknown> = {}) {
     hasSelection: true,
     source: 'ENTRY_SOURCE_APP' as const,
     client,
+    identityClient: fakeIdentityClient(),
+    facilitiesClient: fakeFacilitiesClient(),
     ...overrides,
   }
 }
 
 describe('CompetitionDetailPanel', () => {
-  it('shows the host, venue, format, spots left, entry fee and payment method', () => {
+  it('shows the resolved host and venue names (T10.8, closes #98), format, spots left, entry fee and payment method', async () => {
     const wrapper = mount(CompetitionDetailPanel, { props: props() })
+    await flushPromises()
     const text = wrapper.text()
     expect(text).toContain('Autumn Doubles Ladder')
-    expect(text).toContain('host-1')
-    expect(text).toContain('facility-1')
+    expect(text).toContain('Ada Lovelace')
+    expect(text).toContain('Riverside Courts')
+    expect(text).not.toContain('host-1')
+    expect(text).not.toContain('facility-1')
     expect(text).toContain('Doubles')
     expect(text).toContain('3 spots left')
     expect(wrapper.get('[data-testid="competition-detail-entry-fee"]').text()).toContain('$25.00')
     // WCAG 1.4.1: the payment method is words, never a colour swatch.
     expect(text).toContain('Cash at facility')
+  })
+
+  it('degrades honestly to a named empty state when the Host lookup fails — never a fabricated name', async () => {
+    const failingIdentityClient = {
+      GET: vi.fn(async () => ({ data: undefined, error: { code: 5, message: 'not found' } })),
+      POST: vi.fn(),
+    } as unknown as IdentityClient
+    const wrapper = mount(CompetitionDetailPanel, {
+      props: props({ identityClient: failingIdentityClient }),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Unknown host')
+  })
+
+  it('shows an honest "No venue set" for a Competition with no venue, without a facility lookup', async () => {
+    const facilitiesClient = fakeFacilitiesClient()
+    const wrapper = mount(CompetitionDetailPanel, {
+      props: props({ competition: { ...COMPETITION, venueFacilityId: '' }, facilitiesClient }),
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No venue set')
+    expect(facilitiesClient.GET).not.toHaveBeenCalled()
   })
 
   it('lists EVERY session with its own date/time and courts', () => {

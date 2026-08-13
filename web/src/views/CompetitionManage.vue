@@ -13,13 +13,21 @@
 // consequences worth stating, because each is a thing a reader might
 // otherwise expect to find here:
 //
-//  1. NO ENTRANT NAMES. `CompetitionEntry` carries `player_id` and nothing
-//     else about the person — there is no Identity/Users context in this
-//     repo (HANDOFF.md's open cross-cutting item), so there is no name to
-//     render. The row shows the player identifier, exactly as
-//     `HostPayments.vue` (T8.10) already does for Registrations, rather
-//     than inventing a display name. When Identity lands, this is the one
-//     line that changes.
+//  1. ENTRANT NAMES (T10.8, closes #98): `CompetitionEntry` still only
+//     carries `player_id` on the wire — Identity/Users now exists (T10.2),
+//     so this screen resolves it to a real `DisplayName` via a small
+//     network-calling child component (`DisplayName.vue`, mirrors
+//     `GameDetailPanel.vue`'s identical join) instead of rendering the raw
+//     id the way `HostPayments.vue` still does (that screen is out of this
+//     ticket's scope — see T10.8's instructions). An unknown/deleted
+//     player or a lookup failure degrades to "Unknown player", never a
+//     fabricated name.
+//     KNOWN LIMITATION: one `DisplayName` per roster row means one
+//     `GetUser` call per row (N+1) — `identity.IdentityService` only has a
+//     single-id `GetUser`, no batch/`ListUsers` RPC, so real batching would
+//     need a new backend endpoint, which is out of this ticket's scope.
+//     Fine at today's roster sizes; worth a `BatchGetUsers`-shaped RPC if a
+//     large-roster Competition makes this screen's load time noticeable.
 //
 //  2. NO SHARE LINK. `share_token` is returned ONCE, on
 //     `CreateCompetitionResponse`, and is deliberately NOT a field on
@@ -42,6 +50,8 @@
 //     control" convention T8.8 used for its omitted matching step.
 import { computed, onMounted, ref } from 'vue'
 import { competitionsClient as defaultClient, type CompetitionsClient } from '../api/competitionsClient'
+import { identityClient as defaultIdentityClient, type IdentityClient } from '../api/identityClient'
+import { facilitiesClient as defaultFacilitiesClient, type FacilitiesClient } from '../api/facilitiesClient'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { entryFeeLabel } from '../models/payment'
 import {
@@ -58,6 +68,8 @@ import {
 } from '../models/competition'
 import UnpaidCashAmount from '../components/payments/UnpaidCashAmount.vue'
 import { MATCHING_BLOCKED_REASON } from '../copy/matchingDisclosure'
+import DisplayName from '../components/identity/DisplayName.vue'
+import VenueName from '../components/facilities/VenueName.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -65,11 +77,22 @@ const props = withDefaults(
     id: string
     /** Injectable for tests; defaults to the real competitionsClient. */
     client?: CompetitionsClient
+    /** Injectable for tests (T10.8); defaults to the real identityClient.
+     * Passed to DisplayName to resolve each roster row's player name. */
+    identityClient?: IdentityClient
+    /** Injectable for tests (T10.8); defaults to the real facilitiesClient.
+     * Passed to VenueName to resolve the competition's venue name. */
+    facilitiesClient?: FacilitiesClient
     /** Injectable for tests; defaults to the ambient `window` (matchMedia) —
      * same pattern as HostPayments.vue's `win` prop. */
     win?: Pick<Window, 'matchMedia'>
   }>(),
-  { client: () => defaultClient, win: undefined },
+  {
+    client: () => defaultClient,
+    identityClient: () => defaultIdentityClient,
+    facilitiesClient: () => defaultFacilitiesClient,
+    win: undefined,
+  },
 )
 
 const { breakpoint } = useBreakpoint(props.win ?? window)
@@ -167,6 +190,14 @@ onMounted(() => {
         </p>
 
         <dl class="cm-summary">
+          <dt>Venue</dt>
+          <dd>
+            <VenueName
+              :facility-id="competition.venueFacilityId"
+              empty-label="No venue set"
+              :client="facilitiesClient"
+            />
+          </dd>
           <dt>Format</dt>
           <dd>{{ competitionFormatLabel(competition.format) }}</dd>
           <dt>Dates</dt>
@@ -203,11 +234,12 @@ onMounted(() => {
         <ul v-else class="cm-roster-list">
           <li v-for="entry in entries" :key="entry.id" class="cm-roster-row" data-testid="roster-row">
             <div class="cm-roster-details">
-              <!-- No Identity context exists, so there is no name to show —
-                   the player identifier, exactly as HostPayments.vue does.
-                   See this file's header. -->
+              <!-- Resolved via Identity/Users (T10.8, closes #98) — see this
+                   file's header note 1. An unknown/deleted player or a
+                   lookup failure degrades to "Unknown player", never a
+                   fabricated name. -->
               <p class="cm-roster-player">
-                Player {{ entry.playerId }}
+                <DisplayName :user-id="entry.playerId" fallback="Unknown player" :client="identityClient" />
                 <span v-if="guestLabel(entry.guestCount)"> + {{ guestLabel(entry.guestCount) }}</span>
               </p>
 

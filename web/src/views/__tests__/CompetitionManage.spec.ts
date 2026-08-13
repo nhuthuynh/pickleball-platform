@@ -3,6 +3,8 @@ import { mount, flushPromises } from '@vue/test-utils'
 import CompetitionManage from '../CompetitionManage.vue'
 import type { CompetitionsClient } from '../../api/competitionsClient'
 import { findGenderControls } from '../../test-support/genderControlAssertions'
+import type { IdentityClient } from '../../api/identityClient'
+import type { FacilitiesClient } from '../../api/facilitiesClient'
 
 function matchMediaForWidth(width: number): Pick<Window, 'matchMedia'> {
   return {
@@ -75,9 +77,34 @@ function makeClient(
   return { GET, POST: vi.fn() } as unknown as CompetitionsClient
 }
 
-function mountManage(client: CompetitionsClient = makeClient()) {
+/** T10.8 (closes #98): resolves each roster row's playerId to a fixed
+ * display name, keyed by id, so roster tests can assert real names instead
+ * of raw ids. */
+const PLAYER_NAMES: Record<string, string> = { 'player-1': 'Ada Lovelace', 'player-2': 'Grace Hopper' }
+
+function fakeIdentityClient(): IdentityClient {
+  const GET = vi.fn(async (_path: string, opts: { params: { path: { userId: string } } }) => ({
+    data: { user: { displayName: PLAYER_NAMES[opts.params.path.userId] ?? undefined } },
+  }))
+  return { GET, POST: vi.fn() } as unknown as IdentityClient
+}
+
+/** T10.8: resolves the competition's venueFacilityId ('fac-1') to a fixed
+ * Name. */
+function fakeFacilitiesClient(): FacilitiesClient {
+  return {
+    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    POST: vi.fn(),
+  } as unknown as FacilitiesClient
+}
+
+function mountManage(
+  client: CompetitionsClient = makeClient(),
+  identityClient: IdentityClient = fakeIdentityClient(),
+  facilitiesClient: FacilitiesClient = fakeFacilitiesClient(),
+) {
   return mount(CompetitionManage, {
-    props: { id: 'comp-1', client, win: matchMediaForWidth(1440) },
+    props: { id: 'comp-1', client, identityClient, facilitiesClient, win: matchMediaForWidth(1440) },
     global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
   })
 }
@@ -92,14 +119,31 @@ describe('CompetitionManage — roster', () => {
 
     // WCAG 1.4.1: payment status and entry source are words in the row, not
     // a colour-coded dot or a tinted background.
-    expect(rows[0]!.text()).toContain('player-1')
+    // T10.8 (closes #98): the resolved player DisplayName, not the raw
+    // playerId.
+    expect(rows[0]!.text()).toContain('Ada Lovelace')
+    expect(rows[0]!.text()).not.toContain('player-1')
     expect(rows[0]!.text()).toContain('2 guests')
     expect(rows[0]!.text()).toContain('Paid')
     expect(rows[0]!.text()).toContain('In app')
 
-    expect(rows[1]!.text()).toContain('player-2')
+    expect(rows[1]!.text()).toContain('Grace Hopper')
+    expect(rows[1]!.text()).not.toContain('player-2')
     expect(rows[1]!.text()).toContain('Unpaid')
     expect(rows[1]!.text()).toContain('Via shared link')
+  })
+
+  it('degrades honestly to "Unknown player" when a roster entry\'s DisplayName lookup fails', async () => {
+    const failingIdentityClient = {
+      GET: vi.fn(async () => ({ data: undefined, error: { code: 5, message: 'not found' } })),
+      POST: vi.fn(),
+    } as unknown as IdentityClient
+    const wrapper = mountManage(makeClient(), failingIdentityClient)
+    await flushPromises()
+
+    const rows = wrapper.findAll('[data-testid="roster-row"]')
+    expect(rows[0]!.text()).toContain('Unknown player')
+    expect(rows[1]!.text()).toContain('Unknown player')
   })
 
   it('renders no guest phrase at all for an entry that brought none', async () => {
@@ -221,15 +265,32 @@ describe('CompetitionManage — unpaid cash entries (T8.10 pattern, reused)', ()
 })
 
 describe('CompetitionManage — competition summary (real fields only)', () => {
-  it('shows the name, format, dates, capacity, and entry fee from the API response', async () => {
+  it('shows the name, venue, format, dates, capacity, and entry fee from the API response', async () => {
     const wrapper = mountManage()
     await flushPromises()
 
     const summary = wrapper.get('[data-testid="competition-summary"]').text()
     expect(summary).toContain('Autumn Open')
+    // T10.8 (closes #98): the resolved venue Name, not the raw
+    // venueFacilityId ('fac-1').
+    expect(summary).toContain('Riverside Courts')
+    expect(summary).not.toContain('fac-1')
     expect(summary).toContain('Doubles')
     expect(summary).toContain('$25.00')
     expect(summary).toContain('16')
+  })
+
+  it('shows an honest "No venue set" for a competition with no venue, without a facility lookup', async () => {
+    const facilitiesClient = fakeFacilitiesClient()
+    const wrapper = mountManage(
+      makeClient({ competition: () => ({ data: { competition: { ...COMPETITION, venueFacilityId: '' } } }) }),
+      fakeIdentityClient(),
+      facilitiesClient,
+    )
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="competition-summary"]').text()).toContain('No venue set')
+    expect(facilitiesClient.GET).not.toHaveBeenCalled()
   })
 
   it('lists every session, because a Competition spans dates', async () => {
