@@ -1,6 +1,9 @@
 // Concrete typed client for the Identity/Users bounded context (T10.2's
 // real CreateUser/GetUser/UpdateSelfReportedLevel REST surface). Mirrors
-// facilitiesClient.ts/socialplayClient.ts's shape exactly.
+// facilitiesClient.ts/socialplayClient.ts's shape exactly. First consumers:
+// T10.8's DisplayName.vue (resolving a host/player id to a real name) and
+// T10.5's Profile screen (GetUser/UpdateSelfReportedLevel) — independently
+// created the identical file on parallel branches; merged, not duplicated.
 //
 // NOTE: this file only type-checks once `npm run generate:client` has been
 // run (it needs `./generated/identity` to exist — see web/README.md).

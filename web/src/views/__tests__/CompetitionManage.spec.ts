@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import CompetitionManage from '../CompetitionManage.vue'
 import type { CompetitionsClient } from '../../api/competitionsClient'
+import { findGenderControls } from '../../test-support/genderControlAssertions'
 import type { IdentityClient } from '../../api/identityClient'
 import type { FacilitiesClient } from '../../api/facilitiesClient'
 
@@ -341,14 +342,37 @@ describe('CompetitionManage — honest omissions', () => {
     const text = wrapper.text().toLowerCase()
     expect(text).not.toContain('auto-match')
     expect(text).not.toContain('automatch')
-    expect(text).not.toContain('gender')
     expect(text).not.toContain('skill level')
     expect(text).not.toContain('seeding')
     expect(text).not.toContain('bracket')
 
+    // "gender" now legitimately appears in the T10.5/ADR-0012 disclosure
+    // note itself (naming Q2 as a specific blocked decision, not a live
+    // feature) — see GameCreation.spec.ts's identical note on this same
+    // change. What must still be absent is any actual gender FIELD or
+    // CONTROL — asserted via the shared helper (checks native id/name,
+    // aria-label, label association, and ARIA radiogroup/radio), not by
+    // banning the word everywhere.
+    expect(findGenderControls(wrapper)).toHaveLength(0)
+
     expect(wrapper.get('[data-testid="matching-note"]').text()).toContain(
       "Automated matching isn't available yet",
     )
+  })
+
+  // T10.5: the note now names precisely what's built and what's still
+  // blocked (ADR-0012), not just "not available yet".
+  it('upgrades the note to name that Identity now exists and the two specific escalated decisions still pending', async () => {
+    const wrapper = mountManage()
+    await flushPromises()
+
+    const noteText = wrapper.get('[data-testid="matching-note"]').text()
+    expect(noteText).toContain('Identity now exists')
+    expect(noteText).toContain('Player Level formula is weighted')
+    expect(noteText).toContain('gender-mix matching is in scope')
+    expect(noteText).toContain('platform owner')
+    expect(noteText.toLowerCase()).not.toContain('coming soon')
+    expect(noteText.toLowerCase()).not.toContain('next sprint')
   })
 
   it('has NO "Connect account" affordance', async () => {

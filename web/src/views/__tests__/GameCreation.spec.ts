@@ -4,6 +4,7 @@ import GameCreation from '../GameCreation.vue'
 import type { FacilitiesClient } from '../../api/facilitiesClient'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import { hasHostEvidence, __resetHostEvidenceForTests } from '../../state/roleEvidence'
+import { findGenderControls } from '../../test-support/genderControlAssertions'
 
 // jsdom doesn't implement matchMedia — same stub FacilityOnboarding.spec.ts
 // uses, since GameCreation calls useBreakpoint() with the real ambient
@@ -153,6 +154,22 @@ describe('GameCreation — omitted matching step (T8.8 kickoff note decision #2)
     expect(note.text()).toContain('players join directly')
   })
 
+  // T10.5: the note now names precisely what's built and what's still
+  // blocked (ADR-0012), not just "not available yet" — see
+  // src/copy/matchingDisclosure.ts.
+  it('upgrades the note to name that Identity now exists and the two specific escalated decisions still pending', async () => {
+    const wrapper = mountGameCreation()
+    await advanceToReview(wrapper)
+
+    const noteText = wrapper.get('[data-testid="matching-note"]').text()
+    expect(noteText).toContain('Identity now exists')
+    expect(noteText).toContain('Player Level formula is weighted')
+    expect(noteText).toContain('gender-mix matching is in scope')
+    expect(noteText).toContain('platform owner')
+    expect(noteText.toLowerCase()).not.toContain('coming soon')
+    expect(noteText.toLowerCase()).not.toContain('next sprint')
+  })
+
   it('has no auto-match toggle, level-range slider, gender-mix selector, or any matching control anywhere in the form', async () => {
     const wrapper = mountGameCreation()
 
@@ -168,9 +185,19 @@ describe('GameCreation — omitted matching step (T8.8 kickoff note decision #2)
     const text = wrapper.text().toLowerCase()
     expect(text).not.toContain('auto-match')
     expect(text).not.toContain('automatch')
-    expect(text).not.toContain('gender')
     expect(text).not.toContain('level range')
     expect(text).not.toContain('skill level')
+
+    // "gender" now legitimately appears in the T10.5/ADR-0012 disclosure
+    // note itself (naming Q2 — "whether gender-mix matching is in scope" —
+    // as a specific blocked decision, not a live feature), so a blanket
+    // ban on the word would fail on the honest disclosure text this ticket
+    // requires. What must still be absent is any actual gender FIELD or
+    // CONTROL — asserted via the shared helper (checks native id/name,
+    // aria-label, label association, and ARIA radiogroup/radio — see that
+    // file's header for why an id/name-only check missed real shapes),
+    // not by banning the word everywhere.
+    expect(findGenderControls(wrapper)).toHaveLength(0)
   })
 })
 

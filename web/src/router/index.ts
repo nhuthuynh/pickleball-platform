@@ -16,6 +16,9 @@
 //     but required by Instructions #1's nav requirement ("Bookings"/
 //     "Profile" tabs must link to a "Coming soon" placeholder route too,
 //     not be omitted) — added here so the nav has somewhere real to link.
+//     /profile gained a real screen in T10.5 once Identity/Users existed
+//     to back it (see that route entry below); /bookings remains a
+//     placeholder — no Bookings-history ticket has landed yet.
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
@@ -28,6 +31,7 @@ import CompetitionCheckout from '../views/CompetitionCheckout.vue'
 import CompetitionManage from '../views/CompetitionManage.vue'
 import DiscoverCompetitions from '../components/discover-competitions/DiscoverCompetitions.vue'
 import CompetitionLanding from '../views/CompetitionLanding.vue'
+import Profile from '../views/Profile.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
@@ -122,10 +126,13 @@ export const routes: RouteRecordRaw[] = [
     props: (route) => ({ shareToken: String(route.params.shareToken) }),
     meta: { title: 'Competition invitation' },
   },
-  // No ticket owns these yet (no Bookings-history or Profile/Identity
-  // screen exists) — see file header comment.
+  // No ticket owns Bookings-history yet — see file header comment.
   { path: '/bookings', name: 'bookings', component: ComingSoonView, meta: { title: 'Bookings' } },
-  { path: '/profile', name: 'profile', component: ComingSoonView, meta: { title: 'Profile' } },
+  // T10.5 (docs/process/t10-sprint-plan.md): real Profile screen (display
+  // name read-only, self-reported starting level editable via
+  // `UpdateSelfReportedLevel`), replacing the `ComingSoonView` placeholder
+  // T8.1 originally wired here before Identity/Users existed.
+  { path: '/profile', name: 'profile', component: Profile, meta: { title: 'Profile' } },
 ]
 
 /**
