@@ -36,6 +36,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { facilitiesClient, type FacilitiesClient } from '../api/facilitiesClient'
 import { socialplayClient, type SocialPlayClient } from '../api/socialplayClient'
+import { MATCHING_BLOCKED_REASON } from '../copy/matchingDisclosure'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { useFacilityList } from '../composables/useFacilityList'
 import { useFacilityDetail } from '../composables/useFacilityDetail'
@@ -319,7 +320,7 @@ async function publishGame() {
 
     game.value = data.game as GameDTO
     statusMessage.value =
-      'Game published. Automated matching isn’t available yet — players join directly.'
+      `Game published. Automated matching isn’t available yet — players join directly. ${MATCHING_BLOCKED_REASON}`
     // T8.8 (kickoff note decision #1): a successful CreateGame is real
     // evidence this session has hosted a game, so RoleIndicator can now
     // list "Host" — see src/state/roleEvidence.ts's header comment for why
@@ -377,7 +378,7 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
 
     <section v-if="published" data-testid="published-step" class="gc-step">
       <h2>Game published</h2>
-      <p>Players can join directly — automated matching isn't available yet.</p>
+      <p>Players can join directly — automated matching isn't available yet. {{ MATCHING_BLOCKED_REASON }}</p>
       <dl class="gc-review-summary">
         <dt>Game ID</dt>
         <dd>{{ game?.id }}</dd>
@@ -605,10 +606,15 @@ defineExpose({ publishGame, currentStep, decrementGuestAllowance, incrementGuest
 
         <!-- T8.8: "Matching & publish" -> just "Publish". No auto-match
              toggle, level-range slider, or gender-mix selector anywhere in
-             this form (there is no Match/PlayerRating backend to attach
-             one to) — an honest note instead of a dead control. -->
+             this form (there is no Match/PlayerRating aggregate or matching
+             algorithm anywhere in this codebase) — an honest note instead
+             of a dead control. T10.5 upgraded the note's wording: Identity/
+             Users and Match are real now (T10.1-T10.4), so the note names
+             precisely what's still blocked and on what — ADR-0012's Q1/Q2 —
+             rather than a generic "coming soon" (see
+             src/copy/matchingDisclosure.ts). -->
         <p class="gc-matching-note" data-testid="matching-note">
-          Automated matching isn't available yet — players join directly.
+          Automated matching isn't available yet — players join directly. {{ MATCHING_BLOCKED_REASON }}
         </p>
 
         <p v-if="formError" class="gc-field-error" role="alert">{{ formError }}</p>

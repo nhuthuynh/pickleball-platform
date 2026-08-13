@@ -31,11 +31,16 @@
 // than shipped as controls that control nothing (T8.8's precedent, and
 // `GameCreation.vue`'s own matching-omission note):
 //
-//  1. NO MATCHING CONTROLS. There is no Match/PlayerRating aggregate or
-//     matching algorithm anywhere in this codebase, so an auto-match
+//  1. NO MATCHING CONTROLS. `Match` (T10.3-T10.4) records a result; nothing
+//     computes `PlayerRating` or a derived Level from it, and there is no
+//     matching algorithm anywhere in this codebase — so an auto-match
 //     toggle, level-range slider, or gender-mix selector would control
 //     nothing. Brackets, rounds, seeding, and results are likewise out of
 //     T9's scope (sprint plan §A4) — so there is no seeding UI either.
+//     T10.5 upgraded the note's wording to name precisely what's blocked
+//     (ADR-0012's Q1/Q2 — the Player Level formula weighting and whether
+//     gender-mix matching is in scope), not merely "not available yet" —
+//     see `src/copy/matchingDisclosure.ts`.
 //
 //  2. NO "CONNECT ACCOUNT" BUTTONS, and no per-platform Connected/Connect
 //     state. Flow 5's "link accounts" step is replaced by the honest share
@@ -73,6 +78,7 @@ import {
 } from '../models/competition'
 import FacilityListPanel from '../components/discover/FacilityListPanel.vue'
 import EntryFeeInput from '../components/payments/EntryFeeInput.vue'
+import { MATCHING_BLOCKED_REASON } from '../copy/matchingDisclosure'
 
 // No Identity/Users/Auth context exists yet (same caveat class as
 // RoleIndicator.vue's mock account, GameCreation.vue's own MOCK_HOST_ID and
@@ -464,7 +470,7 @@ async function publishCompetition() {
     // `shareUrlForToken` yields '' and the promo renders without a link
     // rather than with a broken one.
     shareToken.value = data.shareToken ?? ''
-    publishStatus.value = `${competition.value.name} published. Automated matching isn't available yet — players enter directly.`
+    publishStatus.value = `${competition.value.name} published. Automated matching isn't available yet — players enter directly. ${MATCHING_BLOCKED_REASON}`
     // Kickoff note decision #1: a successful CreateCompetition is real
     // evidence this session has hosted, so RoleIndicator can list "Host".
     // This is the EXISTING T8.8 mechanism (state/roleEvidence.ts) gaining a
@@ -595,7 +601,7 @@ defineExpose({ publishCompetition, currentStep, removeSession, addSession, decre
       </p>
 
       <p class="cc-note" data-testid="matching-note">
-        Automated matching isn't available yet — players enter directly.
+        Automated matching isn't available yet — players enter directly. {{ MATCHING_BLOCKED_REASON }}
       </p>
 
       <div class="cc-actions">
@@ -946,7 +952,7 @@ defineExpose({ publishCompetition, currentStep, removeSession, addSession, decre
         </dl>
 
         <p class="cc-note" data-testid="matching-note">
-          Automated matching isn't available yet — players enter directly.
+          Automated matching isn't available yet — players enter directly. {{ MATCHING_BLOCKED_REASON }}
         </p>
 
         <p v-if="formError" class="cc-field-error" role="alert">{{ formError }}</p>

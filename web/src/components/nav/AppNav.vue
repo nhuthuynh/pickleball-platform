@@ -8,11 +8,15 @@
 // named layouts and a bottom tab bar degrades reasonably at narrower/
 // in-between widths.
 //
-// "Bookings" and "Profile" have no real screen yet (no Bookings-history or
-// Identity/Profile context exists in this repo) — per the ticket's own
-// instruction they still appear here, linked to a "Coming soon" placeholder
-// route (see src/router/index.ts), so the nav's shape doesn't need rework
-// once those screens land.
+// "Bookings" and "Profile" originally had no real screen (no
+// Bookings-history or Identity/Profile context existed in this repo) — per
+// the ticket's own instruction they still appeared here, linked to a
+// "Coming soon" placeholder route (see src/router/index.ts), so the nav's
+// shape didn't need rework once those screens landed. "Profile" gained a
+// real screen in T10.5 (docs/process/t10-sprint-plan.md) once Identity/
+// Users existed to back it — this component needed no change, since it
+// only ever linked to the route, not the placeholder component directly.
+// "Bookings" still has no Bookings-history ticket.
 //
 // T8.10 addition: a fifth "Payments" tab (-> /host/payments, the Host
 // pending-cash-payments dashboard) with a count badge, per that ticket's

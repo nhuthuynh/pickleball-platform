@@ -9,6 +9,7 @@ import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
+import Profile from '../views/Profile.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 // jsdom doesn't implement matchMedia — same minimal always-"no match" stub
@@ -75,18 +76,33 @@ describe('App routing', () => {
     expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
   })
 
-  it.each([
-    ['/bookings', 'Bookings'],
-    ['/profile', 'Profile'],
-  ])('renders the "Coming soon" placeholder at %s', async (path, expectedTitle) => {
-    const wrapper = await mountAppAt(path)
+  it.each([['/bookings', 'Bookings']])(
+    'renders the "Coming soon" placeholder at %s',
+    async (path, expectedTitle) => {
+      const wrapper = await mountAppAt(path)
 
-    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(true)
+      expect(wrapper.findComponent(ComingSoonView).exists()).toBe(true)
+      expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
+      expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
+      expect(wrapper.findComponent(GameCreation).exists()).toBe(false)
+      expect(wrapper.text()).toContain(expectedTitle)
+      expect(wrapper.text()).toContain('Coming soon.')
+    },
+  )
+
+  // T10.5 (docs/process/t10-sprint-plan.md) replaces the /profile
+  // "Coming soon" placeholder with the real Profile screen, now that
+  // Identity/Users (T10.1-T10.2) exists to back it — same "only the
+  // matched route's screen renders" regression check every other real
+  // screen above gets.
+  it('renders only Profile at /profile', async () => {
+    const wrapper = await mountAppAt('/profile')
+
+    expect(wrapper.findComponent(Profile).exists()).toBe(true)
+    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
     expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
     expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
     expect(wrapper.findComponent(GameCreation).exists()).toBe(false)
-    expect(wrapper.text()).toContain(expectedTitle)
-    expect(wrapper.text()).toContain('Coming soon.')
   })
 
   // T8.9 (Discover & Join Games) replaces the /games placeholder with a

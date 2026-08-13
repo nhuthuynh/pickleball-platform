@@ -57,6 +57,7 @@ import {
   type CompetitionSummary,
 } from '../models/competition'
 import UnpaidCashAmount from '../components/payments/UnpaidCashAmount.vue'
+import { MATCHING_BLOCKED_REASON } from '../copy/matchingDisclosure'
 
 const props = withDefaults(
   defineProps<{
@@ -245,7 +246,7 @@ onMounted(() => {
       </p>
 
       <p class="cm-note" data-testid="matching-note">
-        Automated matching isn't available yet — players enter directly.
+        Automated matching isn't available yet — players enter directly. {{ MATCHING_BLOCKED_REASON }}
       </p>
     </template>
   </section>
