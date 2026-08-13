@@ -239,6 +239,26 @@ func (f *fakeIDs) NewID() string {
 	return fmt.Sprintf("00000000-0000-4000-8000-%012d", f.n)
 }
 
+// fixtureUnknownCompetitionID is a well-formed (UUID-shaped) but never-seeded
+// Competition ID, shared by every test in this package (grpcapi_test) that
+// needs to prove the "unknown but well-formed ID -> NotFound" path actually
+// reaches the fake repository — distinct from uuidShape's short-circuit for
+// malformed input, which internal/competitions/app/malformed_id_test.go
+// already covers directly at the app layer without ever touching an adapter.
+//
+// It used to be the literal "no-such-competition" here and in
+// sharelink_test.go. That shape uuidShape (internal/competitions/app/
+// service.go) rejects on sight, so both call sites were silently exercising
+// the guard's short-circuit — GetCompetition returning
+// domain.ErrCompetitionNotFound inline, before ever calling
+// s.competitions.GetByID — instead of the repository-miss path their own
+// test labels ("ErrCompetitionNotFound -> NotFound", "unknown competition id
+// (ID-addressed read)") claim to prove. The final NotFound status came out
+// the same either way, so neither test could tell the difference — the exact
+// fixture-infidelity class docs/LESSONS.md's T9 entry and PR #107 already
+// document for internal/payments/adapter/grpcapi's fixtures.
+const fixtureUnknownCompetitionID = "00000000-0000-4000-8000-999999999999"
+
 type fakeShareTokens struct{ n int }
 
 func (f *fakeShareTokens) NewShareToken() (string, error) {
@@ -497,7 +517,7 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 
 	t.Run("ErrCompetitionNotFound -> NotFound", func(t *testing.T) {
 		h, _ := newTestHandler()
-		_, err := h.GetCompetition(ctx, &competitionsv1.GetCompetitionRequest{CompetitionId: "no-such-competition"})
+		_, err := h.GetCompetition(ctx, &competitionsv1.GetCompetitionRequest{CompetitionId: fixtureUnknownCompetitionID})
 		if err == nil {
 			t.Fatal("GetCompetition on an unknown id should be rejected")
 		}
