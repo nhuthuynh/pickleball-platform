@@ -25,8 +25,9 @@ import (
 // internal/booking, internal/competitions, and internal/facilities app
 // tests already fixed the identical fixture infidelity on their own IDs.
 const (
-	fixtureBookingID      = "6ba7b810-0000-4000-8000-000000000001"
-	fixtureRegistrationID = "6ba7b810-0000-4000-8000-000000000002"
+	fixtureBookingID          = "6ba7b810-0000-4000-8000-000000000001"
+	fixtureRegistrationID     = "6ba7b810-0000-4000-8000-000000000002"
+	fixtureCompetitionEntryID = "6ba7b810-0000-4000-8000-000000000003"
 )
 
 func fixtureAmount() domain.Money {
@@ -582,7 +583,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          offlineFixtureAmount(),
 		ActorUserID:     "player-1",
 		EntrantPlayerID: "player-1",
@@ -609,7 +610,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AssignedCompetitionAdminSu
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:                     domain.PayableTypeCompetitionEntry,
-		PayableID:                       "entry-1",
+		PayableID:                       fixtureCompetitionEntryID,
 		Amount:                          offlineFixtureAmount(),
 		ActorUserID:                     "admin-2",
 		EntrantPlayerID:                 "player-1",
@@ -639,7 +640,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_UnauthorizedActorRejected(
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:                     domain.PayableTypeCompetitionEntry,
-		PayableID:                       "entry-1",
+		PayableID:                       fixtureCompetitionEntryID,
 		Amount:                          offlineFixtureAmount(),
 		ActorUserID:                     "random-player",
 		EntrantPlayerID:                 "player-1",
@@ -666,7 +667,7 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing.
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          fixtureAmount(),
 		ActorUserID:     "player-1",
 		EntrantPlayerID: "player-1",
@@ -695,7 +696,7 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected(t *tes
 
 	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          fixtureAmount(),
 		EntrantPlayerID: "player-1",
 	})
@@ -722,7 +723,7 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_UnauthorizedActorRejected(t
 
 	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType:                     domain.PayableTypeCompetitionEntry,
-		PayableID:                       "entry-1",
+		PayableID:                       fixtureCompetitionEntryID,
 		Amount:                          fixtureAmount(),
 		ActorUserID:                     "random-player",
 		EntrantPlayerID:                 "player-1",
@@ -753,7 +754,7 @@ func TestCreateOnlinePayment_BookingPayable_NoActorFieldsRequired(t *testing.T) 
 
 	if _, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeBooking,
-		PayableID:   "booking-1",
+		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
 	}); err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -1067,7 +1068,7 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          fixtureAmount(),
 		ActorUserID:     "player-1",
 		EntrantPlayerID: "player-1",
@@ -1083,7 +1084,7 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 	if len(updater.calls) != 1 {
 		t.Fatalf("CompetitionEntryUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
 	}
-	if updater.calls[0].entryID != "entry-1" {
+	if updater.calls[0].entryID != fixtureCompetitionEntryID {
 		t.Fatalf("entryID = %q, want entry-1", updater.calls[0].entryID)
 	}
 	if updater.calls[0].status != competitionsdomain.PaymentStatusPaid {
@@ -1109,7 +1110,7 @@ func TestConfirmOnlinePayment_RegistrationPayable_DoesNotUpdateCompetitionEntry(
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "reg-1",
+		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
 	})
 	if err != nil {
@@ -1147,7 +1148,7 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_DoesNotUpdateRegistration(
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          fixtureAmount(),
 		ActorUserID:     "player-1",
 		EntrantPlayerID: "player-1",
@@ -1166,7 +1167,7 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_DoesNotUpdateRegistration(
 	if len(entryUpdater.calls) != 1 {
 		t.Fatalf("CompetitionEntryUpdater called %d times, want exactly 1: %+v", len(entryUpdater.calls), entryUpdater.calls)
 	}
-	if entryUpdater.calls[0].entryID != "entry-1" {
+	if entryUpdater.calls[0].entryID != fixtureCompetitionEntryID {
 		t.Fatalf("entryID = %q, want entry-1", entryUpdater.calls[0].entryID)
 	}
 }
@@ -1187,7 +1188,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          offlineFixtureAmount(),
 		ActorUserID:     "player-1",
 		EntrantPlayerID: "player-1",
@@ -1199,7 +1200,7 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 	if len(updater.calls) != 1 {
 		t.Fatalf("CompetitionEntryUpdater called %d times, want exactly 1: %+v", len(updater.calls), updater.calls)
 	}
-	if updater.calls[0].entryID != "entry-1" {
+	if updater.calls[0].entryID != fixtureCompetitionEntryID {
 		t.Fatalf("entryID = %q, want entry-1", updater.calls[0].entryID)
 	}
 	if updater.calls[0].status != competitionsdomain.PaymentStatusPaid {
@@ -1224,7 +1225,7 @@ func TestConfirmOnlinePayment_NilCompetitionEntryUpdater_DoesNotPanic(t *testing
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
 		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       "entry-1",
+		PayableID:       fixtureCompetitionEntryID,
 		Amount:          fixtureAmount(),
 		ActorUserID:     "player-1",
 		EntrantPlayerID: "player-1",
