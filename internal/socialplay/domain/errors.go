@@ -150,4 +150,32 @@ var (
 	ErrEmptyGameID   = errors.New("socialplay: game id is required")
 	ErrEmptyPlayers  = errors.New("socialplay: at least one player is required")
 	ErrTooFewPlayers = errors.New("socialplay: a match requires at least two players")
+
+	// T10.4 Match-wiring sentinels (docs/process/t10-sprint-plan.md T10.4).
+	//
+	//   - ErrEmptyScore: RecordMatch's score argument is nil or empty.
+	//     T10.3's original doc comment on Match.Score said RecordMatch
+	//     "does not validate its contents beyond accepting whatever is
+	//     given" — true of *which* players Score covers, but T10.4's own
+	//     error-handling instructions require rejecting a wholesale empty
+	//     score with InvalidArgument, so this ticket adds exactly that
+	//     check (see RecordMatch's updated doc comment) without going back
+	//     on T10.3's "doesn't have to cover every player" decision.
+	//   - ErrNotGameHostOrAdmin: Game.EnsureHostOrGameAdmin's rejection —
+	//     the actor recording a Match result is neither the Game's Host
+	//     nor one of its caller-supplied assigned Game Admins. Mirrors
+	//     competitions.ErrNotCompetitionHost/facilities.ErrNotFacilityOwner's
+	//     flat, single-sentinel shape (a caller does not get to distinguish
+	//     "wrong actor" from "not an admin either" from this error alone).
+	//   - ErrGameCancelled: app.Service.RecordMatchResult's precondition
+	//     check — a cancelled Game can no longer have match results
+	//     recorded against it. Named distinctly from
+	//     ErrIllegalStatusTransition (Game.Cancel's own transition guard)
+	//     because this is a precondition on a *different* operation acting
+	//     on an already-cancelled Game, the same relationship
+	//     competitions.ErrCompetitionCancelled has with Competition's own
+	//     status field (internal/competitions/domain/entry.go's Enter).
+	ErrEmptyScore         = errors.New("socialplay: match score is required")
+	ErrNotGameHostOrAdmin = errors.New("socialplay: only the game's host or an assigned game admin may record a match result")
+	ErrGameCancelled      = errors.New("socialplay: game is cancelled")
 )

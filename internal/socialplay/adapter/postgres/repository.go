@@ -8,6 +8,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -34,6 +35,10 @@ import (
 const (
 	pgUniqueViolation  = "23505"
 	pgCapacityExceeded = "P0001"
+	// pgForeignKeyViolation (T10.4) is matches.game_id's REFERENCES games (id)
+	// constraint firing — see translateMatchErr's doc comment for when this
+	// is actually reachable in practice.
+	pgForeignKeyViolation = "23503"
 )
 
 // GameRepository implements port.GameRepository.
@@ -318,4 +323,107 @@ func nullableTimestamptz(t time.Time) pgtype.Timestamptz {
 		return pgtype.Timestamptz{}
 	}
 	return toTimestamptz(t)
+}
+
+// MatchRepository implements port.MatchRepository (T10.4).
+type MatchRepository struct {
+	q *socialplaydb.Queries
+}
+
+func NewMatchRepository(pool *pgxpool.Pool) *MatchRepository {
+	return &MatchRepository{q: socialplaydb.New(pool)}
+}
+
+func (r *MatchRepository) Create(ctx context.Context, m domain.Match) (domain.Match, error) {
+	score, err := marshalScore(m.Score)
+	if err != nil {
+		return domain.Match{}, fmt.Errorf("socialplay postgres adapter (matches): marshalling score for match %s: %w", m.ID, err)
+	}
+
+	row, err := r.q.CreateMatch(ctx, socialplaydb.CreateMatchParams{
+		ID:         mustUUID(m.ID),
+		GameID:     mustUUID(m.GameID),
+		Players:    m.Players,
+		Score:      score,
+		RecordedAt: toTimestamptz(m.RecordedAt),
+	})
+	if err != nil {
+		return domain.Match{}, translateMatchErr(err)
+	}
+	return matchFromFields(row.ID, row.GameID, row.Players, row.Score, row.RecordedAt)
+}
+
+func (r *MatchRepository) ListForGame(ctx context.Context, gameID string) ([]domain.Match, error) {
+	rows, err := r.q.ListMatchesForGame(ctx, mustUUID(gameID))
+	if err != nil {
+		return nil, translateMatchErr(err)
+	}
+	out := make([]domain.Match, 0, len(rows))
+	for _, row := range rows {
+		m, err := matchFromFields(row.ID, row.GameID, row.Players, row.Score, row.RecordedAt)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, nil
+}
+
+// translateMatchErr maps infrastructure failures onto domain errors
+// (CLAUDE.md rule 5) — mirrors translateGameErr/translateRegistrationErr's
+// shape. There is no unique-violation or capacity-guard case here (see
+// db/migrations/0015_socialplay_matches.sql's doc comment on why matches
+// carries no such invariant); a foreign-key violation on game_id (23503)
+// would mean app.Service.RecordMatchResult's own prior GetByID existence
+// check somehow missed a concurrently-deleted Game — this codebase never
+// deletes Games (only cancels them), so this is defensive, not a case any
+// current code path is known to hit.
+func translateMatchErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+		return domain.ErrGameNotFound
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrGameNotFound
+	}
+	return fmt.Errorf("socialplay postgres adapter (matches): %w", err)
+}
+
+// matchFromFields builds a domain.Match from the 5 columns every matches
+// query selects — mirrors gameFromFields/registrationFromFields' pattern
+// (CLAUDE.md gotcha: sqlc emits a distinct ...Row type per query, not a
+// shared table model). Unlike those, this can fail: unmarshalling the
+// jsonb score column back into map[string]int is fallible in principle
+// (a hand-edited row with malformed JSON), so this returns an error rather
+// than panicking — a corrupt row is a data problem to surface, not a
+// programmer error like mustUUID's malformed-ID case.
+func matchFromFields(id, gameID pgtype.UUID, players []string, score []byte, recordedAt pgtype.Timestamptz) (domain.Match, error) {
+	m, err := unmarshalScore(score)
+	if err != nil {
+		return domain.Match{}, fmt.Errorf("socialplay postgres adapter (matches): unmarshalling score for match %s: %w", id.String(), err)
+	}
+	return domain.Match{
+		ID:         id.String(),
+		GameID:     gameID.String(),
+		Players:    players,
+		Score:      m,
+		RecordedAt: recordedAt.Time,
+	}, nil
+}
+
+// marshalScore/unmarshalScore convert domain.Match.Score (map[string]int)
+// to/from the []byte shape sqlc's pgx/v5 driver uses for a jsonb column —
+// see CreateMatchParams.Score's doc comment (socialplaydb, generated) for
+// why this codebase's first jsonb column needs an explicit marshal step
+// unlike every other column here.
+func marshalScore(score map[string]int) ([]byte, error) {
+	return json.Marshal(score)
+}
+
+func unmarshalScore(b []byte) (map[string]int, error) {
+	var score map[string]int
+	if err := json.Unmarshal(b, &score); err != nil {
+		return nil, err
+	}
+	return score, nil
 }

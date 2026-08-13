@@ -141,6 +141,42 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 	return &socialplayv1.ListRegistrationsForGameResponse{Registrations: out}, nil
 }
 
+// RecordMatchResult records a Match result against an existing Game (T10.4),
+// authorized to the Game's Host or an assigned Game Admin only. score comes
+// off the wire as map[string]int32 (proto3's only integer map value type);
+// domain.RecordMatch takes map[string]int, so this converts key-for-key —
+// see toProtoMatch's inverse comment for the return direction.
+func (h *Handler) RecordMatchResult(ctx context.Context, req *socialplayv1.RecordMatchResultRequest) (*socialplayv1.RecordMatchResultResponse, error) {
+	m, err := h.svc.RecordMatchResult(ctx, app.RecordMatchResultInput{
+		GameID:                   req.GetGameId(),
+		Players:                  req.GetPlayers(),
+		Score:                    fromProtoScore(req.GetScore()),
+		ActorUserID:              req.GetActorUserId(),
+		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &socialplayv1.RecordMatchResultResponse{Match: toProtoMatch(m)}, nil
+}
+
+// ListMatchesForGame lists every Match recorded against a Game (T10.4).
+// Unlike ListRegistrationsForGame, an unknown game_id maps to NotFound here
+// — see app.Service.ListMatchesForGame's doc comment for why the two RPCs'
+// error-handling requirements differ despite the similar shape.
+func (h *Handler) ListMatchesForGame(ctx context.Context, req *socialplayv1.ListMatchesForGameRequest) (*socialplayv1.ListMatchesForGameResponse, error) {
+	matches, err := h.svc.ListMatchesForGame(ctx, req.GetGameId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*socialplayv1.Match, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, toProtoMatch(m))
+	}
+	return &socialplayv1.ListMatchesForGameResponse{Matches: out}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes; grpc-gateway then maps
 // those onto HTTP statuses (AlreadyExists -> 409, InvalidArgument -> 400,
 // NotFound -> 404, PermissionDenied -> 403) — mirrors
@@ -179,6 +215,23 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 // (a bad enum value, a negative allowance, or a guest count outside the
 // Game's own allowance), the same category ErrInvalidCapacity/
 // ErrEmptyCourtIDs already occupy.
+//
+// T10.4 additions (RecordMatchResult/ListMatchesForGame — gRPC codes only
+// per this ticket's own error-handling instructions, no HTTP status
+// restated alongside them, per the T9.4 Ceremony-1-adopted rule):
+// ErrNotGameHostOrAdmin joins the PermissionDenied group (the object-level
+// check, same shape as ErrNotRegistrationOwner above); ErrGameCancelled is
+// its own new FailedPrecondition case — "recording a match against a
+// cancelled Game," distinct from every existing NotFound/InvalidArgument
+// group, since the Game *is* found and the request *is* well-formed, it's
+// the Game's own state that makes the request currently illegal (mirrors
+// the standard NotFound/FailedPrecondition/InvalidArgument distinction:
+// the resource exists, but is in the wrong state for this operation);
+// ErrEmptyScore joins the InvalidArgument group alongside
+// ErrEmptyPlayers/ErrTooFewPlayers (domain.RecordMatch's own field
+// validation — ErrEmptyPlayers/ErrTooFewPlayers were already unreachable-
+// but-harmless additions from T10.3 since no RPC called domain.RecordMatch
+// before this ticket; now they're live).
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrGameFull),
@@ -187,13 +240,16 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrAlreadyOnWaitlist):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrNotRegistrationOwner),
-		errors.Is(err, domain.ErrNotWaitlistEntryOwner):
+		errors.Is(err, domain.ErrNotWaitlistEntryOwner),
+		errors.Is(err, domain.ErrNotGameHostOrAdmin):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrGameNotFound),
 		errors.Is(err, domain.ErrRegistrationNotFound),
 		errors.Is(err, domain.ErrWaitlistEntryNotFound),
 		errors.Is(err, domain.ErrFacilityNotFound):
 		return status.Error(codes.NotFound, err.Error())
+	case errors.Is(err, domain.ErrGameCancelled):
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidCapacity),
 		errors.Is(err, domain.ErrEmptyCourtIDs),
@@ -203,7 +259,10 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidPaymentMethod),
 		errors.Is(err, domain.ErrInvalidGuestAllowance),
 		errors.Is(err, domain.ErrGuestAllowanceExceeded),
-		errors.Is(err, domain.ErrInvalidMoney):
+		errors.Is(err, domain.ErrInvalidMoney),
+		errors.Is(err, domain.ErrEmptyPlayers),
+		errors.Is(err, domain.ErrTooFewPlayers),
+		errors.Is(err, domain.ErrEmptyScore):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -391,6 +450,49 @@ func toProtoWaitlistEntry(e domain.WaitlistEntry) *socialplayv1.WaitlistEntry {
 	}
 	if !e.PromotedAt.IsZero() {
 		out.PromotedAt = timestamppb.New(e.PromotedAt)
+	}
+	return out
+}
+
+// toProtoMatch converts a domain.Match to its wire message (T10.4).
+// domain.Match.Score is map[string]int; the wire message uses
+// map[string]int32 (proto3's only integer map value type) — see
+// fromProtoScore's doc comment for the inbound direction of this same
+// conversion.
+func toProtoMatch(m domain.Match) *socialplayv1.Match {
+	return &socialplayv1.Match{
+		Id:         m.ID,
+		GameId:     m.GameID,
+		Players:    m.Players,
+		Score:      toProtoScore(m.Score),
+		RecordedAt: timestamppb.New(m.RecordedAt),
+	}
+}
+
+// toProtoScore/fromProtoScore translate domain.Match.Score (map[string]int)
+// across the wire (map[string]int32, T10.4) — a nil/empty input produces a
+// nil/empty output on both directions, rather than allocating an empty map
+// for a Score that domain.RecordMatch's own ErrEmptyScore check (T10.4)
+// already guarantees is never legitimately empty on a successfully recorded
+// Match.
+func toProtoScore(score map[string]int) map[string]int32 {
+	if len(score) == 0 {
+		return nil
+	}
+	out := make(map[string]int32, len(score))
+	for k, v := range score {
+		out[k] = int32(v)
+	}
+	return out
+}
+
+func fromProtoScore(score map[string]int32) map[string]int {
+	if len(score) == 0 {
+		return nil
+	}
+	out := make(map[string]int, len(score))
+	for k, v := range score {
+		out[k] = int(v)
 	}
 	return out
 }

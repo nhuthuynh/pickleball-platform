@@ -33,24 +33,31 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // ScheduleGame — see that method's doc comment for why (T5.3's original
 // design, unchanged since).
 //
-// NewService is now at 4 positional constructor args (T6.6 adds waitlist).
-// docs/process/t6-sprint-plan.md's kickoff note flags this exact threshold
-// ("worth revisiting... if a 4th dependency lands") for Payments' own
-// Service and has it switch to an options struct from the start; Social
-// Play's constructor is left positional here rather than folded into that
-// refactor, since this ticket is not the one that raised it and doing so
-// would be an unrelated, ticket-widening change to every existing call
-// site. Flagged in the PR description as a candidate for the same
-// options-struct treatment if a 5th dependency ever lands.
+// NewService is now at 5 positional constructor args (T10.4 adds matches).
+// docs/process/t6-sprint-plan.md's kickoff note flagged this exact
+// threshold at 4 args ("worth revisiting... if a 4th dependency lands") for
+// Payments' own Service and had it switch to an options struct from the
+// start; the T6.6 doc comment here left Social Play positional but flagged
+// "a candidate for the same options-struct treatment if a 5th dependency
+// ever lands" — this is that 5th dependency. Left positional again rather
+// than taking on the refactor now: T10.4's own instructions (and the
+// cmd/server/main.go conflict-avoidance note in this ticket's sprint plan,
+// A7) ask for a minimal, additive diff since T10.2 is landing in parallel
+// against the same file, and an options-struct refactor would touch every
+// existing call site's *shape*, not just append one argument, for no
+// behavioural gain. Flagged again in the PR description as a real
+// candidate for that refactor — deferring it a second time is a decision
+// worth someone revisiting, not an oversight.
 type Service struct {
 	ids           port.IDGenerator
 	games         port.GameRepository
 	registrations port.RegistrationRepository
 	waitlist      port.WaitlistRepository
+	matches       port.MatchRepository
 }
 
-func NewService(ids port.IDGenerator, games port.GameRepository, registrations port.RegistrationRepository, waitlist port.WaitlistRepository) *Service {
-	return &Service{ids: ids, games: games, registrations: registrations, waitlist: waitlist}
+func NewService(ids port.IDGenerator, games port.GameRepository, registrations port.RegistrationRepository, waitlist port.WaitlistRepository, matches port.MatchRepository) *Service {
+	return &Service{ids: ids, games: games, registrations: registrations, waitlist: waitlist, matches: matches}
 }
 
 // ScheduleGameInput is the use-case input for scheduling a Game.
@@ -455,4 +462,110 @@ func (s *Service) MarkRegistrationPaymentStatus(ctx context.Context, registratio
 
 	_, err = s.registrations.UpdatePaymentStatus(ctx, reg.ID, reg.PaymentStatus)
 	return err
+}
+
+// RecordMatchResultInput is the use-case input for recording a Match result
+// against a Game (T10.4).
+type RecordMatchResultInput struct {
+	GameID  string
+	Players []string
+	Score   map[string]int
+
+	// ActorUserID is the claimed identity attempting to record this result
+	// — same known-gap caveat as every other actor-scoped check in this
+	// codebase (RegistrationRequest.actor_player_id, RecordOfflinePayment's
+	// ActorUserID, ...): a request-supplied field, not a verified identity.
+	ActorUserID string
+
+	// AssignedGameAdminUserIDs is the caller-supplied set of user ids
+	// currently assigned as a Game Admin for GameID's Game — see
+	// domain.Game.EnsureHostOrGameAdmin's doc comment for why this is a
+	// caller-supplied fact rather than a persisted one (this codebase has
+	// never built a durable Game-Admin-assignment mechanism; T6.3's
+	// RecordOfflinePaymentInput.AssignedGameAdminUserIDs is the identical
+	// precedent).
+	AssignedGameAdminUserIDs []string
+}
+
+// RecordMatchResult validates and persists a Match result against an
+// existing Game (T10.4). Order of checks, and why:
+//
+//  1. Malformed GameID (T10.7-shaped boundary guard, uuidShape) is rejected
+//     with the bare domain.ErrGameNotFound BEFORE touching the repository at
+//     all — mirrors RegisterForGame/JoinWaitlist's identical guard, for the
+//     identical reason (the Postgres adapter's mustUUID panics on a
+//     non-UUID, and grpc installs no recover() of its own).
+//  2. s.games.GetByID: an unknown-but-well-formed GameID gets the
+//     repository's own domain.ErrGameNotFound, the same answer a malformed
+//     one already gets from step 1 (T10.7's own "no worse than an
+//     unknown-but-well-formed id" requirement).
+//  3. game.EnsureHostOrGameAdmin(ActorUserID, AssignedGameAdminUserIDs): the
+//     object-level (BOLA) authorization check, run before either the
+//     cancelled-game precondition or domain.RecordMatch's own field
+//     validation — mirrors authorizeOfflineRecording's ordering
+//     (internal/payments/app/service.go: "checked first... so an
+//     unauthorized actor never learns anything about why the input would
+//     otherwise be invalid"), extended here to also cover the Game's own
+//     state: an unauthorized caller learns nothing about whether the Game
+//     happens to be cancelled either.
+//  4. game.EnsureNotCancelled: FailedPrecondition per this ticket's
+//     error-handling table — a cancelled Game can no longer have results
+//     recorded against it.
+//  5. domain.RecordMatch: GameID/Players/Score field validation (T10.3,
+//     T10.4's ErrEmptyScore addition) — InvalidArgument.
+//
+// The returned Match's ID is assigned here (s.ids.NewID()), mirroring
+// RegisterForGame/JoinWaitlist's identical "domain constructor doesn't take
+// an id, app layer assigns one at persistence time" pattern.
+func (s *Service) RecordMatchResult(ctx context.Context, in RecordMatchResultInput) (domain.Match, error) {
+	if !uuidShape.MatchString(in.GameID) {
+		return domain.Match{}, domain.ErrGameNotFound
+	}
+
+	game, err := s.games.GetByID(ctx, in.GameID)
+	if err != nil {
+		return domain.Match{}, err
+	}
+
+	if err := game.EnsureHostOrGameAdmin(in.ActorUserID, in.AssignedGameAdminUserIDs); err != nil {
+		return domain.Match{}, err
+	}
+
+	if err := game.EnsureNotCancelled(); err != nil {
+		return domain.Match{}, err
+	}
+
+	m, err := domain.RecordMatch(in.GameID, in.Players, in.Score, time.Now())
+	if err != nil {
+		return domain.Match{}, err
+	}
+	m.ID = s.ids.NewID()
+
+	return s.matches.Create(ctx, m)
+}
+
+// ListMatchesForGame returns every Match recorded against gameID (T10.4).
+// Unlike ListRegistrationsForGame's "unknown Game yields an empty roster"
+// convention, this ticket's own error-handling instructions require
+// NotFound for an unknown GameID, so this method does its own existence
+// check via s.games.GetByID before delegating to the repository — a real
+// read, not a pure pass-through, despite having no business rule of its own
+// to enforce (CLAUDE.md rule 2: the existence check is the one thing this
+// method does beyond delegating).
+func (s *Service) ListMatchesForGame(ctx context.Context, gameID string) ([]domain.Match, error) {
+	// Same T10.7-shaped boundary guard RecordMatchResult applies above, for
+	// the identical reason: this method calls GetByID(gameID) next, and a
+	// malformed id must answer no worse than an unknown-but-well-formed one
+	// already does — both are domain.ErrGameNotFound here (NotFound), unlike
+	// ListRegistrationsForGame's list-shaped "empty roster" answer, because
+	// this RPC's own error-handling table requires NotFound specifically.
+	if !uuidShape.MatchString(gameID) {
+		return nil, domain.ErrGameNotFound
+	}
+
+	if _, err := s.games.GetByID(ctx, gameID); err != nil {
+		return nil, err
+	}
+
+	return s.matches.ListForGame(ctx, gameID)
 }

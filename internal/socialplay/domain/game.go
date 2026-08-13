@@ -113,6 +113,65 @@ func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, 
 	}, nil
 }
 
+// EnsureHostOrGameAdmin returns ErrNotGameHostOrAdmin unless actorUserID
+// matches g.HostID exactly, or appears in assignedGameAdminUserIDs — the
+// object-level (BOLA) authorization check T10.4's RecordMatchResult
+// requires, mirroring competitions.Competition.EnsureHost and
+// facilities.Facility.EnsureOwner's shape (an empty actorUserID is always
+// rejected, even against a Game with an empty HostID — an unidentified
+// caller is never the host or an admin).
+//
+// assignedGameAdminUserIDs is a caller-supplied fact, not a persisted one:
+// this codebase has never built a durable Game-Admin-assignment mechanism
+// (internal/payments/app.RecordOfflinePaymentInput's
+// AssignedGameAdminUserIDs doc comment records the same gap for T6.3's
+// identical authorization shape, and this method's caller,
+// app.Service.RecordMatchResult, is deliberately the minimal version needed
+// to enforce the rule this ticket requires — not a new persistence feature).
+// A blank entry in assignedGameAdminUserIDs never matches (mirrors
+// authorizeOfflineRecording's identical "adminID != \"\"" guard) so an
+// unset actorUserID can't accidentally match a zero-valued slice element.
+//
+// As with every actor-scoped check in this codebase, actorUserID is a
+// caller-supplied claim, not a verified identity: real authentication
+// remains HANDOFF.md's open Auth item, and this method must not be read as
+// closing it.
+func (g Game) EnsureHostOrGameAdmin(actorUserID string, assignedGameAdminUserIDs []string) error {
+	if actorUserID == "" {
+		return ErrNotGameHostOrAdmin
+	}
+	if actorUserID == g.HostID {
+		return nil
+	}
+	for _, adminID := range assignedGameAdminUserIDs {
+		if adminID != "" && adminID == actorUserID {
+			return nil
+		}
+	}
+	return ErrNotGameHostOrAdmin
+}
+
+// EnsureNotCancelled returns ErrGameCancelled when g.Status is cancelled —
+// T10.4's RecordMatchResult precondition ("recording a match against a
+// cancelled Game -> FailedPrecondition"). Mirrors
+// competitions.domain.Enter's identical "the Competition must still be
+// scheduled" check (internal/competitions/domain/entry.go), lifted into its
+// own method here rather than inlined into a constructor the way Enter does
+// it: match.go's RecordMatch (T10.3) already shipped, merged, with a
+// signature taking a bare gameID string — not a Game value — and its own
+// doc comment explicitly assigns "whether gameID refers to a real,
+// non-cancelled Game" to app.Service at wiring time (T10.4). Changing
+// RecordMatch's signature now would relitigate a already-merged, deliberate
+// T10.3 design choice for no real benefit; this method gives
+// app.Service.RecordMatchResult the identical pure, reusable check without
+// that churn.
+func (g Game) EnsureNotCancelled() error {
+	if g.Status == StatusCancelled {
+		return ErrGameCancelled
+	}
+	return nil
+}
+
 // Cancel transitions a Game to cancelled. The only legal transition is
 // scheduled -> cancelled; cancelling an already-cancelled Game is rejected
 // rather than silently accepted, mirroring booking.Booking.Cancel().

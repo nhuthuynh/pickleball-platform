@@ -27,7 +27,7 @@ func newTestHandlerWithWaitlist() (*fakeGameRepo, *fakeRegistrationRepo, *fakeWa
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
 	waitlistRepo := newFakeWaitlistRepo()
-	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, waitlistRepo)
+	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, waitlistRepo, newFakeMatchRepo())
 	return gameRepo, regRepo, waitlistRepo, svc
 }
 
