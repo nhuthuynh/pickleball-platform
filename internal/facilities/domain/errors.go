@@ -41,6 +41,15 @@ var (
 	// infra error cross into app/grpcapi.
 	ErrFacilityNotFound = errors.New("facilities: facility not found")
 
+	// ErrCourtNotFound is the Court-shaped equivalent of
+	// ErrFacilityNotFound, added in T11.2 alongside app.Service.GetCourt —
+	// the read Booking's new port.FacilityLookup needs to answer "which
+	// Facility owns this Court?". A distinct sentinel from
+	// ErrFacilityNotFound so a caller can tell "no such Court" apart from
+	// "no such Facility" (they are different 404s, and Booking's adapter
+	// translates them into different context-local sentinels).
+	ErrCourtNotFound = errors.New("facilities: court not found")
+
 	// ErrNotFacilityOwner is T7.7's object-level (BOLA) authorization
 	// sentinel: returned by Facility.EnsureOwner/AddCameraLink when a
 	// caller-supplied actor_user_id does not match the Facility's OwnerID.

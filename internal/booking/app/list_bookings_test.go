@@ -16,7 +16,7 @@ func TestListCourtBookings_ReturnsIntersectingBookings(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	// courtID(1): a morning booking and an evening booking.
@@ -63,7 +63,7 @@ func TestListCourtBookings_ExcludesCancelled(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")

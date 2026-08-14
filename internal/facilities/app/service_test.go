@@ -34,6 +34,11 @@ type inMemoryRepo struct {
 	// internal/booking/app's inMemoryRepo.listActiveForCourtCalls is: safe
 	// even if a future test shares one fixture across t.Parallel() subtests.
 	getFacilityByIDCalls atomic.Int64
+
+	// getCourtByIDCalls is the same counter for GetCourtByID (T11.2), so
+	// GetCourt's own malformed-ID guard can be proven the same way — by
+	// observing the repository call never happens.
+	getCourtByIDCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -74,6 +79,17 @@ func (r *inMemoryRepo) ListFacilities(_ context.Context, nameFilter string) ([]d
 func (r *inMemoryRepo) AddCourt(_ context.Context, c domain.Court) (domain.Court, error) {
 	r.courts[c.ID] = c
 	r.courtOrder = append(r.courtOrder, c.ID)
+	return c, nil
+}
+
+// GetCourtByID is T11.2's read path fake, mirroring
+// internal/facilities/adapter/postgres.Repository.GetCourtByID.
+func (r *inMemoryRepo) GetCourtByID(_ context.Context, courtID string) (domain.Court, error) {
+	r.getCourtByIDCalls.Add(1)
+	c, ok := r.courts[courtID]
+	if !ok {
+		return domain.Court{}, domain.ErrCourtNotFound
+	}
 	return c, nil
 }
 

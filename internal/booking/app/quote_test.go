@@ -62,7 +62,7 @@ func TestGetQuote_ResolvesPriceForSlot(t *testing.T) {
 	pricingRepo := &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
 		courtID(1): weekdayPricingRules(),
 	}}
-	svc := app.NewService(newInMemoryRepo(), pricingRepo, &sequentialIDs{})
+	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	tests := []struct {
@@ -102,7 +102,9 @@ func TestGetQuote_ResolvesPriceForSlot(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			quote, err := svc.GetQuote(ctx, tt.courtID, tt.slot)
+			quote, err := svc.GetQuote(ctx, app.GetQuoteInput{
+				CourtID: tt.courtID, Source: domain.SourceIndividual, Range: tt.slot,
+			})
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("got err %v, want %v", err, tt.wantErr)

@@ -25,6 +25,19 @@ INSERT INTO courts (id, name, facility_id)
 VALUES ($1, $2, $3)
 RETURNING id, name, facility_id;
 
+-- name: GetCourtByID :one
+-- T11.2: the reverse of ListCourtsForFacility — given a Court, which
+-- Facility owns it. Booking's port.FacilityLookup uses this (through
+-- facilities' app.Service.GetCourt) to resolve a facility-scoped
+-- DiscountRule from the CourtID GetQuote already has, instead of Booking
+-- reading the courts table itself behind the context boundary.
+-- facility_id is nullable (0010_facilities.sql), so a pre-Facilities seeded
+-- court comes back with a NULL facility_id — found, but belonging to no
+-- Facility.
+SELECT id, name, facility_id
+FROM courts
+WHERE id = $1;
+
 -- name: ListCourtsForFacility :many
 -- The read path AddCourt (T7.3) never had (T8.2): every Court belonging to
 -- facilityID, in creation order, from the *existing* courts table (same one

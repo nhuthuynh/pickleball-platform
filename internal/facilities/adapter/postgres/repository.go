@@ -127,6 +127,22 @@ func (r *Repository) AttestCameraConsent(ctx context.Context, facilityID string)
 	return nil
 }
 
+// GetCourtByID is T11.2's Court-shaped read: given a Court, which Facility
+// owns it. A NULL facility_id (a seeded, pre-Facilities court) comes back as
+// an empty FacilityID via uuidOrEmpty — found, but belonging to no Facility,
+// which is a real answer in this schema and not an error.
+func (r *Repository) GetCourtByID(ctx context.Context, courtID string) (domain.Court, error) {
+	row, err := r.q.GetCourtByID(ctx, mustUUID(courtID))
+	if err != nil {
+		return domain.Court{}, translateCourtErr(err)
+	}
+	return domain.Court{
+		ID:         row.ID.String(),
+		FacilityID: uuidOrEmpty(row.FacilityID),
+		Name:       row.Name,
+	}, nil
+}
+
 // ListCourtsForFacility is T8.2's read path — AddCourt (T7.3) had no way to
 // list Courts back. It reads the *existing* courts table (0001_init.sql)
 // filtered by facility_id, the same table AddCourt inserts into and Booking
@@ -164,6 +180,19 @@ func (r *Repository) cameraLinksFor(ctx context.Context, facilityID string) ([]d
 func translateErr(err error) error {
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrFacilityNotFound
+	}
+	return fmt.Errorf("facilities postgres adapter: %w", err)
+}
+
+// translateCourtErr is deliberately separate from translateErr, for the same
+// reason internal/booking/adapter/postgres keeps translatePricingErr separate
+// from translateErr (see that function's comment): translateErr maps
+// pgx.ErrNoRows to ErrFacilityNotFound, which is the wrong 404 for a Court
+// lookup. A miss on GetCourtByID means the *Court* doesn't exist, and
+// Booking's FacilityLookup adapter distinguishes the two.
+func translateCourtErr(err error) error {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.ErrCourtNotFound
 	}
 	return fmt.Errorf("facilities postgres adapter: %w", err)
 }

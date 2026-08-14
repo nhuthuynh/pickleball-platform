@@ -19,7 +19,7 @@ func TestCancelBooking_FreesTheSlotForRebooking(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -56,7 +56,7 @@ func TestCancelBooking_UnknownBookingReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	_, err := svc.CancelBooking(ctx, "does-not-exist")
@@ -69,7 +69,7 @@ func TestCancelBooking_AlreadyCancelledIsRejected(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 

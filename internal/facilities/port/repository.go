@@ -46,6 +46,16 @@ type Repository interface {
 	// exist.
 	AttestCameraConsent(ctx context.Context, facilityID string) error
 
+	// GetCourtByID returns a single Court by its id, or
+	// domain.ErrCourtNotFound (T11.2). This is the reverse of
+	// ListCourtsForFacility: given a Court, which Facility owns it —
+	// the read internal/booking/port.FacilityLookup needs so a
+	// facility-scoped DiscountRule can be resolved from the CourtID
+	// GetQuote already has. A Court whose facility_id is NULL (the
+	// pre-Facilities seeded courts, 0010_facilities.sql) is found, with
+	// an empty FacilityID; that is not an error here.
+	GetCourtByID(ctx context.Context, courtID string) (domain.Court, error)
+
 	// ListCourtsForFacility returns every Court belonging to facilityID, in
 	// creation order (T8.2 — the read path AddCourt (T7.3) never had). An
 	// unknown facilityID is not itself an error here — it simply has no

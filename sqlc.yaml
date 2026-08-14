@@ -8,6 +8,7 @@ sql:
     queries:
       - "db/queries/booking.sql"
       - "db/queries/pricing.sql"
+      - "db/queries/discounts.sql"
     schema: "db/migrations"
     gen:
       go:

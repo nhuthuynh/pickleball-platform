@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
+	bookingfacilities "github.com/nhuthuynh/white-label/internal/booking/adapter/facilities"
 	bookinggrpc "github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
 	bookingpg "github.com/nhuthuynh/white-label/internal/booking/adapter/postgres"
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
@@ -95,18 +96,29 @@ func run(logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	repo := bookingpg.NewRepository(pool)
-	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
-	bookingSvc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
-	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
-
 	// Facilities (T7.3). Its Repository is Postgres-backed like Booking's;
-	// AddCourt inserts into the *same* courts table Booking's repo above
+	// AddCourt inserts into the *same* courts table Booking's repo below
 	// reads court_id from (0001_init.sql + 0010_facilities.sql's
 	// facility_id column) — not a second courts table.
+	//
+	// Built before Booking as of T11.2: Booking now has a FacilityLookup
+	// port of its own (its first call into Facilities at all) and is wired
+	// against this same, real facilitiesSvc instance — not a second/separate
+	// Facilities stack — exactly as Social Play and Competitions already are
+	// further down.
 	facilitiesRepo := facilitiespg.NewRepository(pool)
 	facilitiesSvc := facilitiesapp.NewService(facilitiesRepo, idgen.UUID{})
 	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
+
+	repo := bookingpg.NewRepository(pool)
+	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
+	// discountRepo (T11.2) backs CreateDiscountRule/
+	// ListDiscountRulesForFacility and the discount half of GetQuote,
+	// against the discount_rules table (0017_booking_discount_rules.sql).
+	discountRepo := bookingpg.NewDiscountRuleRepository(pool)
+	bookingFacilityLookup := bookingfacilities.NewLookup(facilitiesSvc)
+	bookingSvc := bookingapp.NewService(repo, pricingRepo, discountRepo, bookingFacilityLookup, idgen.UUID{})
+	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
 
 	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
 	// other contexts'; unlike every other context here it takes no

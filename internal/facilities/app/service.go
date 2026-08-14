@@ -70,6 +70,28 @@ func (s *Service) GetFacility(ctx context.Context, id string) (domain.Facility, 
 	return s.repo.GetFacilityByID(ctx, id)
 }
 
+// GetCourt returns a single Court by id, or domain.ErrCourtNotFound (T11.2).
+// It exists so another bounded context can resolve a Court to its owning
+// Facility through a port instead of reading the courts table directly:
+// internal/booking/adapter/facilities calls this to satisfy Booking's
+// port.FacilityLookup.FacilityIDForCourt, which GetQuote needs to resolve a
+// facility-scoped DiscountRule from the CourtID it already has.
+//
+// A Court whose facility_id is NULL (the seeded, pre-Facilities courts of
+// 0001_init.sql/0010_facilities.sql) is returned normally with an empty
+// FacilityID — "this Court belongs to no Facility" is a real, expected answer
+// in this schema, not an error.
+func (s *Service) GetCourt(ctx context.Context, id string) (domain.Court, error) {
+	// Same T10.7 guard GetFacility/AddCourt apply to their own
+	// caller-supplied IDs: a malformed ID is answered exactly like an unknown
+	// one, so it never reaches the adapter's mustUUID (which panics on
+	// anything pgtype.UUID.Scan rejects).
+	if !uuidShape.MatchString(id) {
+		return domain.Court{}, domain.ErrCourtNotFound
+	}
+	return s.repo.GetCourtByID(ctx, id)
+}
+
 // ListFacilities returns Facilities matching nameFilter (a case-insensitive
 // substring match on Name — no real geo-search, per HANDOFF.md T7.3), or
 // all Facilities when nameFilter is empty. All the actual filtering lives
