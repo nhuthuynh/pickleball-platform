@@ -77,8 +77,17 @@ describe('useCourtBooking', () => {
 
     expect(step.value).toBe('review')
     expect(quote.value).toMatchObject({ priceCents: 1800, band: 'peak' })
+    // `source` added T11.3: GetQuoteRequest gained it in T11.2 to select
+    // which DiscountRules may apply, and this composable sends the same
+    // SOURCE_INDIVIDUAL its own CreateBooking call uses rather than relying
+    // on the unspecified-means-individual default.
     expect(client.POST).toHaveBeenCalledWith('/v1/quotes', {
-      body: { courtId: 'court-1', startsAt: '2026-08-10T09:00:00Z', endsAt: '2026-08-10T10:00:00Z' },
+      body: {
+        courtId: 'court-1',
+        startsAt: '2026-08-10T09:00:00Z',
+        endsAt: '2026-08-10T10:00:00Z',
+        source: 'SOURCE_INDIVIDUAL',
+      },
     })
   })
 

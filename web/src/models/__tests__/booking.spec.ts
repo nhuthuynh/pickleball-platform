@@ -4,18 +4,79 @@ import {
   mapToBooking,
   formatPriceCents,
   computeNextAvailableSlots,
+  quoteSavingCents,
   type ConfirmedBooking,
 } from '../booking'
 
 describe('mapToQuote', () => {
-  it('parses the int64-as-string priceCents into a number', () => {
-    const quote = mapToQuote({ priceCents: '1800', band: 'peak' }, 1000)
-    expect(quote).toEqual({ priceCents: 1800, band: 'peak', fetchedAt: 1000 })
+  it('parses the int64-as-string priceCents AND bandPriceCents into numbers', () => {
+    // T11.2 added bandPriceCents (the pre-discount band price) and discount
+    // to GetQuoteResponse — both int64-as-string / message respectively.
+    const quote = mapToQuote({ priceCents: '1530', band: 'peak', bandPriceCents: '1800' }, 1000)
+    expect(quote).toEqual({
+      priceCents: 1530,
+      bandPriceCents: 1800,
+      band: 'peak',
+      discount: null,
+      fetchedAt: 1000,
+    })
   })
 
   it('defaults missing fields', () => {
     const quote = mapToQuote({}, 500)
-    expect(quote).toEqual({ priceCents: 0, band: '', fetchedAt: 500 })
+    expect(quote).toEqual({ priceCents: 0, bandPriceCents: 0, band: '', discount: null, fetchedAt: 500 })
+  })
+
+  it('falls back bandPriceCents to priceCents when the server did not send one', () => {
+    // A response with no bandPriceCents (e.g. a server predating T11.2) must
+    // not be read as "the band price was $0.00" — booking.proto states the
+    // two are equal when no discount applied, so mirror that rather than
+    // rendering a fabricated zero as a struck-through original price.
+    const quote = mapToQuote({ priceCents: '1800', band: 'peak' }, 1000)
+    expect(quote.bandPriceCents).toBe(1800)
+  })
+
+  it('maps an applied discount, and reports ABSENCE as null (not a zero-valued rule)', () => {
+    // booking.proto: "Absence, not a zero-valued rule, is what 'no discount'
+    // looks like on the wire — a 0%-off discount and no discount are
+    // different statements."
+    const withDiscount = mapToQuote(
+      {
+        priceCents: '1530',
+        band: 'peak',
+        bandPriceCents: '1800',
+        discount: { id: 'd-1', discountType: 'DISCOUNT_TYPE_PERCENT', percent: 15 },
+      },
+      1000,
+    )
+    expect(withDiscount.discount?.id).toBe('d-1')
+    expect(withDiscount.discount?.percent).toBe(15)
+
+    expect(mapToQuote({ priceCents: '1800', band: 'peak' }, 1000).discount).toBeNull()
+  })
+})
+
+describe('quoteSavingCents', () => {
+  it('reports the real saving when a discount actually reduced the price', () => {
+    const quote = mapToQuote({
+      priceCents: '1530',
+      bandPriceCents: '1800',
+      discount: { id: 'd-1', discountType: 'DISCOUNT_TYPE_PERCENT', percent: 15 },
+    })
+    expect(quoteSavingCents(quote)).toBe(270)
+  })
+
+  it('is 0 when no discount applied, so nothing can render a phantom saving', () => {
+    expect(quoteSavingCents(mapToQuote({ priceCents: '1800', bandPriceCents: '1800' }))).toBe(0)
+  })
+
+  it('is 0 for a discount that reduced nothing, rather than a negative "saving"', () => {
+    const quote = mapToQuote({
+      priceCents: '1800',
+      bandPriceCents: '1800',
+      discount: { id: 'd-0', discountType: 'DISCOUNT_TYPE_PERCENT', percent: 0 },
+    })
+    expect(quoteSavingCents(quote)).toBe(0)
   })
 
   it('defaults fetchedAt to Date.now() when not given', () => {
