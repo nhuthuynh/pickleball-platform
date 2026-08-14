@@ -548,3 +548,142 @@ is a project-wide discovery: no issue has ever actually auto-closed on
 this branch's topology, for any sprint since T5, because GitHub's
 `Closes #N` only fires against the default branch and this project has
 never merged into it.
+
+## T11 (2026-08-13/14) — a build tag hides code from every gate you can actually run
+
+Incident postmortem for the mechanism behind `docs/process/t11-retro.md`
+finding 2. The sprint-level analysis (including the fact that the same
+file broke twice in one sprint, and that the learning propagated within
+the sprint but is encoded nowhere durable) lives in that retro; this
+entry is the reusable mechanism.
+
+- **Mistake:** T11.5 (PR #120) added two parameters to
+  `bookingapp.NewService` and did not update the call site in
+  `internal/booking/adapter/postgres/concurrency_integration_test.go`.
+  That file is gated behind `//go:build integration`, so **every gate the
+  session actually ran was blind to it**: `go build ./...`,
+  `go vet ./...`, `make test-domain`, and `go test ./... -race -count=1`
+  all passed against a file that would not compile. The omission is
+  visible in the implementer's own commit message, whose verification
+  list names all of those commands and no `-tags=integration` variant.
+  The same file, in the same sprint, one PR earlier, had been correctly
+  kept in step by T11.2 (PR #118), whose verification list *does* name
+  `go vet -tags=integration ./...` — so this was a reintroduction of a
+  break class the sprint had already demonstrated it knew about.
+- **Root cause, which is not "an implementer forgot":** checked directly
+  against the `Makefile`, no target that can run in this environment
+  compiles integration-tagged code. `make test-domain` is scoped to
+  `domain/`+`app/`. `make ci` runs `generate tidy lint test-domain
+  test-tools generate-client lint-web test-web build-web` plus
+  `go build ./...` — no `-tags=integration` step anywhere. The only
+  target that compiles the file is `make test`, which *runs* the
+  testcontainers suite and is therefore hard-guarded by
+  `make ci-integration` behind `docker info`, and no session in this
+  project's history has had a Docker daemon. So the file was
+  structurally unverifiable by every command an agent can run, and the
+  two PRs that did check it (T11.2, and T11.6 afterwards) each did so by
+  independently remembering an ad-hoc command that appears in no target,
+  no checklist, and no doc.
+- **Fix:** the reviewer caught it in a fresh worktree off the pushed
+  branch, fixed it on the source branch (commit `fdb0ff5`) with
+  fail-closed stand-ins mirroring the file's existing
+  `unusedFacilityLookup{}` pattern, and re-verified with the unmasked
+  exit code (`go vet -tags=integration ./...; echo $?` → `0`, having
+  first confirmed the failing case really returned `1` rather than a
+  pipe-masked false pass). Broken state lived on the PR branch for
+  7m 26s and never reached the shared branch.
+- **Lesson.** A build tag is not just a way to skip slow tests — it
+  removes the file from the *type-checker's* view too, so "the build is
+  green" is a claim about the untagged subset of the repository only.
+  Two generalizable rules: (a) whenever a build-tag-gated file exists,
+  at least one gate that can run **without** the tag's heavyweight
+  dependency must still compile it — `go vet -tags=<tag> ./...`
+  type-checks without executing anything and without Docker, which is
+  the cheap version of this; (b) changing a constructor's signature
+  obliges you to find its call sites **under every build tag in the
+  repo**, not just the ones a default build walks. A convention that
+  lives only in the memory of whoever wrote the last PR is not a gate,
+  which is the same conclusion T10's fixture-ID entry reached about
+  shared constant blocks.
+
+## T11 (2026-08-14) — two agents finished their work and the block ended without noticing they never opened a PR
+
+Incident postmortem for the mechanism behind `docs/process/t11-retro.md`
+finding 1.
+
+- **Mistake:** two of Wave 1's five tickets (T11.4, T11.9) produced no
+  PR from their own implementer session. Both had done correct,
+  independently-verifiable work — T11.9 had committed *and pushed* its
+  branch and stopped before opening the PR; T11.4 had committed only,
+  with the work existing nowhere but a local worktree. The coordinating
+  session discovered this ~23 hours later on resume, found both agents
+  unreachable, and had to independently verify and publish both
+  (`docs/process/t11-retro.md` finding 1 has the exact gaps: 23h 23m 49s
+  and 23h 20m 33s from final commit to PR open, against 35s and 56s for
+  the two Wave-1 siblings that opened their own).
+- **What makes this a process failure rather than an agent-runtime
+  failure:** the coordinating session did not stop when the agents did.
+  It kept working for another **48 minutes** after the last silent
+  agent's final commit — merging two PRs and opening and merging a third
+  — and then ended the work block without ever comparing the list of
+  tickets it had dispatched into Wave 1 against the list of PRs that
+  existed. Both silent tickets had in fact finished their engineering
+  work *before* the two that succeeded, so this was not work running out
+  of budget mid-task; it was completed work failing at the purely
+  mechanical publish step, in a window where a live session could have
+  caught it trivially. The true root cause inside the agent sessions is
+  not determinable from repository evidence (session exhaustion and an
+  interruption leave identical traces), which is exactly why the
+  mitigation must not depend on diagnosing it.
+- **Fix / lesson.** Treat **absence of a completion notification as
+  unknown state, never as "still working" and never as "nothing to
+  do."** Before ending a work block, do a roll-call against the sprint
+  plan's own dispatch table: for every dispatched, unmerged ticket, state
+  whether a PR exists, a remote branch exists, or neither, and name any
+  ticket in the "neither" state as an open item. Note specifically that
+  polling agent-liveness or listing remote branches would *not* have
+  caught T11.4, whose branch was never pushed — only comparing against
+  the dispatch list catches the case where the work exists solely as an
+  unpushed local commit, which is also the case where it can be lost
+  outright.
+
+## T11 sprint retro
+
+Held as `docs/process/t11-retro.md`, following the convention T5/T9/T10
+set (see the `## T5 sprint retro`/`## T9 sprint retro`/`## T10 sprint
+retro` entries above) and CLAUDE.md's **Docs index & naming convention**.
+
+Six findings, three recorded as unresolved disagreements (PE vs. PdE on
+whether to poll background agents or roll-call the dispatch list before
+ending a block; QA vs. PE on whether the `-tags=integration` gate needs
+CLAUDE.md/DoD prose alongside the Makefile target; PM vs. BA on whether
+T12 restores GitHub issues as the board of record or amends
+`sprint-process.md` to name the sprint plan instead). The widest-reaching
+adopted changes: **add a Docker-free `vet-integration` target
+(`go vet -tags=integration ./...`) to the Makefile and to `make ci`**,
+since no runnable gate currently compiles build-tag-gated code and the
+same file broke twice in this sprint (finding 2, mechanism in the entry
+two above); **roll-call the dispatch list before ending a work block**,
+since a dispatched ticket with no PR is a finding rather than silence
+(finding 1); **extend the dispatch-isolation check from the files each
+ticket *adds* to the existing files both will *append to***, naming
+`internal/<context>/domain/errors.go`, after T11.1/T11.4 collided there
+in the third instance of the shared-namespace class (finding 3); and
+**a disclosed gap a reviewer declines to block on must produce a durable
+record in that same review**, since T11.5→T11.6's otherwise-exemplary
+handoff lived only in a PR body and the coordinating session's memory,
+which the sprint plan's own A3 rule forbids (finding 4). Two findings are
+about the plan's own accuracy rather than execution: A5's migration
+pre-assignment is **the first process fix in this project to fully
+prevent its own incident class** (0017/0018, no collision, where T6 and
+T10 both collided), A9's placement rulings held and A6 was exceeded — but
+A6's four prescribed absence-check signals **would all have missed the
+very control T11.6 was told to check**, and A8's dependency table carried
+a precedent citation (`socialplay/port.IdentityLookup`) that has never
+existed in this repo, in the one cell that carried no evidence marker
+(finding 5). Finding 6, found while verifying T11.8's issue closures
+rather than as an assigned point: T11 closed all 42 historical issues and
+opened **zero** for its own nine tickets, so the board of record
+`sprint-process.md` names now contains no evidence T11 happened — and
+T11.8's own PR disclosed that exact gap for T10 while standing inside a
+live instance of it.
