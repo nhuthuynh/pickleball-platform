@@ -27,7 +27,9 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 
 | T10 | `docs/process/t10-sprint-plan.md` (Ceremony 1 resolves ADR-0010's binding trigger; Ceremony 2 tickets Identity/Users + `Match` plus three T9 follow-up issues #96–#98) | `docs/process/t10-retro.md` (6 findings, 2 recorded as unresolved disagreements; indexed from `docs/LESSONS.md`'s `## T10 sprint retro`) | PRs #99 (Ceremony 1/2 doc + ADR-0012) → #102 (T10.6) → #101 (T10.7, later found to contain an un-staged fixture fix — see retro finding 1) → #106 (T10.2) → #107 (fix for finding-1's regression) → #105 (T10.4) → #103 (T10.3) → #108 (T10.8) → #109 (T10.5) → #104 (finding-1's actual landed fix) → #110 (retro doc), verified against `merged_at` per this project's standing convention — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0012` (supersedes `adr/0010`: Identity/Users + `Match` built this sprint; `PlayerRating`, the matching algorithm, and gender-mix matching remain named-blocked on Q1/Q2, escalated to the user, trigger tied to the user's answer rather than another sprint boundary) | — |
 
-| T11 | `docs/process/t11-sprint-plan.md` (Ceremony 1 re-verifies T10's A2 "not gated on real auth" analysis and tickets pricing/discount UI, Club rentals, and a WCAG 2.2 AA audit; Ceremony 2 tickets 9 items, 47 points, threading all five of T10 retro's adopted process changes into ticket text) | not yet written | not yet opened | none new | — |
+| T11 | `docs/process/t11-sprint-plan.md` (Ceremony 1 re-verifies T10's A2 "not gated on real auth" analysis and tickets pricing/discount UI, Club rentals, and a WCAG 2.2 AA audit; Ceremony 2 tickets 9 items, 47 points, threading all five of T10 retro's adopted process changes into ticket text) | `docs/process/t11-retro.md` (6 findings, 3 recorded as unresolved disagreements; indexed from `docs/LESSONS.md`'s `## T11 sprint retro`) | PRs #112 (Ceremony 1/2 doc) → #113 (T11.8) → #114 (T11.1) → #115 (T11.7) → #116 (T11.4) → #117 (T11.9) → #118 (T11.2) → #119 (T11.3) → #120 (T11.5) → #121 (T11.6) → #122 (retro doc), verified against each PR's `merged_at` per this project's standing convention — all merged, all reviewed via GitHub review comments, see naming convention | none new | — |
+
+| T12 | `docs/process/t12-sprint-plan.md` (Ceremony 1 verifies real auth is buildable now — the platform half, not the IdP-tenant half — and resolves T11 retro finding 6's board-of-record question; Ceremony 2 tickets 9 items, 46 points, threading all six T11-retro findings into ticket text and designing finding 3's shared-append collision class out via a per-context `AuthenticatedMethods()` ruling) | not yet written | not yet opened | `adr/0013` (planned, T12.2: auth is platform not context; observe-only → per-context enforcement; `Principal` is not `User`) | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -430,11 +432,50 @@ the repo's actual default branch — `docs/process/t11-sprint-plan.md`
 tickets the retroactive fix (issue #111, T11.8).
 
 **T11 — Pricing/discount UI (Flow 2), Club rentals (Flow 7), a WCAG 2.2
-AA audit, and T10 retro's adopted process fixes threaded into planning.**
-Ceremony 1/2 complete, full ticket breakdown, cross-context checks,
+AA audit, and T10 retro's adopted process fixes threaded into planning.
+All 9 tickets (T11.1–T11.9, 47 points) implemented, reviewed, and
+MERGED** (PRs #113–#121, plus #112 for the Ceremony 1/2 doc and #122 for
+the retro). Full ticket breakdown, cross-context checks,
 dispatch-isolation waves, and all five T10-retro-adopted changes threaded
 into ticket text (not just cited): `docs/process/t11-sprint-plan.md`.
-Not yet implemented as of this entry.
+Sprint goal met in full: a Facility Owner can configure a real discount
+and a Player sees an honestly-labeled discounted quote; a Club can
+request a recurring slot and an Owner can approve it, generating real
+`recurring_hire`-source Bookings under the existing no-double-booking
+invariant, with per-occurrence conflicts reported rather than aborting
+the approval; shipped screens got a real WCAG 2.2 AA pass; and T11.9's
+fixture-ID generalization found and fixed a real, previously-undetected
+vacuous test in `competitions`. No defect reached the shared branch.
+Retro: `docs/process/t11-retro.md` — 6 findings, 3 left as recorded
+unresolved disagreements. **The two most consequential**: (1) two Wave-1
+implementer sessions finished correct work and never opened a PR, and the
+coordinating session ended the work block ~45 minutes later without ever
+comparing the dispatch list against the PRs that existed — one ticket's
+work existed only as an unpushed local commit, one cleanup away from
+being lost. (2) `//go:build integration` files are invisible to every
+gate a session can actually run (`make ci` has no `-tags=integration`
+step; `make test`/`ci-integration` need Docker, which no session in this
+project's history has had), so the same file broke twice in one sprint —
+caught in review both times, never reaching the shared branch.
+`docs/process/t12-sprint-plan.md` threads all six findings and tickets
+the Docker-free `vet-integration` gate (T12.1).
+
+**T12 — Real authentication (verified principal replacing claimed
+actor), the two aging authorization follow-ups, and T11 retro's adopted
+process fixes.** Ceremony 1/2 complete, full ticket breakdown,
+evidence-marked cross-context checks, migration/shared-file
+pre-assignment, and all six T11-retro findings threaded into ticket text:
+`docs/process/t12-sprint-plan.md`. 9 tickets, 46 points. Spine is
+`internal/platform/auth` (T12.2, + ADR-0013) consumed by three
+context-migration tickets, closing the `CreateUser` identity-squatting
+DoS recorded in the T10 entry above per its own stated closure condition
+(T12.9). Also takes `RefundPayment` (open since T6.5) and `CancelGame`
+authorization (open since T5.5). **Ceremony 1 resolved T11 retro finding
+6's board-of-record question** (see §A7): the sprint plan document is the
+board of record for in-sprint tickets, and GitHub issues are *mandatory*
+for anything outliving its sprint — issues #123–#126 were opened at that
+ceremony as the rule's first four instances, for the cross-sprint items
+T12 explicitly defers. Not yet implemented as of this entry.
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
