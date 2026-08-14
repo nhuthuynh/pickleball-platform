@@ -687,3 +687,180 @@ opened **zero** for its own nine tickets, so the board of record
 `sprint-process.md` names now contains no evidence T11 happened — and
 T11.8's own PR disclosed that exact gap for T10 while standing inside a
 live instance of it.
+
+## T12 (2026-08-14) — a platform ticket shipped without the one primitive all three of its consumers needed, and two of them built it independently 68 seconds apart
+
+Incident postmortem for the mechanism behind `docs/process/t12-retro.md`
+finding 1.
+
+- **Mistake:** T12.2 built the auth platform (`internal/platform/auth`)
+  in deliberate **observe-only** mode — it populates a `Principal` and
+  enforces nothing — while A11 Ruling 2 gave each context its own
+  `AuthenticatedMethods()` list. Nobody owned the **consumer** of those
+  lists: the primitive that turns a method list into a rejected call.
+  Verified after the fact with `git log --diff-filter=A`:
+  `internal/platform/auth/require.go` was created by **T12.7**, not by
+  T12.2. So both Wave-2 tickets independently discovered they could not
+  proceed without it and each built their own — T12.7's `require.go`
+  (`MethodSet`/`RequireUnaryInterceptor`/`RequireStreamInterceptor`/
+  `RequireSubject`) and T12.9's `enforce.go`
+  (`RequireAuthentication`/`RequireAuthenticationStream`) — functionally
+  identical, architecturally separate, in the same package. Their PRs
+  opened **68 seconds apart** (17:09:09Z and 17:10:17Z), so neither
+  implementer could see the other's branch, and both said so truthfully
+  in their own bodies.
+- **What kept the cost to minutes:** both implementers *predicted the
+  collision in their own PR bodies before it was adjudicated*, each
+  reasoning that the other ticket would need the same primitive. It was
+  caught in review of the second PR and resolved on that PR's own source
+  branch by deleting `enforce.go`/`enforce_test.go` and consolidating on
+  the already-merged `require.go`, with post-merge re-verification
+  captured in the merge commit. The sprint plan's stated resolution rule
+  for a *different* file (`cmd/server/main.go`: whichever merges second
+  resolves on its own branch) generalised correctly to a file the plan
+  never named — with the necessary adaptation that "keep both entries" is
+  wrong when the two entries are functionally identical.
+- **Why the existing safeguard could not have caught it, which is the
+  whole lesson.** T11's retro had already extended the dispatch-isolation
+  check from "which files does each ticket **create**?" to "which existing
+  files will both **append to**?" — the right fix for T11's `errors.go`
+  collision, which was a *visibility* failure. T12's is a **provenance**
+  failure: at planning time the honest answer to "which files will T12.7
+  and T12.9 create in `internal/platform/auth`?" was *"none — T12.2
+  provides that package."* Both plans were correct as written. No
+  file-overlap question, asked of new files or existing ones, reaches a
+  capability that no ticket was assigned to build.
+- **Fix / lesson.** **Check the dependency graph for capability
+  completeness, not just the file system for overlap.** For every arrow in
+  a wave dependency graph, state in one line what the upstream ticket's
+  acceptance criteria *deliver* and what each downstream ticket's
+  acceptance criteria *consume*, and name any capability that appears on a
+  consumer's side and no producer's side. Assign it to exactly one ticket
+  before dispatch. Corollary, from the same sprint's recorded PdE/PE
+  disagreement (`t12-sprint-plan.md` A14): when a brand-new platform
+  capability has three or more first-time consumers, merging and reviewing
+  the *first* consumer before dispatching the rest would have prevented
+  this outright — the third consumer (T12.8), dispatched one wave later
+  with the primitive already present, consumed and extended it correctly
+  instead of re-inventing it.
+
+## T12 (2026-08-14) — a whole capability shipped broken because the adapter joining two contexts had no test file at all
+
+Incident postmortem for the mechanism behind `docs/process/t12-retro.md`
+finding 2.
+
+- **Mistake:** T12.7 made Booking's actor a verified IdP subject
+  (`auth0|abc123`). T12.9 split `User.ID` (a server-minted uuid) from
+  `User.Subject` (the IdP string) and added `UserBySubject` for exactly
+  that translation — wiring it only into Identity's own handler. Booking's
+  cross-context adapter still called `GetUser`, which opens with
+  `if !uuidShape.MatchString(id) { return ErrUserNotFound }`. A subject can
+  never match a uuid, so **`RequestRecurringHire` returned `NotFound` for
+  every caller alive** — a shipped capability, non-functional on the shared
+  branch, from two individually well-tested and individually correct
+  tickets in the same wave.
+- **Why no test caught it, stated precisely, because the obvious diagnosis
+  is wrong.** It is *not* that "the calling context fakes the port" —
+  faking `port.IdentityLookup` in `internal/booking/app`'s tests is
+  correct; that is what a port is for. The gap is one level down:
+  `internal/<ctx>/adapter/<other-ctx>/` packages are the *only* code where
+  two contexts actually meet, and **`internal/booking/adapter/identity/`
+  contained exactly one file — `lookup.go` — from its creation in T11.5
+  until the hotfix (PR #151) added the first test.** Nothing at all was
+  pointed at the code where the bug had to live. Measured across the repo
+  at the time of this entry: of 8 cross-context adapter packages, 3 have a
+  real behavioural test, 3 have only a compile-time
+  `var _ port.X = (*T)(nil)` assertion, and 2 have no test file at all.
+- **What actually found it, which changes the lesson.** Not luck. The
+  sprint plan's T12.8 instruction item 2 *ordered* the investigation, in
+  writing: *"check the existing relationship in `internal/socialplay` and
+  `internal/identity` before deciding, and record the finding either
+  way."* T12.8 checked, concluded the two actor names were one identifier
+  space, noted its conclusion was safe "because none of them calls into
+  Identity," and — in its own words — *"that last clause is load-bearing,
+  and checking it surfaced a REAL BUG in already-merged code."* The same
+  sprint produced a second instance of the same effect: T12.4's ticket text
+  asserted a false sentinel mapping *and* told the implementer to "check
+  the existing mapping before adding one," which is why the false premise
+  cost nothing.
+- **Fix / lesson.** Two, and the cheap one is the second. **(a)** Every
+  cross-context adapter needs at least one *behavioural* test driving the
+  real other-context `app.Service` over in-memory repository fakes — the
+  Docker-free pattern this repo already had in
+  `internal/payments/adapter/socialplay/registration_updater_test.go` — and
+  it must use a realistically-shaped identifier, because the entire bug was
+  that `auth0|abc123` never appeared in a test. A compile-time interface
+  assertion is not coverage, and three of these packages currently hold one
+  where a reader would expect a test. **(b) The cheapest thing a sprint
+  plan can do is tell an implementer to verify the plan's own claim.** Two
+  independent defects in one sprint — one live, one latent in a ticket's
+  own text — were caught by a written "check X before relying on it"
+  instruction rather than by any gate. That instruction costs one clause.
+- **Related trap, worth its own line.** The first diagnosis of this bug was
+  accurate, complete-looking, and **incomplete**: a second, independent
+  guard (`uuidShape` in `internal/booking/app/recurring_hire.go`) fires
+  *earlier* on the same call path and returns the *identical*
+  `ErrUserNotFound` → `NotFound`. Reading a call chain from either end
+  yields a true and sufficient explanation when two independent gates
+  return the same error; only executing the whole path distinguishes them.
+  The durable rule: **when two or more independent guards on one call path
+  can return the same sentinel, a fix that removes one of them is not
+  proven by a unit test at that guard's level — it needs a test that
+  traverses the whole path.** The remaining half is tracked as issue #152
+  with a test that asserts the still-defective behaviour so it cannot go
+  quiet, and the original issue was deliberately left open rather than
+  closed on the strength of a partial fix.
+
+## T12 sprint retro
+
+Held as `docs/process/t12-retro.md`, following the convention T5/T9/T10/T11
+set (see the `## T5 sprint retro`/`## T9 sprint retro`/`## T10 sprint
+retro`/`## T11 sprint retro` entries above) and CLAUDE.md's **Docs index &
+naming convention**.
+
+Six findings, three recorded as unresolved disagreements (QA vs. PE on
+whether a port-contract-change rule is needed on top of the new
+dependency-completeness check; PO vs. BA on whether the implementer or the
+reviewer is the primary party obliged to open an issue for a disclosed
+gap; and A9(a)'s roll-call-vs-polling question, which T12 could not score
+because it had no silent agent). All 9 tickets merged in a single
+1h47m work block — the fastest sprint in this project's history — plus one
+unticketed hotfix. Two of T11's recorded disagreements were **resolved**
+this sprint with real evidence: the `vet-integration` prose question
+(A9(b)) closed in PE's favour after the sprint's own PR record showed 1
+of 8 PRs skipping the check with a reviewer catching it and no break
+occurring, and the board-of-record question (A9(c)/T12.6) completed the
+first full carry→resolve→implement→verify loop in this project's history.
+
+The widest-reaching adopted changes: **check the wave dependency graph for
+capability completeness, not just the file system for overlap** — a new
+collision class that the two existing file-overlap questions structurally
+cannot see, after T12.2 shipped without the enforcement primitive all
+three of its consumers needed (finding 1, mechanism in the entry two
+above); **backfill behavioural tests for the five cross-context adapter
+packages that lack one**, after a whole capability shipped broken through
+the one adapter that had no test file at all (finding 2, mechanism in the
+entry above); **extend T12's evidence-marking discipline from the
+cross-context dependency table to any factual claim about existing code in
+ticket Instructions**, since this sprint's false plan claim was in an
+Instruction rather than the table and was harmless only because the same
+sentence also said to check it (finding 5); and **a partial fix must say
+"partial fix for #N", never "closes #N"** (finding 3).
+
+Finding 4 is the sprint's honest self-assessment and the one most likely
+to be misread later: the verified-principal **mechanism** is real,
+tested, and consumed by all six bounded contexts (24 RPCs, wire fields
+ignored and proven so by mutation, the `CreateUser` squatting DoS closed
+and proven closed) — but the goal's literal phrasing, "every
+authorization check," does not hold. **Eleven tracked exceptions**,
+including several RPCs that have no authorization check at all (#144,
+#147, #148), Payments still comparing a verified actor against
+caller-supplied ownership facts (#149 — "it closes impersonation; it does
+not close fact-fabrication"), one migrated capability still
+non-functional (#146/#152), and no way to verify a token from a real
+identity provider until a remote JWKS source exists (#137). Finding 6:
+A5's disclosed-gap rule produced a durable issue for **19 of 19**
+disclosed gaps, a dramatic improvement on T11's zero — but 18 of those
+19 were opened by the reviewing session rather than by the PR A5's text
+names, so the outcome rests on one reviewer's attention with nothing in
+the record signalling the dependency.
