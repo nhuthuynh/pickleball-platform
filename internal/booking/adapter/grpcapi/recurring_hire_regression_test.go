@@ -125,6 +125,17 @@ func (r *fakeRecurringRepo) ListForCourts(_ context.Context, courtIDs []string) 
 	return out, nil
 }
 
+func (r *fakeRecurringRepo) ListForRequester(_ context.Context, requestedByUserID string) ([]domain.RecurringHireTemplate, error) {
+	r.listCalls++
+	out := make([]domain.RecurringHireTemplate, 0, len(r.templates))
+	for _, t := range r.templates {
+		if t.RequestedByUserID == requestedByUserID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 // fakeIdentityLookup stands in for internal/booking/adapter/identity,
 // returning the same two Booking-local sentinels that adapter translates
 // Identity's errors into. userID(clubUser) holds `club`; userID(playerUser)
@@ -668,6 +679,91 @@ func TestListRecurringHireTemplatesForFacility(t *testing.T) {
 				FacilityId: id, ActorUserId: userID(ownerUser),
 			})
 			requireCode(t, err, codes.NotFound)
+		}
+	})
+}
+
+// --- ListRecurringHireTemplatesForActor --------------------------------
+
+// TestListRecurringHireTemplatesForActor pins the Club-facing status view
+// T11.6 adds at the wire boundary: the actor's own templates, in every
+// status, with no error surfaced for an actor who simply has none.
+//
+// The rejected-template subtest is the "no fabricated data" AC in test form:
+// a rejected request must come back present and REJECTED. Omitting it — the
+// obvious alternative implementation, filtering the list to open requests —
+// would let the Club's screen imply a decided request is still pending.
+func TestListRecurringHireTemplatesForActor(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("actor sees their own templates and nobody else's", func(t *testing.T) {
+		h := newRecurringHandler()
+		mine := mustRequestTemplate(t, h, 4)
+
+		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
+			ActorUserId: userID(clubUser),
+		})
+		if err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
+		}
+		if len(resp.GetTemplates()) != 1 || resp.GetTemplates()[0].GetId() != mine.GetId() {
+			t.Fatalf("got %v, want exactly the actor's own template %q", resp.GetTemplates(), mine.GetId())
+		}
+
+		// The Facility Owner requested nothing, so their list is empty even
+		// though they can see this same template through the owner queue.
+		ownerResp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
+			ActorUserId: userID(ownerUser),
+		})
+		if err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor (owner): %v", err)
+		}
+		if len(ownerResp.GetTemplates()) != 0 {
+			t.Errorf("owner's own-request list = %v, want empty", ownerResp.GetTemplates())
+		}
+	})
+
+	t.Run("a rejected template is returned as REJECTED, not omitted", func(t *testing.T) {
+		h := newRecurringHandler()
+		tpl := mustRequestTemplate(t, h, 4)
+
+		if _, err := h.handler.RejectRecurringHire(ctx, &bookingv1.RejectRecurringHireRequest{
+			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		}); err != nil {
+			t.Fatalf("RejectRecurringHire: %v", err)
+		}
+
+		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
+			ActorUserId: userID(clubUser),
+		})
+		if err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
+		}
+		if len(resp.GetTemplates()) != 1 {
+			t.Fatalf("got %d templates, want the rejected one still listed", len(resp.GetTemplates()))
+		}
+		if got := resp.GetTemplates()[0].GetStatus(); got != bookingv1.RecurringHireStatus_RECURRING_HIRE_STATUS_REJECTED {
+			t.Errorf("status = %v, want REJECTED", got)
+		}
+	})
+
+	// An actor with no templates — unknown, malformed, or simply new — is an
+	// ordinary empty list, not an error and not a panic (the malformed values
+	// would otherwise reach the adapter's mustUUID).
+	t.Run("unknown or malformed actor is an empty list, not an error", func(t *testing.T) {
+		for _, id := range []string{userID(99), "", "not-a-uuid", "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8"} {
+			h := newRecurringHandler()
+			mustRequestTemplate(t, h, 4)
+
+			resp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
+				ActorUserId: id,
+			})
+			if err != nil {
+				t.Fatalf("ListRecurringHireTemplatesForActor(%q): %v", id, err)
+			}
+			if len(resp.GetTemplates()) != 0 {
+				t.Errorf("ListRecurringHireTemplatesForActor(%q) = %v, want empty", id, resp.GetTemplates())
+			}
 		}
 	})
 }

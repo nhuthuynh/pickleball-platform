@@ -40,4 +40,20 @@ type RecurringHireRepository interface {
 	//
 	// An empty courtIDs slice returns an empty result without a query.
 	ListForCourts(ctx context.Context, courtIDs []string) ([]domain.RecurringHireTemplate, error)
+
+	// ListForRequester returns every template requested BY requestedByUserID,
+	// oldest first — the Club-facing "my requests" read (T11.6), which T11.5
+	// deliberately left unbuilt (see ListRecurringHireTemplatesForFacility's
+	// doc comment in the app layer).
+	//
+	// Named for the domain field it filters on (RequestedByUserID) rather than
+	// for the RPC's `actor_user_id` parameter, matching ListForCourts' own
+	// "named for what it reads" shape: at this layer there is no actor
+	// concept, only the user a template records as having requested it. That
+	// the two are the same value is precisely the app layer's authorization
+	// statement, and it belongs there, not here.
+	//
+	// An unknown requester returns an empty result, not an error: no rows is a
+	// true and complete answer to "what did this user request".
+	ListForRequester(ctx context.Context, requestedByUserID string) ([]domain.RecurringHireTemplate, error)
 }

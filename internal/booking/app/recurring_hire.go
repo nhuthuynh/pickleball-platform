@@ -284,10 +284,13 @@ func (s *Service) authorizeRecurringHireDecision(ctx context.Context, templateID
 // rather than an empty list, because there is an actor check here that must
 // not silently pass for a Facility that does not exist.
 //
-// The ticket does not specify this endpoint's authorization; making it
-// owner-only is this implementation's call, recorded here and in the PR
-// rather than left implicit. Note the consequence: a Club has no RPC to read
-// back its own templates yet, which T11.6's Club-facing status view will need.
+// T11.5's ticket did not specify this endpoint's authorization; making it
+// owner-only was that implementation's call, recorded here and in its PR
+// rather than left implicit. Its noted consequence — that a Club had no RPC
+// to read back its own templates — is closed by T11.6's
+// ListRecurringHireTemplatesForActor below, which is a separate read with a
+// deliberately different (and, per its own doc comment, not weaker)
+// authorization shape rather than a relaxation of this one.
 func (s *Service) ListRecurringHireTemplatesForFacility(ctx context.Context, facilityID, actorUserID string) ([]domain.RecurringHireTemplate, error) {
 	if !uuidShape.MatchString(facilityID) {
 		return nil, domain.ErrFacilityNotFound
@@ -306,4 +309,53 @@ func (s *Service) ListRecurringHireTemplatesForFacility(ctx context.Context, fac
 	}
 
 	return s.recurringRepo.ListForCourts(ctx, courtIDs)
+}
+
+// ListRecurringHireTemplatesForActor returns every RecurringHireTemplate the
+// actor themselves requested, in any status — the Club's own status view
+// (T11.6), and the read T11.5 explicitly left as a gap for this ticket to
+// close (see ListRecurringHireTemplatesForFacility's closing note above).
+//
+// **Authorization: the actor's identity IS the scope, and that is the whole
+// check.** The read filters on requested_by_user_id = actorUserID, so a caller
+// can only ever be answered with templates they themselves created; there is
+// no other party's data in reach for an ownership check to protect. That makes
+// it structurally unlike ListRecurringHireTemplatesForFacility, which reads
+// rows belonging to *other* parties and therefore has to prove the caller owns
+// the Facility first.
+//
+// **No `club`-role check, deliberately — a negative finding, stated rather
+// than skipped silently.** Requiring the role here would remove no exposure:
+// T11.5 gates *creation* on the club role, so a user who does not hold it can
+// own no templates and their list is empty either way. It would, however,
+// introduce a real failure: a Club whose role was later removed would lose the
+// ability to read back its own request history — including the rejections it
+// most needs to see. Access to one's own records should not depend on still
+// holding the role one held when creating them. An app-layer test asserts the
+// identity port is never consulted on this path, so the absence of the check
+// is pinned rather than incidental.
+//
+// **The standing caveat, unchanged and not papered over:** ActorUserID is a
+// caller-supplied claim, not a verified identity (HANDOFF.md's Auth
+// cross-cutting item), so until a session layer exists any caller can pass any
+// user id here. That is the same repo-wide gap every other actor-scoped
+// endpoint carries, but it bites differently here: for the Facility read the
+// object-level owner check still constrains a forged actor to Facilities that
+// actor owns, whereas here the actor id is the entire scope, so a forged one
+// yields that user's list. Adding a role check would not fix this — the forger
+// would simply forge a club user's id. What fixes it is authenticating the
+// actor, and this endpoint becomes correctly scoped the moment that lands,
+// with no change to this method.
+//
+// A malformed actorUserID is answered exactly like an unknown one (the T10.7
+// guard) — which for this read means an empty list, not an error, because an
+// unknown actor's answer is also an empty list. The guard still has to run:
+// the Postgres adapter's mustUUID panics on anything pgtype.UUID.Scan cannot
+// parse, and recurring_hire_templates.requested_by_user_id is a `uuid` column.
+func (s *Service) ListRecurringHireTemplatesForActor(ctx context.Context, actorUserID string) ([]domain.RecurringHireTemplate, error) {
+	if !uuidShape.MatchString(actorUserID) {
+		return []domain.RecurringHireTemplate{}, nil
+	}
+
+	return s.recurringRepo.ListForRequester(ctx, actorUserID)
 }
