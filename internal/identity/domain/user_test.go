@@ -16,7 +16,7 @@ func validRoles() []domain.Role {
 func TestNewUser_Valid(t *testing.T) {
 	t.Parallel()
 
-	u, err := domain.NewUser("user-1", "Ada Lovelace", validRoles(), domain.SelfReportedStartingLevel(3))
+	u, err := domain.NewUser("user-1", "auth0|ada", "Ada Lovelace", validRoles(), domain.SelfReportedStartingLevel(3))
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -41,7 +41,7 @@ func TestNewUser_MultipleRoles(t *testing.T) {
 	t.Parallel()
 
 	roles := []domain.Role{domain.RolePlayer, domain.RoleHostOrganiser}
-	u, err := domain.NewUser("user-1", "Ada Lovelace", roles, domain.SelfReportedStartingLevel(3))
+	u, err := domain.NewUser("user-1", "auth0|ada", "Ada Lovelace", roles, domain.SelfReportedStartingLevel(3))
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -51,39 +51,48 @@ func TestNewUser_MultipleRoles(t *testing.T) {
 }
 
 // TestNewUser_Validation is the required table-driven boundary coverage:
-// empty ID, empty DisplayName, empty Roles, an unrecognized Role value, and
-// an out-of-range SelfReportedStartingLevel — each rejected with its own
-// distinct sentinel error, mirroring booking.NewBooking's and
+// empty ID, empty Subject, empty DisplayName, empty Roles, an unrecognized
+// Role value, and an out-of-range SelfReportedStartingLevel — each rejected
+// with its own distinct sentinel error, mirroring booking.NewBooking's and
 // socialplay.NewGame's "one sentinel per rejected invariant" convention.
+//
+// The subject column is T12.9's: a User with no verified IdP subject is a
+// row nobody can ever authenticate as, and — worse — a "" that a later
+// ownership comparison could match against another "" and wrongly accept.
+// It gets its own sentinel rather than reusing ErrEmptyID because the two
+// identifiers fail for different reasons (see domain.ErrEmptySubject).
 func TestNewUser_Validation(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name        string
 		id          string
+		subject     string
 		displayName string
 		roles       []domain.Role
 		level       domain.SelfReportedStartingLevel
 		wantErr     error
 	}{
-		{"empty id is rejected", "", "Ada Lovelace", validRoles(), 3, domain.ErrEmptyID},
-		{"empty display name is rejected", "user-1", "", validRoles(), 3, domain.ErrEmptyDisplayName},
-		{"empty roles is rejected", "user-1", "Ada Lovelace", []domain.Role{}, 3, domain.ErrEmptyRoles},
-		{"nil roles is rejected", "user-1", "Ada Lovelace", nil, 3, domain.ErrEmptyRoles},
-		{"unrecognized role is rejected", "user-1", "Ada Lovelace", []domain.Role{domain.Role("coach")}, 3, domain.ErrInvalidRole},
-		{"one valid role among an invalid one is still rejected", "user-1", "Ada Lovelace", []domain.Role{domain.RolePlayer, domain.Role("coach")}, 3, domain.ErrInvalidRole},
-		{"level zero is rejected", "user-1", "Ada Lovelace", validRoles(), 0, domain.ErrInvalidSelfReportedStartingLevel},
-		{"level below range is rejected", "user-1", "Ada Lovelace", validRoles(), -1, domain.ErrInvalidSelfReportedStartingLevel},
-		{"level above range is rejected", "user-1", "Ada Lovelace", validRoles(), 6, domain.ErrInvalidSelfReportedStartingLevel},
-		{"level at minimum is accepted", "user-1", "Ada Lovelace", validRoles(), 1, nil},
-		{"level at maximum is accepted", "user-1", "Ada Lovelace", validRoles(), 5, nil},
+		{"empty id is rejected", "", "auth0|ada", "Ada Lovelace", validRoles(), 3, domain.ErrEmptyID},
+		{"empty subject is rejected", "user-1", "", "Ada Lovelace", validRoles(), 3, domain.ErrEmptySubject},
+		{"a non-uuid subject is accepted: an IdP subject is an arbitrary provider string, not a uuid", "user-1", "google-oauth2|10769150350006150715", "Ada Lovelace", validRoles(), 3, nil},
+		{"empty display name is rejected", "user-1", "auth0|ada", "", validRoles(), 3, domain.ErrEmptyDisplayName},
+		{"empty roles is rejected", "user-1", "auth0|ada", "Ada Lovelace", []domain.Role{}, 3, domain.ErrEmptyRoles},
+		{"nil roles is rejected", "user-1", "auth0|ada", "Ada Lovelace", nil, 3, domain.ErrEmptyRoles},
+		{"unrecognized role is rejected", "user-1", "auth0|ada", "Ada Lovelace", []domain.Role{domain.Role("coach")}, 3, domain.ErrInvalidRole},
+		{"one valid role among an invalid one is still rejected", "user-1", "auth0|ada", "Ada Lovelace", []domain.Role{domain.RolePlayer, domain.Role("coach")}, 3, domain.ErrInvalidRole},
+		{"level zero is rejected", "user-1", "auth0|ada", "Ada Lovelace", validRoles(), 0, domain.ErrInvalidSelfReportedStartingLevel},
+		{"level below range is rejected", "user-1", "auth0|ada", "Ada Lovelace", validRoles(), -1, domain.ErrInvalidSelfReportedStartingLevel},
+		{"level above range is rejected", "user-1", "auth0|ada", "Ada Lovelace", validRoles(), 6, domain.ErrInvalidSelfReportedStartingLevel},
+		{"level at minimum is accepted", "user-1", "auth0|ada", "Ada Lovelace", validRoles(), 1, nil},
+		{"level at maximum is accepted", "user-1", "auth0|ada", "Ada Lovelace", validRoles(), 5, nil},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := domain.NewUser(tt.id, tt.displayName, tt.roles, tt.level)
+			_, err := domain.NewUser(tt.id, tt.subject, tt.displayName, tt.roles, tt.level)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("got err %v, want %v", err, tt.wantErr)
 			}

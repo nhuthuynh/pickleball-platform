@@ -1,4 +1,6 @@
-// Boundary validation for caller-supplied User IDs.
+// Boundary validation for caller-supplied User IDs on the READ/UPDATE
+// paths. (The create path no longer takes one — see the CreateUser section
+// below.)
 //
 // Same class of bug as internal/competitions/app/malformed_id_test.go and
 // internal/facilities/app/malformed_id_test.go document in full: a Postgres
@@ -40,34 +42,62 @@ var malformedUserIDs = []string{
 
 // --- CreateUser ----------------------------------------------------------
 //
-// CreateUser's id is caller-claimed via ActorUserID (app.CreateUserInput's
-// doc comment), not server-generated the way every other aggregate's id in
-// this codebase is — so, unlike Facility/Court/Payment/Competition, a
-// malformed-but-nonempty CreateUser ActorUserID reaches the Postgres
-// adapter's mustUUID unless guarded here too. This is the same bug class
-// PR #89 fixed for read paths, reachable on this ticket's own new write
-// path — not a second instance of issue #97 by omission.
-func TestCreateUser_MalformedActorUserIDIsRejectedAndNeverReachesRepository(t *testing.T) {
+// T10.2's TestCreateUser_MalformedActorUserIDIsRejectedAndNeverReaches-
+// Repository lived here. It is DELETED rather than adapted, because the
+// thing it guarded no longer exists: CreateUser had a caller-claimed id
+// (ActorUserID) that reached the Postgres adapter's mustUUID unless the app
+// layer screened it, and T12.9 removed that field entirely — the id is
+// server-minted now, exactly like Facility/Court/Payment/Competition, so
+// there is no caller input on this path to malform. Keeping the old test
+// would have meant keeping the field it tested.
+//
+// What replaces it is the inverse assertion: that the minted id really is
+// well-formed, and that a subject — which is NOT a uuid and must never be
+// screened as one — does not get caught by the uuid guards this file is
+// about.
+
+// TestCreateUser_MintsAWellFormedIDRegardlessOfSubjectShape proves the
+// adapter's mustUUID cannot be reached with a bad id from this path, and
+// that a realistic non-uuid IdP subject flows through untouched. If a
+// future change ever validated the subject with uuidShape, every case here
+// would fail — which is the point, since real subjects look like these.
+func TestCreateUser_MintsAWellFormedIDRegardlessOfSubjectShape(t *testing.T) {
 	t.Parallel()
 
-	for _, id := range malformedUserIDs {
-		t.Run(id, func(t *testing.T) {
+	subjects := []string{
+		"auth0|abc123",
+		"google-oauth2|10769150350006150715",
+		"CiRlM2E5ZDI0Yi0wMDAwLTQwMDAtOGYwMC1hYmNkZWYwMTIzNDUSBWxvY2Fs",
+		"6ba7b810-9dad-11d1-80b4-00c04fd430c8", // a subject that happens to look like a uuid is still just a string
+	}
+
+	for _, subject := range subjects {
+		t.Run(subject, func(t *testing.T) {
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo)
+			svc := app.NewService(repo, stubIDs{})
 
-			_, err := svc.CreateUser(context.Background(), app.CreateUserInput{
-				ActorUserID:               id,
+			created, err := svc.CreateUser(context.Background(), app.CreateUserInput{
+				Subject:                   subject,
 				DisplayName:               "Ada Lovelace",
 				Roles:                     validRoles(),
 				SelfReportedStartingLevel: domain.SelfReportedStartingLevel(3),
 			})
-			if !errors.Is(err, domain.ErrEmptyID) {
-				t.Fatalf("CreateUser(actor_user_id=%q) error = %v, want %v", id, err, domain.ErrEmptyID)
+			if err != nil {
+				t.Fatalf("CreateUser(subject=%q): %v", subject, err)
 			}
-			if len(repo.users) != 0 {
-				t.Errorf("malformed actor_user_id %q reached the repository (repo has %d users); it must be rejected at the boundary", id, len(repo.users))
+			if created.ID != fixtureUserID {
+				t.Fatalf("ID = %q, want the server-minted %q", created.ID, fixtureUserID)
+			}
+			if created.Subject != subject {
+				t.Fatalf("Subject = %q, want %q unchanged", created.Subject, subject)
+			}
+
+			// The minted id must survive the same guard the read paths
+			// apply, or GetUser could never find what CreateUser wrote.
+			if _, err := svc.GetUser(context.Background(), created.ID); err != nil {
+				t.Fatalf("GetUser on the freshly-minted id %q: %v", created.ID, err)
 			}
 		})
 	}
@@ -83,7 +113,7 @@ func TestGetUser_MalformedIDIsNotFoundAndNeverReachesRepository(t *testing.T) {
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo)
+			svc := app.NewService(repo, stubIDs{})
 
 			_, err := svc.GetUser(context.Background(), id)
 			if !errors.Is(err, domain.ErrUserNotFound) {
@@ -103,7 +133,7 @@ func TestGetUser_WellFormedUnknownIDStillReachesRepository(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo)
+	svc := app.NewService(repo, stubIDs{})
 
 	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 	_, err := svc.GetUser(context.Background(), unknown)
@@ -121,11 +151,11 @@ func TestGetUser_WellFormedRealIDStillResolves(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo)
+	svc := app.NewService(repo, stubIDs{})
 	ctx := context.Background()
 
 	created, err := svc.CreateUser(ctx, app.CreateUserInput{
-		ActorUserID:               "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+		Subject:                   fixtureSubject,
 		DisplayName:               "Ada Lovelace",
 		Roles:                     validRoles(),
 		SelfReportedStartingLevel: domain.SelfReportedStartingLevel(3),
@@ -158,7 +188,7 @@ func TestUpdateSelfReportedLevel_MalformedIDIsNotFoundAndNeverReachesRepository(
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo)
+			svc := app.NewService(repo, stubIDs{})
 
 			_, err := svc.UpdateSelfReportedLevel(context.Background(), id, "attacker", domain.SelfReportedStartingLevel(4))
 			if !errors.Is(err, domain.ErrUserNotFound) {
@@ -178,7 +208,7 @@ func TestUpdateSelfReportedLevel_WellFormedUnknownIDStillReachesRepository(t *te
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo)
+	svc := app.NewService(repo, stubIDs{})
 
 	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 	_, err := svc.UpdateSelfReportedLevel(context.Background(), unknown, unknown, domain.SelfReportedStartingLevel(4))

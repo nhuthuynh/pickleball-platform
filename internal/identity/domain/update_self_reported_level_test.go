@@ -16,7 +16,7 @@ import (
 func TestUser_UpdateSelfReportedLevel_RejectsMismatchedActor(t *testing.T) {
 	t.Parallel()
 
-	u, err := domain.NewUser("user-1", "Ada Lovelace", []domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
+	u, err := domain.NewUser("user-1", "auth0|ada", "Ada Lovelace", []domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
 	if err != nil {
 		t.Fatalf("unexpected err constructing fixture: %v", err)
 	}
@@ -32,7 +32,7 @@ func TestUser_UpdateSelfReportedLevel_RejectsMismatchedActor(t *testing.T) {
 func TestUser_UpdateSelfReportedLevel_RejectsOutOfRangeLevel(t *testing.T) {
 	t.Parallel()
 
-	u, err := domain.NewUser("user-1", "Ada Lovelace", []domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
+	u, err := domain.NewUser("user-1", "auth0|ada", "Ada Lovelace", []domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
 	if err != nil {
 		t.Fatalf("unexpected err constructing fixture: %v", err)
 	}
@@ -48,7 +48,7 @@ func TestUser_UpdateSelfReportedLevel_RejectsOutOfRangeLevel(t *testing.T) {
 func TestUser_UpdateSelfReportedLevel_Valid(t *testing.T) {
 	t.Parallel()
 
-	u, err := domain.NewUser("user-1", "Ada Lovelace", []domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
+	u, err := domain.NewUser("user-1", "auth0|ada", "Ada Lovelace", []domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
 	if err != nil {
 		t.Fatalf("unexpected err constructing fixture: %v", err)
 	}

@@ -42,31 +42,47 @@ message User {
   int32 self_reported_starting_level = 4;
 }
 
-// CreateUserRequest's actor_user_id is not a separate claimed-owner field
-// checked against some pre-existing object the way AddCourtRequest.
-// actor_user_id (proto/pickleball/facilities/v1/facilities.proto) is
-// checked against a Facility's own owner_id, or RecordOfflinePaymentRequest.
-// actor_user_id is checked against a Booking's/Game's own host — those
-// checks all presuppose an object that already exists. CreateUser has none:
-// Identity/Users is the first entity in this codebase that represents the
-// concept of a caller's own claimed identity, so there is no separate
-// context to mint an id on the caller's behalf. actor_user_id here BECOMES
-// the created User's own id (app.CreateUserInput's doc comment,
-// internal/identity/app/service.go) — the caller is claiming to create
-// their own identity, and the claim IS the id. As with every other
-// actor_user_id field in this codebase, this is a caller-supplied claim,
-// not a verified identity — there is no JWT/Auth0 layer yet (HANDOFF.md's
-// Auth cross-cutting item); this ticket does not re-litigate that gap.
+// CreateUserRequest registers the VERIFIED CALLER as a new User (T12.9).
 //
-// A malformed (non-empty, non-UUID-shaped) actor_user_id and an empty one
-// are both rejected the same way (InvalidArgument) — see
-// app.Service.CreateUser's doc comment. A well-formed actor_user_id that
-// collides with an existing User's id is rejected too (AlreadyExists) —
-// see domain.ErrUserAlreadyExists's doc comment for why this is a real,
-// reachable case here unlike every other server-generated-id aggregate in
-// this codebase.
+// The server mints the new User's id and keys the row to the caller's
+// verified IdP subject (the token's `sub` claim), taken from
+// internal/platform/auth.Principal. Nothing in this message determines who
+// the created User is.
+//
+// WHY actor_user_id IS STILL HERE AND WHAT IT DOES NOW: nothing. It is
+// deprecated and ignored by the handler. Before T12.9 this field BECAME the
+// new row's permanent primary key, which meant any anonymous caller could
+// name any uuid — including one a real-auth integration would later mint
+// for a real person — and permanently occupy that identity; the real
+// owner's later registration then failed with AlreadyExists forever. That
+// was a persistent, targeted denial-of-service (HANDOFF.md's T10.2 bullet),
+// and it is closed by removing the field's power rather than validating it
+// more carefully. The field is retained rather than deleted only because
+// removing a proto field breaks existing clients, and web/ still sends it
+// until its own follow-up; it will be deleted in a later release. A server
+// that fell back to this value when no principal was present would have
+// changed nothing, so the handler does not read it under any circumstance.
+//
+// This RPC now REQUIRES an authenticated caller
+// (grpcapi.AuthenticatedMethods): there is no anonymous path to user
+// creation at all. Errors, gRPC codes only — grpc-gateway maps them to HTTP
+// on its own:
+//
+//   * no verified caller -> UNAUTHENTICATED
+//   * the caller's subject is already registered -> ALREADY_EXISTS (a
+//     self-collision only: a verified subject can only ever collide with
+//     itself). The second call is REJECTED, not answered idempotently with
+//     the stored user, because it carries its own display name and level
+//     and replaying the first would silently discard them.
+//   * empty display_name, empty/invalid roles, out-of-range level, or a
+//     role other than ROLE_PLAYER -> INVALID_ARGUMENT. Holding a valid
+//     token proves who you are, not that you may appoint yourself an
+//     administrator, so self-registration still accepts ROLE_PLAYER only.
 message CreateUserRequest {
-  string actor_user_id = 1;
+  // Deprecated: ignored by the server since T12.9. The created User's id is
+  // server-minted and its owner is the verified token subject. Retained for
+  // wire compatibility only; do not send it in new clients.
+  string actor_user_id = 1 [deprecated = true];
   string display_name = 2;
   repeated Role roles = 3;
   int32 self_reported_starting_level = 4;
@@ -76,10 +92,17 @@ message CreateUserResponse {
   User user = 1;
 }
 
-// GetUserRequest.user_id is a public, unauthenticated read — a malformed id
-// and an unknown-but-well-formed one must be indistinguishable to the
-// caller (NotFound for both), the same convention every other read RPC in
-// this codebase's malformed-ID boundary guard establishes (see
+// GetUserRequest.user_id is a public, unauthenticated read — deliberately
+// left that way by T12.9, which authenticated CreateUser and
+// UpdateSelfReportedLevel but NOT this RPC: it is a shipped anonymous read
+// and quietly authenticating it would break a live flow for no security
+// gain. Note that User carries no `subject` field, so this public read does
+// not expose any caller's identity-provider identifier.
+//
+// For GetUserRequest.user_id itself, a malformed id and an
+// unknown-but-well-formed one must be indistinguishable to the caller
+// (NotFound for both), the same convention every other read RPC in this
+// codebase's malformed-ID boundary guard establishes (see
 // app.Service.GetUser's doc comment, PR #89's postmortem in
 // docs/LESSONS.md).
 message GetUserRequest {
@@ -90,16 +113,25 @@ message GetUserResponse {
   User user = 1;
 }
 
-// UpdateSelfReportedLevelRequest requires actor_user_id == the target
-// user_id exactly (domain.User.EnsureSelf, T10.2) — only a User may update
-// their own self-reported level, nobody else's. A mismatch is rejected with
-// a mapped, non-500 status (PermissionDenied), not a silent success. As
-// with CreateUserRequest.actor_user_id, this is a caller-supplied claim,
-// not a verified identity (see that field's doc comment for the same
-// caveat, not re-litigated here).
+// UpdateSelfReportedLevelRequest requires that the verified caller IS the
+// target user_id (domain.User.EnsureSelf, T10.2) — only a User may update
+// their own self-reported level, nobody else's.
+//
+// T12.9: the actor is now resolved from the verified token subject, not
+// from this message. The handler looks up the User registered to the
+// caller's subject and compares THAT user's id against user_id, so the
+// check is on a verified fact rather than a claim. Errors, gRPC codes only:
+//
+//   * no verified caller -> UNAUTHENTICATED
+//   * a verified caller who is not this User — including one with no
+//     registered User of their own — -> PERMISSION_DENIED. Deliberately
+//     the same answer in both cases: telling an authenticated stranger
+//     "that user exists but you have no account" leaks more than refusing.
 message UpdateSelfReportedLevelRequest {
   string user_id = 1;
-  string actor_user_id = 2;
+  // Deprecated: ignored by the server since T12.9. The actor is the
+  // verified token subject. Retained for wire compatibility only.
+  string actor_user_id = 2 [deprecated = true];
   int32 self_reported_starting_level = 3;
 }
 

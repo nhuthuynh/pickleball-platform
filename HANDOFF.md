@@ -526,7 +526,12 @@ T12 explicitly defers. Not yet implemented as of this entry.
   tests fail, then restoring it. Same caveat as above, not re-litigated:
   object-level check given a claimed `actor_user_id`, not real
   authentication.
-- **T10.2 (`internal/identity`) is a second place the caveat above is NOT
+- **✅ CLOSED in T12.9 — the `CreateUser` identity-squatting DoS. Kept on
+  the record rather than deleted, because the reasoning is what a future
+  reader needs; read the closure note at the end of this bullet before
+  acting on anything in it.** The description below is written in the
+  present tense of T10.2 and **no longer describes the shipped system.**
+- **T10.2 (`internal/identity`) was a second place the caveat above is NOT
   "the same caveat again," and a materially worse one — flagged by PR #106
   review, not discovered later.** Every other `actor_user_id`/
   `actor_player_id` check in this codebase (T5.5 Social Play, T6.3/T6.7→T8.5
@@ -554,6 +559,52 @@ T12 explicitly defers. Not yet implemented as of this entry.
   this alongside the JWT/Auth0 item above; do not let it get silently folded
   into the generic "claimed actor" caveat again — it is a different and
   worse failure mode (permanent artifact vs. a rejected mutation).
+
+  **CLOSURE (T12.9, PR against `claude/go-backend-pickleball-7up34j`).** The
+  condition this bullet set for itself — *"must close the moment real auth
+  exists"* — was met by T12.2 (`internal/platform/auth`), and T12.9 closed
+  it. What changed, precisely:
+  - `CreateUser` **no longer accepts a caller-supplied ID at all.** The
+    `ActorUserID` field is gone from `app.CreateUserInput`, and `User.ID` is
+    now server-minted via `port.IDGenerator` (`ids.NewID()`) like every
+    other aggregate in this codebase. Identity was the only context without
+    that port; its absence *was* the bug.
+  - The row is keyed to the caller's **verified** `sub` claim, in a new
+    `identity_users.subject text NOT NULL UNIQUE` column
+    (`db/migrations/0019_identity_subject.sql`). It is a separate column
+    rather than the primary key because an IdP subject is an arbitrary
+    provider string (`auth0|abc123`), not a uuid — the migration states this
+    reasoning in full.
+  - `CreateUser` and `UpdateSelfReportedLevel` are both in
+    `identity/adapter/grpcapi.AuthenticatedMethods()`. **There is no
+    anonymous path to user creation left**, which removes the squatting
+    surface rather than narrowing it the way T10.2's role restriction did.
+    `GetUser` stays deliberately public.
+  - Both handlers **ignore** the deprecated wire `actor_user_id` field
+    entirely and resolve the actor from `auth.Principal`.
+  - The bullet's "no equivalent anywhere else in this codebase" framing is
+    now historical: a subject collision is only ever a **self**-collision,
+    because the key is verified rather than claimed. `ErrUserAlreadyExists`
+    still exists and still maps to `AlreadyExists`, but it can no longer be
+    made to happen *to someone else* — a second registration for an
+    already-registered subject is rejected (not replayed idempotently),
+    because the second call carries its own display name and level and
+    replaying the first would answer a different request than the one made.
+
+  Proven, not asserted (CLAUDE.md rule 10):
+  `internal/identity/adapter/grpcapi/createuser_subject_regression_test.go`
+  replays the original attack and asserts it now fails, and verifies the
+  legitimate subject owner can still register. Non-vacuity was confirmed by
+  temporarily restoring the pre-T12.9 behavior and watching those tests
+  fail — captured in the T12.9 PR body.
+
+  **Still true and NOT closed by T12.9**, so this does not retire the
+  JWT/Auth0 item above: what exists is the verification and enforcement
+  machinery, tested against locally-minted RSA key material. No production
+  identity provider is provisioned, there is no remote JWKS `KeySource`
+  (issue #137), and no client sends a token yet. A deployment with no
+  verifier configured now **fails closed** on these two RPCs. See ADR-0013's
+  "What 'auth exists' does and does not mean".
 - **The one place the caveat above is NOT "the same caveat again":
   third-party OAuth tokens — see `docs/adr/0009-social-channel-integration-deferred.md`.**
   T9's ceremony (§A1 of `docs/process/t9-sprint-plan.md`) found that

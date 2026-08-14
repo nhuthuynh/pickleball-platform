@@ -115,17 +115,18 @@ func run(logger *slog.Logger) error {
 	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
 
 	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
-	// other contexts'; unlike every other context here it takes no
-	// port.IDGenerator — a User's id is the caller-claimed actor_user_id
-	// itself, not server-generated (see identityapp.CreateUserInput's doc
-	// comment).
+	// other contexts', and as of T12.9 it takes a port.IDGenerator like the
+	// other contexts too — a User's id is now server-minted rather than the
+	// caller-claimed actor_user_id it used to be. That exception was the
+	// identity-squatting denial-of-service HANDOFF.md's T10.2 bullet
+	// disclosed, and removing it is what closed it.
 	//
 	// Constructed before Booking as of T11.5, which is the first context to
 	// call into Identity at all: Booking's RequestRecurringHire resolves the
 	// actor's `club` role against this same, real identitySvc instance — not
 	// a second/separate one — through internal/booking/adapter/identity.
 	identityRepo := identitypg.NewRepository(pool)
-	identitySvc := identityapp.NewService(identityRepo)
+	identitySvc := identityapp.NewService(identityRepo, idgen.UUID{})
 	identityHandler := identitygrpc.NewHandler(identitySvc)
 
 	repo := bookingpg.NewRepository(pool)
@@ -258,9 +259,22 @@ func run(logger *slog.Logger) error {
 	// its RPCs are public next to the handlers that break if it is wrong —
 	// see the AuthenticatedMethods/PublicMethods pair in each grpcapi package,
 	// where a test fails if any RPC on the service is in neither list.
+	//
+	// T12.7 and T12.9 both appended to this composition in the same wave
+	// (T12 sprint plan A12); T12.9 also independently built a second,
+	// functionally-identical enforcement primitive
+	// (auth.RequireAuthentication/RequireAuthenticationStream in
+	// internal/platform/auth/enforce.go) before T12.7 had merged and it had
+	// anything to consolidate onto. Resolved here by keeping the one
+	// T12.7 already landed (auth.MethodSet/RequireUnaryInterceptor/
+	// RequireStreamInterceptor) and adding identity's list to it —
+	// enforce.go/enforce_test.go are deleted as part of this resolution
+	// rather than left as a second, unused enforcement path in the same
+	// package.
 	authenticatedMethods := auth.NewMethodSet(
 		bookinggrpc.AuthenticatedMethods(),    // T12.7
 		facilitiesgrpc.AuthenticatedMethods(), // T12.7
+		identitygrpc.AuthenticatedMethods(),   // T12.9
 	)
 	if tokenVerifier == nil {
 		// Enforcement without a verifier is fail-*closed*, not fail-open: no
@@ -273,7 +287,7 @@ func run(logger *slog.Logger) error {
 		// provider is provisioned for this project yet, and a hard failure
 		// would make the server unstartable for local development.
 		logger.Warn("no token verifier configured: every authenticated RPC will reject every caller",
-			"authenticated_methods", len(bookinggrpc.AuthenticatedMethods())+len(facilitiesgrpc.AuthenticatedMethods()))
+			"authenticated_methods", len(bookinggrpc.AuthenticatedMethods())+len(facilitiesgrpc.AuthenticatedMethods())+len(identitygrpc.AuthenticatedMethods()))
 	}
 
 	grpcServer := grpc.NewServer(
