@@ -73,15 +73,17 @@ func TestCreateBooking_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 
 	repo := bookingpg.NewRepository(pool)
 	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
-	// T11.2's two new dependencies. This test exercises CreateBooking only,
-	// which touches neither — the real Postgres DiscountRuleRepository is
-	// wired anyway (it is what production uses, and it costs nothing here),
-	// while the FacilityLookup is a nil-free stand-in rather than the real
-	// Facilities-backed adapter: wiring that would pull an entire second
-	// context's app.Service into a test about one EXCLUDE constraint, and a
-	// nil interface would panic the moment anything did reach it.
+	// T11.2's and T11.5's new dependencies. This test exercises CreateBooking
+	// only, which touches none of them — the real Postgres
+	// DiscountRuleRepository is wired anyway (it is what production uses,
+	// and it costs nothing here), while FacilityLookup/RecurringHireRepository/
+	// IdentityLookup are nil-free stand-ins rather than the real
+	// Facilities/Identity-backed adapters: wiring those would pull two
+	// entire other contexts' app.Services into a test about one EXCLUDE
+	// constraint, and a nil interface would panic the moment anything did
+	// reach it.
 	discountRepo := bookingpg.NewDiscountRuleRepository(pool)
-	svc := bookingapp.NewService(repo, pricingRepo, discountRepo, unusedFacilityLookup{}, idgen.UUID{})
+	svc := bookingapp.NewService(repo, pricingRepo, discountRepo, unusedRecurringHireRepository{}, unusedFacilityLookup{}, unusedIdentityLookup{}, idgen.UUID{})
 
 	rng := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 
@@ -202,4 +204,39 @@ func (unusedFacilityLookup) EnsureFacilityOwner(_ context.Context, _, _ string) 
 
 func (unusedFacilityLookup) FacilityIDForCourt(_ context.Context, _ string) (string, error) {
 	return "", domain.ErrFacilityNotFound
+}
+
+func (unusedFacilityLookup) CourtIDsForFacility(_ context.Context, _ string) ([]string, error) {
+	return nil, domain.ErrFacilityNotFound
+}
+
+// unusedRecurringHireRepository and unusedIdentityLookup are this test's
+// T11.5 equivalents of unusedFacilityLookup above, for the same reason: this
+// test exercises CreateBooking only, which reaches neither RecurringHire
+// approval nor an Identity lookup, so a real Postgres-backed
+// RecurringHireRepository or Identity-backed adapter would be dead weight,
+// and a nil interface would panic the moment anything unexpectedly did
+// reach it. Each fails closed rather than silently succeeding.
+type unusedRecurringHireRepository struct{}
+
+func (unusedRecurringHireRepository) Create(_ context.Context, _ domain.RecurringHireTemplate) (domain.RecurringHireTemplate, error) {
+	return domain.RecurringHireTemplate{}, domain.ErrRecurringHireTemplateNotFound
+}
+
+func (unusedRecurringHireRepository) GetByID(_ context.Context, _ string) (domain.RecurringHireTemplate, error) {
+	return domain.RecurringHireTemplate{}, domain.ErrRecurringHireTemplateNotFound
+}
+
+func (unusedRecurringHireRepository) UpdateStatus(_ context.Context, _ domain.RecurringHireTemplate) (domain.RecurringHireTemplate, error) {
+	return domain.RecurringHireTemplate{}, domain.ErrRecurringHireTemplateNotFound
+}
+
+func (unusedRecurringHireRepository) ListForCourts(_ context.Context, _ []string) ([]domain.RecurringHireTemplate, error) {
+	return nil, nil
+}
+
+type unusedIdentityLookup struct{}
+
+func (unusedIdentityLookup) EnsureClubRole(_ context.Context, _ string) error {
+	return domain.ErrUserNotFound
 }
