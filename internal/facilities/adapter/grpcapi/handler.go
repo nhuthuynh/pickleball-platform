@@ -18,7 +18,26 @@ import (
 	"github.com/nhuthuynh/white-label/internal/facilities/app"
 	"github.com/nhuthuynh/white-label/internal/facilities/domain"
 	facilitiesv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/facilities/v1"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 )
+
+// actor resolves the acting user for an authenticated RPC (T12.7).
+//
+// This one function is the whole of A11 Ruling 3 for this context: the
+// Principal is translated into the plain actor string app.Service and
+// domain.Facility.EnsureOwner already take, here at the grpcapi boundary, so
+// internal/facilities/{domain,app} keep their existing signatures and never
+// import internal/platform/auth.
+//
+// It takes only a context, deliberately. The request's actor_user_id field is
+// not passed in and cannot be consulted, so there is no fallback to the
+// caller's claim when no principal is present — the failure mode the T12.7
+// ticket calls out as "a handler that falls back to the claimed value has
+// changed nothing". Missing principal is codes.Unauthenticated ("I do not know
+// who you are"), never PermissionDenied (ADR-0013 §5).
+func actor(ctx context.Context) (string, error) {
+	return auth.RequireSubject(ctx)
+}
 
 type Handler struct {
 	facilitiesv1.UnimplementedFacilitiesServiceServer
@@ -29,9 +48,25 @@ func NewHandler(svc *app.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// CreateFacility mints the new Facility's owner from the verified caller
+// (T12.7). req.OwnerId is deprecated and ignored.
+//
+// This goes one step further than the other three RPCs, and it has to. The
+// others compare a caller against a stored owner_id; this one *writes* that
+// owner_id. If it kept taking the owner from the wire, every Facility created
+// after this ticket would be owned by whatever string the client sent, while
+// AddCourt compared against the caller's verified subject — so either the two
+// would never match (the owner locked out of their own Facility) or a caller
+// could hand ownership to a subject that is not theirs. Minting it here is
+// what makes the enforced check on the other three internally consistent.
 func (h *Handler) CreateFacility(ctx context.Context, req *facilitiesv1.CreateFacilityRequest) (*facilitiesv1.CreateFacilityResponse, error) {
+	ownerID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	f, err := h.svc.CreateFacility(ctx, app.CreateFacilityInput{
-		OwnerID:     req.GetOwnerId(),
+		OwnerID:     ownerID,
 		Name:        req.GetName(),
 		Description: req.GetDescription(),
 		Address:     req.GetAddress(),
@@ -74,8 +109,17 @@ func (h *Handler) ListFacilities(ctx context.Context, req *facilitiesv1.ListFaci
 	return &facilitiesv1.ListFacilitiesResponse{Facilities: out}, nil
 }
 
+// AddCourt, AddCameraLink and AttestCameraConsent all take their actor from
+// the verified principal (T12.7). Each request message still carries a
+// deprecated actor_user_id — web/ sends it until its own follow-up, and
+// removing a proto field is a client break — but no handler below reads it.
 func (h *Handler) AddCourt(ctx context.Context, req *facilitiesv1.AddCourtRequest) (*facilitiesv1.AddCourtResponse, error) {
-	c, err := h.svc.AddCourt(ctx, req.GetFacilityId(), req.GetActorUserId(), req.GetName())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	c, err := h.svc.AddCourt(ctx, req.GetFacilityId(), actorUserID, req.GetName())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -83,7 +127,12 @@ func (h *Handler) AddCourt(ctx context.Context, req *facilitiesv1.AddCourtReques
 }
 
 func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCameraLinkRequest) (*facilitiesv1.AddCameraLinkResponse, error) {
-	f, err := h.svc.AddCameraLink(ctx, req.GetFacilityId(), req.GetActorUserId(), req.GetUrl())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := h.svc.AddCameraLink(ctx, req.GetFacilityId(), actorUserID, req.GetUrl())
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -91,7 +140,12 @@ func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCamera
 }
 
 func (h *Handler) AttestCameraConsent(ctx context.Context, req *facilitiesv1.AttestCameraConsentRequest) (*facilitiesv1.AttestCameraConsentResponse, error) {
-	f, err := h.svc.AttestCameraConsent(ctx, req.GetFacilityId(), req.GetActorUserId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := h.svc.AttestCameraConsent(ctx, req.GetFacilityId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}

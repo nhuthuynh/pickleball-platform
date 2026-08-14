@@ -4,11 +4,18 @@ Durable process rulebook for how work moves from backlog to merged code on
 this project, from this point forward (T5 onward — T0-T4 predate this
 process and are not retroactively reprocessed, see `docs/LESSONS.md`).
 
-Board of record: **GitHub Issues + labels** on `nhuthuynh/white-label`
+Board of record: **split by how long the item lives** — the sprint plan
+document (`docs/process/t<N>-sprint-plan.md`) for that sprint's own tickets,
+**GitHub Issues** on `nhuthuynh/white-label` for anything that outlives its
+sprint. See "Board of record — split by lifetime" under Ceremony 1 for the
+full rule and why it is split this way; it resolves a PM-vs-BA disagreement
+T11's retro (finding 6) left open, decided at T12's Ceremony 1
+(`docs/process/t12-sprint-plan.md` §A7).
+
 (Jira was considered but isn't connected to this workspace; see
-`docs/reviews/00-bootstrap.md`-adjacent decision log for why). If Jira is
+`docs/reviews/00-bootstrap.md`-adjacent decision log for why. If Jira is
 connected later, this doc's ticket fields map directly onto Jira fields —
-nothing here is GitHub-specific in spirit.
+nothing here is GitHub-specific in spirit.)
 
 ## Roles
 
@@ -47,8 +54,8 @@ backlog refinement (below) turns into tickets.
 
 **Product Manager + Principal Engineer** split the sprint's HANDOFF.md task
 into tickets. PM drives scope/value framing, PE drives technical
-sequencing/feasibility; both sign off before tickets are opened. Each ticket
-gets:
+sequencing/feasibility; both sign off before the plan is dispatched. Each
+ticket gets:
 
 - **Title**: short, imperative (e.g. "Add Game aggregate with capacity invariant")
 - **Story** (INVEST-style, per `docs/roles/product-owner.md`): *As a
@@ -64,21 +71,67 @@ gets:
 - **Story points**: Fibonacci-like scale (1, 2, 3, 5, 8, 13) per
   `docs/roles/product-owner.md`'s estimation section — relative sizing, not
   time-boxed.
-- **GitHub link**: the ticket *is* the GitHub issue; once work starts, the
-  issue is linked to its branch and PR. **Closing is always a manual step
-  on this project, never automatic**: GitHub's `Closes #N` auto-close only
-  fires for a PR merged into the repository's **default branch** (`main`),
-  and every PR in this project's history merges into
-  `claude/go-backend-pickleball-7up34j` instead — a different branch, not
-  the default one. That means the auto-close mechanism structurally cannot
-  fire here, regardless of PR body wording, and it silently never had for
-  any ticket from T5 through T10 until this was caught and fixed
-  retroactively (see issue #111 / T11.8, `docs/process/t11-sprint-plan.md`,
-  and `docs/process/t10-retro.md` finding 6). The merging party (or a
-  follow-up chore ticket) must close the issue explicitly after merge —
-  see the Execution section's DoD step 5 for exactly how.
-- **Labels**: `sprint:t<N>`, `role:<primary-owner-role>`,
-  `type:story|bug|chore|spike`, `points:<n>`.
+- **Role** and **type**: `role:<primary-owner-role>` and
+  `type:story|bug|chore|spike`.
+
+All of the above are recorded **in the sprint plan document**
+(`docs/process/t<N>-sprint-plan.md`), which is this sprint's board of
+record — not as a GitHub issue with labels. Sprint and points live only
+there; role and type additionally become GitHub labels if the item is ever
+filed as an issue. See the rule below.
+
+### Board of record — split by lifetime
+
+Resolved at T12's Ceremony 1 (`docs/process/t12-sprint-plan.md` §A7),
+settling the PM-vs-BA disagreement T11's retro left open as finding 6. The
+split is by **how long the record has to last**, not by preference:
+
+1. **The sprint plan document is the board of record for that sprint's
+   tickets.** `docs/process/t<N>-sprint-plan.md` carries each ticket's
+   Story, Description, Instructions, cross-context dependency check, story
+   points, role and type. **No GitHub issue is opened per in-sprint
+   ticket.** The plan is version-controlled, reviewed, richer than any issue
+   body, and linked from `HANDOFF.md`'s Docs index; a parallel issue nobody
+   reads is process theater. This is descriptive of what T11 and T12 already
+   did, not a new practice — and it applies **retroactively**: T11's nine
+   tickets (T11.1–T11.9) were never owed an issue, and
+   `docs/process/t11-sprint-plan.md` is permanently their board of record.
+
+2. **GitHub issues are the board of record for anything that outlives its
+   sprint** — cross-sprint follow-ups, disclosed-but-deferred gaps, and
+   escalations. These are **mandatory, not discretionary: an item deferred
+   out of a sprint without an issue is a process violation, not a judgement
+   call.** A sprint plan is scoped to one sprint and structurally cannot
+   carry an item past it; prose in `HANDOFF.md` or a PR body is not a
+   durable record. This is the half BA was right about, and it is what
+   T11's retro finding 4 identified from the other direction.
+
+3. **Label taxonomy follows the split** — see "Label taxonomy" below.
+
+**First worked examples.** T12's Ceremony 1 opened these four under rule 2,
+each a real item that had survived multiple sprints as prose only:
+
+| Issue | Item | Carried as prose since |
+|---|---|---|
+| [#123](https://github.com/nhuthuynh/white-label/issues/123) | Migrate `booking` (7 positional params) and `socialplay` (5) `app.NewService` to a `ServiceOptions` struct, matching `competitions`/`payments` | T1, re-flagged T6.6 and T11.5 |
+| [#124](https://github.com/nhuthuynh/white-label/issues/124) | `Game.Cancel()` flips status only — it does not cascade to the Game's court Bookings or its Registrations | T5.1 |
+| [#125](https://github.com/nhuthuynh/white-label/issues/125) | No Competitions-shaped `PayableType` or payments port/adapter pair; Competitions stays cash-only | T9.6/T9.7 |
+| [#126](https://github.com/nhuthuynh/white-label/issues/126) | Add a real per-Game price field, retiring T8.10's `PLACEHOLDER_REGISTRATION_FEE_CENTS` | T8.10 |
+
+**Closing an issue is always a manual step on this project, never
+automatic.** GitHub's `Closes #N` auto-close only fires for a PR merged into
+the repository's **default branch** (`main`), and every PR in this project's
+history merges into `claude/go-backend-pickleball-7up34j` instead — a
+different branch, not the default one. That means the auto-close mechanism
+structurally cannot fire here, regardless of PR body wording, and it
+silently never had for any ticket from T5 through T10 until this was caught
+and fixed retroactively (see issue #111 / T11.8,
+`docs/process/t11-sprint-plan.md`, and `docs/process/t10-retro.md`
+finding 6). Under rule 1 most tickets have no issue to close at all; for the
+tickets that do — a cross-sprint follow-up filed as an issue in an earlier
+sprint and resolved now — the merging party (or a follow-up chore ticket)
+must close it explicitly after merge. See the Execution section's DoD step 5
+for exactly how.
 
 ## Ceremony 2 — Sprint planning (start of sprint)
 
@@ -120,14 +173,23 @@ A ticket is only "done" when:
    on the *reviewing* agent: lead with a bolded recommended verdict and
    put any blocking finding where it can't be missed, since the verdict
    line may be the only part read before the merge decision.
-5. **The GitHub issue is closed, via an explicit manual step, after the
-   PR merges.** This does not happen automatically (see Ceremony 1's
-   GitHub-link bullet for why) — the merging party (or a designated
-   follow-up chore, as T11.8 was for the T5–T10 backlog) must call the
-   GitHub issue-write API directly: `state: closed`,
-   `state_reason: completed`, plus a comment naming the merged PR(s) that
-   implemented the ticket, so the close is traceable without relying on
-   the (non-functional) auto-link. Writing "Closes #N" in the PR body is
+5. **If — and only if — the ticket resolves a GitHub issue, that issue is
+   closed via an explicit manual step after the PR merges.** Most tickets
+   have **no issue to close**: under the board-of-record rule an in-sprint
+   ticket is tracked by the sprint plan document and never had an issue, so
+   this step is simply not applicable and its absence is not a gap. It
+   applies to tickets that resolve an item filed as an issue in an earlier
+   sprint — cross-sprint follow-ups, disclosed-but-deferred gaps,
+   escalations.
+
+   Where it does apply, closing **does not happen automatically** (see
+   Ceremony 1's "Board of record — split by lifetime" for why the
+   auto-close mechanism structurally cannot fire on this branch topology).
+   The merging party (or a designated follow-up chore, as T11.8 was for the
+   T5–T10 backlog) must call the GitHub issue-write API directly:
+   `state: closed`, `state_reason: completed`, plus a comment naming the
+   merged PR(s) that resolved it, so the close is traceable without relying
+   on the (non-functional) auto-link. Writing "Closes #N" in the PR body is
    still good practice for human/PR-review legibility, but it is not
    sufficient by itself and must not be treated as satisfying this step.
 
@@ -192,15 +254,33 @@ self-correcting loop rather than a single implement-and-hope pass:
 
 ## Label taxonomy
 
-- `sprint:t5`, `sprint:t6`, … — one per HANDOFF.md task/sprint.
+The taxonomy follows the board-of-record split (Ceremony 1): a label only
+means something where there is an issue to carry it, so the two dimensions
+that describe an *in-sprint ticket* moved into the sprint plan document.
+
+**GitHub issue labels** — applied to issues, i.e. to cross-sprint
+follow-ups, disclosed-but-deferred gaps, and escalations:
+
 - `role:principal-engineer`, `role:product-manager`, `role:product-engineer`,
   `role:qa`, `role:product-owner`, `role:business-analyst`,
-  `role:ux-ui-designer` — primary-owner role for the ticket.
+  `role:ux-ui-designer` — primary-owner role.
 - `type:story`, `type:bug`, `type:chore`, `type:spike`.
-- `points:1`, `points:2`, `points:3`, `points:5`, `points:8`, `points:13`.
 
 Labels are created on first use (GitHub auto-creates a label the first time
 it's applied to an issue if it doesn't already exist).
+
+**Sprint-plan fields** — recorded in `docs/process/t<N>-sprint-plan.md`'s
+ticket entry, **not** as GitHub labels, because in-sprint tickets no longer
+have issues to label:
+
+- **Sprint** (`sprint:t5`, `sprint:t6`, … in the old taxonomy) — now implied
+  by which plan document the ticket is in, and stated in its entry.
+- **Story points** (`points:1|2|3|5|8|13`) — now a field in the ticket entry.
+
+Role and type are recorded in the plan entry too; they *additionally* become
+GitHub labels if the item is ever filed as an issue. Historical issues
+carrying `sprint:*`/`points:*` labels are left as they are — the labels are
+not scrubbed retroactively, they simply stop being applied going forward.
 
 ## Definition of Done (sprint-level)
 

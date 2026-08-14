@@ -45,7 +45,15 @@ message Court {
 // always attested as an explicit, separate step (AddCameraLink's
 // precondition), never at creation time.
 message CreateFacilityRequest {
-  string owner_id = 1;
+  // DEPRECATED (T12.7): ignored by the server. The new Facility is owned by
+  // the verified bearer token's principal, not by whoever this field names.
+  // This one is a *privilege* field, which is why it moved with the
+  // actor_user_id fields rather than being left alone: honoring it would let
+  // any caller mint a Facility owned by a subject that is not theirs, the
+  // same squatting shape T12.9 closes for identity_users one table over.
+  // Retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up.
+  string owner_id = 1 [deprecated = true];
   string name = 2;
   string description = 3;
   string address = 4;
@@ -106,7 +114,12 @@ message ListFacilitiesResponse {
 message AddCourtRequest {
   string facility_id = 1;
   string name = 2;
-  string actor_user_id = 3;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  string actor_user_id = 3 [deprecated = true];
 }
 
 message AddCourtResponse {
@@ -123,7 +136,12 @@ message AddCourtResponse {
 message AddCameraLinkRequest {
   string facility_id = 1;
   string url = 2;
-  string actor_user_id = 3;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  string actor_user_id = 3 [deprecated = true];
 }
 
 message AddCameraLinkResponse {
@@ -145,7 +163,12 @@ message AddCameraLinkResponse {
 // Facility's current consent state.
 message AttestCameraConsentRequest {
   string facility_id = 1;
-  string actor_user_id = 2;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  string actor_user_id = 2 [deprecated = true];
 }
 
 message AttestCameraConsentResponse {

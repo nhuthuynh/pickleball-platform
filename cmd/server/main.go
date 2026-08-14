@@ -254,46 +254,52 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
-	// Per-context authenticated-method policy (T12 sprint plan A11 Ruling
-	// 2): each context's grpcapi package owns the list of ITS OWN RPCs that
-	// require a verified principal, next to the handlers that break if that
-	// list is wrong, and this is the only place those lists are composed.
-	// Each migrated context contributes exactly one append line below.
+	// The authentication policy, composed from each context's own list
+	// (A11 Ruling 2). One line per context, and each context decides which of
+	// its RPCs are public next to the handlers that break if it is wrong —
+	// see the AuthenticatedMethods/PublicMethods pair in each grpcapi package,
+	// where a test fails if any RPC on the service is in neither list.
 	//
-	// Everything not listed stays exactly as public as it is today —
-	// composing an empty policy is what made T12.2's observe-only landing
-	// incapable of changing a shipped flow, and adding a context here is
-	// the deliberate act of turning enforcement on for it.
-	var authenticatedMethods []string
-	authenticatedMethods = append(authenticatedMethods, identitygrpc.AuthenticatedMethods()...) // T12.9
+	// T12.7 and T12.9 both appended to this composition in the same wave
+	// (T12 sprint plan A12); T12.9 also independently built a second,
+	// functionally-identical enforcement primitive
+	// (auth.RequireAuthentication/RequireAuthenticationStream in
+	// internal/platform/auth/enforce.go) before T12.7 had merged and it had
+	// anything to consolidate onto. Resolved here by keeping the one
+	// T12.7 already landed (auth.MethodSet/RequireUnaryInterceptor/
+	// RequireStreamInterceptor) and adding identity's list to it —
+	// enforce.go/enforce_test.go are deleted as part of this resolution
+	// rather than left as a second, unused enforcement path in the same
+	// package.
+	authenticatedMethods := auth.NewMethodSet(
+		bookinggrpc.AuthenticatedMethods(),    // T12.7
+		facilitiesgrpc.AuthenticatedMethods(), // T12.7
+		identitygrpc.AuthenticatedMethods(),   // T12.9
+	)
+	if tokenVerifier == nil {
+		// Enforcement without a verifier is fail-*closed*, not fail-open: no
+		// token can ever resolve, so every authenticated RPC rejects every
+		// caller with Unauthenticated. That is the safe direction, but it is
+		// also a deployment that cannot perform a single authenticated write,
+		// so it is said out loud at startup rather than discovered per
+		// request. ADR-0013 anticipates a future step further — refusing to
+		// start at all — which is deliberately not taken here: no identity
+		// provider is provisioned for this project yet, and a hard failure
+		// would make the server unstartable for local development.
+		logger.Warn("no token verifier configured: every authenticated RPC will reject every caller",
+			"authenticated_methods", len(bookinggrpc.AuthenticatedMethods())+len(facilitiesgrpc.AuthenticatedMethods())+len(identitygrpc.AuthenticatedMethods()))
+	}
 
-	// OPERATIONAL CONSEQUENCE, stated here rather than discovered in
-	// production: from this point on the process enforces authentication on
-	// the methods above, and a principal can only exist if a token verifier
-	// is configured (AUTH_ISSUER + AUTH_AUDIENCE + AUTH_JWKS_FILE — see
-	// tokenVerifierFromEnv). A deployment with no verifier configured will
-	// therefore reject CreateUser and UpdateSelfReportedLevel with
-	// Unauthenticated. That is fail-CLOSED and it is the intended
-	// direction: the alternative — skipping enforcement whenever no
-	// verifier happens to be configured — is a silent downgrade that would
-	// look like a check in review and in logs while protecting nothing
-	// (ADR-0013 §3, and the fail-open half of known gap #136).
-	//
-	// Ordering is load-bearing. Recovery stays outermost so it covers the
-	// other two. auth.UnaryInterceptor RESOLVES a token into a principal
-	// and must run before RequireAuthentication, which only checks whether
-	// one is present — registering them the other way round would reject
-	// every request including well-authenticated ones.
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			grpcrecovery.UnaryInterceptor(logger),
 			auth.UnaryInterceptor(tokenVerifier, logger),
-			auth.RequireAuthentication(authenticatedMethods),
+			auth.RequireUnaryInterceptor(authenticatedMethods),
 		),
 		grpc.ChainStreamInterceptor(
 			grpcrecovery.StreamInterceptor(logger),
 			auth.StreamInterceptor(tokenVerifier, logger),
-			auth.RequireAuthenticationStream(authenticatedMethods),
+			auth.RequireStreamInterceptor(authenticatedMethods),
 		),
 	)
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)

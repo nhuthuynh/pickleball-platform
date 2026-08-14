@@ -183,8 +183,9 @@ func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
 
 func seedFacility(t *testing.T, h *grpcapi.Handler, ownerID string) *facilitiesv1.Facility {
 	t.Helper()
-	resp, err := h.CreateFacility(context.Background(), &facilitiesv1.CreateFacilityRequest{
-		OwnerId: ownerID,
+	// T12.7: the owner is minted from the verified principal, so the fixture
+	// authenticates as ownerID rather than declaring it in the request body.
+	resp, err := h.CreateFacility(ctxAs(ownerID), &facilitiesv1.CreateFacilityRequest{
 		Name:    "Riverside Courts",
 		Address: "123 Main St",
 	})
@@ -202,17 +203,19 @@ func seedFacility(t *testing.T, h *grpcapi.Handler, ownerID string) *facilitiesv
 // path, and assert the request is rejected with the correctly mapped
 // status — not a 500, not a silent success.
 func TestAddCourt_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
 
-	// The BOLA attempt: "attacker", a different actor_user_id than the
-	// Facility's owner_id, tries to add a Court to owner-1's Facility.
+	// The BOLA attempt: "attacker", a verified caller who is not the
+	// Facility's owner, tries to add a Court to owner-1's Facility. T12.7
+	// moved this identity from an actor_user_id request field to the
+	// verified principal — see principal_authz_test.go for the case that
+	// proves the request field is now ignored outright.
+	ctx := ctxAs("attacker")
 	_, err := h.AddCourt(ctx, &facilitiesv1.AddCourtRequest{
-		FacilityId:  facility.GetId(),
-		Name:        "Court 1",
-		ActorUserId: "attacker",
+		FacilityId: facility.GetId(),
+		Name:       "Court 1",
 	})
 	if err == nil {
 		t.Fatal("AddCourt(attacker) succeeded silently — a non-owner was able to add a Court to owner-1's facility (BOLA regression)")
@@ -243,15 +246,14 @@ func TestAddCourt_RejectsMismatchedActor(t *testing.T) {
 // real owner's AddCourt call still succeeds through the same handler
 // path.
 func TestAddCourt_AllowsOwningActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
 
+	ctx := ctxAs("owner-1")
 	resp, err := h.AddCourt(ctx, &facilitiesv1.AddCourtRequest{
-		FacilityId:  facility.GetId(),
-		Name:        "Court 1",
-		ActorUserId: "owner-1",
+		FacilityId: facility.GetId(),
+		Name:       "Court 1",
 	})
 	if err != nil {
 		t.Fatalf("AddCourt(owner-1) (the owner) should succeed, got: %v", err)
@@ -273,10 +275,10 @@ func TestAddCourt_AllowsOwningActor(t *testing.T) {
 // with the pre-existing ErrCameraConsentRequired check (T7.2) — see
 // domain.Facility.AddCameraLink's doc comment on check ordering.
 func TestAddCameraLink_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
+	ctx := ctxAs("attacker")
 	// Attest consent directly against the fake repo's fixture, bypassing
 	// the wire API (there is no AttestConsent RPC) — mirrors
 	// internal/facilities/app/service_test.go's own fixture setup.
@@ -285,9 +287,8 @@ func TestAddCameraLink_RejectsMismatchedActor(t *testing.T) {
 	repo.facilities[facility.GetId()] = stored
 
 	_, err := h.AddCameraLink(ctx, &facilitiesv1.AddCameraLinkRequest{
-		FacilityId:  facility.GetId(),
-		Url:         "https://example.com/cam1.m3u8",
-		ActorUserId: "attacker",
+		FacilityId: facility.GetId(),
+		Url:        "https://example.com/cam1.m3u8",
 	})
 	if err == nil {
 		t.Fatal("AddCameraLink(attacker) succeeded silently — a non-owner was able to add a camera link to owner-1's facility (BOLA regression)")
@@ -312,7 +313,6 @@ func TestAddCameraLink_RejectsMismatchedActor(t *testing.T) {
 // TestAddCameraLink_AllowsOwningActor is the symmetric positive-path case
 // for AddCameraLink.
 func TestAddCameraLink_AllowsOwningActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
@@ -320,10 +320,10 @@ func TestAddCameraLink_AllowsOwningActor(t *testing.T) {
 	stored.CameraConsentAttested = true
 	repo.facilities[facility.GetId()] = stored
 
+	ctx := ctxAs("owner-1")
 	resp, err := h.AddCameraLink(ctx, &facilitiesv1.AddCameraLinkRequest{
-		FacilityId:  facility.GetId(),
-		Url:         "https://example.com/cam1.m3u8",
-		ActorUserId: "owner-1",
+		FacilityId: facility.GetId(),
+		Url:        "https://example.com/cam1.m3u8",
 	})
 	if err != nil {
 		t.Fatalf("AddCameraLink(owner-1) (the owner) should succeed, got: %v", err)
@@ -351,14 +351,13 @@ func TestAddCameraLink_AllowsOwningActor(t *testing.T) {
 // the correctly mapped status — not a 500, not a silent success — and that
 // CameraConsentAttested is left untouched.
 func TestAttestCameraConsent_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
 
+	ctx := ctxAs("attacker")
 	_, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
-		FacilityId:  facility.GetId(),
-		ActorUserId: "attacker",
+		FacilityId: facility.GetId(),
 	})
 	if err == nil {
 		t.Fatal("AttestCameraConsent(attacker) succeeded silently — a non-owner was able to attest consent on owner-1's facility (BOLA regression)")
@@ -388,14 +387,13 @@ func TestAttestCameraConsent_RejectsMismatchedActor(t *testing.T) {
 // couldn't tell "the ownership check correctly rejects a mismatched actor"
 // apart from "AttestCameraConsent is broken and rejects everyone."
 func TestAttestCameraConsent_AllowsOwningActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
 
+	ctx := ctxAs("owner-1")
 	resp, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
-		FacilityId:  facility.GetId(),
-		ActorUserId: "owner-1",
+		FacilityId: facility.GetId(),
 	})
 	if err != nil {
 		t.Fatalf("AttestCameraConsent(owner-1) (the owner) should succeed, got: %v", err)
@@ -414,22 +412,21 @@ func TestAttestCameraConsent_AllowsOwningActor(t *testing.T) {
 // succeed — proving the previously-dead-ended AddCameraLink flow is now
 // reachable end-to-end by a real user for the first time.
 func TestAttestCameraConsent_ThenAddCameraLink_EndToEnd(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
 
+	ctx := ctxAs("owner-1")
+
 	if _, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
-		FacilityId:  facility.GetId(),
-		ActorUserId: "owner-1",
+		FacilityId: facility.GetId(),
 	}); err != nil {
 		t.Fatalf("AttestCameraConsent: unexpected err: %v", err)
 	}
 
 	resp, err := h.AddCameraLink(ctx, &facilitiesv1.AddCameraLinkRequest{
-		FacilityId:  facility.GetId(),
-		Url:         "https://example.com/cam1.m3u8",
-		ActorUserId: "owner-1",
+		FacilityId: facility.GetId(),
+		Url:        "https://example.com/cam1.m3u8",
 	})
 	if err != nil {
 		t.Fatalf("AddCameraLink after AttestCameraConsent should succeed, got: %v", err)
