@@ -52,7 +52,7 @@ func createGameReq(fee *socialplayv1.Money) *socialplayv1.CreateGameRequest {
 func TestCreateGame_EntryFeeRoundTrip(t *testing.T) {
 	h := newEntryFeeHandler()
 
-	resp, err := h.CreateGame(context.Background(), createGameReq(&socialplayv1.Money{
+	resp, err := h.CreateGame(ctxAs("host-1"), createGameReq(&socialplayv1.Money{
 		AmountCents:  2500,
 		CurrencyCode: "USD",
 	}))
@@ -71,7 +71,7 @@ func TestCreateGame_EntryFeeRoundTrip(t *testing.T) {
 func TestCreateGame_FreeGame(t *testing.T) {
 	h := newEntryFeeHandler()
 
-	resp, err := h.CreateGame(context.Background(), createGameReq(&socialplayv1.Money{
+	resp, err := h.CreateGame(ctxAs("host-1"), createGameReq(&socialplayv1.Money{
 		AmountCents:  0,
 		CurrencyCode: "USD",
 	}))
@@ -94,7 +94,7 @@ func TestCreateGame_FreeGame(t *testing.T) {
 func TestCreateGame_AbsentEntryFeeIsFree(t *testing.T) {
 	h := newEntryFeeHandler()
 
-	resp, err := h.CreateGame(context.Background(), createGameReq(nil))
+	resp, err := h.CreateGame(ctxAs("host-1"), createGameReq(nil))
 	if err != nil {
 		t.Fatalf("an absent entry fee must be accepted as free, got err: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestCreateGame_InvalidEntryFeeIsInvalidArgument(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := newEntryFeeHandler()
 
-			_, err := h.CreateGame(context.Background(), createGameReq(tt.fee))
+			_, err := h.CreateGame(ctxAs("host-1"), createGameReq(tt.fee))
 			if err == nil {
 				t.Fatal("expected an error, got nil")
 			}

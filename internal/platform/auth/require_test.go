@@ -64,6 +64,38 @@ func TestNewMethodSet_ComposesEveryContext(t *testing.T) {
 	}
 }
 
+// TestMethodSet_LenCountsTheComposedPolicy covers the accessor cmd/server's
+// no-verifier startup warning reports (T12.8).
+//
+// It exists because the alternative was a hand-written sum of every context's
+// len(AuthenticatedMethods()) at the call site, which is a list that must be
+// edited every time a context is migrated and which silently under-reports
+// when it isn't — it had already gone stale for three contexts. Deduplication
+// is asserted too, since the set is the policy and a method listed twice is
+// still one method.
+func TestMethodSet_LenCountsTheComposedPolicy(t *testing.T) {
+	if got := auth.NewMethodSet().Len(); got != 0 {
+		t.Errorf("Len() on an empty set = %d, want 0", got)
+	}
+
+	set := auth.NewMethodSet(
+		[]string{"/pickleball.booking.v1.BookingService/CreateDiscountRule"},
+		[]string{"/pickleball.facilities.v1.FacilitiesService/AddCourt"},
+		[]string{"/pickleball.socialplay.v1.SocialPlayService/CancelGame"},
+	)
+	if got := set.Len(); got != 3 {
+		t.Errorf("Len() = %d, want 3", got)
+	}
+
+	dup := auth.NewMethodSet(
+		[]string{"/pickleball.booking.v1.BookingService/CreateDiscountRule"},
+		[]string{"/pickleball.booking.v1.BookingService/CreateDiscountRule"},
+	)
+	if got := dup.Len(); got != 1 {
+		t.Errorf("Len() with a duplicated method = %d, want 1 — the set is the policy", got)
+	}
+}
+
 func TestRequireUnaryInterceptor_UnauthenticatedWithoutPrincipal(t *testing.T) {
 	set := auth.NewMethodSet([]string{authedMethod})
 	interceptor := auth.RequireUnaryInterceptor(set)

@@ -35,8 +35,7 @@ import (
 // discloses it (see the proto's Competition doc comment).
 func seedSharedCompetition(t *testing.T, h *grpcapi.Handler, hostID string) (*competitionsv1.Competition, string) {
 	t.Helper()
-	resp, err := h.CreateCompetition(context.Background(), &competitionsv1.CreateCompetitionRequest{
-		HostId:         hostID,
+	resp, err := h.CreateCompetition(ctxAs(hostID), &competitionsv1.CreateCompetitionRequest{
 		Name:           "Spring Doubles Open",
 		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
 		Capacity:       16,
@@ -232,9 +231,8 @@ func TestGetCompetitionByShareToken_CancelledCompetitionStillResolves(t *testing
 
 	// GIVEN: the link is out in the world, then the Host cancels.
 	created, sharedLink := seedSharedCompetition(t, h, "host-1")
-	if _, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
+	if _, err := h.CancelCompetition(ctxAs("host-1"), &competitionsv1.CancelCompetitionRequest{
 		CompetitionId: created.GetId(),
-		ActorUserId:   "host-1",
 	}); err != nil {
 		t.Fatalf("fixture cancel failed: %v", err)
 	}
@@ -258,9 +256,8 @@ func TestGetCompetitionByShareToken_CancelledCompetitionStillResolves(t *testing
 
 	// AND: entering it is still rejected (FailedPrecondition — the
 	// Competition's own lifecycle, not a capacity conflict).
-	_, err = h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
+	_, err = h.EnterCompetition(ctxAs("player-1"), &competitionsv1.EnterCompetitionRequest{
 		CompetitionId: created.GetId(),
-		PlayerId:      "player-1",
 		Source:        competitionsv1.EntrySource_ENTRY_SOURCE_SOCIAL,
 	})
 	st, _ := status.FromError(err)
@@ -328,9 +325,8 @@ func TestEnterCompetition_SourceIsValidatedNotInferred(t *testing.T) {
 			}
 
 			// ...but only their own declaration decides what is stored.
-			resp, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
+			resp, err := h.EnterCompetition(ctxAs("player-1"), &competitionsv1.EnterCompetitionRequest{
 				CompetitionId: created.GetId(),
-				PlayerId:      "player-1",
 				Source:        tt.source,
 			})
 
@@ -374,9 +370,8 @@ func TestListEntriesForCompetition_ReturnsEachEntrySource(t *testing.T) {
 		{"player-unset", competitionsv1.EntrySource_ENTRY_SOURCE_UNSPECIFIED},
 	}
 	for _, e := range entrants {
-		if _, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
+		if _, err := h.EnterCompetition(ctxAs(e.playerID), &competitionsv1.EnterCompetitionRequest{
 			CompetitionId: created.GetId(),
-			PlayerId:      e.playerID,
 			Source:        e.source,
 		}); err != nil {
 			t.Fatalf("entering as %s: %v", e.playerID, err)

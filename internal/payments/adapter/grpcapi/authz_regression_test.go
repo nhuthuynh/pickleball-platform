@@ -167,16 +167,14 @@ func offlineFixtureAmount() *paymentsv1.Money {
 // and the request is rejected with the correctly mapped status — not a
 // 500, not a silent success.
 func TestRecordOfflinePayment_RegistrationPayable_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
 	// The BOLA attempt: "random-player", neither game-1's Host nor one of
 	// its assigned Game Admins, tries to record a Payment against fixtureRegistrationID.
-	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	_, err := h.RecordOfflinePayment(ctxAs("random-player"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:              paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
 		PayableId:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
-		ActorUserId:              "random-player",
 		GameHostId:               "host-1",
 		AssignedGameAdminUserIds: []string{"admin-1"},
 	})
@@ -210,14 +208,12 @@ func TestRecordOfflinePayment_RegistrationPayable_RejectsMismatchedActor(t *test
 // pins down that the real Host's recording still succeeds through the same
 // handler path.
 func TestRecordOfflinePayment_RegistrationPayable_AllowsGameHost(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
-	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	resp, err := h.RecordOfflinePayment(ctxAs("host-1"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
 		PayableId:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
-		ActorUserId: "host-1",
 		GameHostId:  "host-1",
 	})
 	if err != nil {
@@ -237,14 +233,12 @@ func TestRecordOfflinePayment_RegistrationPayable_AllowsGameHost(t *testing.T) {
 // docs/agent-operating-handbook.md A2): a Game Admin who is not the Host
 // may still record the offline payment.
 func TestRecordOfflinePayment_RegistrationPayable_AllowsAssignedGameAdmin(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler("pay-1")
 
-	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	resp, err := h.RecordOfflinePayment(ctxAs("admin-2"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:              paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
 		PayableId:                fixtureRegistrationID,
 		Amount:                   offlineFixtureAmount(),
-		ActorUserId:              "admin-2",
 		GameHostId:               "host-1",
 		AssignedGameAdminUserIds: []string{"admin-1", "admin-2"},
 	})
@@ -265,16 +259,14 @@ func TestRecordOfflinePayment_RegistrationPayable_AllowsAssignedGameAdmin(t *tes
 // rejected with the correctly mapped status — not a 500, not a silent
 // success.
 func TestRecordOfflinePayment_BookingPayable_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
 	// The BOLA attempt: "some-other-player", not fixtureBookingID's owning Host,
 	// tries to record a Payment against it.
-	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	_, err := h.RecordOfflinePayment(ctxAs("some-other-player"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 		PayableId:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
-		ActorUserId:   "some-other-player",
 		BookingHostId: "host-1",
 	})
 	if err == nil {
@@ -301,14 +293,12 @@ func TestRecordOfflinePayment_BookingPayable_RejectsMismatchedActor(t *testing.T
 // positive-path case for the Booking-payable path: the real owning Host's
 // recording still succeeds through the same handler path.
 func TestRecordOfflinePayment_BookingPayable_AllowsOwningHost(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
-	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	resp, err := h.RecordOfflinePayment(ctxAs("host-1"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 		PayableId:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
-		ActorUserId:   "host-1",
 		BookingHostId: "host-1",
 	})
 	if err != nil {
@@ -330,14 +320,12 @@ func TestRecordOfflinePayment_BookingPayable_AllowsOwningHost(t *testing.T) {
 // closes the loop that the ticket's "not a 500, not a silent success" bar
 // asks for on both payable paths.
 func TestRecordOfflinePayment_RejectionNotConflatedWithOtherErrors(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler("pay-1")
 
-	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	_, err := h.RecordOfflinePayment(ctxAs("host-1"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 		PayableId:     fixtureBookingID,
 		Amount:        &paymentsv1.Money{AmountCents: 0, CurrencyCode: "USD"}, // invalid amount
-		ActorUserId:   "host-1",
 		BookingHostId: "host-1",
 	})
 	if err == nil {

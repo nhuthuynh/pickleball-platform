@@ -18,9 +18,38 @@ import (
 
 	"github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 )
+
+// actor resolves the acting user for an authenticated RPC (T12.8).
+//
+// This one function is the whole of A11 Ruling 3 for this context: the
+// Principal is translated into the plain actor string app.Service and the
+// domain's authorization branches already take, here at the grpcapi boundary,
+// so internal/payments/{domain,app} keep their existing signatures and never
+// import internal/platform/auth.
+//
+// It takes only a context, deliberately. The request's actor_user_id is not
+// passed in and cannot be consulted, so there is no fallback to the caller's
+// claim when no principal is present — the failure mode the ticket calls out
+// as "a handler that falls back to the claimed value has changed nothing".
+// Missing principal is codes.Unauthenticated ("I do not know who you are"),
+// never PermissionDenied (ADR-0013 §5).
+//
+// Note what is NOT migrated here, deliberately: booking_host_id, game_host_id,
+// entrant_player_id and the two assigned-admin lists remain caller-supplied
+// ownership *facts*, because Payments has no port into Booking, Social Play or
+// Competitions to resolve them against. That is a real, pre-existing gap this
+// ticket narrows but does not close — verifying the actor stops a caller
+// impersonating the Host, but a caller can still assert that some other Game's
+// Host is whoever they like. Closing it means new cross-context ports, which
+// is a structural change well outside a handler-boundary ticket. Disclosed in
+// the PR body with a tracked issue, per the sprint's A5 rule.
+func actor(ctx context.Context) (string, error) {
+	return auth.RequireSubject(ctx)
+}
 
 type Handler struct {
 	paymentsv1.UnimplementedPaymentsServiceServer
@@ -31,7 +60,17 @@ func NewHandler(svc *app.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// RecordOfflinePayment marks a payable paid on behalf of the verified caller
+// (T12.8). The actor is the principal, never req.GetActorUserId() — and since
+// this RPC also *writes* that actor into Payment.RecordedByUserId, honoring
+// the wire field would additionally let a caller record a payment under
+// someone else's name in the audit trail.
 func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.RecordOfflinePaymentRequest) (*paymentsv1.RecordOfflinePaymentResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	payableType, err := fromProtoPayableType(req.GetPayableType())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -41,7 +80,7 @@ func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.Reco
 		PayableType:                     payableType,
 		PayableID:                       req.GetPayableId(),
 		Amount:                          fromProtoMoney(req.GetAmount()),
-		ActorUserID:                     req.GetActorUserId(),
+		ActorUserID:                     actorUserID,
 		BookingHostID:                   req.GetBookingHostId(),
 		GameHostID:                      req.GetGameHostId(),
 		AssignedGameAdminUserIDs:        req.GetAssignedGameAdminUserIds(),
@@ -55,7 +94,14 @@ func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.Reco
 	return &paymentsv1.RecordOfflinePaymentResponse{Payment: toProto(p)}, nil
 }
 
+// CreateOnlinePayment creates a payment intent on behalf of the verified
+// caller (T12.8). The actor is the principal, never req.GetActorUserId().
 func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.CreateOnlinePaymentRequest) (*paymentsv1.CreateOnlinePaymentResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	payableType, err := fromProtoPayableType(req.GetPayableType())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -65,7 +111,7 @@ func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.Creat
 		PayableType:                     payableType,
 		PayableID:                       req.GetPayableId(),
 		Amount:                          fromProtoMoney(req.GetAmount()),
-		ActorUserID:                     req.GetActorUserId(),
+		ActorUserID:                     actorUserID,
 		EntrantPlayerID:                 req.GetEntrantPlayerId(),
 		AssignedCompetitionAdminUserIDs: req.GetAssignedCompetitionAdminUserIds(),
 	})
@@ -116,10 +162,20 @@ func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.Conf
 // itself, because it needs the *stored* payable type to pick an
 // authorization branch and must not accept that fact from the caller (see
 // app.RefundPaymentInput's doc comment).
+// T12.8: the actor is the verified principal, not req.GetActorUserId(). This
+// is the RPC that moves real money back out, so the care T12.3 took to read
+// the payable type from the *stored* Payment — denying the caller any say in
+// which authorization branch judges them — was only as good as the actor that
+// branch compares, which until now the caller also supplied.
 func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPaymentRequest) (*paymentsv1.RefundPaymentResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	p, err := h.svc.RefundPayment(ctx, app.RefundPaymentInput{
 		PaymentID:                req.GetPaymentId(),
-		ActorUserID:              req.GetActorUserId(),
+		ActorUserID:              actorUserID,
 		BookingHostID:            req.GetBookingHostId(),
 		GameHostID:               req.GetGameHostId(),
 		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),

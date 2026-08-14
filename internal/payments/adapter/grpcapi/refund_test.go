@@ -109,9 +109,8 @@ func TestRefundPayment_Handler_BookingHostSucceeds(t *testing.T) {
 	h, repo, proc := newRefundTestHandler()
 	seedPaidOnline(t, repo, proc, refundBookingPaymentID, domain.PayableTypeBooking, fixtureBookingID)
 
-	resp, err := h.RefundPayment(context.Background(), &paymentsv1.RefundPaymentRequest{
+	resp, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 		PaymentId:     refundBookingPaymentID,
-		ActorUserId:   refundBookingHostID,
 		BookingHostId: refundBookingHostID,
 	})
 	if err != nil {
@@ -132,10 +131,9 @@ func TestRefundPayment_Handler_NonRecorderActorPermissionDenied(t *testing.T) {
 	h, repo, proc := newRefundTestHandler()
 	seedPaidOnline(t, repo, proc, refundRegistrationPayentID, domain.PayableTypeRegistration, fixtureRegistrationID)
 
-	_, err := h.RefundPayment(context.Background(), &paymentsv1.RefundPaymentRequest{
-		PaymentId:   refundRegistrationPayentID,
-		ActorUserId: refundOtherPlayerID,
-		GameHostId:  refundGameHostID,
+	_, err := h.RefundPayment(ctxAs(refundOtherPlayerID), &paymentsv1.RefundPaymentRequest{
+		PaymentId:  refundRegistrationPayentID,
+		GameHostId: refundGameHostID,
 	})
 	wantCode(t, err, codes.PermissionDenied)
 
@@ -171,9 +169,8 @@ func TestRefundPayment_Handler_UnknownAndMalformedIDsNotFound(t *testing.T) {
 
 			h, _, _ := newRefundTestHandler()
 
-			_, err := h.RefundPayment(context.Background(), &paymentsv1.RefundPaymentRequest{
+			_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 				PaymentId:     tc.paymentID,
-				ActorUserId:   refundBookingHostID,
 				BookingHostId: refundBookingHostID,
 			})
 			wantCode(t, err, codes.NotFound)
@@ -205,14 +202,13 @@ func TestRefundPayment_Handler_IllegalTransitionFailedPrecondition(t *testing.T)
 
 		req := &paymentsv1.RefundPaymentRequest{
 			PaymentId:     refundBookingPaymentID,
-			ActorUserId:   refundBookingHostID,
 			BookingHostId: refundBookingHostID,
 		}
-		if _, err := h.RefundPayment(context.Background(), req); err != nil {
+		if _, err := h.RefundPayment(ctxAs(refundBookingHostID), req); err != nil {
 			t.Fatalf("first refund should succeed: %v", err)
 		}
 
-		_, err := h.RefundPayment(context.Background(), req)
+		_, err := h.RefundPayment(ctxAs(refundBookingHostID), req)
 		wantCode(t, err, codes.FailedPrecondition)
 	})
 
@@ -231,9 +227,8 @@ func TestRefundPayment_Handler_IllegalTransitionFailedPrecondition(t *testing.T)
 			t.Fatalf("seed: %v", err)
 		}
 
-		_, err := h.RefundPayment(context.Background(), &paymentsv1.RefundPaymentRequest{
+		_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 			PaymentId:     refundBookingPaymentID,
-			ActorUserId:   refundBookingHostID,
 			BookingHostId: refundBookingHostID,
 		})
 		wantCode(t, err, codes.FailedPrecondition)
@@ -266,9 +261,8 @@ func TestRefundPayment_Handler_ProcessorFailureInternalAndNotRefunded(t *testing
 		t.Fatalf("seed: %v", err)
 	}
 
-	_, err := h.RefundPayment(context.Background(), &paymentsv1.RefundPaymentRequest{
+	_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 		PaymentId:     refundBookingPaymentID,
-		ActorUserId:   refundBookingHostID,
 		BookingHostId: refundBookingHostID,
 	})
 	wantCode(t, err, codes.Internal)
@@ -305,10 +299,9 @@ func TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument(t *testing.T
 			h, repo, proc := newRefundTestHandler()
 			seedPaidOnline(t, repo, proc, refundNoShowPaymentID, tc.payableType, tc.payableID)
 
-			_, err := h.RefundPayment(context.Background(), &paymentsv1.RefundPaymentRequest{
-				PaymentId:   refundNoShowPaymentID,
-				ActorUserId: refundGameHostID,
-				GameHostId:  refundGameHostID,
+			_, err := h.RefundPayment(ctxAs(refundGameHostID), &paymentsv1.RefundPaymentRequest{
+				PaymentId:  refundNoShowPaymentID,
+				GameHostId: refundGameHostID,
 			})
 			wantCode(t, err, codes.InvalidArgument)
 

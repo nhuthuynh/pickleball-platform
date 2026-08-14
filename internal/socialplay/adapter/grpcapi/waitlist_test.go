@@ -39,11 +39,11 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 	h := grpcapi.NewHandler(svc, nil, nil)
 
 	game := seedGame(t, gameRepo, "game-wl-1", 1)
-	if _, err := h.RegisterForGame(ctx, &socialplayv1.RegisterForGameRequest{GameId: game.ID, PlayerId: "player-a"}); err != nil {
+	if _, err := h.RegisterForGame(ctxAs("player-a"), &socialplayv1.RegisterForGameRequest{GameId: game.ID}); err != nil {
 		t.Fatalf("fixture registration should succeed: %v", err)
 	}
 
-	resp, err := h.JoinWaitlist(ctx, &socialplayv1.JoinWaitlistRequest{GameId: game.ID, PlayerId: "player-b"})
+	resp, err := h.JoinWaitlist(ctxAs("player-b"), &socialplayv1.JoinWaitlistRequest{GameId: game.ID})
 	if err != nil {
 		t.Fatalf("JoinWaitlist should succeed on a full game: %v", err)
 	}
@@ -63,13 +63,12 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 // domain.ErrGameNotFull maps to a 400-shaped status over the wire, not a
 // 500 and not a silent success.
 func TestJoinWaitlist_GameNotFull_MapsToInvalidArgument(t *testing.T) {
-	ctx := context.Background()
 	gameRepo, _, _, svc := newTestHandlerWithWaitlist()
 	h := grpcapi.NewHandler(svc, nil, nil)
 
 	game := seedGame(t, gameRepo, "game-wl-2", 4)
 
-	_, err := h.JoinWaitlist(ctx, &socialplayv1.JoinWaitlistRequest{GameId: game.ID, PlayerId: "player-a"})
+	_, err := h.JoinWaitlist(ctxAs("player-a"), &socialplayv1.JoinWaitlistRequest{GameId: game.ID})
 	if err == nil {
 		t.Fatal("expected an error joining the waitlist of a game that isn't full")
 	}
@@ -86,19 +85,18 @@ func TestJoinWaitlist_GameNotFull_MapsToInvalidArgument(t *testing.T) {
 // domain.ErrAlreadyOnWaitlist maps to a 409-shaped status, mirroring
 // ErrAlreadyRegistered's own mapping.
 func TestJoinWaitlist_AlreadyOnWaitlist_MapsToAlreadyExists(t *testing.T) {
-	ctx := context.Background()
 	gameRepo, _, _, svc := newTestHandlerWithWaitlist()
 	h := grpcapi.NewHandler(svc, nil, nil)
 
 	game := seedGame(t, gameRepo, "game-wl-3", 1)
-	if _, err := h.RegisterForGame(ctx, &socialplayv1.RegisterForGameRequest{GameId: game.ID, PlayerId: "player-a"}); err != nil {
+	if _, err := h.RegisterForGame(ctxAs("player-a"), &socialplayv1.RegisterForGameRequest{GameId: game.ID}); err != nil {
 		t.Fatalf("fixture registration should succeed: %v", err)
 	}
-	if _, err := h.JoinWaitlist(ctx, &socialplayv1.JoinWaitlistRequest{GameId: game.ID, PlayerId: "player-b"}); err != nil {
+	if _, err := h.JoinWaitlist(ctxAs("player-b"), &socialplayv1.JoinWaitlistRequest{GameId: game.ID}); err != nil {
 		t.Fatalf("fixture join should succeed: %v", err)
 	}
 
-	_, err := h.JoinWaitlist(ctx, &socialplayv1.JoinWaitlistRequest{GameId: game.ID, PlayerId: "player-b"})
+	_, err := h.JoinWaitlist(ctxAs("player-b"), &socialplayv1.JoinWaitlistRequest{GameId: game.ID})
 	if err == nil {
 		t.Fatal("expected an error on a duplicate waitlist join")
 	}

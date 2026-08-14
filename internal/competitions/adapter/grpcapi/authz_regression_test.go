@@ -295,8 +295,10 @@ func protoSession(start, end string, courtIDs ...string) *competitionsv1.Competi
 // straight into the fake.
 func seedCompetition(t *testing.T, h *grpcapi.Handler, hostID string, capacity, guestAllowance int32) *competitionsv1.Competition {
 	t.Helper()
-	resp, err := h.CreateCompetition(context.Background(), &competitionsv1.CreateCompetitionRequest{
-		HostId:         hostID,
+	// T12.8: the Host is the verified principal, not a request field, so the
+	// fixture's hostID now travels in the context. Every caller of this helper
+	// keeps passing the same hostID unchanged.
+	resp, err := h.CreateCompetition(ctxAs(hostID), &competitionsv1.CreateCompetitionRequest{
 		Name:           "Spring Doubles Open",
 		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
 		Capacity:       capacity,
@@ -326,9 +328,8 @@ func TestCancelCompetition_RejectsNonHostActor(t *testing.T) {
 
 	// The BOLA attempt: a different actor_user_id tries to cancel host-1's
 	// Competition.
-	resp, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
+	resp, err := h.CancelCompetition(ctxAs("attacker"), &competitionsv1.CancelCompetitionRequest{
 		CompetitionId: competition.GetId(),
-		ActorUserId:   "attacker",
 	})
 	if err == nil {
 		t.Fatalf("CancelCompetition(attacker) succeeded silently — a non-Host cancelled host-1's Competition (BOLA regression); response: %v", resp)
@@ -379,9 +380,8 @@ func TestCancelCompetition_AllowsHostActor(t *testing.T) {
 
 	competition := seedCompetition(t, h, "host-1", 16, 2)
 
-	resp, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
+	resp, err := h.CancelCompetition(ctxAs("host-1"), &competitionsv1.CancelCompetitionRequest{
 		CompetitionId: competition.GetId(),
-		ActorUserId:   "host-1",
 	})
 	if err != nil {
 		t.Fatalf("CancelCompetition(host-1) (the real Host) should succeed, got: %v", err)
@@ -404,22 +404,29 @@ func TestCancelCompetition_AllowsHostActor(t *testing.T) {
 // case because "" is the value a client that simply omits the field sends,
 // and an EnsureHost implemented as a bare string comparison against a
 // Competition with an empty HostID would wrongly accept it.
+// T12.8 strengthened this case rather than weakening it. The original worry
+// was an empty actor_user_id matching a Competition with an empty HostID under
+// a bare string comparison. That state is now unreachable twice over: the
+// actor is the principal rather than a request field, and
+// auth.ContextWithPrincipal refuses to build a principal with an empty Subject
+// at all — so ctxAs("") yields a context with no principal, and the answer is
+// Unauthenticated ("I do not know who you are") rather than PermissionDenied.
+// The property under test is unchanged: an unidentified caller never cancels.
 func TestCancelCompetition_RejectsEmptyActor(t *testing.T) {
 	ctx := context.Background()
 	h, repo := newTestHandler()
 
 	competition := seedCompetition(t, h, "host-1", 16, 2)
 
-	_, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
+	_, err := h.CancelCompetition(ctxAs(""), &competitionsv1.CancelCompetitionRequest{
 		CompetitionId: competition.GetId(),
-		ActorUserId:   "",
 	})
 	if err == nil {
-		t.Fatal("CancelCompetition with an empty actor_user_id succeeded — an unidentified caller is never the Host")
+		t.Fatal("CancelCompetition with an empty subject succeeded — an unidentified caller is never the Host")
 	}
 	st, _ := status.FromError(err)
-	if st.Code() != codes.PermissionDenied {
-		t.Errorf("status code = %v, want PermissionDenied", st.Code())
+	if st.Code() != codes.Unauthenticated {
+		t.Errorf("status code = %v, want Unauthenticated", st.Code())
 	}
 
 	stored, _ := repo.GetByID(ctx, competition.GetId())
@@ -435,14 +442,12 @@ func TestCancelCompetition_RejectsEmptyActor(t *testing.T) {
 // has no EnsureHost call" and adds one would break the product; this test
 // makes that a failing change rather than a silent one.
 func TestEnterCompetition_IsNotOwnershipGated(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler()
 
 	competition := seedCompetition(t, h, "host-1", 16, 2)
 
-	resp, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
+	resp, err := h.EnterCompetition(ctxAs("some-other-player"), &competitionsv1.EnterCompetitionRequest{
 		CompetitionId: competition.GetId(),
-		PlayerId:      "some-other-player",
 		GuestCount:    0,
 		Source:        competitionsv1.EntrySource_ENTRY_SOURCE_APP,
 	})
@@ -472,14 +477,14 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 		// exactly (weight 2), so the next entry of any size cannot fit.
 		competition := seedCompetition(t, h, "host-1", 2, 1)
 
-		if _, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-			CompetitionId: competition.GetId(), PlayerId: "p1", GuestCount: 1,
+		if _, err := h.EnterCompetition(ctxAs("p1"), &competitionsv1.EnterCompetitionRequest{
+			CompetitionId: competition.GetId(), GuestCount: 1,
 		}); err != nil {
 			t.Fatalf("first entry (weight 2, capacity 2) should fit: %v", err)
 		}
 
-		_, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-			CompetitionId: competition.GetId(), PlayerId: "p2", GuestCount: 0,
+		_, err := h.EnterCompetition(ctxAs("p2"), &competitionsv1.EnterCompetitionRequest{
+			CompetitionId: competition.GetId(), GuestCount: 0,
 		})
 		if err == nil {
 			t.Fatal("second entry should have been rejected — the competition is full")
@@ -493,8 +498,8 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 
 		// 5 guests against an allowance of 1. Note capacity is ample, so
 		// this can only be the allowance rejection — not the full one.
-		_, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-			CompetitionId: competition.GetId(), PlayerId: "p1", GuestCount: 5,
+		_, err := h.EnterCompetition(ctxAs("p1"), &competitionsv1.EnterCompetitionRequest{
+			CompetitionId: competition.GetId(), GuestCount: 5,
 		})
 		if err == nil {
 			t.Fatal("entry with 5 guests against an allowance of 1 should be rejected")
@@ -506,8 +511,8 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 		h, _ := newTestHandler()
 		competition := seedCompetition(t, h, "host-1", 16, 1)
 
-		_, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
-			CompetitionId: competition.GetId(), ActorUserId: "attacker",
+		_, err := h.CancelCompetition(ctxAs("attacker"), &competitionsv1.CancelCompetitionRequest{
+			CompetitionId: competition.GetId(),
 		})
 		if err == nil {
 			t.Fatal("non-Host cancel should be rejected")
@@ -528,14 +533,14 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 		h, _ := newTestHandler()
 		competition := seedCompetition(t, h, "host-1", 16, 1)
 
-		if _, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
-			CompetitionId: competition.GetId(), ActorUserId: "host-1",
+		if _, err := h.CancelCompetition(ctxAs("host-1"), &competitionsv1.CancelCompetitionRequest{
+			CompetitionId: competition.GetId(),
 		}); err != nil {
 			t.Fatalf("host cancel should succeed: %v", err)
 		}
 
-		_, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-			CompetitionId: competition.GetId(), PlayerId: "p1",
+		_, err := h.EnterCompetition(ctxAs("p1"), &competitionsv1.EnterCompetitionRequest{
+			CompetitionId: competition.GetId(),
 		})
 		if err == nil {
 			t.Fatal("entering a cancelled competition should be rejected")
@@ -548,7 +553,6 @@ func TestErrorMapping_NeverInternal(t *testing.T) {
 // FacilityLookup that actually rejects, so it gets its own handler rather
 // than newTestHandler's always-accepting fake.
 func TestErrorMapping_FacilityNotFound(t *testing.T) {
-	ctx := context.Background()
 
 	repo := newFakeRepo()
 	svc := app.NewService(app.ServiceOptions{
@@ -560,8 +564,7 @@ func TestErrorMapping_FacilityNotFound(t *testing.T) {
 	})
 	h := grpcapi.NewHandler(svc)
 
-	_, err := h.CreateCompetition(ctx, &competitionsv1.CreateCompetitionRequest{
-		HostId:          "host-1",
+	_, err := h.CreateCompetition(ctxAs("host-1"), &competitionsv1.CreateCompetitionRequest{
 		Name:            "Bad Venue Open",
 		VenueFacilityId: "no-such-facility",
 		Sessions:        []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
@@ -616,7 +619,6 @@ func assertCode(t *testing.T, err error, want codes.Code, sentinel string) {
 // expose: capacity 8 with one 3-guest entry is 4 free, and a headcount
 // implementation would report 7.
 func TestListCompetitions_SpotsLeftIsWeighted(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler()
 
 	competition := seedCompetition(t, h, "host-1", 8, 3)
@@ -627,8 +629,8 @@ func TestListCompetitions_SpotsLeftIsWeighted(t *testing.T) {
 	}
 
 	// One entry bringing 3 guests occupies 4 places (1 entrant + 3 guests).
-	if _, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-		CompetitionId: competition.GetId(), PlayerId: "p1", GuestCount: 3,
+	if _, err := h.EnterCompetition(ctxAs("p1"), &competitionsv1.EnterCompetitionRequest{
+		CompetitionId: competition.GetId(), GuestCount: 3,
 	}); err != nil {
 		t.Fatalf("EnterCompetition(p1, 3 guests): %v", err)
 	}
@@ -637,8 +639,8 @@ func TestListCompetitions_SpotsLeftIsWeighted(t *testing.T) {
 	}
 
 	// A second identical entry fills it exactly: 8 of 8 places occupied.
-	if _, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-		CompetitionId: competition.GetId(), PlayerId: "p2", GuestCount: 3,
+	if _, err := h.EnterCompetition(ctxAs("p2"), &competitionsv1.EnterCompetitionRequest{
+		CompetitionId: competition.GetId(), GuestCount: 3,
 	}); err != nil {
 		t.Fatalf("EnterCompetition(p2, 3 guests): %v", err)
 	}
@@ -650,8 +652,8 @@ func TestListCompetitions_SpotsLeftIsWeighted(t *testing.T) {
 	// actually refusing. A listing that says "full" while entries still
 	// succeed (or vice versa) is the drift this whole design exists to
 	// prevent.
-	_, err := h.EnterCompetition(ctx, &competitionsv1.EnterCompetitionRequest{
-		CompetitionId: competition.GetId(), PlayerId: "p3", GuestCount: 0,
+	_, err := h.EnterCompetition(ctxAs("p3"), &competitionsv1.EnterCompetitionRequest{
+		CompetitionId: competition.GetId(), GuestCount: 0,
 	})
 	if err == nil {
 		t.Fatal("spots_left reported 0 but a further entry was accepted — the listing and the capacity check disagree")
@@ -693,8 +695,8 @@ func TestListCompetitions_ExcludesCancelled(t *testing.T) {
 		t.Fatalf("listing count before cancel = %d, want 1", len(resp.GetCompetitions()))
 	}
 
-	if _, err := h.CancelCompetition(ctx, &competitionsv1.CancelCompetitionRequest{
-		CompetitionId: competition.GetId(), ActorUserId: "host-1",
+	if _, err := h.CancelCompetition(ctxAs("host-1"), &competitionsv1.CancelCompetitionRequest{
+		CompetitionId: competition.GetId(),
 	}); err != nil {
 		t.Fatalf("CancelCompetition(host-1): %v", err)
 	}
@@ -724,8 +726,7 @@ func TestShareToken_NotLeakedByReadPaths(t *testing.T) {
 	ctx := context.Background()
 	h, repo := newTestHandler()
 
-	createResp, err := h.CreateCompetition(ctx, &competitionsv1.CreateCompetitionRequest{
-		HostId:        "host-1",
+	createResp, err := h.CreateCompetition(ctxAs("host-1"), &competitionsv1.CreateCompetitionRequest{
 		Name:          "Private Open",
 		Sessions:      []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
 		Capacity:      8,

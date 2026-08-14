@@ -271,10 +271,20 @@ func run(logger *slog.Logger) error {
 	// enforce.go/enforce_test.go are deleted as part of this resolution
 	// rather than left as a second, unused enforcement path in the same
 	// package.
+	// T12.8 adds the last three contexts, completing the migration: every
+	// bounded context in this process now declares its own authenticated/public
+	// split, and each declares it in its own file, so this call is the only
+	// place they meet. No textual conflict occurred with T12.7's and T12.9's
+	// entries — this ticket branched from a base already containing both — but
+	// per A9(e) the diff still touches a file more than one ticket claimed this
+	// sprint, so it was re-verified from a fresh worktree off the pushed branch.
 	authenticatedMethods := auth.NewMethodSet(
-		bookinggrpc.AuthenticatedMethods(),    // T12.7
-		facilitiesgrpc.AuthenticatedMethods(), // T12.7
-		identitygrpc.AuthenticatedMethods(),   // T12.9
+		bookinggrpc.AuthenticatedMethods(),      // T12.7
+		facilitiesgrpc.AuthenticatedMethods(),   // T12.7
+		identitygrpc.AuthenticatedMethods(),     // T12.9
+		socialplaygrpc.AuthenticatedMethods(),   // T12.8
+		paymentsgrpc.AuthenticatedMethods(),     // T12.8
+		competitionsgrpc.AuthenticatedMethods(), // T12.8
 	)
 	if tokenVerifier == nil {
 		// Enforcement without a verifier is fail-*closed*, not fail-open: no
@@ -287,7 +297,7 @@ func run(logger *slog.Logger) error {
 		// provider is provisioned for this project yet, and a hard failure
 		// would make the server unstartable for local development.
 		logger.Warn("no token verifier configured: every authenticated RPC will reject every caller",
-			"authenticated_methods", len(bookinggrpc.AuthenticatedMethods())+len(facilitiesgrpc.AuthenticatedMethods())+len(identitygrpc.AuthenticatedMethods()))
+			"authenticated_methods", authenticatedMethods.Len())
 	}
 
 	grpcServer := grpc.NewServer(

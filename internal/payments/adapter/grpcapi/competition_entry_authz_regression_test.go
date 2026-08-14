@@ -19,7 +19,6 @@
 package grpcapi_test
 
 import (
-	"context"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -61,17 +60,15 @@ func newTestHandlerWithProcessor(seedIDs ...string) (*grpcapi.Handler, *fakeRepo
 // domain path, and the request is rejected with the correctly mapped
 // status — not a 500, not a silent success.
 func TestRecordOfflinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
 	// The BOLA attempt: "random-player", neither fixtureCompetitionEntryID's entrant nor one
 	// of its assigned Competition Admins, tries to record a Payment against
 	// it.
-	_, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	_, err := h.RecordOfflinePayment(ctxAs("random-player"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
 		PayableId:                       fixtureCompetitionEntryID,
 		Amount:                          competitionEntryFixtureAmount(),
-		ActorUserId:                     "random-player",
 		EntrantPlayerId:                 "player-1",
 		AssignedCompetitionAdminUserIds: []string{"admin-1"},
 	})
@@ -101,14 +98,12 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *
 // symmetric positive-path case: the entrant recording their own
 // competition-entry payment succeeds through the same handler path.
 func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler("pay-1")
 
-	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	resp, err := h.RecordOfflinePayment(ctxAs("player-1"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
 		PayableId:       fixtureCompetitionEntryID,
 		Amount:          competitionEntryFixtureAmount(),
-		ActorUserId:     "player-1",
 		EntrantPlayerId: "player-1",
 	})
 	if err != nil {
@@ -127,14 +122,12 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T
 // the assigned-Competition-Admin path: an admin who is not the entrant may
 // still record the offline payment on the entrant's behalf.
 func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsAssignedCompetitionAdmin(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler("pay-1")
 
-	resp, err := h.RecordOfflinePayment(ctx, &paymentsv1.RecordOfflinePaymentRequest{
+	resp, err := h.RecordOfflinePayment(ctxAs("admin-2"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
 		PayableId:                       fixtureCompetitionEntryID,
 		Amount:                          competitionEntryFixtureAmount(),
-		ActorUserId:                     "admin-2",
 		EntrantPlayerId:                 "player-1",
 		AssignedCompetitionAdminUserIds: []string{"admin-1", "admin-2"},
 	})
@@ -161,14 +154,12 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsAssignedCompetitionA
 // the real handler -> app -> domain path, and the request is rejected with
 // the correctly mapped status — not a 500, not a silent success.
 func TestCreateOnlinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandlerWithProcessor("pay-1")
 
-	_, err := h.CreateOnlinePayment(ctx, &paymentsv1.CreateOnlinePaymentRequest{
+	_, err := h.CreateOnlinePayment(ctxAs("random-player"), &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
 		PayableId:                       fixtureCompetitionEntryID,
 		Amount:                          competitionEntryFixtureAmount(),
-		ActorUserId:                     "random-player",
 		EntrantPlayerId:                 "player-1",
 		AssignedCompetitionAdminUserIds: []string{"admin-1"},
 	})
@@ -196,14 +187,12 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *t
 // symmetric positive-path case: the entrant starting an online payment for
 // their own competition entry succeeds through the same handler path.
 func TestCreateOnlinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandlerWithProcessor("pay-1")
 
-	resp, err := h.CreateOnlinePayment(ctx, &paymentsv1.CreateOnlinePaymentRequest{
+	resp, err := h.CreateOnlinePayment(ctxAs("player-1"), &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType:     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
 		PayableId:       fixtureCompetitionEntryID,
 		Amount:          competitionEntryFixtureAmount(),
-		ActorUserId:     "player-1",
 		EntrantPlayerId: "player-1",
 	})
 	if err != nil {
@@ -222,11 +211,17 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T)
 // spirit: the new competition_entry-only authorization check in
 // CreateOnlinePayment must not start requiring an actor for the payable
 // types this ticket does not touch.
+// T12.8 narrowed this test's claim without changing what it is for. A booking
+// payable still has no object-level actor check to satisfy — that is the T10.6
+// property under test, and it is unchanged. What changed is that the RPC now
+// requires the caller to be *authenticated* at all, so the request travels
+// under a principal even though no authorization branch reads it. The two are
+// different questions ("who are you" versus "may you"), and this test still
+// answers only the second.
 func TestCreateOnlinePayment_BookingPayable_StillNeedsNoActor(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandlerWithProcessor("pay-1")
 
-	if _, err := h.CreateOnlinePayment(ctx, &paymentsv1.CreateOnlinePaymentRequest{
+	if _, err := h.CreateOnlinePayment(ctxAs("auth0|any-authenticated-caller"), &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 		PayableId:   fixtureBookingID,
 		Amount:      competitionEntryFixtureAmount(),
