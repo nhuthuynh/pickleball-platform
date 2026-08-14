@@ -147,6 +147,21 @@ func (r *fakeGameRepository) GetByID(_ context.Context, id string) (domain.Game,
 	return g, nil
 }
 
+// UpdateStatus is the in-memory port.GameRepository.UpdateStatus fake
+// (T12.4). Like the real single-column query it stands in for, it writes
+// only Status — every other field on the stored Game is left exactly as it
+// was, so a test can prove a cancellation didn't quietly clobber anything
+// else.
+func (r *fakeGameRepository) UpdateStatus(_ context.Context, id string, status domain.Status) (domain.Game, error) {
+	g, ok := r.games[id]
+	if !ok {
+		return domain.Game{}, domain.ErrGameNotFound
+	}
+	g.Status = status
+	r.games[id] = g
+	return g, nil
+}
+
 // ListGames is a minimal in-memory port.GameRepository.ListGames fake
 // (T8.9): filters by VenueFacilityID/StartsAfter/StartsBefore exactly like
 // the real sqlc query (db/queries/socialplay.sql's ListGames), and derives
@@ -1734,5 +1749,181 @@ func TestListMatchesForGame_UnknownGameRejected(t *testing.T) {
 	}
 	if games.getByIDCalls.Load() != 1 {
 		t.Fatalf("well-formed unknown GameID did not reach the repository (%d calls)", games.getByIDCalls.Load())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// CancelGame (T12.4) — mirrors internal/competitions/app's CancelCompetition
+// test block exactly, since CancelGame is the same shape (GetByID ->
+// EnsureHost -> transition -> UpdateStatus) on the Game aggregate.
+// ---------------------------------------------------------------------------
+
+// TestCancelGame_HostSucceeds proves the happy path: the Game's own Host may
+// cancel it, and the change is actually *persisted*, not just returned in
+// memory (re-read through GetByID rather than trusting the return value —
+// the standard the rest of this file's write-path tests already hold).
+func TestCancelGame_HostSucceeds(t *testing.T) {
+	t.Parallel()
+
+	svc, g, games, _ := newMatchTestService(t)
+	ctx := context.Background()
+
+	cancelled, err := svc.CancelGame(ctx, g.ID, g.HostID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if cancelled.Status != domain.StatusCancelled {
+		t.Fatalf("returned Status = %q, want cancelled", cancelled.Status)
+	}
+
+	stored, err := games.GetByID(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("re-fetching the cancelled game failed: %v", err)
+	}
+	if stored.Status != domain.StatusCancelled {
+		t.Fatalf("persisted Status = %q, want cancelled", stored.Status)
+	}
+}
+
+// TestCancelGame_NonHostRejected is the required EnsureHost proof at the app
+// layer. The error must be ErrNotGameHost *specifically* — asserting merely
+// non-nil would pass against an implementation that rejected the call for
+// some entirely unrelated reason, and the handler maps this exact sentinel
+// to PermissionDenied rather than Internal. It also asserts no state
+// changed, so a "rejected but cancelled anyway" bug cannot hide.
+func TestCancelGame_NonHostRejected(t *testing.T) {
+	t.Parallel()
+
+	svc, g, games, _ := newMatchTestService(t)
+	ctx := context.Background()
+
+	_, err := svc.CancelGame(ctx, g.ID, "not-the-host")
+	if !errors.Is(err, domain.ErrNotGameHost) {
+		t.Fatalf("got err %v, want ErrNotGameHost specifically", err)
+	}
+
+	stored, err := games.GetByID(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("re-fetching the game failed: %v", err)
+	}
+	if stored.Status != domain.StatusScheduled {
+		t.Fatalf("a rejected cancel changed Status to %q; it must stay scheduled", stored.Status)
+	}
+}
+
+// TestCancelGame_AssignedGameAdminRejected is the app-layer half of the
+// ErrNotGameHost/ErrNotGameHostOrAdmin distinction: the very same actor that
+// RecordMatchResult accepts as an assigned Game Admin must not be able to
+// cancel the Game. CancelGame deliberately takes no
+// AssignedGameAdminUserIDs argument at all — this test pins that the
+// admin identity buys nothing here.
+func TestCancelGame_AssignedGameAdminRejected(t *testing.T) {
+	t.Parallel()
+
+	svc, g, _, _ := newMatchTestService(t)
+	ctx := context.Background()
+	const gameAdmin = "admin-2"
+
+	if _, err := svc.RecordMatchResult(ctx, app.RecordMatchResultInput{
+		GameID:                   g.ID,
+		Players:                  validMatchPlayers(),
+		Score:                    validMatchScore(),
+		ActorUserID:              gameAdmin,
+		AssignedGameAdminUserIDs: []string{gameAdmin},
+	}); err != nil {
+		t.Fatalf("fixture precondition: %q must be a legitimate game admin, got %v", gameAdmin, err)
+	}
+
+	if _, err := svc.CancelGame(ctx, g.ID, gameAdmin); !errors.Is(err, domain.ErrNotGameHost) {
+		t.Fatalf("a game admin must not be able to cancel the game: got err %v, want ErrNotGameHost", err)
+	}
+}
+
+// TestCancelGame_EmptyActorRejected pins domain.EnsureHost's "an
+// unidentified caller is never the host" rule at the app boundary.
+func TestCancelGame_EmptyActorRejected(t *testing.T) {
+	t.Parallel()
+
+	svc, g, _, _ := newMatchTestService(t)
+
+	if _, err := svc.CancelGame(context.Background(), g.ID, ""); !errors.Is(err, domain.ErrNotGameHost) {
+		t.Fatalf("got err %v, want ErrNotGameHost", err)
+	}
+}
+
+// TestCancelGame_UnknownGameNotFound covers the well-formed-but-unknown id
+// case, and proves it actually reached the repository (rather than being
+// short-circuited by the uuidShape guard, which the next test covers).
+func TestCancelGame_UnknownGameNotFound(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+
+	if _, err := svc.CancelGame(context.Background(), gameID(9101), "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
+		t.Fatalf("got err %v, want ErrGameNotFound", err)
+	}
+	if games.getByIDCalls.Load() != 1 {
+		t.Fatalf("well-formed unknown GameID did not reach the repository (%d calls)", games.getByIDCalls.Load())
+	}
+}
+
+// TestCancelGame_MalformedGameIDNotFound is the T10.7-shaped boundary guard:
+// a malformed id must produce exactly the same ErrGameNotFound an unknown
+// one does, without ever reaching the repository (where the real Postgres
+// adapter's mustUUID would panic on it).
+func TestCancelGame_MalformedGameIDNotFound(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+
+	if _, err := svc.CancelGame(context.Background(), "not-a-uuid", "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
+		t.Fatalf("got err %v, want ErrGameNotFound", err)
+	}
+	if games.getByIDCalls.Load() != 0 {
+		t.Fatalf("malformed GameID reached the repository (%d calls); the boundary guard must stop it first", games.getByIDCalls.Load())
+	}
+}
+
+// TestCancelGame_AlreadyCancelledRejected proves a second cancel is refused
+// rather than silently accepted, and — specifically — with the
+// ErrGameCancelled sentinel, which the handler maps to FailedPrecondition.
+// See CancelGame's doc comment for why this path deliberately goes through
+// Game.EnsureNotCancelled rather than relying on Game.Cancel's own
+// ErrIllegalStatusTransition (which socialplay's toStatus maps to
+// InvalidArgument, not FailedPrecondition).
+func TestCancelGame_AlreadyCancelledRejected(t *testing.T) {
+	t.Parallel()
+
+	svc, g, _, _ := newMatchTestService(t)
+	ctx := context.Background()
+
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+		t.Fatalf("first cancel failed: %v", err)
+	}
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want ErrGameCancelled", err)
+	}
+}
+
+// TestCancelGame_AuthorizationPrecedesStatusCheck pins the ordering: a
+// non-Host acting on an already-cancelled Game gets ErrNotGameHost, not
+// ErrGameCancelled. Leaking "this game exists and is already cancelled" to
+// an unauthorized actor would be a (minor) information disclosure, and more
+// importantly the ordering is what makes the authorization check
+// unconditional rather than reachable only for Games in one particular
+// state.
+func TestCancelGame_AuthorizationPrecedesStatusCheck(t *testing.T) {
+	t.Parallel()
+
+	svc, g, _, _ := newMatchTestService(t)
+	ctx := context.Background()
+
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+		t.Fatalf("fixture precondition: first cancel failed: %v", err)
+	}
+	if _, err := svc.CancelGame(ctx, g.ID, "not-the-host"); !errors.Is(err, domain.ErrNotGameHost) {
+		t.Fatalf("got err %v, want ErrNotGameHost (authorization must be checked before status)", err)
 	}
 }

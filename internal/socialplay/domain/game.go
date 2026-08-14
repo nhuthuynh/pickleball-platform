@@ -151,6 +151,33 @@ func (g Game) EnsureHostOrGameAdmin(actorUserID string, assignedGameAdminUserIDs
 	return ErrNotGameHostOrAdmin
 }
 
+// EnsureHost returns ErrNotGameHost unless actorPlayerID matches g.HostID
+// exactly (an empty actorPlayerID is always rejected, even against a Game
+// with an empty HostID — an unidentified caller is never the host). This is
+// the object-level (BOLA) authorization check T12.4's CancelGame requires,
+// mirroring competitions.Competition.EnsureHost and
+// facilities.Facility.EnsureOwner's shape.
+//
+// Deliberately a *separate* method from EnsureHostOrGameAdmin above,
+// returning a separate sentinel, because the two gate different rules on
+// this same aggregate: a match result may be recorded by the Host or an
+// assigned Game Admin, but cancelling the Game is Host-only. See
+// ErrNotGameHost's doc comment in errors.go for the full reasoning, and do
+// not "simplify" by routing Cancel through EnsureHostOrGameAdmin with an
+// empty admin list — that would make the difference an accident of the
+// caller's arguments rather than a stated rule.
+//
+// As with every actor-scoped check in this codebase, actorPlayerID is a
+// caller-supplied claim, not a verified identity: real authentication is
+// HANDOFF.md's open Auth item (T12.8 this sprint), and this method must not
+// be read as closing it.
+func (g Game) EnsureHost(actorPlayerID string) error {
+	if actorPlayerID == "" || actorPlayerID != g.HostID {
+		return ErrNotGameHost
+	}
+	return nil
+}
+
 // EnsureNotCancelled returns ErrGameCancelled when g.Status is cancelled —
 // T10.4's RecordMatchResult precondition ("recording a match against a
 // cancelled Game -> FailedPrecondition"). Mirrors

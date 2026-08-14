@@ -83,6 +83,23 @@ func (r *GameRepository) GetByID(ctx context.Context, id string) (domain.Game, e
 	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance, row.EntryFeeCents, row.EntryFeeCurrency), nil
 }
 
+// UpdateStatus implements port.GameRepository.UpdateStatus (T12.4): the
+// single-column status write app.Service.CancelGame needs, via its own
+// dedicated query (db/queries/socialplay.sql's UpdateGameStatus) which
+// cannot touch any other column. An unknown id produces pgx.ErrNoRows,
+// which translateGameErr already maps to domain.ErrGameNotFound (CLAUDE.md
+// rule 5 — upper layers only ever see domain errors).
+func (r *GameRepository) UpdateStatus(ctx context.Context, id string, status domain.Status) (domain.Game, error) {
+	row, err := r.q.UpdateGameStatus(ctx, socialplaydb.UpdateGameStatusParams{
+		ID:     mustUUID(id),
+		Status: string(status),
+	})
+	if err != nil {
+		return domain.Game{}, translateGameErr(err)
+	}
+	return gameFromFields(row.ID, row.HostID, row.FacilityID, row.VenueFacilityID, row.CourtIds, row.StartsAt, row.EndsAt, row.Capacity, row.Status, row.PaymentMethod, row.GuestAllowance, row.EntryFeeCents, row.EntryFeeCurrency), nil
+}
+
 // ListGames implements port.GameRepository.ListGames (T8.9): the Discover &
 // Join Games browse/filter read. venue_facility_id/starts_after/
 // starts_before are all optional (nullableUUID/nullableTimestamptz below

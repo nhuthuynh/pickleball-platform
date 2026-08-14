@@ -24,6 +24,18 @@ type GameRepository interface {
 	// path. See GameListingFilter/GameListing's doc comments for the exact
 	// filter/shape semantics.
 	ListGames(ctx context.Context, filter GameListingFilter) ([]GameListing, error)
+
+	// UpdateStatus persists a Game status transition (T12.4's
+	// app.Service.CancelGame) via its own single-column write, following the
+	// one-query-per-updatable-field convention UpdateRegistrationStatus and
+	// competitions' UpdateCompetitionStatus already established — so this
+	// path cannot accidentally clobber a Game's capacity, courts, or entry
+	// fee. Returns domain.ErrGameNotFound for an unknown id.
+	//
+	// This is the Game aggregate's first write path other than Create:
+	// before T12.4 a Game could be scheduled but never modified, which is
+	// exactly why there was no CancelGame RPC to authorize.
+	UpdateStatus(ctx context.Context, id string, status domain.Status) (domain.Game, error)
 }
 
 // GameListingFilter is ListGames' optional filter (T8.9). VenueFacilityID

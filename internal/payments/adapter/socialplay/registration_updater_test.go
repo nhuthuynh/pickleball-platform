@@ -35,6 +35,13 @@ func (fakeGames) ListGames(context.Context, socialplayport.GameListingFilter) ([
 	return nil, nil
 }
 
+// UpdateStatus is a stub for the same reason as ListGames (T12.4's
+// CancelGame added it to port.GameRepository): MarkRegistrationPaymentStatus
+// never touches the Game aggregate's own status.
+func (fakeGames) UpdateStatus(context.Context, string, socialplaydomain.Status) (socialplaydomain.Game, error) {
+	return socialplaydomain.Game{}, socialplaydomain.ErrGameNotFound
+}
+
 // fakeRegistrations is a minimal in-memory port.RegistrationRepository —
 // just enough for RegistrationUpdater's own tests (this adapter's job is
 // the translation at the boundary, not re-testing app.Service's own
