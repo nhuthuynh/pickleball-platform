@@ -36,6 +36,17 @@ func NewLookup(identitySvc *identityapp.Service) *Lookup {
 // EnsureClubRole resolves the real User and checks their real Roles for
 // identitydomain.RoleClub.
 //
+// actorUserID is the caller's VERIFIED IdP subject (auth.Principal.Subject,
+// via the handler's auth.RequireSubject), not a server-minted User uuid — so
+// the resolution goes through identityapp.Service.UserBySubject, which is the
+// documented translation point for exactly this, and NOT through GetUser.
+// GetUser keys on identity_users.id and guards on uuidShape, so it can never
+// resolve a subject: passing one to it returned ErrUserNotFound for every
+// caller alive, which is issue #146. The two identifier spaces have been
+// deliberately distinct since T12.9 (see identitydomain.User.Subject and
+// db/migrations/0019_identity_subject.sql) — this adapter sits exactly on the
+// seam, so it is the one place the translation belongs.
+//
 // This is the server-side half of the creation-RPC checklist's role
 // self-assignment item (T10 retro finding 3, sprint plan A4): the `club` fact
 // is read out of Identity's own store, never taken from the request. The User
@@ -52,7 +63,7 @@ func NewLookup(identitySvc *identityapp.Service) *Lookup {
 // adapter, which is the only Booking-side code allowed to see Identity's
 // types at all.
 func (l *Lookup) EnsureClubRole(ctx context.Context, actorUserID string) error {
-	u, err := l.identitySvc.GetUser(ctx, actorUserID)
+	u, err := l.identitySvc.UserBySubject(ctx, actorUserID)
 	if err != nil {
 		return translate(actorUserID, err)
 	}
@@ -71,9 +82,11 @@ func (l *Lookup) EnsureClubRole(ctx context.Context, actorUserID string) error {
 // internal/booking/adapter/facilities.translate's identical non-%w wrapping
 // for its own "any other error" case.
 //
-// Note that identityapp.Service.GetUser already answers a malformed id
-// exactly like an unknown one (its own uuidShape guard), so both arrive here
-// as ErrUserNotFound and leave as domain.ErrUserNotFound.
+// Note that identityapp.Service.UserBySubject already answers an empty
+// subject exactly like an unregistered one, so both arrive here as
+// ErrUserNotFound and leave as domain.ErrUserNotFound. Unlike GetUser it
+// applies no uuidShape guard, and must not: a subject is not a uuid and must
+// never be validated as one.
 func translate(id string, err error) error {
 	if errors.Is(err, identitydomain.ErrUserNotFound) {
 		return domain.ErrUserNotFound
