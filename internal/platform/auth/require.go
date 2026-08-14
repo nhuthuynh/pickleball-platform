@@ -39,6 +39,16 @@ func NewMethodSet(lists ...[]string) MethodSet {
 	return set
 }
 
+// Len is how many distinct methods the composed policy covers.
+//
+// It exists for cmd/server's no-verifier startup warning, which reports the
+// number of RPCs that will reject every caller. That was previously a
+// hand-written sum of each context's len(AuthenticatedMethods()) at the call
+// site — a list that has to be edited every time a context is migrated, and
+// that silently under-reports when it isn't. Asking the set itself removes the
+// second place the composition has to be kept in step (T12.8).
+func (s MethodSet) Len() int { return len(s.methods) }
+
 // Requires reports whether fullMethod may only be called by a verified caller.
 func (s MethodSet) Requires(fullMethod string) bool {
 	_, ok := s.methods[fullMethod]

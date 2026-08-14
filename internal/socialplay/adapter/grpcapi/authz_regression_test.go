@@ -289,20 +289,20 @@ func TestCancelRegistration_RejectsMismatchedActor(t *testing.T) {
 
 	game := seedGame(t, gameRepo, "game-1", 4)
 
-	regResp, err := h.RegisterForGame(ctx, &socialplayv1.RegisterForGameRequest{
-		GameId:   game.ID,
-		PlayerId: "player-A",
+	regResp, err := h.RegisterForGame(ctxAs("player-A"), &socialplayv1.RegisterForGameRequest{
+		GameId: game.ID,
 	})
 	if err != nil {
 		t.Fatalf("RegisterForGame(player-A) failed: %v", err)
 	}
 	registrationID := regResp.GetRegistration().GetId()
 
-	// The BOLA attempt: Player B, a different actor_player_id than the one
-	// that owns this registration, tries to cancel it.
-	_, err = h.CancelRegistration(ctx, &socialplayv1.CancelRegistrationRequest{
+	// The BOLA attempt: Player B, a different verified principal than the one
+	// that owns this registration, tries to cancel it. T12.8: the acting
+	// player is the principal now, not a request field, so Player B is a
+	// genuinely different authenticated human rather than a different string.
+	_, err = h.CancelRegistration(ctxAs("player-B"), &socialplayv1.CancelRegistrationRequest{
 		RegistrationId: registrationID,
-		ActorPlayerId:  "player-B",
 	})
 	if err == nil {
 		t.Fatal("CancelRegistration(player-B) succeeded silently — Player B was able to cancel Player A's registration (BOLA regression)")
@@ -339,22 +339,19 @@ func TestCancelRegistration_RejectsMismatchedActor(t *testing.T) {
 // pins down that the real owner's cancellation still succeeds through the
 // same handler path.
 func TestCancelRegistration_AllowsOwningActor(t *testing.T) {
-	ctx := context.Background()
 	h, gameRepo, _ := newTestHandler()
 
 	game := seedGame(t, gameRepo, "game-2", 4)
 
-	regResp, err := h.RegisterForGame(ctx, &socialplayv1.RegisterForGameRequest{
-		GameId:   game.ID,
-		PlayerId: "player-A",
+	regResp, err := h.RegisterForGame(ctxAs("player-A"), &socialplayv1.RegisterForGameRequest{
+		GameId: game.ID,
 	})
 	if err != nil {
 		t.Fatalf("RegisterForGame(player-A) failed: %v", err)
 	}
 
-	cancelResp, err := h.CancelRegistration(ctx, &socialplayv1.CancelRegistrationRequest{
+	cancelResp, err := h.CancelRegistration(ctxAs("player-A"), &socialplayv1.CancelRegistrationRequest{
 		RegistrationId: regResp.GetRegistration().GetId(),
-		ActorPlayerId:  "player-A",
 	})
 	if err != nil {
 		t.Fatalf("CancelRegistration(player-A) (the owner) should succeed, got: %v", err)
@@ -424,9 +421,8 @@ func TestCancelGame_RejectsNonHostActor(t *testing.T) {
 
 	// The BOLA attempt: player-B, who does not host this Game, tries to
 	// cancel it.
-	_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
-		GameId:        game.ID,
-		ActorPlayerId: "player-B",
+	_, err := h.CancelGame(ctxAs("player-B"), &socialplayv1.CancelGameRequest{
+		GameId: game.ID,
 	})
 	if err == nil {
 		t.Fatal("CancelGame(player-B) succeeded silently — player B was able to cancel player A's Game (BOLA regression)")
@@ -477,9 +473,8 @@ func TestCancelGame_AllowsHost(t *testing.T) {
 
 	game := seedGameWithHost(t, gameRepo, "cancel-game-2", "player-A")
 
-	resp, err := srv.CancelGame(ctx, &socialplayv1.CancelGameRequest{
-		GameId:        game.ID,
-		ActorPlayerId: "player-A",
+	resp, err := srv.CancelGame(ctxAs("player-A"), &socialplayv1.CancelGameRequest{
+		GameId: game.ID,
 	})
 	if err != nil {
 		t.Fatalf("CancelGame(player-A) (the host) should succeed, got: %v", err)
@@ -512,20 +507,18 @@ func TestCancelGame_RejectsGameAdminActor(t *testing.T) {
 
 	// Fixture precondition, asserted rather than assumed: this actor really
 	// is authorized for the Host-or-Admin operation.
-	if _, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
+	if _, err := h.RecordMatchResult(ctxAs(gameAdmin), &socialplayv1.RecordMatchResultRequest{
 		GameId:                   game.ID,
 		Players:                  []string{"player-A", "player-B"},
 		Score:                    map[string]int32{"player-A": 11, "player-B": 7},
-		ActorUserId:              gameAdmin,
 		AssignedGameAdminUserIds: []string{gameAdmin},
 	}); err != nil {
 		t.Fatalf("fixture precondition: %q must be accepted as an assigned game admin by RecordMatchResult, got: %v", gameAdmin, err)
 	}
 
 	// ... and is still refused the Host-only operation.
-	_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
-		GameId:        game.ID,
-		ActorPlayerId: gameAdmin,
+	_, err := h.CancelGame(ctxAs(gameAdmin), &socialplayv1.CancelGameRequest{
+		GameId: game.ID,
 	})
 	if err == nil {
 		t.Fatal("CancelGame(game admin) succeeded — cancelling a Game is Host-only; a Game Admin must not be able to cancel it")
@@ -553,23 +546,29 @@ func TestCancelGame_RejectsGameAdminActor(t *testing.T) {
 func TestCancelGame_ErrorMapping(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("empty actor -> PermissionDenied", func(t *testing.T) {
+	// T12.8 changed this case's premise rather than its intent. "An empty
+	// actor" used to mean an empty actor_player_id field; that state is now
+	// unexpressible, because the actor is the principal and a request cannot
+	// carry a half-present one. The equivalent unidentified caller is one with
+	// no principal, and the right answer for them is Unauthenticated ("I do
+	// not know who you are"), not PermissionDenied ("I know you and refuse") —
+	// ADR-0013 section 5.
+	t.Run("no principal -> Unauthenticated", func(t *testing.T) {
 		h, gameRepo, _ := newTestHandler()
 		game := seedGameWithHost(t, gameRepo, "cancel-game-4", "player-A")
 
 		_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{GameId: game.ID})
 		st, _ := status.FromError(err)
-		if st.Code() != codes.PermissionDenied {
-			t.Fatalf("status code = %v, want PermissionDenied (an unidentified caller is never the host)", st.Code())
+		if st.Code() != codes.Unauthenticated {
+			t.Fatalf("status code = %v, want Unauthenticated (an unidentified caller must be told to authenticate)", st.Code())
 		}
 	})
 
 	t.Run("unknown game id -> NotFound", func(t *testing.T) {
 		h, _, _ := newTestHandler()
 
-		_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
-			GameId:        seedGameUUID("never-seeded"),
-			ActorPlayerId: "player-A",
+		_, err := h.CancelGame(ctxAs("player-A"), &socialplayv1.CancelGameRequest{
+			GameId: seedGameUUID("never-seeded"),
 		})
 		st, _ := status.FromError(err)
 		if st.Code() != codes.NotFound {
@@ -580,9 +579,8 @@ func TestCancelGame_ErrorMapping(t *testing.T) {
 	t.Run("malformed game id -> NotFound", func(t *testing.T) {
 		h, _, _ := newTestHandler()
 
-		_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
-			GameId:        "not-a-uuid",
-			ActorPlayerId: "player-A",
+		_, err := h.CancelGame(ctxAs("player-A"), &socialplayv1.CancelGameRequest{
+			GameId: "not-a-uuid",
 		})
 		st, _ := status.FromError(err)
 		if st.Code() != codes.NotFound {
@@ -594,12 +592,12 @@ func TestCancelGame_ErrorMapping(t *testing.T) {
 		h, gameRepo, _ := newTestHandler()
 		game := seedGameWithHost(t, gameRepo, "cancel-game-5", "player-A")
 
-		req := &socialplayv1.CancelGameRequest{GameId: game.ID, ActorPlayerId: "player-A"}
-		if _, err := h.CancelGame(ctx, req); err != nil {
+		req := &socialplayv1.CancelGameRequest{GameId: game.ID}
+		if _, err := h.CancelGame(ctxAs("player-A"), req); err != nil {
 			t.Fatalf("first cancel should succeed, got: %v", err)
 		}
 
-		_, err := h.CancelGame(ctx, req)
+		_, err := h.CancelGame(ctxAs("player-A"), req)
 		if err == nil {
 			t.Fatal("a second cancel succeeded silently; it must be rejected")
 		}

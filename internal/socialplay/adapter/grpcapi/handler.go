@@ -15,6 +15,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 	"github.com/nhuthuynh/white-label/internal/socialplay/app"
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
 	"github.com/nhuthuynh/white-label/internal/socialplay/port"
@@ -27,6 +28,35 @@ import (
 // both per-call (T5.3's original design for CourtReservation — see
 // app.Service.ScheduleGame's doc comment; T8.3 gives FacilityLookup the
 // same treatment) rather than storing them on Service itself.
+// actor resolves the acting identity for an authenticated RPC (T12.8).
+//
+// This one function is the whole of A11 Ruling 3 for this context: the
+// Principal is translated into the plain actor string app.Service and
+// domain.Game.EnsureHost/domain.Registration.Cancel already take, here at the
+// grpcapi boundary, so internal/socialplay/{domain,app} keep their existing
+// signatures and never import internal/platform/auth.
+//
+// It takes only a context, deliberately. The request's actor_player_id /
+// actor_user_id / player_id / host_id fields are not passed in and cannot be
+// consulted, so there is no fallback to the caller's claim when no principal
+// is present — the failure mode the ticket calls out as "a handler that falls
+// back to the claimed value has changed nothing". Missing principal is
+// codes.Unauthenticated ("I do not know who you are"), never PermissionDenied
+// (ADR-0013 §5).
+//
+// # One subject, two field names
+//
+// Social Play is the context where actor_player_id and actor_user_id meet:
+// CancelGame and CancelRegistration name the actor a *player*, while
+// RecordMatchResult names it a *user*, and RecordMatchResult's actor and
+// CancelGame's actor are both compared against the same stored Game.HostID.
+// They were never two identifier spaces — see this ticket's PR body and the
+// tracked issue for the finding — so both resolve to the same verified subject
+// here rather than through an invented mapping.
+func actor(ctx context.Context) (string, error) {
+	return auth.RequireSubject(ctx)
+}
+
 type Handler struct {
 	socialplayv1.UnimplementedSocialPlayServiceServer
 	svc         *app.Service
@@ -38,14 +68,29 @@ func NewHandler(svc *app.Service, reservation port.CourtReservation, facilities 
 	return &Handler{svc: svc, reservation: reservation, facilities: facilities}
 }
 
+// CreateGame schedules a Game hosted by the verified caller (T12.8).
+//
+// host_id is MINTED from the principal, not accepted from the wire. This is
+// the same treatment T12.7 gave CreateFacility's owner_id, for the same
+// reason: this RPC *writes* the Game.HostID that CancelGame and
+// RecordMatchResult later compare a verified subject against. Had it kept
+// taking that value from the wire, every new Game would be hosted by an
+// arbitrary client-supplied string — so either real Hosts are locked out of
+// their own Games, or a caller hands Host-ship to a subject that is not
+// theirs.
 func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRequest) (*socialplayv1.CreateGameResponse, error) {
+	hostID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rng, err := domain.NewTimeRange(req.GetStartsAt().AsTime(), req.GetEndsAt().AsTime())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
 	}
 
 	g, err := h.svc.ScheduleGame(ctx, app.ScheduleGameInput{
-		HostID:          req.GetHostId(),
+		HostID:          hostID,
 		FacilityID:      req.GetFacilityId(),
 		VenueFacilityID: req.GetVenueFacilityId(),
 		CourtIDs:        req.GetCourtIds(),
@@ -62,10 +107,20 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 	return &socialplayv1.CreateGameResponse{Game: toProtoGame(g)}, nil
 }
 
+// RegisterForGame registers the verified caller for a Game (T12.8). player_id
+// comes from the principal, never the wire: it is the value
+// domain.Registration.Cancel compares an actor against, so a Registration
+// minted for a claimed player_id could never be cancelled by the human it
+// names.
 func (h *Handler) RegisterForGame(ctx context.Context, req *socialplayv1.RegisterForGameRequest) (*socialplayv1.RegisterForGameResponse, error) {
+	playerID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	reg, err := h.svc.RegisterForGame(ctx, app.RegisterForGameInput{
 		GameID:     req.GetGameId(),
-		PlayerID:   req.GetPlayerId(),
+		PlayerID:   playerID,
 		GuestCount: int(req.GetGuestCount()),
 	})
 	if err != nil {
@@ -74,8 +129,17 @@ func (h *Handler) RegisterForGame(ctx context.Context, req *socialplayv1.Registe
 	return &socialplayv1.RegisterForGameResponse{Registration: toProtoRegistration(reg)}, nil
 }
 
+// CancelRegistration cancels the verified caller's own Registration (T12.8).
+// The object-level check still lives in domain.Registration.Cancel; what
+// changed here is that the actor it compares against is verified rather than
+// claimed.
 func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.CancelRegistrationRequest) (*socialplayv1.CancelRegistrationResponse, error) {
-	reg, err := h.svc.CancelRegistration(ctx, req.GetRegistrationId(), req.GetActorPlayerId())
+	actorPlayerID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	reg, err := h.svc.CancelRegistration(ctx, req.GetRegistrationId(), actorPlayerID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -87,20 +151,40 @@ func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.Canc
 // app.Service.CancelGame; this handler only translates the wire request and
 // maps domain errors through toStatus (non-Host -> PermissionDenied,
 // unknown/malformed game_id -> NotFound, already-cancelled ->
-// FailedPrecondition). req.GetActorPlayerId() is a claimed actor, not a
-// verified one — see CancelGameRequest's doc comment in the proto.
+// FailedPrecondition).
+//
+// T12.8: the acting player is now the verified principal's subject, not
+// req.GetActorPlayerId(). CancelGame is named explicitly in that ticket
+// because it shipped one wave earlier with a claimed actor, which makes it the
+// RPC most likely to be missed — and the most costly to miss, since cancelling
+// is destructive, irreversible, and deliberately not delegated to Game Admins.
 func (h *Handler) CancelGame(ctx context.Context, req *socialplayv1.CancelGameRequest) (*socialplayv1.CancelGameResponse, error) {
-	game, err := h.svc.CancelGame(ctx, req.GetGameId(), req.GetActorPlayerId())
+	actorPlayerID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	game, err := h.svc.CancelGame(ctx, req.GetGameId(), actorPlayerID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
 	return &socialplayv1.CancelGameResponse{Game: toProtoGame(game)}, nil
 }
 
+// JoinWaitlist puts the verified caller on a Game's waitlist (T12.8).
+// player_id comes from the principal for the reason RegisterForGame's does,
+// one step further out: a WaitlistEntry's player becomes a Registration's
+// player on promotion, so a claimed value here propagates into the aggregate
+// CancelRegistration guards.
 func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitlistRequest) (*socialplayv1.JoinWaitlistResponse, error) {
+	playerID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	entry, err := h.svc.JoinWaitlist(ctx, app.JoinWaitlistInput{
 		GameID:   req.GetGameId(),
-		PlayerID: req.GetPlayerId(),
+		PlayerID: playerID,
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -161,12 +245,22 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 // off the wire as map[string]int32 (proto3's only integer map value type);
 // domain.RecordMatch takes map[string]int, so this converts key-for-key —
 // see toProtoMatch's inverse comment for the return direction.
+// T12.8: ActorUserID is the verified principal's subject rather than
+// req.GetActorUserId(). assigned_game_admin_user_ids remains a caller-supplied
+// fact — this codebase has never persisted Game-Admin assignments, and
+// building that store is a domain change A11 Ruling 3 puts out of this
+// ticket's scope. Disclosed in the PR body with a tracked issue, per A5.
 func (h *Handler) RecordMatchResult(ctx context.Context, req *socialplayv1.RecordMatchResultRequest) (*socialplayv1.RecordMatchResultResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	m, err := h.svc.RecordMatchResult(ctx, app.RecordMatchResultInput{
 		GameID:                   req.GetGameId(),
 		Players:                  req.GetPlayers(),
 		Score:                    fromProtoScore(req.GetScore()),
-		ActorUserID:              req.GetActorUserId(),
+		ActorUserID:              actorUserID,
 		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
 	})
 	if err != nil {

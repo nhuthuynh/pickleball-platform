@@ -18,6 +18,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/competitions/app"
 	"github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/competitions/port"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 
 	competitionsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/competitions/v1"
 )
@@ -29,6 +30,25 @@ import (
 // them per-call. Competitions' app.Service stores every dependency on itself
 // (see app.ServiceOptions), so there is nothing for this adapter to thread
 // through, and the handler stays a pure translation layer.
+// actor resolves the acting user for an authenticated RPC (T12.8).
+//
+// This one function is the whole of A11 Ruling 3 for this context: the
+// Principal is translated into the plain actor string app.Service and
+// domain.Competition's Host check already take, here at the grpcapi boundary,
+// so internal/competitions/{domain,app} keep their existing signatures and
+// never import internal/platform/auth.
+//
+// It takes only a context, deliberately. The request's actor_user_id /
+// host_id / player_id fields are not passed in and cannot be consulted, so
+// there is no fallback to the caller's claim when no principal is present —
+// the failure mode the ticket calls out as "a handler that falls back to the
+// claimed value has changed nothing". Missing principal is
+// codes.Unauthenticated ("I do not know who you are"), never PermissionDenied
+// (ADR-0013 §5).
+func actor(ctx context.Context) (string, error) {
+	return auth.RequireSubject(ctx)
+}
+
 type Handler struct {
 	competitionsv1.UnimplementedCompetitionsServiceServer
 	svc *app.Service
@@ -38,7 +58,22 @@ func NewHandler(svc *app.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// CreateCompetition schedules a Competition hosted by the verified caller
+// (T12.8).
+//
+// host_id is MINTED from the principal, not accepted from the wire — the same
+// treatment T12.7 gave CreateFacility's owner_id and for the same reason: this
+// RPC *writes* the Competition.HostID that CancelCompetition later compares a
+// verified subject against. It matters twice over here, because this response
+// also carries the share token on the reasoning that it is "the one moment the
+// caller is provably the Host" — a claim worth nothing if the Host were
+// whoever the request named.
 func (h *Handler) CreateCompetition(ctx context.Context, req *competitionsv1.CreateCompetitionRequest) (*competitionsv1.CreateCompetitionResponse, error) {
+	hostID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	sessions, err := fromProtoSessions(req.GetSessions())
 	if err != nil {
 		// A malformed session range is a bad request, not a server fault.
@@ -48,7 +83,7 @@ func (h *Handler) CreateCompetition(ctx context.Context, req *competitionsv1.Cre
 	}
 
 	competition, err := h.svc.ScheduleCompetition(ctx, app.ScheduleCompetitionInput{
-		HostID:          req.GetHostId(),
+		HostID:          hostID,
 		Name:            req.GetName(),
 		VenueFacilityID: req.GetVenueFacilityId(),
 		Sessions:        sessions,
@@ -142,10 +177,26 @@ func (h *Handler) ListCompetitions(ctx context.Context, req *competitionsv1.List
 	return &competitionsv1.ListCompetitionsResponse{Competitions: out}, nil
 }
 
+// EnterCompetition enters the verified caller (and optionally their guests)
+// into a Competition (T12.8).
+//
+// player_id comes from the principal, never the wire. Note this adds no
+// ownership check to entering — any authenticated Player may still enter a
+// published Competition, which is the deliberate asymmetry
+// EnterCompetitionRequest's proto comment describes. What changed is only that
+// the entrant is who they say they are, which matters beyond this context:
+// Payments' competition-entry authorization compares its actor against exactly
+// this stored value, so an entry created for a claimed player_id would decide
+// who may pay for it.
 func (h *Handler) EnterCompetition(ctx context.Context, req *competitionsv1.EnterCompetitionRequest) (*competitionsv1.EnterCompetitionResponse, error) {
+	playerID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	entry, err := h.svc.EnterCompetition(ctx, app.EnterCompetitionInput{
 		CompetitionID: req.GetCompetitionId(),
-		PlayerID:      req.GetPlayerId(),
+		PlayerID:      playerID,
 		GuestCount:    int(req.GetGuestCount()),
 		Source:        fromProtoEntrySource(req.GetSource()),
 	})
@@ -155,8 +206,17 @@ func (h *Handler) EnterCompetition(ctx context.Context, req *competitionsv1.Ente
 	return &competitionsv1.EnterCompetitionResponse{Entry: toProtoEntry(entry)}, nil
 }
 
+// CancelCompetition cancels a Competition on its Host's behalf (T12.8: the
+// acting user is the verified principal, not req.GetActorUserId()). The
+// Host-only object-level check is unchanged; what changed is that the identity
+// it compares against is verified rather than claimed.
 func (h *Handler) CancelCompetition(ctx context.Context, req *competitionsv1.CancelCompetitionRequest) (*competitionsv1.CancelCompetitionResponse, error) {
-	competition, err := h.svc.CancelCompetition(ctx, req.GetCompetitionId(), req.GetActorUserId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	competition, err := h.svc.CancelCompetition(ctx, req.GetCompetitionId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}

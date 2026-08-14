@@ -68,14 +68,21 @@ message Payment {
   string recorded_by_user_id = 8;
 }
 
-// RecordOfflinePaymentRequest is the offline-recording use case (T6.3):
-// actor_user_id is a claimed identity, not a verified one — there is no
-// JWT/session layer yet (HANDOFF.md cross-cutting Auth backlog), the same
-// known gap CancelRegistrationRequest.actor_player_id documents in
-// socialplay.proto. The object-level check this enables (only the
-// Booking's Host, or the Registration's Game's Host/an assigned Game
-// Admin, may record a payment for that payable action) is real; the
-// identity behind actor_user_id is not authenticated yet.
+// RecordOfflinePaymentRequest is the offline-recording use case (T6.3),
+// performed by the *verified caller* as of T12.8.
+//
+// The object-level check is unchanged (only the Booking's Host, or the
+// Registration's Game's Host/an assigned Game Admin, may record a payment for
+// that payable action); what changed is that the acting identity it compares
+// against is now the verified bearer token's principal rather than a string
+// the caller supplied about themselves.
+//
+// STILL A KNOWN GAP, narrowed rather than closed by T12.8: the ownership
+// *facts* below (booking_host_id / game_host_id / entrant_player_id and the
+// two assigned-admin lists) remain caller-supplied, because Payments has no
+// port into Booking, Social Play or Competitions to resolve them against. A
+// caller can no longer claim to *be* the Host, but can still assert who the
+// Host is. Tracked as a GitHub issue by T12.8 rather than left in prose.
 //
 // booking_host_id / game_host_id / assigned_game_admin_user_ids are the
 // caller-supplied ownership/assignment facts app.RecordOfflinePaymentInput
@@ -94,7 +101,13 @@ message RecordOfflinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
   Money amount = 3;
-  string actor_user_id = 4;
+  // DEPRECATED (T12.8): ignored by the server. The acting user is taken from
+  // the verified bearer token's principal, never from this field — for both
+  // the authorization check and Payment.recorded_by_user_id, so a caller can
+  // no longer record a payment under someone else's name in the audit trail.
+  // Retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up.
+  string actor_user_id = 4 [deprecated = true];
 
   string booking_host_id = 5;
 
@@ -131,7 +144,10 @@ message CreateOnlinePaymentRequest {
   string payable_id = 2;
   Money amount = 3;
 
-  string actor_user_id = 4;
+  // DEPRECATED (T12.8): ignored by the server. The acting user is taken from
+  // the verified bearer token's principal. Retained, not deleted, for the
+  // wire-compatibility reason RecordOfflinePaymentRequest's field states.
+  string actor_user_id = 4 [deprecated = true];
 
   string entrant_player_id = 5;
   repeated string assigned_competition_admin_user_ids = 6;
@@ -170,9 +186,10 @@ message ConfirmOnlinePaymentResponse {
 // a registration Payment to be checked against a booking_host_id the
 // caller also supplies) — see app.RefundPaymentInput's doc comment.
 //
-// actor_user_id is a claimed identity, not a verified one, exactly as
-// RecordOfflinePaymentRequest's own doc comment describes; T12.8 is the
-// ticket that makes it verified. booking_host_id / game_host_id /
+// actor_user_id is now taken from the verified principal (T12.8) and the wire
+// field is ignored — this is the RPC that moves real money back out, so the
+// care taken above to read the payable type from the *stored* Payment is only
+// as good as the actor the chosen branch compares. booking_host_id / game_host_id /
 // assigned_game_admin_user_ids are the same caller-supplied ownership
 // facts RecordOfflinePaymentRequest carries, reused unchanged — a refund
 // is the same Host/Game-Admin action as recording an offline payment, and
@@ -185,7 +202,10 @@ message ConfirmOnlinePaymentResponse {
 // PAYABLE_TYPE_NO_SHOW_FEE (issue #130).
 message RefundPaymentRequest {
   string payment_id = 1;
-  string actor_user_id = 2;
+  // DEPRECATED (T12.8): ignored by the server. The acting user is taken from
+  // the verified bearer token's principal. Retained, not deleted, for the
+  // wire-compatibility reason RecordOfflinePaymentRequest's field states.
+  string actor_user_id = 2 [deprecated = true];
 
   string booking_host_id = 3;
 

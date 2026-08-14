@@ -199,10 +199,16 @@ message CompetitionEntry {
 }
 
 message CreateCompetitionRequest {
-  // host_id is a claimed identity, not a verified one — there is no
-  // JWT/session layer yet (HANDOFF.md's open cross-cutting Auth item). Same
-  // known gap CancelCompetitionRequest.actor_user_id documents below.
-  string host_id = 1;
+  // DEPRECATED (T12.8): ignored by the server. The new Competition is hosted
+  // by the verified bearer token's principal, not by whoever this field names.
+  // This is a *privilege* field: honoring it would let any caller mint a
+  // Competition hosted by a subject that is not theirs — and walk away with
+  // the share token this RPC returns on the reasoning that its response is the
+  // one moment the caller is provably the Host. Same treatment T12.7 gave
+  // CreateFacilityRequest.owner_id. Retained, not deleted, because removing a
+  // proto field is a breaking wire change and web/ still sends it until its
+  // own follow-up.
+  string host_id = 1 [deprecated = true];
   string name = 2;
   // venue_facility_id — see Competition.venue_facility_id. Optional.
   string venue_facility_id = 3;
@@ -327,7 +333,16 @@ message ListCompetitionsResponse {
 // enforced.
 message EnterCompetitionRequest {
   string competition_id = 1;
-  string player_id = 2;
+  // DEPRECATED (T12.8): ignored by the server. The entrant is the verified
+  // principal. This does NOT add an ownership check to entering — the
+  // asymmetry described above is unchanged, any authenticated Player may still
+  // enter a published Competition. What changed is that the entrant is who
+  // they say they are, which matters beyond this context: Payments'
+  // competition-entry authorization compares its actor against exactly this
+  // stored value, so an entry created for a claimed player_id would decide who
+  // may pay for it. Retained, not deleted, for the wire-compatibility reason
+  // CreateCompetitionRequest.host_id states.
+  string player_id = 2 [deprecated = true];
   // guest_count is validated against the Competition's guest_allowance
   // (400 INVALID_ARGUMENT if exceeded) and against its WEIGHTED capacity
   // (409-shaped FAILED_PRECONDITION if the Competition is full).
@@ -343,17 +358,23 @@ message EnterCompetitionResponse {
   CompetitionEntry entry = 1;
 }
 
-// CancelCompetitionRequest.actor_user_id is a claimed identity, not a
-// verified one — there is no JWT/session layer yet (HANDOFF.md's open
-// cross-cutting Auth backlog). The object-level check this enables (only the
-// Host may cancel their own Competition,
-// domain.Competition.EnsureHost) is real and regression-tested
-// (internal/competitions/adapter/grpcapi/authz_regression_test.go); the
-// identity behind actor_user_id is not authenticated yet. Stated once here
-// rather than repeated on every field.
+// CancelCompetitionRequest cancels a Competition on behalf of the *verified
+// caller*.
+//
+// T12.8 closed the gap this comment used to describe. The object-level check
+// is unchanged (only the Host may cancel their own Competition,
+// domain.Competition.EnsureHost) and remains regression-tested
+// (internal/competitions/adapter/grpcapi/authz_regression_test.go, plus
+// principal_authz_test.go for where the identity now comes from); what changed
+// is that the identity it compares against is the verified bearer token's
+// principal rather than a caller-supplied string.
 message CancelCompetitionRequest {
   string competition_id = 1;
-  string actor_user_id = 2;
+  // DEPRECATED (T12.8): ignored by the server. The acting user is taken from
+  // the verified bearer token's principal, never from this field. Retained,
+  // not deleted, for the wire-compatibility reason
+  // CreateCompetitionRequest.host_id states.
+  string actor_user_id = 2 [deprecated = true];
 }
 
 message CancelCompetitionResponse {

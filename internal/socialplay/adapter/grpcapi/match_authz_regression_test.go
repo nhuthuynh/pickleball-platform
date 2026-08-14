@@ -72,16 +72,14 @@ func newTestHandlerWithMatches() (*grpcapi.Handler, *fakeGameRepo, *fakeMatchRep
 // handler -> app -> domain path, and the request is rejected with the
 // correctly mapped status — not a 500, not a silent success.
 func TestRecordMatchResult_RejectsNonHostNonAdmin(t *testing.T) {
-	ctx := context.Background()
 	h, gameRepo, matchRepo := newTestHandlerWithMatches()
 
 	game := seedGame(t, gameRepo, "game-1", 4)
 
-	_, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
+	_, err := h.RecordMatchResult(ctxAs("random-player"), &socialplayv1.RecordMatchResultRequest{
 		GameId:                   game.ID,
 		Players:                  []string{"player-1", "player-2"},
 		Score:                    map[string]int32{"player-1": 11, "player-2": 7},
-		ActorUserId:              "random-player",
 		AssignedGameAdminUserIds: []string{"admin-1"},
 	})
 	if err == nil {
@@ -110,16 +108,14 @@ func TestRecordMatchResult_RejectsNonHostNonAdmin(t *testing.T) {
 // Game's own Host recording a result succeeds through the same handler
 // path.
 func TestRecordMatchResult_AllowsHost(t *testing.T) {
-	ctx := context.Background()
 	h, gameRepo, matchRepo := newTestHandlerWithMatches()
 
 	game := seedGame(t, gameRepo, "game-2", 4)
 
-	resp, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
-		GameId:      game.ID,
-		Players:     []string{"player-1", "player-2"},
-		Score:       map[string]int32{"player-1": 11, "player-2": 7},
-		ActorUserId: "host-1",
+	resp, err := h.RecordMatchResult(ctxAs("host-1"), &socialplayv1.RecordMatchResultRequest{
+		GameId:  game.ID,
+		Players: []string{"player-1", "player-2"},
+		Score:   map[string]int32{"player-1": 11, "player-2": 7},
 	})
 	if err != nil {
 		t.Fatalf("RecordMatchResult(host-1) (the Game's own Host) should succeed, got: %v", err)
@@ -136,16 +132,14 @@ func TestRecordMatchResult_AllowsHost(t *testing.T) {
 // TestRecordMatchResult_AllowsHost for the assigned-Game-Admin path: an
 // admin who is not the Host may still record the match result.
 func TestRecordMatchResult_AllowsAssignedGameAdmin(t *testing.T) {
-	ctx := context.Background()
 	h, gameRepo, _ := newTestHandlerWithMatches()
 
 	game := seedGame(t, gameRepo, "game-3", 4)
 
-	resp, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
+	resp, err := h.RecordMatchResult(ctxAs("admin-2"), &socialplayv1.RecordMatchResultRequest{
 		GameId:                   game.ID,
 		Players:                  []string{"player-1", "player-2"},
 		Score:                    map[string]int32{"player-1": 11, "player-2": 7},
-		ActorUserId:              "admin-2",
 		AssignedGameAdminUserIds: []string{"admin-1", "admin-2"},
 	})
 	if err != nil {
@@ -162,7 +156,6 @@ func TestRecordMatchResult_AllowsAssignedGameAdmin(t *testing.T) {
 // mapping at the handler level: even the Game's own Host may not record a
 // result against a cancelled Game.
 func TestRecordMatchResult_CancelledGameRejected(t *testing.T) {
-	ctx := context.Background()
 	h, gameRepo, matchRepo := newTestHandlerWithMatches()
 
 	game := seedGame(t, gameRepo, "game-4", 4)
@@ -172,11 +165,10 @@ func TestRecordMatchResult_CancelledGameRejected(t *testing.T) {
 	}
 	gameRepo.games[cancelled.ID] = cancelled
 
-	_, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
-		GameId:      cancelled.ID,
-		Players:     []string{"player-1", "player-2"},
-		Score:       map[string]int32{"player-1": 11, "player-2": 7},
-		ActorUserId: "host-1",
+	_, err := h.RecordMatchResult(ctxAs("host-1"), &socialplayv1.RecordMatchResultRequest{
+		GameId:  cancelled.ID,
+		Players: []string{"player-1", "player-2"},
+		Score:   map[string]int32{"player-1": 11, "player-2": 7},
 	})
 	if err == nil {
 		t.Fatal("RecordMatchResult against a cancelled Game succeeded silently, want FailedPrecondition")
@@ -203,14 +195,12 @@ func TestRecordMatchResult_CancelledGameRejected(t *testing.T) {
 // this is the "one representative malformed id reaches NotFound through the
 // real handler too" smoke check.
 func TestRecordMatchResult_MalformedGameIDIsNotFound(t *testing.T) {
-	ctx := context.Background()
 	h, _, _ := newTestHandlerWithMatches()
 
-	_, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
-		GameId:      "not-a-uuid",
-		Players:     []string{"player-1", "player-2"},
-		Score:       map[string]int32{"player-1": 11, "player-2": 7},
-		ActorUserId: "host-1",
+	_, err := h.RecordMatchResult(ctxAs("host-1"), &socialplayv1.RecordMatchResultRequest{
+		GameId:  "not-a-uuid",
+		Players: []string{"player-1", "player-2"},
+		Score:   map[string]int32{"player-1": 11, "player-2": 7},
 	})
 	st, ok := status.FromError(err)
 	if !ok {
@@ -244,9 +234,9 @@ func TestListMatchesForGame_ReturnsRecordedMatches(t *testing.T) {
 	h, gameRepo, _ := newTestHandlerWithMatches()
 
 	game := seedGame(t, gameRepo, "game-5", 4)
-	if _, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
+	if _, err := h.RecordMatchResult(ctxAs("host-1"), &socialplayv1.RecordMatchResultRequest{
 		GameId: game.ID, Players: []string{"player-1", "player-2"},
-		Score: map[string]int32{"player-1": 11, "player-2": 7}, ActorUserId: "host-1",
+		Score: map[string]int32{"player-1": 11, "player-2": 7},
 	}); err != nil {
 		t.Fatalf("fixture RecordMatchResult failed: %v", err)
 	}
