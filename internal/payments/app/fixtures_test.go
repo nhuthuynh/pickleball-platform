@@ -52,6 +52,16 @@ type fakeRepository struct {
 	// subtests.
 	createCalls  atomic.Int64
 	getByIDCalls atomic.Int64
+
+	// updateErr, when non-nil, makes Update fail *without* mutating byID —
+	// the persistence-failure injection T12.3's RefundPayment tests need to
+	// prove a refund that succeeded at the processor but failed to persist
+	// is reported to the caller as an error rather than as a success (the
+	// ticket's explicit non-functional requirement). Deliberately a plain
+	// field rather than a function hook: no existing test needs
+	// per-call-varying behaviour, and the simplest double that proves the
+	// requirement is the right one.
+	updateErr error
 }
 
 func newFakeRepository() *fakeRepository {
@@ -88,6 +98,13 @@ func (r *fakeRepository) GetByID(_ context.Context, id string) (domain.Payment, 
 func (r *fakeRepository) Update(_ context.Context, p domain.Payment) (domain.Payment, error) {
 	if _, ok := r.byID[p.ID]; !ok {
 		return domain.Payment{}, domain.ErrPaymentNotFound
+	}
+	// Checked after the existence lookup but before the write, so an
+	// injected failure leaves the stored Payment exactly as it was — the
+	// point of the injection is to prove the caller doesn't report success,
+	// which is only meaningful if the store genuinely didn't change.
+	if r.updateErr != nil {
+		return domain.Payment{}, r.updateErr
 	}
 	r.byID[p.ID] = p
 	return p, nil

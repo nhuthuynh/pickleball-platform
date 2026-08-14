@@ -241,7 +241,7 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment) (d
 		return updated, err
 	}
 
-	if err := s.reconcileRegistrationPaymentStatus(ctx, updated); err != nil {
+	if err := s.reconcileRegistrationPaymentStatus(ctx, updated, socialplaydomain.PaymentStatusPaid); err != nil {
 		return updated, err
 	}
 	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, updated); err != nil {
@@ -362,13 +362,141 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 		return domain.Payment{}, err
 	}
 
-	if err := s.reconcileRegistrationPaymentStatus(ctx, created); err != nil {
+	if err := s.reconcileRegistrationPaymentStatus(ctx, created, socialplaydomain.PaymentStatusPaid); err != nil {
 		return created, err
 	}
 	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, created); err != nil {
 		return created, err
 	}
 	return created, nil
+}
+
+// RefundPaymentInput is the use-case input for refunding a Payment (T12.3,
+// closing the gap open since T6.5).
+//
+// PaymentID identifies an existing Payment — unlike RecordOfflinePayment,
+// which creates one, a refund always acts on a Payment that is already
+// recorded, so this input carries no amount, method or payable type. The
+// payable type is read from the *stored* Payment rather than accepted from
+// the caller, deliberately: taking it from the request would let a caller
+// pick which branch of authorizeOfflineRecording judges them (claiming
+// `booking` on a registration Payment to be checked against a
+// BookingHostID they supply themselves), which is the whole authorization
+// check defeated by its own input.
+//
+// The ownership/assignment fields are the same caller-supplied facts
+// RecordOfflinePaymentInput documents at length, and for the same reason:
+// internal/payments has no live join to Booking's or Social Play's
+// database. The same known-gap caveat applies unchanged — ActorUserID is a
+// claimed identity, not a verified one, until T12.8 wires real auth. This
+// proves an object-level check given a claimed actor.
+//
+// PCI: no card-shaped field appears here, or on the proto message that
+// feeds it (CLAUDE.md rule 11) — a refund needs an identifier and an actor,
+// never card data. The processor reference used to actually move the money
+// is the one already stored on the Payment.
+type RefundPaymentInput struct {
+	PaymentID   string
+	ActorUserID string
+
+	BookingHostID string
+
+	GameHostID               string
+	AssignedGameAdminUserIDs []string
+}
+
+// RefundPayment refunds an already-paid Payment: it resolves the Payment,
+// checks the actor may act on it, drives domain.Payment.Refund()'s existing
+// state machine, refunds the processor side for an online Payment, persists
+// the transition, and pushes `refunded` through to Social Play for a
+// registration payable.
+//
+// Scope (T12.3, stated rather than left implicit): `booking` and
+// `registration` payables only. `competition_entry` is out of scope —
+// Competitions remains cash-only for refund purposes, tracked as issue
+// #125 — and `no_show_fee`, which the ticket's scope sentence names in
+// neither half, is likewise left out rather than silently included (issue
+// #130). Both are rejected with the existing ErrInvalidPayableType rather
+// than a new sentinel invented for a scope boundary.
+//
+// Ordering, and why it differs from RecordOfflinePayment's:
+//
+//  1. Resolve the Payment first. Authorization here needs the Payment's own
+//     payable type to pick a branch, and that fact only exists in the
+//     store — so unlike RecordOfflinePayment (where every authorization
+//     input arrives on the request and the check can run before anything
+//     else), the lookup genuinely has to come first. GetPayment applies the
+//     uuidShape boundary guard, so a malformed id is answered exactly like
+//     an unknown one and never reaches the Postgres adapter's mustUUID.
+//  2. Scope gate, before authorization. An out-of-scope payable type is a
+//     static contract fact, not a per-object secret, and this package's own
+//     gRPC adapter already rejects an unrecognised payable type with the
+//     same InvalidArgument-shaped answer before app.Service (and therefore
+//     before any authorization) is reached — see fromProtoPayableType.
+//  3. Authorization, reusing authorizeOfflineRecording unchanged (T12.3
+//     instruction 1): the question "who may act on this Payment" was
+//     already answered in T6.3, and a refund is the same Host/Game-Admin
+//     action as recording one. A second authorization concept for refunds
+//     is exactly what this ticket forbids.
+//  4. The domain transition, evaluated on a copy *before* the processor
+//     call. Two things fall out of that ordering, both deliberate: an
+//     already-refunded or never-paid Payment is rejected by
+//     domain.Payment.Refund() itself (T12.3 instruction 2 — no duplicate
+//     app-level status check) and never reaches the processor, so the
+//     platform can't ask Stripe to refund the same charge twice; and
+//     because the transition is applied to a copy, a processor failure
+//     leaves both the returned Payment and the stored one untouched.
+//  5. Persist, then project. A persist failure is returned to the caller
+//     rather than swallowed (T12.3 instruction 7): the money really has
+//     moved at the processor by that point, so silently reporting success
+//     would leave the record permanently disagreeing with the processor
+//     with nobody aware of it.
+func (s *Service) RefundPayment(ctx context.Context, in RefundPaymentInput) (domain.Payment, error) {
+	p, err := s.GetPayment(ctx, in.PaymentID)
+	if err != nil {
+		return domain.Payment{}, err
+	}
+
+	if p.PayableType != domain.PayableTypeBooking && p.PayableType != domain.PayableTypeRegistration {
+		return domain.Payment{}, domain.ErrInvalidPayableType
+	}
+
+	if err := authorizeOfflineRecording(RecordOfflinePaymentInput{
+		PayableType:              p.PayableType,
+		ActorUserID:              in.ActorUserID,
+		BookingHostID:            in.BookingHostID,
+		GameHostID:               in.GameHostID,
+		AssignedGameAdminUserIDs: in.AssignedGameAdminUserIDs,
+	}); err != nil {
+		return domain.Payment{}, err
+	}
+
+	// domain.Payment is a plain value type, so this is a real copy: Refund's
+	// pointer receiver mutates `refunded` alone, leaving p — the value
+	// returned on every failure path below — exactly as it was loaded.
+	refunded := p
+	if err := refunded.Refund(); err != nil {
+		return p, err
+	}
+
+	// Offline Payments have no processor side to refund: the money moved as
+	// cash, and recording the refund *is* the refund — the mirror image of
+	// RecordOfflinePayment having no separate confirmation step.
+	if p.Method == domain.MethodOnline {
+		if err := s.processor.RefundPayment(ctx, p.StripeReference); err != nil {
+			return p, err
+		}
+	}
+
+	updated, err := s.payments.Update(ctx, refunded)
+	if err != nil {
+		return domain.Payment{}, err
+	}
+
+	if err := s.reconcileRegistrationPaymentStatus(ctx, updated, socialplaydomain.PaymentStatusRefunded); err != nil {
+		return updated, err
+	}
+	return updated, nil
 }
 
 // reconcileRegistrationPaymentStatus pushes a successfully-paid Payment's
@@ -393,14 +521,22 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 // Payment transition, since that failure mode (a successful payment that
 // gets un-recorded because an unrelated read-model update failed) would be
 // worse than a stale projection.
-func (s *Service) reconcileRegistrationPaymentStatus(ctx context.Context, p domain.Payment) error {
+// status is a parameter rather than a hardcoded PaymentStatusPaid as of
+// T12.3: RefundPayment pushes socialplaydomain.PaymentStatusRefunded
+// through this same helper, the same port, and the same call site shape.
+// Generalizing the existing reconciliation is deliberate — the ticket's
+// instruction 3 is explicit that `refunded` must go out through the
+// existing RegistrationPaymentUpdater rather than a second updater path,
+// and a second near-identical helper differing only in a constant would
+// have been exactly that.
+func (s *Service) reconcileRegistrationPaymentStatus(ctx context.Context, p domain.Payment, status socialplaydomain.PaymentStatus) error {
 	if p.PayableType != domain.PayableTypeRegistration {
 		return nil
 	}
 	if s.registrationUpdater == nil {
 		return nil
 	}
-	return s.registrationUpdater.UpdatePaymentStatus(ctx, p.PayableID, socialplaydomain.PaymentStatusPaid)
+	return s.registrationUpdater.UpdatePaymentStatus(ctx, p.PayableID, status)
 }
 
 // reconcileCompetitionEntryPaymentStatus pushes a successfully-paid
