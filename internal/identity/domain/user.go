@@ -19,20 +19,58 @@ package domain
 // matching-mode flag remain blocked on ADR-0012's Q1/Q2 and are deliberately
 // absent from this aggregate, not an oversight.
 type User struct {
-	ID                        string
+	// ID is this platform's own identifier for the User: a uuid this
+	// backend mints (T12.9, via port.IDGenerator like every other
+	// aggregate in this codebase). Before T12.9 it was the caller-supplied
+	// actor_user_id, which is the squatting hole HANDOFF.md's T10.2 bullet
+	// disclosed and T12.9 closed — see Subject below.
+	ID string
+
+	// Subject is the identity provider's verified `sub` claim for the
+	// person this User represents, as carried by auth.Principal.Subject
+	// (internal/platform/auth). It is the external identity; ID is the
+	// internal one, and they are deliberately separate columns rather than
+	// one — a subject is an arbitrary provider-specific string like
+	// `auth0|abc123`, not a uuid, so it cannot be this row's uuid primary
+	// key. The full reasoning lives in
+	// db/migrations/0019_identity_subject.sql and is not restated here.
+	//
+	// This field is what makes a User claimable only by the person who can
+	// actually authenticate as it. Note that domain code never *verifies* a
+	// subject — verification is internal/platform/auth's job, at the
+	// grpcapi boundary (T12 sprint plan A11 Ruling 3). By the time a
+	// subject reaches this package it is already verified, and this package
+	// must not import auth to double-check it.
+	//
+	// Uniqueness across Users is NOT enforced here: it is a cross-aggregate
+	// fact a single User cannot see. Postgres owns it (a UNIQUE constraint,
+	// CLAUDE.md rule 4's authoritative half) and the adapter translates the
+	// violation to ErrUserAlreadyExists.
+	Subject string
+
 	DisplayName               string
 	Roles                     []Role
 	SelfReportedStartingLevel SelfReportedStartingLevel
 }
 
 // NewUser constructs a User, validating the invariants that don't require
-// knowledge of other Users or another context: ID and DisplayName must be
-// non-empty, Roles must be non-empty and every element must be one of
-// Role's closed-enum values, and SelfReportedStartingLevel must fall within
-// its bounded 1..5 range.
-func NewUser(id, displayName string, roles []Role, level SelfReportedStartingLevel) (User, error) {
+// knowledge of other Users or another context: ID, Subject, and DisplayName
+// must be non-empty, Roles must be non-empty and every element must be one
+// of Role's closed-enum values, and SelfReportedStartingLevel must fall
+// within its bounded 1..5 range.
+//
+// subject is a *verified* IdP subject by the time it arrives here (see the
+// Subject field's doc comment). An empty one is rejected rather than
+// tolerated: a User with no subject is a row nobody can ever authenticate
+// as, and — worse — a later ownership comparison against "" could match
+// another empty value and succeed. That is the same class of bug
+// auth.ContextWithPrincipal refuses a zero-Subject principal for.
+func NewUser(id, subject, displayName string, roles []Role, level SelfReportedStartingLevel) (User, error) {
 	if id == "" {
 		return User{}, ErrEmptyID
+	}
+	if subject == "" {
+		return User{}, ErrEmptySubject
 	}
 	if displayName == "" {
 		return User{}, ErrEmptyDisplayName
@@ -50,6 +88,7 @@ func NewUser(id, displayName string, roles []Role, level SelfReportedStartingLev
 	}
 	return User{
 		ID:                        id,
+		Subject:                   subject,
 		DisplayName:               displayName,
 		Roles:                     roles,
 		SelfReportedStartingLevel: level,
@@ -62,10 +101,17 @@ func NewUser(id, displayName string, roles []Role, level SelfReportedStartingLev
 // internal/facilities/domain.Facility.EnsureOwner/internal/socialplay/domain.
 // Registration's actorPlayerID-vs-PlayerID check applied to a User's own
 // identity fact instead: only the User themself may update their own
-// self-reported level. As with those precedents, actorUserID is a
-// caller-supplied claim, not a verified identity — see ErrNotSelf's doc
-// comment and HANDOFF.md's Auth cross-cutting item for the caveat this must
-// not re-litigate.
+// self-reported level.
+//
+// T12.9 UPDATE — the caveat this comment used to carry no longer applies to
+// this context. actorUserID was a caller-supplied claim taken straight off
+// the wire; it is now resolved at the grpcapi boundary from the verified
+// auth.Principal's subject (the handler looks up the User owning that
+// subject and passes THAT user's ID), and the wire field is ignored
+// entirely. This function's signature and rule are unchanged — which is the
+// point of A11 Ruling 3: the domain keeps expressing "only the User
+// themself", and what got fixed is that the actor handed to it is now a
+// verified fact rather than an assertion. See ErrNotSelf's doc comment.
 func (u User) EnsureSelf(actorUserID string) error {
 	if actorUserID == "" || actorUserID != u.ID {
 		return ErrNotSelf

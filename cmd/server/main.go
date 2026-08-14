@@ -115,17 +115,18 @@ func run(logger *slog.Logger) error {
 	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
 
 	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
-	// other contexts'; unlike every other context here it takes no
-	// port.IDGenerator — a User's id is the caller-claimed actor_user_id
-	// itself, not server-generated (see identityapp.CreateUserInput's doc
-	// comment).
+	// other contexts', and as of T12.9 it takes a port.IDGenerator like the
+	// other contexts too — a User's id is now server-minted rather than the
+	// caller-claimed actor_user_id it used to be. That exception was the
+	// identity-squatting denial-of-service HANDOFF.md's T10.2 bullet
+	// disclosed, and removing it is what closed it.
 	//
 	// Constructed before Booking as of T11.5, which is the first context to
 	// call into Identity at all: Booking's RequestRecurringHire resolves the
 	// actor's `club` role against this same, real identitySvc instance — not
 	// a second/separate one — through internal/booking/adapter/identity.
 	identityRepo := identitypg.NewRepository(pool)
-	identitySvc := identityapp.NewService(identityRepo)
+	identitySvc := identityapp.NewService(identityRepo, idgen.UUID{})
 	identityHandler := identitygrpc.NewHandler(identitySvc)
 
 	repo := bookingpg.NewRepository(pool)
@@ -253,14 +254,46 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// Per-context authenticated-method policy (T12 sprint plan A11 Ruling
+	// 2): each context's grpcapi package owns the list of ITS OWN RPCs that
+	// require a verified principal, next to the handlers that break if that
+	// list is wrong, and this is the only place those lists are composed.
+	// Each migrated context contributes exactly one append line below.
+	//
+	// Everything not listed stays exactly as public as it is today —
+	// composing an empty policy is what made T12.2's observe-only landing
+	// incapable of changing a shipped flow, and adding a context here is
+	// the deliberate act of turning enforcement on for it.
+	var authenticatedMethods []string
+	authenticatedMethods = append(authenticatedMethods, identitygrpc.AuthenticatedMethods()...) // T12.9
+
+	// OPERATIONAL CONSEQUENCE, stated here rather than discovered in
+	// production: from this point on the process enforces authentication on
+	// the methods above, and a principal can only exist if a token verifier
+	// is configured (AUTH_ISSUER + AUTH_AUDIENCE + AUTH_JWKS_FILE — see
+	// tokenVerifierFromEnv). A deployment with no verifier configured will
+	// therefore reject CreateUser and UpdateSelfReportedLevel with
+	// Unauthenticated. That is fail-CLOSED and it is the intended
+	// direction: the alternative — skipping enforcement whenever no
+	// verifier happens to be configured — is a silent downgrade that would
+	// look like a check in review and in logs while protecting nothing
+	// (ADR-0013 §3, and the fail-open half of known gap #136).
+	//
+	// Ordering is load-bearing. Recovery stays outermost so it covers the
+	// other two. auth.UnaryInterceptor RESOLVES a token into a principal
+	// and must run before RequireAuthentication, which only checks whether
+	// one is present — registering them the other way round would reject
+	// every request including well-authenticated ones.
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			grpcrecovery.UnaryInterceptor(logger),
 			auth.UnaryInterceptor(tokenVerifier, logger),
+			auth.RequireAuthentication(authenticatedMethods),
 		),
 		grpc.ChainStreamInterceptor(
 			grpcrecovery.StreamInterceptor(logger),
 			auth.StreamInterceptor(tokenVerifier, logger),
+			auth.RequireAuthenticationStream(authenticatedMethods),
 		),
 	)
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)

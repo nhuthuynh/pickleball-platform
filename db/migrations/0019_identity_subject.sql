@@ -1,0 +1,69 @@
+-- T12.9 — map the identity provider's verified `sub` claim to a User row,
+-- so identity_users.id stops being a caller-supplied value.
+--
+-- WHY THIS TABLE NOW HAS TWO IDENTIFIER COLUMNS
+--
+-- A future reader will reasonably ask why `id` and `subject` both exist
+-- rather than the subject simply BEING the primary key. The answer is that
+-- they are different kinds of value and only one of them is ours:
+--
+--   * `subject` is the IdP's `sub` claim. It is NOT a uuid and there is no
+--     rule that says it ever will be — real providers emit things like
+--     `auth0|abc123`, `google-oauth2|10769150350006150715`, or an opaque
+--     pairwise identifier. It is an arbitrary provider-specific string, so
+--     it cannot be stored in a `uuid` column at all, and coercing it into
+--     one (hashing it to a uuid, say) would throw away the one property
+--     that makes it useful: that it is exactly the string the token
+--     carries, comparable without a transformation that could ever drift.
+--   * `id` stays a uuid this backend mints and owns. Every other context's
+--     eventual foreign key points at it (see 0016_identity.sql's note on
+--     uuid typing ahead of real FK targets), and those references must not
+--     be re-keyed to a string whose format is the identity provider's
+--     choice — nor leak the IdP identifier into six other tables.
+--
+-- So the row keeps its uuid primary key and gains a separate unique mapping
+-- column. `id` is the platform's internal identity; `subject` is the
+-- external one. This is the standard local-user-to-IdP-subject mapping, and
+-- the split is deliberate, not an accident of migration order.
+--
+-- WHAT THIS CLOSES
+--
+-- 0016_identity.sql deliberately gave `id` no DEFAULT because CreateUser
+-- accepted the id from the caller. HANDOFF.md's T10.2 bullet records what
+-- that cost: an anonymous caller could submit any uuid — including one a
+-- real-auth integration would later mint for a real person — and
+-- permanently occupy that identity, so the real owner's later registration
+-- failed with ErrUserAlreadyExists forever. A persistent, targeted
+-- denial-of-service, whose stated closure condition was "the moment real
+-- auth exists". It exists (T12.2, internal/platform/auth), so from this
+-- migration onward `id` is server-minted (app.Service.CreateUser via
+-- port.IDGenerator, this codebase's universal pattern) and the row is keyed
+-- to the caller's VERIFIED subject instead of a claimed uuid.
+--
+-- NOT NULL, deliberately, and safe here: every row is now created with a
+-- verified subject, so a NULL would mean "a User nobody can ever
+-- authenticate as". Postgres treats NULLs as distinct under UNIQUE, so a
+-- nullable column would silently permit unlimited subject-less rows and
+-- weaken the very invariant this migration exists to add. The table is
+-- empty when this runs — no seed migration inserts into identity_users
+-- (checked: 0002 and 0004 are the only seeds, neither touches it) — so the
+-- ADD COLUMN needs no backfill or DEFAULT.
+--
+-- The UNIQUE constraint is the AUTHORITATIVE half of CLAUDE.md rule 4's
+-- dual enforcement for "one User per verified subject": the domain
+-- expresses that a User always has a non-empty subject (domain.NewUser's
+-- ErrEmptySubject), but cross-row uniqueness is not knowable from inside a
+-- single aggregate, so Postgres owns it and the adapter translates the
+-- resulting 23505 into domain.ErrUserAlreadyExists (rule 5) — the same
+-- sentinel, and the same codes.AlreadyExists mapping, that already existed
+-- for the old id collision. A second registration for an already-registered
+-- subject is REJECTED rather than replayed idempotently; see the T12.9 PR
+-- for that decision's reasoning.
+--
+-- Prototype-only migration tooling: applied via docker-compose initdb.d on
+-- a FRESH volume only (see CLAUDE.md gotchas — run `make down` then
+-- `make up` after a schema change). Adopt golang-migrate/goose before
+-- production.
+
+ALTER TABLE identity_users
+    ADD COLUMN subject text NOT NULL UNIQUE;

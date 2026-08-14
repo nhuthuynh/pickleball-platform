@@ -27,6 +27,7 @@ package grpcapi_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -35,9 +36,34 @@ import (
 	"github.com/nhuthuynh/white-label/internal/identity/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/identity/app"
 	"github.com/nhuthuynh/white-label/internal/identity/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 
 	identityv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/identity/v1"
 )
+
+// registerOther puts a second, fully-registered User in the repository for
+// its own verified subject, so a test can act as a real authenticated
+// caller who simply is not the target User.
+//
+// It writes straight to the fake rather than going through the handler
+// because the handler's stubIDs would mint the fixture id a second time and
+// collide. The distinction matters for what the BOLA test proves: an
+// authenticated caller who HAS an account but is not the owner must be
+// refused for being the wrong person, not merely for being unregistered —
+// those are two different code paths and only this one exercises
+// domain.User.EnsureSelf.
+func registerOther(t *testing.T, repo *fakeRepo, subject string) domain.User {
+	t.Helper()
+	u, err := domain.NewUser("7ba7b810-9dad-11d1-80b4-00c04fd430c8", subject, "Other Person",
+		[]domain.Role{domain.RolePlayer}, domain.SelfReportedStartingLevel(3))
+	if err != nil {
+		t.Fatalf("building the other user: %v", err)
+	}
+	if _, err := repo.Create(context.Background(), u); err != nil {
+		t.Fatalf("registering the other user: %v", err)
+	}
+	return u
+}
 
 // --- in-memory port.Repository fake -----------------------------------
 //
@@ -54,12 +80,30 @@ func newFakeRepo() *fakeRepo {
 	return &fakeRepo{users: make(map[string]domain.User)}
 }
 
+// Create emulates both uniqueness rules identity_users enforces: the
+// primary key on id, and — since T12.9 — the UNIQUE constraint on subject
+// (db/migrations/0019_identity_subject.sql). The subject rule is the
+// reachable one now that ids are server-minted.
 func (r *fakeRepo) Create(_ context.Context, u domain.User) (domain.User, error) {
 	if _, exists := r.users[u.ID]; exists {
 		return domain.User{}, domain.ErrUserAlreadyExists
 	}
+	for _, existing := range r.users {
+		if existing.Subject == u.Subject {
+			return domain.User{}, domain.ErrUserAlreadyExists
+		}
+	}
 	r.users[u.ID] = u
 	return u, nil
+}
+
+func (r *fakeRepo) GetBySubject(_ context.Context, subject string) (domain.User, error) {
+	for _, u := range r.users {
+		if u.Subject == subject {
+			return u, nil
+		}
+	}
+	return domain.User{}, domain.ErrUserNotFound
 }
 
 func (r *fakeRepo) GetByID(_ context.Context, id string) (domain.User, error) {
@@ -80,25 +124,65 @@ func (r *fakeRepo) UpdateSelfReportedLevel(_ context.Context, id string, level d
 	return u, nil
 }
 
+// mintedID is what stubIDs hands out — the server-minted User id T12.9
+// introduced. Tests assert against it precisely because it is NOT anything
+// the caller sent.
+const mintedID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
+
+// T10.2's `fixtureUserID` const is gone. It existed so a test could name
+// the id it was about to claim, which is precisely the capability T12.9
+// removed — the id is minted by the server now, so tests read it back from
+// the response (or assert against mintedID) instead of choosing it.
+
+// fixtureSubject is the verified IdP subject of the seeded fixture user.
+// Deliberately not uuid-shaped — see db/migrations/0019_identity_subject.sql.
+const fixtureSubject = "auth0|ada"
+
+// stubIDs is a deterministic port.IDGenerator. Identity gained this port in
+// T12.9; before that a User's id came off the wire, which was the
+// identity-squatting bug.
+type stubIDs struct{ id string }
+
+func (s stubIDs) NewID() string {
+	if s.id == "" {
+		return mintedID
+	}
+	return s.id
+}
+
+// sequentialIDs mints a distinct id per call, for tests where a rejection
+// must be attributable to the subject rule rather than an id collision.
+type sequentialIDs struct{ n int }
+
+func (s *sequentialIDs) NewID() string {
+	s.n++
+	return fmt.Sprintf("6ba7b810-9dad-11d1-80b4-00c04fd430%02d", s.n)
+}
+
+// principalCtx builds a request context carrying a verified caller, the way
+// auth.UnaryInterceptor does in production after a token verifies. Handler
+// tests use it rather than standing up a gRPC server and minting a real
+// token — which is exactly what auth.ContextWithPrincipal is exported for.
+func principalCtx(subject string) context.Context {
+	return auth.ContextWithPrincipal(context.Background(), auth.Principal{Subject: subject})
+}
+
 // newTestHandler wires the real app.Service and the real grpcapi.Handler —
 // exactly what cmd/server wires in production — against the in-memory
 // fakeRepo above.
 func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
 	repo := newFakeRepo()
-	svc := app.NewService(repo)
+	svc := app.NewService(repo, stubIDs{})
 	return grpcapi.NewHandler(svc), repo
 }
 
-// seedUser is a fixed, valid, UUID-shaped id — CreateUser's id is
-// caller-claimed (app.CreateUserInput's doc comment), so this test seeds
-// one deterministically rather than minting one from a port.IDGenerator
-// fake the way internal/facilities/adapter/grpcapi's authz_regression_test.go
-// does (Identity has no such port — see internal/identity/port's absence of
-// an idgenerator.go, a deliberate difference from every other context).
-func seedUser(t *testing.T, h *grpcapi.Handler, id string) *identityv1.User {
+// seedUser registers the fixture user as the verified owner of
+// fixtureSubject. Since T12.9 the id is server-minted, so this no longer
+// takes one — it returns the User the server created. The subject is what
+// the caller now controls, and only by holding a token for it.
+func seedUser(t *testing.T, h *grpcapi.Handler) *identityv1.User {
 	t.Helper()
-	resp, err := h.CreateUser(context.Background(), &identityv1.CreateUserRequest{
-		ActorUserId:               id,
+	resp, err := h.CreateUser(principalCtx(fixtureSubject), &identityv1.CreateUserRequest{
 		DisplayName:               "Ada Lovelace",
 		Roles:                     []identityv1.Role{identityv1.Role_ROLE_PLAYER},
 		SelfReportedStartingLevel: 3,
@@ -109,26 +193,35 @@ func seedUser(t *testing.T, h *grpcapi.Handler, id string) *identityv1.User {
 	return resp.GetUser()
 }
 
-const fixtureUserID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-
 // --- UpdateSelfReportedLevel: object-level (BOLA) regression --------------
 
 // TestUpdateSelfReportedLevel_RejectsMismatchedActor is the ticket's
 // required test: create a User, then attempt UpdateSelfReportedLevel as a
-// different actor_user_id, through the real handler -> app -> domain path,
-// and assert the request is rejected with the correctly mapped status —
-// not a 500, not a silent success.
+// different actor, through the real handler -> app -> domain path, and
+// assert the request is rejected with the correctly mapped status — not a
+// 500, not a silent success.
+//
+// T12.9 strengthened it rather than replacing it: the "different actor" is
+// now a genuinely authenticated caller with a registered account of their
+// own, and the request additionally LIES on the wire by naming the victim
+// in actor_user_id. Under the pre-T12.9 handler that lie was the whole
+// authorization input, so this call would have succeeded.
 func TestUpdateSelfReportedLevel_RejectsMismatchedActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
-	user := seedUser(t, h, fixtureUserID)
+	user := seedUser(t, h)
 
-	// The BOLA attempt: "attacker", a different actor_user_id than the
-	// User's own id, tries to update that User's self-reported level.
-	_, err := h.UpdateSelfReportedLevel(ctx, &identityv1.UpdateSelfReportedLevelRequest{
+	// The BOLA attempt. T12.9 changed HOW the attacker is identified but
+	// not what is being proven: the attacker is now a caller holding a
+	// valid token for their OWN subject (and their own registered User),
+	// trying to update somebody else's level. The wire actor_user_id is
+	// set to the victim's id as well, so this doubles as proof that the
+	// handler resolves the actor from the principal and not from the
+	// claim — if it read the wire field, this call would SUCCEED.
+	registerOther(t, repo, "auth0|attacker")
+	_, err := h.UpdateSelfReportedLevel(principalCtx("auth0|attacker"), &identityv1.UpdateSelfReportedLevelRequest{
 		UserId:                    user.GetId(),
-		ActorUserId:               "attacker",
+		ActorUserId:               user.GetId(),
 		SelfReportedStartingLevel: 5,
 	})
 	if err == nil {
@@ -161,14 +254,14 @@ func TestUpdateSelfReportedLevel_RejectsMismatchedActor(t *testing.T) {
 // and rejects everyone" — this pins down that the real owning User's own
 // call still succeeds through the same handler path.
 func TestUpdateSelfReportedLevel_AllowsOwningActor(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
-	user := seedUser(t, h, fixtureUserID)
+	user := seedUser(t, h)
 
-	resp, err := h.UpdateSelfReportedLevel(ctx, &identityv1.UpdateSelfReportedLevelRequest{
-		UserId:                    user.GetId(),
-		ActorUserId:               user.GetId(),
+	resp, err := h.UpdateSelfReportedLevel(principalCtx(fixtureSubject), &identityv1.UpdateSelfReportedLevelRequest{
+		UserId: user.GetId(),
+		// Wire actor deliberately left EMPTY: the handler must not need
+		// it, because it resolves the actor from the principal.
 		SelfReportedStartingLevel: 5,
 	})
 	if err != nil {
@@ -210,13 +303,15 @@ func TestGetUser_MalformedIDIsMappedNotFound(t *testing.T) {
 
 // --- CreateUser: self-elevation regression, through the real handler ------
 //
-// PR #106 review finding 2: CreateUser is Identity's only unauthenticated,
-// self-service entry point, so an unchecked Roles field would let any
-// anonymous caller mint themselves a brand-new, permanently-persisted
-// ROLE_PLATFORM_ADMIN (or any other privileged role) out of nothing — worse
-// than every other actor_user_id caveat in this codebase (see
-// HANDOFF.md's Cross-cutting section), which only ever gates a mutation on
-// an object that already exists. Verified non-vacuous per CLAUDE.md rule
+// PR #106 review finding 2: an unchecked Roles field would let a caller
+// mint themselves a brand-new, permanently-persisted ROLE_PLATFORM_ADMIN
+// (or any other privileged role) out of nothing.
+//
+// T12.9 made CreateUser authenticated, and this test was KEPT and given a
+// valid principal rather than retired, because authentication does not
+// answer the question it asks. Holding a valid token proves who you are; it
+// says nothing about whether you may appoint yourself an administrator. The
+// caller below is fully authenticated and must still be refused. Verified non-vacuous per CLAUDE.md rule
 // 10: temporarily removed the role-restriction loop in
 // app.Service.CreateUser, confirmed
 // TestCreateUser_RejectsSelfElevationToPlatformAdmin below FAILED (the
@@ -228,17 +323,15 @@ func TestGetUser_MalformedIDIsMappedNotFound(t *testing.T) {
 // claiming an elevated role, mapped to InvalidArgument (not Internal), and
 // that no User is persisted.
 func TestCreateUser_RejectsSelfElevationToPlatformAdmin(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
-	_, err := h.CreateUser(ctx, &identityv1.CreateUserRequest{
-		ActorUserId:               fixtureUserID,
+	_, err := h.CreateUser(principalCtx("auth0|attacker"), &identityv1.CreateUserRequest{
 		DisplayName:               "Attacker",
 		Roles:                     []identityv1.Role{identityv1.Role_ROLE_PLATFORM_ADMIN},
 		SelfReportedStartingLevel: 3,
 	})
 	if err == nil {
-		t.Fatal("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) succeeded silently — an anonymous caller was able to self-elevate to platform admin")
+		t.Fatal("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) succeeded silently — an authenticated caller was able to self-elevate to platform admin")
 	}
 
 	st, ok := status.FromError(err)
@@ -252,7 +345,7 @@ func TestCreateUser_RejectsSelfElevationToPlatformAdmin(t *testing.T) {
 		t.Fatalf("CreateUser(roles=[ROLE_PLATFORM_ADMIN]) status code = %v, want InvalidArgument", st.Code())
 	}
 
-	if _, exists := repo.users[fixtureUserID]; exists {
+	if len(repo.users) != 0 {
 		t.Error("a User was persisted for a rejected self-elevation CreateUser call, want none")
 	}
 }
@@ -262,11 +355,9 @@ func TestCreateUser_RejectsSelfElevationToPlatformAdmin(t *testing.T) {
 // couldn't tell "the role restriction correctly rejects an elevated role"
 // apart from "CreateUser is broken and rejects everyone."
 func TestCreateUser_AllowsPlayerRole(t *testing.T) {
-	ctx := context.Background()
 	h, repo := newTestHandler()
 
-	resp, err := h.CreateUser(ctx, &identityv1.CreateUserRequest{
-		ActorUserId:               fixtureUserID,
+	resp, err := h.CreateUser(principalCtx(fixtureSubject), &identityv1.CreateUserRequest{
 		DisplayName:               "Ada Lovelace",
 		Roles:                     []identityv1.Role{identityv1.Role_ROLE_PLAYER},
 		SelfReportedStartingLevel: 3,
@@ -277,7 +368,7 @@ func TestCreateUser_AllowsPlayerRole(t *testing.T) {
 	if len(resp.GetUser().GetRoles()) != 1 || resp.GetUser().GetRoles()[0] != identityv1.Role_ROLE_PLAYER {
 		t.Errorf("Roles = %v, want [ROLE_PLAYER]", resp.GetUser().GetRoles())
 	}
-	if _, exists := repo.users[fixtureUserID]; !exists {
+	if _, exists := repo.users[mintedID]; !exists {
 		t.Error("User was not persisted after a successful CreateUser")
 	}
 }
