@@ -106,6 +106,67 @@ func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.Conf
 	return &paymentsv1.ConfirmOnlinePaymentResponse{Payment: toProto(confirmed)}, nil
 }
 
+// RefundPayment refunds an already-paid Payment (T12.3, closing the gap
+// open since T6.5). The app layer does the work — this handler only
+// translates the wire request into app.RefundPaymentInput and the resulting
+// domain error into a gRPC status.
+//
+// Unlike ConfirmOnlinePayment above, this handler does not do its own
+// id -> Payment lookup: RefundPayment takes the id and resolves the Payment
+// itself, because it needs the *stored* payable type to pick an
+// authorization branch and must not accept that fact from the caller (see
+// app.RefundPaymentInput's doc comment).
+func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPaymentRequest) (*paymentsv1.RefundPaymentResponse, error) {
+	p, err := h.svc.RefundPayment(ctx, app.RefundPaymentInput{
+		PaymentID:                req.GetPaymentId(),
+		ActorUserID:              req.GetActorUserId(),
+		BookingHostID:            req.GetBookingHostId(),
+		GameHostID:               req.GetGameHostId(),
+		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
+	})
+	if err != nil {
+		return nil, toRefundStatus(err)
+	}
+
+	return &paymentsv1.RefundPaymentResponse{Payment: toProto(p)}, nil
+}
+
+// toRefundStatus is RefundPayment's error mapping. It handles the two codes
+// T12.3 specifies differently from the shared toStatus below, then delegates
+// everything else to it so there is exactly one place each remaining
+// sentinel is mapped.
+//
+// The two deliberate divergences, and why they are scoped to this RPC:
+//
+//   - ErrIllegalStatusTransition -> FailedPrecondition (toStatus sends it to
+//     InvalidArgument). FailedPrecondition is the semantically correct code:
+//     an already-refunded or never-paid Payment is a well-formed request
+//     against a system state that forbids it, not a malformed argument.
+//   - ErrPaymentProcessorUnavailable -> Internal (toStatus sends it to
+//     Unavailable). Specified by the ticket: a refund that failed at the
+//     processor left real money unreturned, and the ticket treats that as a
+//     server-side failure the caller should escalate rather than a
+//     retry-and-it-might-work condition.
+//
+// Both are scoped to RefundPayment rather than changed in toStatus because
+// changing toStatus would silently alter the wire contract of
+// RecordOfflinePayment/CreateOnlinePayment/ConfirmOnlinePayment, which no
+// ticket asked for and existing clients may depend on (PE dossier §2,
+// Hyrum's Law). The resulting inconsistency — one sentinel, two codes,
+// depending on the RPC — is real and is tracked as issue #131 rather than
+// left undisclosed.
+func toRefundStatus(err error) error {
+	switch {
+	case errors.Is(err, domain.ErrIllegalStatusTransition):
+		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, domain.ErrPaymentProcessorUnavailable),
+		errors.Is(err, domain.ErrPaymentDeclined):
+		return status.Error(codes.Internal, err.Error())
+	default:
+		return toStatus(err)
+	}
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, PermissionDenied ->
 // 403, NotFound -> 404, InvalidArgument -> 400 — this is what makes the PR
