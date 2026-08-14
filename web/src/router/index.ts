@@ -24,6 +24,8 @@ import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
 import FacilityDiscounts from '../views/FacilityDiscounts.vue'
+import FacilityRentalRequests from '../views/FacilityRentalRequests.vue'
+import ClubRentals from '../views/ClubRentals.vue'
 import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
@@ -68,6 +70,42 @@ export const routes: RouteRecordRaw[] = [
     // which is also what lets its spec mount it without a router.
     props: true,
     meta: { title: 'Discounts' },
+  },
+  // T11.6 (Club rental request/approval, Flow 7) — the Facility Owner's
+  // incoming-requests queue, against T11.5's real
+  // ListRecurringHireTemplatesForFacility/Approve/Reject endpoints.
+  //
+  // Same "Owner screen reached by URL" situation as the discounts route just
+  // above: the nav's five tabs are Player/Host-facing and there is no
+  // signed-in-owner context to gate an owner-only link on yet (HANDOFF.md's
+  // Auth cross-cutting item). Registering it here is what puts it under the
+  // T11.7 a11y route sweep. `:facilityId` cannot collide with `onboard` —
+  // vue-router ranks a static segment above a dynamic one.
+  {
+    path: '/facilities/:facilityId/rental-requests',
+    name: 'facility-rental-requests',
+    component: FacilityRentalRequests,
+    // `props: true` so the view takes the Facility id as a plain prop, which
+    // is also what lets its spec mount it without a router.
+    props: true,
+    meta: { title: 'Rental requests' },
+  },
+  // T11.6 — the Club-facing half: request a recurring slot, and read back the
+  // status of your own requests (this ticket's new actor-scoped
+  // ListRecurringHireTemplatesForActor).
+  //
+  // Deliberately NOT in AppNav either, and for a sharper reason than the Owner
+  // screens: the request control on it is gated on the actor's real `club`
+  // role (resolved from Identity's GetUser), so a nav tab pointing here would
+  // advertise a screen most accounts cannot act on. The screen itself renders
+  // its own honest explanation for a non-Club actor rather than 404ing, and it
+  // still shows that actor's own request history, matching the backend read's
+  // deliberately role-free scoping.
+  {
+    path: '/clubs/rentals',
+    name: 'club-rentals',
+    component: ClubRentals,
+    meta: { title: 'Recurring rentals' },
   },
   // T8.9 (Discover & Join Games) — real screen, replacing T8.1's placeholder.
   { path: '/games', name: 'games', component: DiscoverGames, meta: { title: 'Games' } },

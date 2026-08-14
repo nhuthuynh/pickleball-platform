@@ -80,6 +80,17 @@ func (r *fakeRecurringHireRepo) ListForCourts(_ context.Context, courtIDs []stri
 	return out, nil
 }
 
+func (r *fakeRecurringHireRepo) ListForRequester(_ context.Context, requestedByUserID string) ([]domain.RecurringHireTemplate, error) {
+	r.listCalls++
+	out := make([]domain.RecurringHireTemplate, 0, len(r.templates))
+	for _, t := range r.templates {
+		if t.RequestedByUserID == requestedByUserID {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
 // fakeIdentityLookup is an in-memory port.IdentityLookup: the set of users
 // that exist, and which of them hold the `club` role. That is exactly the
 // answer the real adapter derives from identityapp.Service.GetUser's Roles —
@@ -675,6 +686,160 @@ func TestListRecurringHireTemplatesForFacility(t *testing.T) {
 			if !errors.Is(err, domain.ErrFacilityNotFound) {
 				t.Fatalf("ListRecurringHireTemplatesForFacility(%q) error = %v, want %v", id, err, domain.ErrFacilityNotFound)
 			}
+		}
+	})
+}
+
+// --- ListRecurringHireTemplatesForActor --------------------------------
+
+// TestListRecurringHireTemplatesForActor covers the CLUB-facing read T11.6
+// adds: "show me the templates I asked for, and what happened to them".
+//
+// T11.5 shipped only the owner-facing, Facility-scoped queue and flagged the
+// absence of this one as a known gap (see
+// ListRecurringHireTemplatesForFacility's own doc comment); T11.6's Club
+// status view is the consumer that closes it.
+//
+// The authorization shape is deliberately different from the Facility read's,
+// and each subtest below pins one half of why:
+//   - there is no ownership check to make, because the actor's own identity IS
+//     the entire scope — the query filters on requested_by_user_id, so a
+//     caller can only ever be answered with rows they themselves created
+//     ("actor sees only their own templates");
+//   - there is deliberately no `club`-role check either, and the untouched
+//     identity call counter is what proves it is absent rather than merely
+//     passing for this fixture ("no role check is performed"). A role check
+//     would gate a User's access to their OWN request history on a role they
+//     could later lose, while removing no exposure: T11.5 already gates
+//     *creation* on the club role, so a non-club actor's list is empty anyway.
+func TestListRecurringHireTemplatesForActor(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("actor sees only their own templates", func(t *testing.T) {
+		t.Parallel()
+		f := newRecurringSvc()
+		// A second club, on the same court, whose template must not leak into
+		// the first club's list.
+		const otherClubUser = 14
+		f.identity.clubs[userID(otherClubUser)] = true
+		f.identity.known[userID(otherClubUser)] = true
+
+		mine := mustRequest(t, f, 4)
+		theirs, err := f.svc.RequestRecurringHire(ctx, requestInput(t, userID(otherClubUser), courtID(1), 4))
+		if err != nil {
+			t.Fatalf("RequestRecurringHire (other club): %v", err)
+		}
+
+		got, err := f.svc.ListRecurringHireTemplatesForActor(ctx, userID(clubUser))
+		if err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
+		}
+		if len(got) != 1 || got[0].ID != mine.ID {
+			t.Fatalf("got %+v, want exactly the actor's own template %q (the other club's %q must not appear)",
+				got, mine.ID, theirs.ID)
+		}
+	})
+
+	// The status view's whole point: a rejected request must come back as a
+	// real, terminal state, not vanish from the list as though it were still
+	// open or had never been made.
+	t.Run("every status is readable, including the terminal ones", func(t *testing.T) {
+		t.Parallel()
+		f := newRecurringSvc()
+
+		requested := mustRequest(t, f, 4)
+		toApprove := mustRequest(t, f, 4)
+		toReject := mustRequest(t, f, 4)
+
+		if _, err := f.svc.ApproveRecurringHire(ctx, toApprove.ID, userID(ownerUser)); err != nil {
+			t.Fatalf("ApproveRecurringHire: %v", err)
+		}
+		if _, err := f.svc.RejectRecurringHire(ctx, toReject.ID, userID(ownerUser)); err != nil {
+			t.Fatalf("RejectRecurringHire: %v", err)
+		}
+
+		got, err := f.svc.ListRecurringHireTemplatesForActor(ctx, userID(clubUser))
+		if err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
+		}
+
+		statuses := make(map[string]domain.RecurringHireStatus, len(got))
+		for _, tpl := range got {
+			statuses[tpl.ID] = tpl.Status
+		}
+		want := map[string]domain.RecurringHireStatus{
+			requested.ID: domain.RecurringHireStatusRequested,
+			toApprove.ID: domain.RecurringHireStatusApproved,
+			toReject.ID:  domain.RecurringHireStatusRejected,
+		}
+		for id, wantStatus := range want {
+			if statuses[id] != wantStatus {
+				t.Errorf("template %q status = %q, want %q", id, statuses[id], wantStatus)
+			}
+		}
+	})
+
+	// The negative finding, asserted rather than assumed: this read performs
+	// no role check at all. An identity call counter of zero is the evidence —
+	// a check that happened to pass for a club fixture would look identical
+	// from the returned value alone.
+	t.Run("no role check is performed", func(t *testing.T) {
+		t.Parallel()
+		f := newRecurringSvc()
+		f.identity.checks = 0
+
+		got, err := f.svc.ListRecurringHireTemplatesForActor(ctx, userID(playerUser))
+		if err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
+		}
+		if len(got) != 0 {
+			t.Errorf("got %+v, want an empty list — a non-club actor can hold no templates", got)
+		}
+		if f.identity.checks != 0 {
+			t.Errorf("identity was consulted %d times; this read is scoped by identity, not gated by role", f.identity.checks)
+		}
+	})
+
+	// A malformed actor id is answered exactly like an unknown one — which,
+	// for this read, means an empty list rather than an error (the T10.7
+	// guard's rule applied faithfully, not a new error invented for it).
+	// Contrast ListRecurringHireTemplatesForFacility, where a malformed id IS
+	// an error: there, an actor check must not silently pass for a Facility
+	// that does not exist. Here there is no such check to skip.
+	//
+	// The guard still has to exist: the Postgres adapter's mustUUID panics on
+	// anything pgtype.UUID.Scan cannot parse, so an unguarded malformed id off
+	// the wire would take the process down.
+	t.Run("unknown or malformed actor gets an empty list, never a panic", func(t *testing.T) {
+		t.Parallel()
+
+		for _, id := range append([]string{userID(99)}, malformedFacilityIDs()...) {
+			f := newRecurringSvc()
+			mustRequest(t, f, 4)
+
+			got, err := f.svc.ListRecurringHireTemplatesForActor(ctx, id)
+			if err != nil {
+				t.Fatalf("ListRecurringHireTemplatesForActor(%q) error = %v, want nil", id, err)
+			}
+			if len(got) != 0 {
+				t.Errorf("ListRecurringHireTemplatesForActor(%q) = %+v, want an empty list", id, got)
+			}
+		}
+	})
+
+	// A malformed id must not even reach the repository — that is what keeps
+	// mustUUID from ever seeing it.
+	t.Run("a malformed actor never reaches the repository", func(t *testing.T) {
+		t.Parallel()
+		f := newRecurringSvc()
+
+		if _, err := f.svc.ListRecurringHireTemplatesForActor(ctx, "not-a-uuid"); err != nil {
+			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
+		}
+		if f.templates.listCalls != 0 {
+			t.Errorf("a malformed actor id reached the repository (%d calls)", f.templates.listCalls)
 		}
 	})
 }

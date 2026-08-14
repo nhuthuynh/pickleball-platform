@@ -346,6 +346,26 @@ message ListRecurringHireTemplatesForFacilityResponse {
   repeated RecurringHireTemplate templates = 1;
 }
 
+// ListRecurringHireTemplatesForActorRequest is the Club's own status view
+// (T11.6): the templates THIS actor requested, whatever became of them.
+//
+// There is deliberately no facility_id/court_id/status filter. The actor is
+// the entire scope, and a status filter would invite a client to show only
+// the open requests — the exact shape that would hide a rejection instead of
+// reporting it.
+message ListRecurringHireTemplatesForActorRequest {
+  // actor_user_id is a caller-supplied claim, not a verified identity — see
+  // HANDOFF.md's Auth cross-cutting item. Unlike the Facility-scoped read
+  // above, where an object-level owner check still constrains a forged actor,
+  // here the actor id IS the scope: authenticating the actor is what makes
+  // this endpoint correctly scoped, and nothing else can.
+  string actor_user_id = 1;
+}
+
+message ListRecurringHireTemplatesForActorResponse {
+  repeated RecurringHireTemplate templates = 1;
+}
+
 // BookingService is the API contract for the Booking bounded context. buf
 // generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this file —
 // it is the single source of truth for the Go server, the Vue client, and
@@ -446,6 +466,32 @@ service BookingService {
   rpc ListRecurringHireTemplatesForFacility(ListRecurringHireTemplatesForFacilityRequest) returns (ListRecurringHireTemplatesForFacilityResponse) {
     option (google.api.http) = {
       get: "/v1/facilities/{facility_id}/recurring-hire-templates"
+    };
+  }
+
+  // ListRecurringHireTemplatesForActor is the Club's own status view — the
+  // read side of RequestRecurringHire (T11.6). T11.5 shipped only the
+  // Facility Owner's queue above and flagged this as a gap; a Club had no way
+  // to see whether its own request had been answered.
+  //
+  // Authorization is deliberately different from, not weaker than, the
+  // Facility read's: that one returns other parties' requests and therefore
+  // proves Facility ownership first, while this one filters on
+  // requested_by_user_id, so the actor's identity IS the scope and there is
+  // no second party's data an ownership check could protect. There is
+  // likewise NO `club`-role check: T11.5 already gates creation on that role,
+  // so a non-club actor's list is empty regardless, and requiring it here
+  // would only cost a Club that later lost the role its own request history —
+  // including the rejections it most needs to read. See the app method's doc
+  // comment for the full reasoning.
+  //
+  // The actor travels as a query parameter rather than a path segment
+  // (`/v1/users/{actor_user_id}/...`) on purpose: `/v1/users/**` is the
+  // Identity context's REST namespace, and this is a Booking resource
+  // filtered by actor, not a sub-resource of a User.
+  rpc ListRecurringHireTemplatesForActor(ListRecurringHireTemplatesForActorRequest) returns (ListRecurringHireTemplatesForActorResponse) {
+    option (google.api.http) = {
+      get: "/v1/recurring-hire-templates"
     };
   }
 }

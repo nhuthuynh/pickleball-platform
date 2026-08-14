@@ -235,6 +235,16 @@ func (unusedRecurringHireRepository) ListForCourts(_ context.Context, _ []string
 	return nil, nil
 }
 
+// ListForRequester was added to port.RecurringHireRepository in T11.6. It is
+// listed here for the same reason as the four above — and because this file is
+// behind `//go:build integration`, a plain `go vet ./...` would NOT have
+// noticed it missing: T11.5 broke exactly this check by growing the Service's
+// wiring without updating this file, so `go vet -tags=integration ./...` is
+// part of this ticket's verification list, not an optional extra.
+func (unusedRecurringHireRepository) ListForRequester(_ context.Context, _ string) ([]domain.RecurringHireTemplate, error) {
+	return nil, nil
+}
+
 type unusedIdentityLookup struct{}
 
 func (unusedIdentityLookup) EnsureClubRole(_ context.Context, _ string) error {

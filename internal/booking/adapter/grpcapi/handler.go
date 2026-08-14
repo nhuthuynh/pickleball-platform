@@ -263,6 +263,24 @@ func (h *Handler) ListRecurringHireTemplatesForFacility(ctx context.Context, req
 	return &bookingv1.ListRecurringHireTemplatesForFacilityResponse{Templates: out}, nil
 }
 
+// ListRecurringHireTemplatesForActor is the Club's own status view (T11.6).
+// Every status is returned — a rejected template is reported as rejected, not
+// omitted — because omission is what would let a client imply a decided
+// request is still open. See the app method for the authorization reasoning
+// (the actor's identity is the scope; deliberately no role check).
+func (h *Handler) ListRecurringHireTemplatesForActor(ctx context.Context, req *bookingv1.ListRecurringHireTemplatesForActorRequest) (*bookingv1.ListRecurringHireTemplatesForActorResponse, error) {
+	templates, err := h.svc.ListRecurringHireTemplatesForActor(ctx, req.GetActorUserId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*bookingv1.RecurringHireTemplate, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, toProtoRecurringHireTemplate(t))
+	}
+	return &bookingv1.ListRecurringHireTemplatesForActorResponse{Templates: out}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, InvalidArgument ->
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking

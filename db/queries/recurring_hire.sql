@@ -50,3 +50,21 @@ SELECT id, requested_by_user_id, court_id, weekday, start_min, end_min,
 FROM recurring_hire_templates
 WHERE court_id = ANY(@court_ids::uuid[])
 ORDER BY created_at;
+
+-- name: ListRecurringHireTemplatesForRequester :many
+-- The Club-facing "my requests" read (T11.6), the counterpart to the
+-- owner-facing court-keyed query above. It uses
+-- recurring_hire_templates_requested_by_idx, the index
+-- 0018_booking_recurring_hire_templates.sql added in anticipation of exactly
+-- this query — no new index is needed.
+--
+-- No status filter: the status view has to show requested, approved AND
+-- rejected templates, and a rejection is a real terminal state a Club must be
+-- able to see rather than one that quietly disappears from its own list.
+-- Ordered oldest-first, the same arrival order the owner's queue reads in.
+SELECT id, requested_by_user_id, court_id, weekday, start_min, end_min,
+       starts_at, end_condition_kind, end_condition_date,
+       end_condition_occurrences, status
+FROM recurring_hire_templates
+WHERE requested_by_user_id = $1
+ORDER BY created_at;

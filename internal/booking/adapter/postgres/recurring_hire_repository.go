@@ -98,6 +98,25 @@ func (r *RecurringHireRepository) ListForCourts(ctx context.Context, courtIDs []
 	return out, nil
 }
 
+// ListForRequester is the Club-facing "my requests" read (T11.6). It needs no
+// empty-input short-circuit the way ListForCourts does — a single id is either
+// present or not — but it does need the app layer's uuidShape guard upstream,
+// because mustUUID below panics on anything pgtype.UUID.Scan cannot parse.
+func (r *RecurringHireRepository) ListForRequester(ctx context.Context, requestedByUserID string) ([]domain.RecurringHireTemplate, error) {
+	rows, err := r.q.ListRecurringHireTemplatesForRequester(ctx, mustUUID(requestedByUserID))
+	if err != nil {
+		return nil, translateRecurringHireErr(err)
+	}
+
+	out := make([]domain.RecurringHireTemplate, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromRecurringHireFields(row.ID, row.RequestedByUserID, row.CourtID, row.Weekday,
+			row.StartMin, row.EndMin, row.StartsAt, row.EndConditionKind, row.EndConditionDate,
+			row.EndConditionOccurrences, row.Status))
+	}
+	return out, nil
+}
+
 // fromRecurringHireFields converts the eleven columns every
 // recurring_hire_templates query selects into a domain.RecurringHireTemplate.
 // It takes fields rather than a row struct on purpose: sqlc generates a

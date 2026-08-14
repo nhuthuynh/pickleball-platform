@@ -16,6 +16,44 @@ import { MIN_SELF_REPORTED_LEVEL, MAX_SELF_REPORTED_LEVEL } from './identityLeve
 
 export type RawUser = components['schemas']['v1User']
 
+/**
+ * A Role exactly as the Identity/Users context defines it — the same closed
+ * enum `internal/identity/domain` and `identity.proto` carry, not a
+ * client-side re-listing of it (CLAUDE.md rule 7: one ubiquitous language).
+ * Added T11.6, whose Club rental screen has to know whether the current actor
+ * really holds `club`.
+ */
+export type Role = components['schemas']['v1Role']
+
+/** The role that gates requesting a recurring hire (T11.5's server-side
+ * check, mirrored here only to decide what to SHOW — see `hasClubRole`). */
+export const CLUB_ROLE: Role = 'ROLE_CLUB'
+
+/**
+ * The roles a User actually holds, from `GetUser`.
+ *
+ * An absent `roles` array maps to `[]`, never to a guessed default — "we did
+ * not learn any roles" and "this user holds no roles" both mean the same
+ * thing to a caller, and both must fail CLOSED at every call site.
+ */
+export function mapToUserRoles(raw: RawUser): Role[] {
+  return raw.roles ?? []
+}
+
+/**
+ * Whether the actor holds the Club role.
+ *
+ * **This is a rendering decision, never an authorization one.** The real check
+ * lives in the backend: `RequestRecurringHire` resolves the actor's Roles
+ * server-side and answers PermissionDenied for a non-Club (T11.5, sprint plan
+ * A4 checklist item 2). Hiding the control here means a non-Club is not shown
+ * an action that would fail; it is not what makes the action safe, and a
+ * client that lied about this would still be refused.
+ */
+export function hasClubRole(roles: Role[]): boolean {
+  return roles.includes(CLUB_ROLE)
+}
+
 /** The Profile screen's data: a read-only display name plus the editable
  * self-reported starting level. */
 export interface UserProfile {

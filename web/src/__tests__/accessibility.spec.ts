@@ -88,6 +88,13 @@ const ROUTES_UNDER_TEST: { path: string; label: string }[] = [
   { path: '/facilities', label: 'facilities' },
   { path: '/facilities/onboard', label: 'facilities-onboard' },
   { path: '/facilities/facility-1/discounts', label: 'facility-discounts' },
+  // T11.6's two screens. Both build to this bar from the start (per the
+  // sprint plan's A6 note that T11.7 does not re-audit them), and both are
+  // swept here for the same reason every other route is: this list is
+  // path-identity-checked against router/index.ts by the test just below, so
+  // a new route cannot land without landing here too.
+  { path: '/facilities/facility-1/rental-requests', label: 'facility-rental-requests' },
+  { path: '/clubs/rentals', label: 'club-rentals' },
   { path: '/games', label: 'games' },
   { path: '/games/new', label: 'games-new' },
   { path: '/games/game-1/checkout', label: 'game-checkout' },
