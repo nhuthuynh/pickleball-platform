@@ -569,3 +569,72 @@ func (s *Service) ListMatchesForGame(ctx context.Context, gameID string) ([]doma
 
 	return s.matches.ListForGame(ctx, gameID)
 }
+
+// CancelGame transitions a Game to cancelled on its Host's behalf (T12.4) —
+// the RPC that domain.Game.Cancel has had no caller for since T5.1.
+//
+// domain.Game.EnsureHost runs first, before any state changes and before
+// any status precondition: a non-Host actor is rejected with
+// domain.ErrNotGameHost (which the handler maps to PermissionDenied, never
+// Internal). This is Social Play's Game-level object-level (BOLA)
+// authorization check, and it is deliberately **Host-only** — an assigned
+// Game Admin, who may record a match result via RecordMatchResult, may not
+// cancel the Game. That is why this method takes no
+// AssignedGameAdminUserIDs argument and why ErrNotGameHost is a separate
+// sentinel from ErrNotGameHostOrAdmin (see domain/errors.go).
+//
+// As everywhere else in this codebase, actorPlayerID is a caller-supplied
+// claim, not a verified identity: this is an object-level check given a
+// claimed actor, not authentication. Real authentication remains
+// HANDOFF.md's open Auth item — T12.8 migrates this context to a verified
+// principal, and only then does this check become trustworthy end to end.
+//
+// The already-cancelled case deliberately goes through
+// Game.EnsureNotCancelled (-> domain.ErrGameCancelled ->
+// codes.FailedPrecondition) rather than relying on Game.Cancel's own
+// ErrIllegalStatusTransition. T12.4's error table requires
+// FailedPrecondition for a second cancel, but socialplay's toStatus maps
+// ErrIllegalStatusTransition to InvalidArgument — and it is shared with the
+// three waitlist transition paths (domain/waitlist.go), so re-mapping the
+// sentinel globally would silently change JoinWaitlist/promotion/expiry
+// response codes for a rule this ticket has no business touching. Cancel()
+// is still called afterwards and remains the domain's authoritative
+// transition guard; with Status's current two-value enum the two checks
+// coincide, but the guard is kept so a future third status is still
+// rejected by the domain rather than only by this method.
+//
+// KNOWN GAP, inherited from domain.Game.Cancel and restated here because
+// this is the layer that could close it: cancelling a Game does NOT cascade
+// to the court Bookings it reserved or to its Registrations. Tracked in
+// GitHub issue #124; it needs a product decision (are the reserved courts
+// freed, are players refunded) before it can be built, so it is left
+// visibly undone rather than half-implemented here.
+func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string) (domain.Game, error) {
+	// Same T10.7-shaped boundary guard the methods above apply, for the
+	// identical reason: this method calls GetByID(gameID) next, and a
+	// malformed id must answer exactly what an unknown-but-well-formed one
+	// answers (domain.ErrGameNotFound) rather than reaching the Postgres
+	// adapter's mustUUID and panicking.
+	if !uuidShape.MatchString(gameID) {
+		return domain.Game{}, domain.ErrGameNotFound
+	}
+
+	game, err := s.games.GetByID(ctx, gameID)
+	if err != nil {
+		return domain.Game{}, err
+	}
+
+	if err := game.EnsureHost(actorPlayerID); err != nil {
+		return domain.Game{}, err
+	}
+
+	if err := game.EnsureNotCancelled(); err != nil {
+		return domain.Game{}, err
+	}
+
+	if err := game.Cancel(); err != nil {
+		return domain.Game{}, err
+	}
+
+	return s.games.UpdateStatus(ctx, game.ID, game.Status)
+}

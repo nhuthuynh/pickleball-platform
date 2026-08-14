@@ -82,6 +82,21 @@ func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.Canc
 	return &socialplayv1.CancelRegistrationResponse{Registration: toProtoRegistration(reg)}, nil
 }
 
+// CancelGame cancels a Game on its Host's behalf (T12.4). The object-level
+// authorization check lives in domain.Game.EnsureHost, reached via
+// app.Service.CancelGame; this handler only translates the wire request and
+// maps domain errors through toStatus (non-Host -> PermissionDenied,
+// unknown/malformed game_id -> NotFound, already-cancelled ->
+// FailedPrecondition). req.GetActorPlayerId() is a claimed actor, not a
+// verified one — see CancelGameRequest's doc comment in the proto.
+func (h *Handler) CancelGame(ctx context.Context, req *socialplayv1.CancelGameRequest) (*socialplayv1.CancelGameResponse, error) {
+	game, err := h.svc.CancelGame(ctx, req.GetGameId(), req.GetActorPlayerId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &socialplayv1.CancelGameResponse{Game: toProtoGame(game)}, nil
+}
+
 func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitlistRequest) (*socialplayv1.JoinWaitlistResponse, error) {
 	entry, err := h.svc.JoinWaitlist(ctx, app.JoinWaitlistInput{
 		GameID:   req.GetGameId(),
@@ -241,7 +256,13 @@ func toStatus(err error) error {
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrNotRegistrationOwner),
 		errors.Is(err, domain.ErrNotWaitlistEntryOwner),
-		errors.Is(err, domain.ErrNotGameHostOrAdmin):
+		errors.Is(err, domain.ErrNotGameHostOrAdmin),
+		// ErrNotGameHost (T12.4, CancelGame) joins the same
+		// PermissionDenied group as ErrNotGameHostOrAdmin but stays a
+		// distinct sentinel: the two gate different permitted-actor sets
+		// (Host-only vs Host-or-Game-Admin). A shared status code is not a
+		// reason to share a sentinel — see domain/errors.go.
+		errors.Is(err, domain.ErrNotGameHost):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrGameNotFound),
 		errors.Is(err, domain.ErrRegistrationNotFound),

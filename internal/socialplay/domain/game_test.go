@@ -196,3 +196,60 @@ func TestGame_EnsureNotCancelled(t *testing.T) {
 		t.Fatalf("cancelled game: got err %v, want %v", err, domain.ErrGameCancelled)
 	}
 }
+
+// --- T12.4: EnsureHost -----------------------------------------------------
+
+// TestGame_EnsureHost is the required table-driven boundary coverage for
+// CancelGame's object-level (BOLA) authorization check. Deliberately
+// separate from TestGame_EnsureHostOrGameAdmin above, and asserting a
+// *different* sentinel: cancelling a Game is Host-only, so a Game Admin who
+// would be allowed to record a match result is rejected here. That
+// difference is the whole point of ErrNotGameHost existing alongside
+// ErrNotGameHostOrAdmin — see ErrNotGameHost's doc comment in errors.go.
+func TestGame_EnsureHost(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		hostID        string
+		actorPlayerID string
+		wantErr       error
+	}{
+		{"host is allowed", "host-1", "host-1", nil},
+		{"mismatched actor is rejected", "host-1", "random-player", domain.ErrNotGameHost},
+		{"empty actor is rejected", "host-1", "", domain.ErrNotGameHost},
+		{"empty actor against an empty host is still rejected", "", "", domain.ErrNotGameHost},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			g := domain.Game{HostID: tt.hostID}
+			err := g.EnsureHost(tt.actorPlayerID)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("got err %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestGame_EnsureHost_GameAdminIsRejected pins the distinction that makes
+// ErrNotGameHost a separate sentinel rather than a reuse of
+// ErrNotGameHostOrAdmin: the same actor that EnsureHostOrGameAdmin admits
+// as an assigned Game Admin (and therefore may record a match result) is
+// NOT permitted to cancel the Game. A future "simplification" that unified
+// the two checks would fail here.
+func TestGame_EnsureHost_GameAdminIsRejected(t *testing.T) {
+	t.Parallel()
+
+	g := domain.Game{HostID: "host-1"}
+	const gameAdmin = "admin-1"
+
+	if err := g.EnsureHostOrGameAdmin(gameAdmin, []string{gameAdmin}); err != nil {
+		t.Fatalf("fixture precondition: an assigned game admin must pass EnsureHostOrGameAdmin, got %v", err)
+	}
+	if err := g.EnsureHost(gameAdmin); !errors.Is(err, domain.ErrNotGameHost) {
+		t.Fatalf("a game admin must NOT be able to cancel the game: got err %v, want %v", err, domain.ErrNotGameHost)
+	}
+}

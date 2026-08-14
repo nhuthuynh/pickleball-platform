@@ -57,6 +57,23 @@ WHERE g.status = 'scheduled'
 GROUP BY g.id
 ORDER BY g.starts_at;
 
+-- name: UpdateGameStatus :one
+-- Dedicated single-column update (T12.4's app.Service.CancelGame),
+-- following the same one-query-per-updatable-field convention as
+-- UpdateRegistrationStatus, UpdateBookingStatus and
+-- UpdateCompetitionStatus: scoped to exactly the status column, so this
+-- write path cannot accidentally clobber a Game's capacity, court_ids,
+-- payment_method, guest_allowance or entry fee.
+--
+-- The RETURNING list is the same 13 columns CreateGame/GetGameByID select,
+-- so gameFromFields converts this row exactly as it converts theirs (see
+-- its doc comment: sqlc mints a distinct ...Row struct per query, so the
+-- shared conversion takes the columns, not a struct).
+UPDATE games
+SET status = $2
+WHERE id = $1
+RETURNING id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance, entry_fee_cents, entry_fee_currency;
+
 -- name: CreateRegistration :one
 INSERT INTO registrations (id, game_id, player_id, source, status, payment_status, guest_count)
 VALUES ($1, $2, $3, $4, $5, $6, $7)

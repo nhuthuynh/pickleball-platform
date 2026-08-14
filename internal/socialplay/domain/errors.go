@@ -178,4 +178,32 @@ var (
 	ErrEmptyScore         = errors.New("socialplay: match score is required")
 	ErrNotGameHostOrAdmin = errors.New("socialplay: only the game's host or an assigned game admin may record a match result")
 	ErrGameCancelled      = errors.New("socialplay: game is cancelled")
+
+	// ErrNotGameHost is Game.EnsureHost's rejection (T12.4): the actor
+	// attempting to cancel a Game is not that Game's Host. Mirrors
+	// competitions.ErrNotCompetitionHost/facilities.ErrNotFacilityOwner's
+	// flat, single-sentinel shape.
+	//
+	// DO NOT UNIFY THIS WITH ErrNotGameHostOrAdmin ABOVE. The two sentinels
+	// look near-identical and gate near-identical-looking checks, but they
+	// encode two genuinely different authorization rules on the same
+	// aggregate, and collapsing them would silently widen one of them:
+	//
+	//   - ErrNotGameHostOrAdmin gates RecordMatchResult (T10.4), which the
+	//     Host *or* any assigned Game Admin may perform. Recording a score
+	//     is routine scorekeeping — CLAUDE.md's locked decision that
+	//     "per-game Game Admins can record offline payments" is the same
+	//     delegation shape.
+	//   - ErrNotGameHost gates CancelGame (T12.4), which is **Host-only**.
+	//     Cancelling is destructive and irreversible (Game.Cancel permits
+	//     no transition back out of cancelled), so it is deliberately NOT
+	//     delegated to Game Admins. A Game Admin who may legitimately
+	//     record a match result must still be refused here — see
+	//     domain.TestGame_EnsureHost_GameAdminIsRejected, which exists
+	//     precisely to fail if the two are ever merged.
+	//
+	// Both map to codes.PermissionDenied at the gRPC boundary; that shared
+	// mapping is not a reason to share a sentinel, since the callers'
+	// permitted-actor sets differ.
+	ErrNotGameHost = errors.New("socialplay: only the game's host may cancel the game")
 )

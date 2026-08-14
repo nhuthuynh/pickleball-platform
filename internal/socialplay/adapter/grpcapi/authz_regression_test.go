@@ -84,6 +84,19 @@ func (f *fakeGameRepo) ListGames(_ context.Context, _ port.GameListingFilter) ([
 	return nil, nil
 }
 
+// UpdateStatus is the in-memory port.GameRepository.UpdateStatus stand-in
+// (T12.4), backing CancelGame. Like the real single-column query, it writes
+// only Status and leaves every other field on the stored Game untouched.
+func (f *fakeGameRepo) UpdateStatus(_ context.Context, id string, status domain.Status) (domain.Game, error) {
+	g, ok := f.games[id]
+	if !ok {
+		return domain.Game{}, domain.ErrGameNotFound
+	}
+	g.Status = status
+	f.games[id] = g
+	return g, nil
+}
+
 type fakeRegistrationRepo struct {
 	regs map[string]domain.Registration
 }
@@ -351,22 +364,248 @@ func TestCancelRegistration_AllowsOwningActor(t *testing.T) {
 	}
 }
 
-// --- CreateGame / Game.Cancel(): explicitly out of scope for this ticket --
+// --- CancelGame: object-level (BOLA) regression, T12.4 --------------------
 //
-// The ticket also asks for the equivalent regression test on CreateGame
-// (only a Game's HostID may Cancel() it, T5.1) "if it fits within this
-// ticket's points; if not, split into a follow-up rather than silently
-// skip it."
+// This block replaces the placeholder T5.5 left here. That comment recorded
+// why the CreateGame/Game.Cancel() half of T5.5 was split into a follow-up:
+// there was no CancelGame RPC at all, domain.Game.Cancel() took no actor
+// parameter, and socialplay.proto exposed no method to reach it — so there
+// was nothing to test through the stack. T12.4 built all three (the
+// ErrNotGameHost sentinel, Game.EnsureHost, app.Service.CancelGame, the
+// RPC and the handler), so the follow-up is now the tests below.
 //
-// It does not fit: there is currently no CancelGame RPC at all.
-// domain.Game.Cancel() (internal/socialplay/domain/game.go) takes no actor
-// parameter — it isn't even ownership-checked at the domain level yet,
-// unlike Registration.Cancel — and proto/pickleball/socialplay/v1/
-// socialplay.proto exposes no CancelGame method, so there is no
-// app.Service method or grpcapi.Handler RPC to test through the stack in
-// the first place. Building one is proto + app + handler + regression-test
-// work (closer to a T5.1/T5.4-shaped ticket than a T5.5-shaped regression
-// test), not an extension of an existing pattern. Per the loop-mechanics
-// rule on mis-scoped tickets, this is split into a follow-up rather than
-// silently dropped — see the PR description and the new HANDOFF.md
-// cross-cutting note this PR adds.
+// Same shape and same justification as the CancelRegistration tests above,
+// and as T7.7's Facilities equivalent: real grpcapi.Handler -> real
+// app.Service -> real domain.Game, with only the persistence boundary
+// faked. No Docker, no Postgres — the check under test lives entirely in
+// domain.Game.EnsureHost, which port.GameRepository does not influence, so
+// a real database round trip would add infrastructure, not proof.
+//
+// CAVEAT, stated here and in the PR rather than left implicit: this is an
+// object-level check given a *claimed* actor, not authentication.
+// actor_player_id is caller-supplied; nothing yet verifies the caller is
+// who they say they are. T12.8 (this sprint, not this ticket) migrates
+// Social Play to a verified principal, at which point these checks become
+// trustworthy end to end. Until then, what is proven below is exactly:
+// "given a claimed actor, the Host-only rule is enforced through the full
+// stack and maps to the right gRPC code."
+
+// seedGameWithHost is seedGame's sibling for the CancelGame tests: the
+// same fixture, but with a caller-chosen HostID, since every assertion
+// below turns on who the Host actually is. seedGame hard-codes "host-1".
+func seedGameWithHost(t *testing.T, gameRepo *fakeGameRepo, label, hostID string) domain.Game {
+	t.Helper()
+	start := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	rng, err := domain.NewTimeRange(start, end)
+	if err != nil {
+		t.Fatalf("bad fixture range: %v", err)
+	}
+	g, err := domain.NewGame(seedGameUUID(label), hostID, "facility-1", "venue-1", []string{"court-1"}, rng, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	if err != nil {
+		t.Fatalf("bad fixture game: %v", err)
+	}
+	g, err = gameRepo.Create(context.Background(), g)
+	if err != nil {
+		t.Fatalf("failed to seed fixture game: %v", err)
+	}
+	return g
+}
+
+// TestCancelGame_RejectsNonHostActor is this ticket's required proof:
+// seed a Game hosted by player-A, attempt CancelGame as player-B through
+// the real handler -> app -> domain path, and assert it is rejected with
+// the correctly mapped status — not a 500, not a silent success.
+func TestCancelGame_RejectsNonHostActor(t *testing.T) {
+	ctx := context.Background()
+	h, gameRepo, _ := newTestHandler()
+
+	game := seedGameWithHost(t, gameRepo, "cancel-game-1", "player-A")
+
+	// The BOLA attempt: player-B, who does not host this Game, tries to
+	// cancel it.
+	_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
+		GameId:        game.ID,
+		ActorPlayerId: "player-B",
+	})
+	if err == nil {
+		t.Fatal("CancelGame(player-B) succeeded silently — player B was able to cancel player A's Game (BOLA regression)")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("CancelGame(player-B) returned a non-gRPC-status error: %v (a client can't map this to a clean status)", err)
+	}
+	if st.Code() == codes.Internal {
+		t.Fatalf("CancelGame(player-B) mapped to Internal — want PermissionDenied: %v", err)
+	}
+	if st.Code() != codes.PermissionDenied {
+		t.Fatalf("CancelGame(player-B) status code = %v, want PermissionDenied", st.Code())
+	}
+
+	// Per the "not a silent success" standard the CancelRegistration test
+	// above sets: prove the Game itself was left untouched, not merely that
+	// an error came back on the wire.
+	stored, err := gameRepo.GetByID(ctx, game.ID)
+	if err != nil {
+		t.Fatalf("failed to re-fetch game: %v", err)
+	}
+	if stored.Status != domain.StatusScheduled {
+		t.Errorf("game status after rejected cancel = %v, want still %v (player B's rejected attempt must have no side effect)",
+			stored.Status, domain.StatusScheduled)
+	}
+}
+
+// TestCancelGame_AllowsHost is the symmetric positive-path case: without
+// it, the rejection test alone couldn't distinguish "the ownership check
+// correctly rejects a non-Host" from "CancelGame is broken and rejects
+// everyone."
+// It also deliberately calls through the generated
+// socialplayv1.SocialPlayServiceServer *interface* rather than the concrete
+// *grpcapi.Handler. grpcapi.Handler embeds
+// UnimplementedSocialPlayServiceServer, so a CancelGame method with a
+// subtly wrong signature would shadow the promoted stub by name, leave the
+// real RPC answering codes.Unimplemented over the wire, and still let every
+// direct-call test in this file pass. Binding the handler to the interface
+// here is what makes that impossible: it is the same assertion
+// cmd/server's RegisterSocialPlayServiceServer makes at wiring time.
+func TestCancelGame_AllowsHost(t *testing.T) {
+	ctx := context.Background()
+	h, gameRepo, _ := newTestHandler()
+
+	var srv socialplayv1.SocialPlayServiceServer = h
+
+	game := seedGameWithHost(t, gameRepo, "cancel-game-2", "player-A")
+
+	resp, err := srv.CancelGame(ctx, &socialplayv1.CancelGameRequest{
+		GameId:        game.ID,
+		ActorPlayerId: "player-A",
+	})
+	if err != nil {
+		t.Fatalf("CancelGame(player-A) (the host) should succeed, got: %v", err)
+	}
+	if resp.GetGame().GetStatus() != socialplayv1.GameStatus_GAME_STATUS_CANCELLED {
+		t.Errorf("game status = %v, want GAME_STATUS_CANCELLED", resp.GetGame().GetStatus())
+	}
+
+	stored, err := gameRepo.GetByID(ctx, game.ID)
+	if err != nil {
+		t.Fatalf("failed to re-fetch game: %v", err)
+	}
+	if stored.Status != domain.StatusCancelled {
+		t.Errorf("persisted game status = %v, want %v (the response must reflect a real write)", stored.Status, domain.StatusCancelled)
+	}
+}
+
+// TestCancelGame_RejectsGameAdminActor is the test that keeps ErrNotGameHost
+// and ErrNotGameHostOrAdmin from being "simplified" into one sentinel. The
+// actor here is a legitimate assigned Game Admin — RecordMatchResult
+// accepts them, asserted directly below so the fixture cannot silently rot
+// into a test of nothing — and CancelGame must still refuse them, because
+// cancelling a Game is Host-only.
+func TestCancelGame_RejectsGameAdminActor(t *testing.T) {
+	ctx := context.Background()
+	h, gameRepo, _ := newTestHandler()
+
+	game := seedGameWithHost(t, gameRepo, "cancel-game-3", "player-A")
+	const gameAdmin = "player-admin"
+
+	// Fixture precondition, asserted rather than assumed: this actor really
+	// is authorized for the Host-or-Admin operation.
+	if _, err := h.RecordMatchResult(ctx, &socialplayv1.RecordMatchResultRequest{
+		GameId:                   game.ID,
+		Players:                  []string{"player-A", "player-B"},
+		Score:                    map[string]int32{"player-A": 11, "player-B": 7},
+		ActorUserId:              gameAdmin,
+		AssignedGameAdminUserIds: []string{gameAdmin},
+	}); err != nil {
+		t.Fatalf("fixture precondition: %q must be accepted as an assigned game admin by RecordMatchResult, got: %v", gameAdmin, err)
+	}
+
+	// ... and is still refused the Host-only operation.
+	_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
+		GameId:        game.ID,
+		ActorPlayerId: gameAdmin,
+	})
+	if err == nil {
+		t.Fatal("CancelGame(game admin) succeeded — cancelling a Game is Host-only; a Game Admin must not be able to cancel it")
+	}
+	st, _ := status.FromError(err)
+	if st.Code() != codes.PermissionDenied {
+		t.Fatalf("CancelGame(game admin) status code = %v, want PermissionDenied", st.Code())
+	}
+
+	stored, err := gameRepo.GetByID(ctx, game.ID)
+	if err != nil {
+		t.Fatalf("failed to re-fetch game: %v", err)
+	}
+	if stored.Status != domain.StatusScheduled {
+		t.Errorf("game status after rejected cancel = %v, want still %v", stored.Status, domain.StatusScheduled)
+	}
+}
+
+// TestCancelGame_ErrorMapping covers the rest of T12.4's error table
+// through the same real handler: an empty actor is rejected like any other
+// non-Host, an unknown or malformed game id answers NotFound (never a
+// panic, never Internal — the T10.7-shaped boundary guard), and a second
+// cancel by the rightful Host answers FailedPrecondition rather than
+// silently succeeding.
+func TestCancelGame_ErrorMapping(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty actor -> PermissionDenied", func(t *testing.T) {
+		h, gameRepo, _ := newTestHandler()
+		game := seedGameWithHost(t, gameRepo, "cancel-game-4", "player-A")
+
+		_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{GameId: game.ID})
+		st, _ := status.FromError(err)
+		if st.Code() != codes.PermissionDenied {
+			t.Fatalf("status code = %v, want PermissionDenied (an unidentified caller is never the host)", st.Code())
+		}
+	})
+
+	t.Run("unknown game id -> NotFound", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+
+		_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
+			GameId:        seedGameUUID("never-seeded"),
+			ActorPlayerId: "player-A",
+		})
+		st, _ := status.FromError(err)
+		if st.Code() != codes.NotFound {
+			t.Fatalf("status code = %v, want NotFound", st.Code())
+		}
+	})
+
+	t.Run("malformed game id -> NotFound", func(t *testing.T) {
+		h, _, _ := newTestHandler()
+
+		_, err := h.CancelGame(ctx, &socialplayv1.CancelGameRequest{
+			GameId:        "not-a-uuid",
+			ActorPlayerId: "player-A",
+		})
+		st, _ := status.FromError(err)
+		if st.Code() != codes.NotFound {
+			t.Fatalf("status code = %v, want NotFound (a malformed id must answer exactly as an unknown one does, not Internal or a panic)", st.Code())
+		}
+	})
+
+	t.Run("already-cancelled game -> FailedPrecondition", func(t *testing.T) {
+		h, gameRepo, _ := newTestHandler()
+		game := seedGameWithHost(t, gameRepo, "cancel-game-5", "player-A")
+
+		req := &socialplayv1.CancelGameRequest{GameId: game.ID, ActorPlayerId: "player-A"}
+		if _, err := h.CancelGame(ctx, req); err != nil {
+			t.Fatalf("first cancel should succeed, got: %v", err)
+		}
+
+		_, err := h.CancelGame(ctx, req)
+		if err == nil {
+			t.Fatal("a second cancel succeeded silently; it must be rejected")
+		}
+		st, _ := status.FromError(err)
+		if st.Code() != codes.FailedPrecondition {
+			t.Fatalf("status code = %v, want FailedPrecondition", st.Code())
+		}
+	})
+}

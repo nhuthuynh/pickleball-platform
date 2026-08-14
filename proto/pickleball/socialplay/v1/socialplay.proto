@@ -348,6 +348,37 @@ message ListMatchesForGameResponse {
   repeated Match matches = 1;
 }
 
+// CancelGameRequest.actor_player_id is a claimed identity, not a verified
+// one — the same known gap every actor field on this service carries
+// (RegisterForGameRequest.player_id,
+// CancelRegistrationRequest.actor_player_id,
+// RecordMatchResultRequest.actor_user_id): there is no JWT/session layer on
+// this context yet (HANDOFF.md's cross-cutting Auth backlog; T12.8 is the
+// ticket that migrates Social Play to a verified principal). The
+// object-level check this enables — only the Game's Host may cancel it,
+// domain.Game.EnsureHost — is real; the identity behind actor_player_id is
+// not authenticated yet.
+//
+// Deliberately Host-only, and deliberately WITHOUT the
+// assigned_game_admin_user_ids field RecordMatchResultRequest carries: a
+// Game Admin may record a match result but may not cancel the Game.
+// Cancelling is destructive and irreversible, so it is not delegated. See
+// domain.ErrNotGameHost's doc comment for the full reasoning — do not
+// "harmonize" this message with RecordMatchResultRequest by adding an
+// admin list, which would silently widen who can cancel a Game.
+//
+// KNOWN GAP (tracked in GitHub issue #124, not re-litigated here):
+// cancelling a Game does not cascade to the court Bookings it reserved or
+// to its Registrations.
+message CancelGameRequest {
+  string game_id = 1;
+  string actor_player_id = 2;
+}
+
+message CancelGameResponse {
+  Game game = 1;
+}
+
 // SocialPlayService is the API contract for the Social Play bounded
 // context, mirroring BookingService's style (proto/pickleball/booking/v1) —
 // buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
@@ -435,6 +466,23 @@ service SocialPlayService {
   rpc ListMatchesForGame(ListMatchesForGameRequest) returns (ListMatchesForGameResponse) {
     option (google.api.http) = {
       get: "/v1/games/{game_id}/matches"
+    };
+  }
+
+  // CancelGame cancels a Game, but only when actor_player_id is that Game's
+  // own Host (object-level check — domain.Game.EnsureHost; see
+  // CancelGameRequest's doc comment on what this does and does not prove
+  // without real auth, and on why a Game Admin is NOT permitted here even
+  // though RecordMatchResult above accepts one).
+  //
+  // Verb-suffixed path, mirroring CancelRegistration's
+  // "/v1/registrations/{registration_id}:cancel" — a cancellation is a
+  // state transition on an existing resource, not a DELETE of it (the Game
+  // row survives, with status cancelled).
+  rpc CancelGame(CancelGameRequest) returns (CancelGameResponse) {
+    option (google.api.http) = {
+      post: "/v1/games/{game_id}:cancel"
+      body: "*"
     };
   }
 }
