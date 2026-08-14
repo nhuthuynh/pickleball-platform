@@ -9,6 +9,7 @@ sql:
       - "db/queries/booking.sql"
       - "db/queries/pricing.sql"
       - "db/queries/discounts.sql"
+      - "db/queries/recurring_hire.sql"
     schema: "db/migrations"
     gen:
       go:

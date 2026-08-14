@@ -62,7 +62,7 @@ func TestGetQuote_ResolvesPriceForSlot(t *testing.T) {
 	pricingRepo := &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
 		courtID(1): weekdayPricingRules(),
 	}}
-	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	tests := []struct {

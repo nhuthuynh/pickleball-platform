@@ -83,6 +83,23 @@ func (l *fakeFacilityLookup) FacilityIDForCourt(_ context.Context, courtID strin
 	return id, nil
 }
 
+// CourtIDsForFacility is the inverse of facilityByCourt (T11.5). An unknown
+// Facility is ErrFacilityNotFound rather than an empty slice, matching the
+// port's contract — a Facility with no Courts and a Facility that does not
+// exist are different answers.
+func (l *fakeFacilityLookup) CourtIDsForFacility(_ context.Context, facilityID string) ([]string, error) {
+	if _, ok := l.ownerByFacility[facilityID]; !ok {
+		return nil, domain.ErrFacilityNotFound
+	}
+	out := make([]string, 0, len(l.facilityByCourt))
+	for court, fID := range l.facilityByCourt {
+		if fID == facilityID {
+			out = append(out, court)
+		}
+	}
+	return out, nil
+}
+
 func percentInput(fid, actor string) app.CreateDiscountRuleInput {
 	return app.CreateDiscountRuleInput{
 		FacilityID:   fid,
@@ -103,7 +120,7 @@ func newDiscountSvc(owner string) (*app.Service, *fakeDiscountRepo, *fakeFacilit
 		ownerByFacility: map[string]string{facilityID(1): owner},
 		facilityByCourt: map[string]string{courtID(1): facilityID(1)},
 	}
-	svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, discounts, lookup, &sequentialIDs{})
+	svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, discounts, newFakeRecurringHireRepo(), lookup, &fakeIdentityLookup{}, &sequentialIDs{})
 	return svc, discounts, lookup
 }
 

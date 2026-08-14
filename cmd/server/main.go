@@ -36,6 +36,7 @@ import (
 
 	bookingfacilities "github.com/nhuthuynh/white-label/internal/booking/adapter/facilities"
 	bookinggrpc "github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
+	bookingidentity "github.com/nhuthuynh/white-label/internal/booking/adapter/identity"
 	bookingpg "github.com/nhuthuynh/white-label/internal/booking/adapter/postgres"
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	competitionsbooking "github.com/nhuthuynh/white-label/internal/competitions/adapter/booking"
@@ -110,25 +111,36 @@ func run(logger *slog.Logger) error {
 	facilitiesSvc := facilitiesapp.NewService(facilitiesRepo, idgen.UUID{})
 	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
 
+	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
+	// other contexts'; unlike every other context here it takes no
+	// port.IDGenerator — a User's id is the caller-claimed actor_user_id
+	// itself, not server-generated (see identityapp.CreateUserInput's doc
+	// comment).
+	//
+	// Constructed before Booking as of T11.5, which is the first context to
+	// call into Identity at all: Booking's RequestRecurringHire resolves the
+	// actor's `club` role against this same, real identitySvc instance — not
+	// a second/separate one — through internal/booking/adapter/identity.
+	identityRepo := identitypg.NewRepository(pool)
+	identitySvc := identityapp.NewService(identityRepo)
+	identityHandler := identitygrpc.NewHandler(identitySvc)
+
 	repo := bookingpg.NewRepository(pool)
 	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
 	// discountRepo (T11.2) backs CreateDiscountRule/
 	// ListDiscountRulesForFacility and the discount half of GetQuote,
 	// against the discount_rules table (0017_booking_discount_rules.sql).
 	discountRepo := bookingpg.NewDiscountRuleRepository(pool)
+	// recurringRepo (T11.5) backs RequestRecurringHire/ApproveRecurringHire/
+	// RejectRecurringHire/ListRecurringHireTemplatesForFacility, against the
+	// recurring_hire_templates table
+	// (0018_booking_recurring_hire_templates.sql).
+	recurringRepo := bookingpg.NewRecurringHireRepository(pool)
 	bookingFacilityLookup := bookingfacilities.NewLookup(facilitiesSvc)
-	bookingSvc := bookingapp.NewService(repo, pricingRepo, discountRepo, bookingFacilityLookup, idgen.UUID{})
+	bookingIdentityLookup := bookingidentity.NewLookup(identitySvc)
+	bookingSvc := bookingapp.NewService(repo, pricingRepo, discountRepo, recurringRepo,
+		bookingFacilityLookup, bookingIdentityLookup, idgen.UUID{})
 	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
-
-	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
-	// other contexts'; unlike every other context here it takes no
-	// port.IDGenerator — a User's id is the caller-claimed actor_user_id
-	// itself, not server-generated (see identityapp.CreateUserInput's doc
-	// comment). No cross-context dependency yet (T10.5/T10.8 are the future
-	// consumers of GetUser via a port, not this ticket).
-	identityRepo := identitypg.NewRepository(pool)
-	identitySvc := identityapp.NewService(identityRepo)
-	identityHandler := identitygrpc.NewHandler(identitySvc)
 
 	// Social Play (T5.4): its GameRepository/RegistrationRepository are
 	// Postgres-backed like Booking's; its CourtReservation port is

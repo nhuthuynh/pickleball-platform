@@ -119,6 +119,15 @@ func (fakeFacilityLookup) FacilityIDForCourt(_ context.Context, cID string) (str
 	return facilityID(1), nil
 }
 
+// CourtIDsForFacility (T11.5) is the inverse of FacilityIDForCourt above:
+// facilityID(1) owns exactly courtID(1).
+func (fakeFacilityLookup) CourtIDsForFacility(_ context.Context, fID string) ([]string, error) {
+	if fID != facilityID(1) {
+		return nil, domain.ErrFacilityNotFound
+	}
+	return []string{courtID(1)}, nil
+}
+
 type fakeIDs struct{ n int }
 
 func (f *fakeIDs) NewID() string {
@@ -147,7 +156,8 @@ func newTestHandler(t *testing.T) (*grpcapi.Handler, *fakeDiscountRepo) {
 		Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000,
 	}}}
 	discounts := &fakeDiscountRepo{byFacility: make(map[string][]domain.DiscountRule)}
-	svc := app.NewService(fakeBookingRepo{}, pricing, discounts, fakeFacilityLookup{}, &fakeIDs{})
+	svc := app.NewService(fakeBookingRepo{}, pricing, discounts, newFakeRecurringRepo(),
+		fakeFacilityLookup{}, newFakeIdentityLookup(), &fakeIDs{})
 	return grpcapi.NewHandler(svc), discounts
 }
 

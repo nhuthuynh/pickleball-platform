@@ -25,26 +25,42 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // domain and the repository port, but holds no business rules itself — those
 // live in internal/booking/domain.
 type Service struct {
-	repo         port.Repository
-	pricingRepo  port.PricingRuleRepository
-	discountRepo port.DiscountRuleRepository
-	facilities   port.FacilityLookup
-	ids          port.IDGenerator
+	repo          port.Repository
+	pricingRepo   port.PricingRuleRepository
+	discountRepo  port.DiscountRuleRepository
+	recurringRepo port.RecurringHireRepository
+	facilities    port.FacilityLookup
+	identity      port.IdentityLookup
+	ids           port.IDGenerator
 }
 
+// NewService wires the Booking context's application layer.
+//
+// The parameter list reached seven in T11.5. Every parameter is a distinct
+// interface type, so a mis-ordered call is a compile error rather than the
+// silent swap GetQuoteInput's own doc comment warns about for positional
+// *strings* — but this constructor is past the size where
+// internal/competitions/app.NewService(ServiceOptions) chose a struct instead.
+// Migrating to that shape is a mechanical, separable cleanup deliberately not
+// bundled into this ticket's diff; it is flagged in T11.5's PR rather than
+// left unsaid.
 func NewService(
 	repo port.Repository,
 	pricingRepo port.PricingRuleRepository,
 	discountRepo port.DiscountRuleRepository,
+	recurringRepo port.RecurringHireRepository,
 	facilities port.FacilityLookup,
+	identity port.IdentityLookup,
 	ids port.IDGenerator,
 ) *Service {
 	return &Service{
-		repo:         repo,
-		pricingRepo:  pricingRepo,
-		discountRepo: discountRepo,
-		facilities:   facilities,
-		ids:          ids,
+		repo:          repo,
+		pricingRepo:   pricingRepo,
+		discountRepo:  discountRepo,
+		recurringRepo: recurringRepo,
+		facilities:    facilities,
+		identity:      identity,
+		ids:           ids,
 	}
 }
 
