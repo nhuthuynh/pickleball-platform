@@ -46,4 +46,21 @@ type FacilityLookup interface {
 	// scope a discount to — and splitting them would create a second
 	// sentinel no caller could act on differently.
 	FacilityIDForCourt(ctx context.Context, courtID string) (string, error)
+
+	// CourtIDsForFacility returns the IDs of every Court belonging to
+	// facilityID, or domain.ErrFacilityNotFound when facilityID does not
+	// resolve. A Facility with no Courts yields an empty slice and no error.
+	//
+	// Added in T11.5, on this same port rather than a second one (sprint plan
+	// A10 is explicit that T11.5 must reuse T11.2's FacilityLookup, not
+	// re-derive it). It exists because a RecurringHireTemplate references a
+	// Court while its owner-facing read is facility-scoped: resolving the
+	// facility's courts here keeps that resolution inside the context that
+	// owns Courts, instead of Booking joining the courts table itself or
+	// denormalising a facility_id onto recurring_hire_templates.
+	//
+	// Like the two methods above, it returns IDs rather than
+	// facilitiesdomain.Court values — nothing on the Booking side may start
+	// reading another context's aggregate.
+	CourtIDsForFacility(ctx context.Context, facilityID string) ([]string, error)
 }

@@ -70,4 +70,30 @@ var (
 	ErrInvalidRecurringHireTimeRange           = errors.New("booking: recurring hire start time must be before end time")
 	ErrInvalidRecurringHireEndAfterOccurrences = errors.New("booking: recurring hire end-after-occurrences count must be positive")
 	ErrInvalidRecurringHireStatusTransition    = errors.New("booking: invalid recurring hire status transition")
+
+	// ErrRecurringHireTemplateNotFound is the miss sentinel for
+	// port.RecurringHireRepository's reads (T11.5). It is deliberately not
+	// ErrBookingNotFound: a template and a Booking are different aggregates,
+	// and reusing one not-found sentinel across both would make a future
+	// `:one` template read indistinguishable from a missing Booking at the
+	// gRPC boundary — the same reasoning translateDiscountErr's own comment
+	// gives for staying separate from translateErr.
+	ErrRecurringHireTemplateNotFound = errors.New("booking: recurring hire template not found")
+
+	// ErrUserNotFound and ErrNotClub are Booking's own, context-local
+	// sentinels for the two answers port.IdentityLookup can give (T11.5,
+	// Booking's first call into Identity/Users). Like ErrFacilityNotFound and
+	// ErrNotFacilityOwner above, they are deliberately NOT
+	// internal/identity/domain's sentinels: CLAUDE.md rule 5 requires the
+	// adapter to translate at the boundary so no identitydomain error type
+	// ever reaches Booking's app or grpcapi layers.
+	//
+	// Both map to PermissionDenied at the gRPC boundary, not NotFound — see
+	// adapter/grpcapi's toStatus. An actor who cannot be resolved to a real
+	// User has not proven the `club` role any more than a resolved non-club
+	// actor has, and answering NotFound for the unresolvable case would turn
+	// RequestRecurringHire, an unauthenticated endpoint, into a
+	// user-enumeration oracle that reports which user ids exist.
+	ErrUserNotFound = errors.New("booking: user not found")
+	ErrNotClub      = errors.New("booking: actor does not hold the club role")
 )

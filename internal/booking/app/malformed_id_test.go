@@ -58,7 +58,7 @@ func TestListCourtBookings_MalformedCourtIDIsEmptyNotAPanic(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 
-			svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+			svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 			got, err := svc.ListCourtBookings(context.Background(), id, rng)
 			if err != nil {
@@ -102,7 +102,7 @@ func TestListCourtBookings_MalformedCourtIDNeverReachesRepository(t *testing.T) 
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+			svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 			if _, err := svc.ListCourtBookings(context.Background(), id, rng); err != nil {
 				t.Fatalf("ListCourtBookings(%q) error = %v, want nil", id, err)
@@ -117,7 +117,7 @@ func TestListCourtBookings_MalformedCourtIDNeverReachesRepository(t *testing.T) 
 	// reach the repository — this test only claims malformed shapes are
 	// short-circuited, not that the repository is never called at all.
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 	if _, err := svc.ListCourtBookings(context.Background(), courtID(99), rng); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -132,7 +132,7 @@ func TestListCourtBookings_MalformedCourtIDNeverReachesRepository(t *testing.T) 
 func TestListCourtBookings_WellFormedCourtIDStillReads(t *testing.T) {
 	t.Parallel()
 
-	svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -186,7 +186,7 @@ func TestGetQuote_MalformedCourtIDIsNoPricingRuleNotAPanic(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 
-			svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+			svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 			_, err := svc.GetQuote(context.Background(), app.GetQuoteInput{CourtID: id, Source: domain.SourceIndividual, Range: rng})
 			if !errors.Is(err, domain.ErrNoPricingRule) {
@@ -224,7 +224,7 @@ func TestGetQuote_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 			t.Parallel()
 
 			pricingRepo := &fakePricingRepo{}
-			svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+			svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 			if _, err := svc.GetQuote(context.Background(), app.GetQuoteInput{CourtID: id, Source: domain.SourceIndividual, Range: rng}); !errors.Is(err, domain.ErrNoPricingRule) {
 				t.Fatalf("GetQuote(%q) error = %v, want domain.ErrNoPricingRule", id, err)
@@ -238,7 +238,7 @@ func TestGetQuote_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 	// Sanity check the negative: a well-formed-but-unknown Court SHOULD
 	// still reach the repository.
 	pricingRepo := &fakePricingRepo{}
-	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 	if _, err := svc.GetQuote(context.Background(), app.GetQuoteInput{CourtID: courtID(99), Source: domain.SourceIndividual, Range: rng}); !errors.Is(err, domain.ErrNoPricingRule) {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -257,7 +257,7 @@ func TestGetQuote_WellFormedCourtIDStillReads(t *testing.T) {
 	pricingRepo := &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
 		courtID(1): weekdayPricingRules(),
 	}}
-	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(newInMemoryRepo(), pricingRepo, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 	quote, err := svc.GetQuote(context.Background(), app.GetQuoteInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")})
 	if err != nil {
@@ -304,7 +304,7 @@ func TestCancelBooking_MalformedBookingIDIsNotFoundAndNeverReachesRepository(t *
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+			svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 			_, err := svc.CancelBooking(context.Background(), id)
 			if !errors.Is(err, domain.ErrBookingNotFound) {
@@ -325,7 +325,7 @@ func TestCancelBooking_WellFormedUnknownBookingIDStillReachesRepository(t *testi
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
 	_, err := svc.CancelBooking(context.Background(), unknown)
@@ -381,7 +381,7 @@ func TestCreateBooking_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+			svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 			_, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{
 				CourtID: id, Source: domain.SourceIndividual, Range: rng,
@@ -399,7 +399,7 @@ func TestCreateBooking_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 		t.Parallel()
 
 		repo := newInMemoryRepo()
-		svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+		svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 
 		_, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{
 			CourtID: "", Source: domain.SourceIndividual, Range: rng,
@@ -422,7 +422,7 @@ func TestCreateBooking_WellFormedCourtIDStillReachesRepository(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), newFakeRecurringHireRepo(), &fakeFacilityLookup{}, &fakeIdentityLookup{}, &sequentialIDs{})
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	if _, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{

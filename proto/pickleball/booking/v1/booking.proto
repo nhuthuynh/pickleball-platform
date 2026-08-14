@@ -190,6 +190,162 @@ message ListDiscountRulesForFacilityResponse {
   repeated DiscountRule discount_rules = 1;
 }
 
+// RecurringHireStatus mirrors internal/booking/domain.RecurringHireStatus
+// (T11.4): a Club's request for a standing weekly slot starts as REQUESTED
+// and a Facility Owner either approves or rejects it. CANCELLED exists for an
+// approved template a Club later withdraws; no RPC transitions into it yet.
+enum RecurringHireStatus {
+  RECURRING_HIRE_STATUS_UNSPECIFIED = 0;
+  RECURRING_HIRE_STATUS_REQUESTED = 1;
+  RECURRING_HIRE_STATUS_APPROVED = 2;
+  RECURRING_HIRE_STATUS_REJECTED = 3;
+  RECURRING_HIRE_STATUS_CANCELLED = 4;
+}
+
+// RecurringHireEndConditionKind mirrors
+// internal/booking/domain.RecurringHireEndKind. Deliberately its own enum
+// rather than a reuse of EndConditionKind above: that one is DiscountRule's
+// (T11.1/T11.2), and the domain keeps the two variant types separately named
+// for the same reason — they are the same *shape*, not the same concept, and
+// fusing them would couple two aggregates' wire contracts forever.
+enum RecurringHireEndConditionKind {
+  RECURRING_HIRE_END_CONDITION_KIND_UNSPECIFIED = 0;
+  RECURRING_HIRE_END_CONDITION_KIND_END_AFTER_DATE = 1;
+  RECURRING_HIRE_END_CONDITION_KIND_END_AFTER_OCCURRENCES = 2;
+  RECURRING_HIRE_END_CONDITION_KIND_NO_END = 3;
+}
+
+// RecurringHireEndCondition bounds how far into the future a template implies
+// occurrences. Only the field matching `kind` is meaningful.
+//
+// NO_END is open-ended, but an approval never generates an unbounded set:
+// the server applies its own generation horizon (see
+// internal/booking/app.recurringHireHorizonYears).
+message RecurringHireEndCondition {
+  RecurringHireEndConditionKind kind = 1;
+  google.protobuf.Timestamp end_date = 2;
+  // occurrences must be positive when kind is END_AFTER_OCCURRENCES.
+  int32 occurrences = 3;
+}
+
+// RecurringHireTemplate mirrors internal/booking/domain.RecurringHireTemplate
+// (T11.4): a Club's request for a standing weekly slot on a court. The
+// template is never itself a Booking — approving it is what creates
+// SOURCE_RECURRING_HIRE Bookings for the weeks it implies.
+message RecurringHireTemplate {
+  string id = 1;
+  string requested_by_user_id = 2;
+  string court_id = 3;
+  // weekday uses Go's time.Weekday numbering (Sunday = 0 .. Saturday = 6),
+  // the same convention pricing_rules already established across this
+  // codebase's DB, Go and wire representations.
+  int32 weekday = 4;
+  // start_minute/end_minute are minutes since midnight (domain.ClockTime),
+  // time-of-day rather than calendar timestamps: starts_at is what anchors
+  // the weekly pattern to a first date.
+  int32 start_minute = 5;
+  int32 end_minute = 6;
+  google.protobuf.Timestamp starts_at = 7;
+  RecurringHireEndCondition end_condition = 8;
+  RecurringHireStatus status = 9;
+}
+
+// RequestRecurringHireRequest deliberately has NO id field: the ID is minted
+// server-side, so no caller can choose or squat a template's permanent
+// identifier (T11.5's creation-RPC checklist item 1, sprint plan A4).
+//
+// Checklist item 2 — role self-assignment — is **the item that fires for this
+// ticket**, and this message is where it fires: there is deliberately no
+// is_club/role field. Whether the actor may request a recurring hire as a Club
+// is resolved server-side by looking the actor up in the Identity/Users
+// context and reading their real Roles, never from anything the caller sends.
+// A caller who could self-declare `is_club` would be granting themselves the
+// privilege the check exists to gate.
+message RequestRecurringHireRequest {
+  // actor_user_id is a caller-supplied claim, not a verified identity — see
+  // HANDOFF.md's Auth cross-cutting item. The role check it feeds is real
+  // regardless: it is resolved against the User's actual Roles.
+  string actor_user_id = 1;
+  string court_id = 2;
+  int32 weekday = 3;
+  int32 start_minute = 4;
+  int32 end_minute = 5;
+  google.protobuf.Timestamp starts_at = 6;
+  RecurringHireEndCondition end_condition = 7;
+}
+
+message RequestRecurringHireResponse {
+  RecurringHireTemplate template = 1;
+}
+
+// RecurringHireOccurrenceOutcome is what happened to one generated occurrence
+// when a template was approved.
+enum RecurringHireOccurrenceOutcome {
+  RECURRING_HIRE_OCCURRENCE_OUTCOME_UNSPECIFIED = 0;
+  // A real SOURCE_RECURRING_HIRE Booking now exists for this slot.
+  RECURRING_HIRE_OCCURRENCE_OUTCOME_BOOKED = 1;
+  // The court was already booked for this slot. An ordinary, expected
+  // outcome — not a failure of the approval.
+  RECURRING_HIRE_OCCURRENCE_OUTCOME_SKIPPED_CONFLICT = 2;
+  // This occurrence could not be booked for some other reason. Kept distinct
+  // from SKIPPED_CONFLICT on purpose: an already-booked Tuesday and a backend
+  // fault are different facts, and an owner reading this must be able to tell
+  // which one they are looking at.
+  RECURRING_HIRE_OCCURRENCE_OUTCOME_SKIPPED_ERROR = 3;
+}
+
+// RecurringHireOccurrence reports one occurrence's fate. booking_id is set
+// only for BOOKED; reason is set only for the two SKIPPED outcomes.
+message RecurringHireOccurrence {
+  google.protobuf.Timestamp starts_at = 1;
+  google.protobuf.Timestamp ends_at = 2;
+  RecurringHireOccurrenceOutcome outcome = 3;
+  string booking_id = 4;
+  string reason = 5;
+}
+
+message ApproveRecurringHireRequest {
+  string template_id = 1;
+  // actor_user_id must own the Facility that owns the template's Court.
+  string actor_user_id = 2;
+}
+
+// ApproveRecurringHireResponse reports the approved template plus one entry
+// per generated occurrence, in chronological order, whether or not it became
+// a Booking.
+//
+// occurrences is not a courtesy field: a per-occurrence conflict does NOT
+// fail the approval (a single already-booked Tuesday must not block an entire
+// 12-week request), so the template being APPROVED tells a client nothing
+// about which weeks it actually got. This list is the only place that answer
+// exists, and a UI that ignores it would show a Club a confirmed standing
+// booking for weeks it does not hold.
+message ApproveRecurringHireResponse {
+  RecurringHireTemplate template = 1;
+  repeated RecurringHireOccurrence occurrences = 2;
+}
+
+message RejectRecurringHireRequest {
+  string template_id = 1;
+  string actor_user_id = 2;
+}
+
+message RejectRecurringHireResponse {
+  RecurringHireTemplate template = 1;
+}
+
+message ListRecurringHireTemplatesForFacilityRequest {
+  string facility_id = 1;
+  // actor_user_id must own the Facility. Unlike
+  // ListDiscountRulesForFacility, this read is owner-only — see the RPC's own
+  // comment below.
+  string actor_user_id = 2;
+}
+
+message ListRecurringHireTemplatesForFacilityResponse {
+  repeated RecurringHireTemplate templates = 1;
+}
+
 // BookingService is the API contract for the Booking bounded context. buf
 // generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this file —
 // it is the single source of truth for the Go server, the Vue client, and
@@ -244,6 +400,52 @@ service BookingService {
   rpc ListDiscountRulesForFacility(ListDiscountRulesForFacilityRequest) returns (ListDiscountRulesForFacilityResponse) {
     option (google.api.http) = {
       get: "/v1/facilities/{facility_id}/discount-rules"
+    };
+  }
+
+  // RequestRecurringHire submits a Club's request for a standing weekly slot
+  // (T11.5). The actor must hold the `club` role in the Identity/Users
+  // context — resolved server-side, never self-declared — or the request is
+  // rejected with PermissionDenied.
+  rpc RequestRecurringHire(RequestRecurringHireRequest) returns (RequestRecurringHireResponse) {
+    option (google.api.http) = {
+      post: "/v1/recurring-hire-templates"
+      body: "*"
+    };
+  }
+
+  // ApproveRecurringHire approves a requested template and creates the
+  // SOURCE_RECURRING_HIRE Bookings it implies. The actor must own the
+  // Facility that owns the template's Court, or the request is rejected with
+  // PermissionDenied before anything changes.
+  //
+  // A per-occurrence conflict does not fail the approval — see
+  // ApproveRecurringHireResponse.occurrences.
+  rpc ApproveRecurringHire(ApproveRecurringHireRequest) returns (ApproveRecurringHireResponse) {
+    option (google.api.http) = {
+      post: "/v1/recurring-hire-templates/{template_id}:approve"
+      body: "*"
+    };
+  }
+
+  // RejectRecurringHire rejects a requested template. Same ownership rule as
+  // ApproveRecurringHire; no Bookings are created.
+  rpc RejectRecurringHire(RejectRecurringHireRequest) returns (RejectRecurringHireResponse) {
+    option (google.api.http) = {
+      post: "/v1/recurring-hire-templates/{template_id}:reject"
+      body: "*"
+    };
+  }
+
+  // ListRecurringHireTemplatesForFacility is the Facility Owner's incoming
+  // requests queue. Unlike ListDiscountRulesForFacility just above — which is
+  // deliberately unauthenticated, because a discounted price is something a
+  // Player is quoted anyway — this read is owner-only: it exposes other
+  // parties' pending business requests, which is not information a Player is
+  // entitled to by virtue of being quoted a price.
+  rpc ListRecurringHireTemplatesForFacility(ListRecurringHireTemplatesForFacilityRequest) returns (ListRecurringHireTemplatesForFacilityResponse) {
+    option (google.api.http) = {
+      get: "/v1/facilities/{facility_id}/recurring-hire-templates"
     };
   }
 }

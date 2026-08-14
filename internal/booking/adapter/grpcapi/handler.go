@@ -10,6 +10,8 @@ package grpcapi
 import (
 	"context"
 	"errors"
+	"fmt"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -175,6 +177,92 @@ func (h *Handler) CancelBooking(ctx context.Context, req *bookingv1.CancelBookin
 	return &bookingv1.CancelBookingResponse{Booking: toProto(b)}, nil
 }
 
+// RequestRecurringHire submits a Club's request for a standing weekly slot
+// (T11.5).
+//
+// No ID is read off the request — RequestRecurringHireRequest has no id field
+// at all (creation-RPC checklist item 1); app.Service mints it from the
+// IDGenerator port. Nor is any role read off the request (checklist item 2,
+// the one that fires for this ticket): the handler passes only the claimed
+// actor_user_id, and the app layer resolves the `club` role from Identity.
+func (h *Handler) RequestRecurringHire(ctx context.Context, req *bookingv1.RequestRecurringHireRequest) (*bookingv1.RequestRecurringHireResponse, error) {
+	startTime, err := fromProtoMinuteOfDay(req.GetStartMinute())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	endTime, err := fromProtoMinuteOfDay(req.GetEndMinute())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	weekday, err := fromProtoWeekday(req.GetWeekday())
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, err.Error())
+	}
+	endCondition, err := fromProtoRecurringHireEndCondition(req.GetEndCondition())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	template, err := h.svc.RequestRecurringHire(ctx, app.RequestRecurringHireInput{
+		ActorUserID:  req.GetActorUserId(),
+		CourtID:      req.GetCourtId(),
+		Weekday:      weekday,
+		StartTime:    startTime,
+		EndTime:      endTime,
+		StartsAt:     req.GetStartsAt().AsTime(),
+		EndCondition: endCondition,
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	return &bookingv1.RequestRecurringHireResponse{Template: toProtoRecurringHireTemplate(template)}, nil
+}
+
+func (h *Handler) ApproveRecurringHire(ctx context.Context, req *bookingv1.ApproveRecurringHireRequest) (*bookingv1.ApproveRecurringHireResponse, error) {
+	result, err := h.svc.ApproveRecurringHire(ctx, req.GetTemplateId(), req.GetActorUserId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	occurrences := make([]*bookingv1.RecurringHireOccurrence, 0, len(result.Occurrences))
+	for _, occ := range result.Occurrences {
+		occurrences = append(occurrences, &bookingv1.RecurringHireOccurrence{
+			StartsAt:  timestamppb.New(occ.Range.Start),
+			EndsAt:    timestamppb.New(occ.Range.End),
+			Outcome:   toProtoOccurrenceOutcome(occ.Outcome),
+			BookingId: occ.BookingID,
+			Reason:    occ.Reason,
+		})
+	}
+
+	return &bookingv1.ApproveRecurringHireResponse{
+		Template:    toProtoRecurringHireTemplate(result.Template),
+		Occurrences: occurrences,
+	}, nil
+}
+
+func (h *Handler) RejectRecurringHire(ctx context.Context, req *bookingv1.RejectRecurringHireRequest) (*bookingv1.RejectRecurringHireResponse, error) {
+	template, err := h.svc.RejectRecurringHire(ctx, req.GetTemplateId(), req.GetActorUserId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &bookingv1.RejectRecurringHireResponse{Template: toProtoRecurringHireTemplate(template)}, nil
+}
+
+func (h *Handler) ListRecurringHireTemplatesForFacility(ctx context.Context, req *bookingv1.ListRecurringHireTemplatesForFacilityRequest) (*bookingv1.ListRecurringHireTemplatesForFacilityResponse, error) {
+	templates, err := h.svc.ListRecurringHireTemplatesForFacility(ctx, req.GetFacilityId(), req.GetActorUserId())
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*bookingv1.RecurringHireTemplate, 0, len(templates))
+	for _, t := range templates {
+		out = append(out, toProtoRecurringHireTemplate(t))
+	}
+	return &bookingv1.ListRecurringHireTemplatesForFacilityResponse{Templates: out}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, InvalidArgument ->
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking
@@ -196,13 +284,35 @@ func toStatus(err error) error {
 		// An unknown or malformed FacilityID on CreateDiscountRule (T11.2).
 		// The app layer answers a malformed one exactly like an unknown one,
 		// so both arrive here as the same sentinel and get the same code.
-		errors.Is(err, domain.ErrFacilityNotFound):
+		// T11.5 also routes an unresolvable CourtID on RequestRecurringHire
+		// here: a Court naming no Facility is a request that could never be
+		// approved, and NotFound is the honest answer for it.
+		errors.Is(err, domain.ErrFacilityNotFound),
+		// An unknown or malformed template id on approve/reject (T11.5).
+		errors.Is(err, domain.ErrRecurringHireTemplateNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, domain.ErrNotFacilityOwner):
+	case errors.Is(err, domain.ErrNotFacilityOwner),
+		// T11.5's two Identity answers. Both are PermissionDenied rather than
+		// NotFound, deliberately: an actor who cannot be resolved to a real
+		// User has not proven the `club` role any more than a resolved
+		// non-club actor has, and answering NotFound for the unresolvable
+		// case would turn RequestRecurringHire — an unauthenticated endpoint
+		// — into a user-enumeration oracle. See the sentinels' own doc
+		// comments in domain/errors.go.
+		errors.Is(err, domain.ErrUserNotFound),
+		errors.Is(err, domain.ErrNotClub):
 		// PermissionDenied, mirroring facilities' own grpcapi mapping for
 		// its ErrNotFacilityOwner (T7.7): a known actor who may not touch
 		// this object, not an unknown object and not a server fault.
 		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.Is(err, domain.ErrInvalidRecurringHireStatusTransition):
+		// FailedPrecondition: approving or rejecting a template that is
+		// already approved/rejected/cancelled is a legal request against an
+		// object in the wrong state, not a malformed one (InvalidArgument)
+		// and not a missing one (NotFound). Mirrors the code this file
+		// already gives ErrAmbiguousPricingRule for the same "the request is
+		// fine, the world isn't" reason.
+		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrAmbiguousPricingRule),
 		// An ambiguous DiscountRule match surfaced through GetQuote (T11.2)
 		// takes the same code as its pricing twin for the same ADR-0002
@@ -228,7 +338,15 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidDiscountType),
 		errors.Is(err, domain.ErrInvalidDiscountAmount),
 		errors.Is(err, domain.ErrEmptyAppliesTo),
-		errors.Is(err, domain.ErrInvalidEndConditionOccurrences):
+		errors.Is(err, domain.ErrInvalidEndConditionOccurrences),
+		// T11.4's RecurringHireTemplate constructor sentinels (T11.5 surfaces
+		// them): every one is a malformed request the caller must fix, not a
+		// server fault. ErrEmptyCourtID above already covers a template with
+		// no court.
+		errors.Is(err, domain.ErrEmptyRequestedByUserID),
+		errors.Is(err, domain.ErrInvalidClockTime),
+		errors.Is(err, domain.ErrInvalidRecurringHireTimeRange),
+		errors.Is(err, domain.ErrInvalidRecurringHireEndAfterOccurrences):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -367,6 +485,112 @@ func toProtoStatus(s domain.Status) bookingv1.Status {
 		return bookingv1.Status_STATUS_CANCELLED
 	default:
 		return bookingv1.Status_STATUS_UNSPECIFIED
+	}
+}
+
+// --- T11.5: RecurringHireTemplate conversions --------------------------
+
+// fromProtoMinuteOfDay converts a wire minute-of-day into domain.ClockTime
+// through the domain's own NewClockTime constructor, so the 0..1439 bound has
+// one definition. A value outside it becomes ErrInvalidClockTime ->
+// InvalidArgument rather than a ClockTime the domain would never construct.
+func fromProtoMinuteOfDay(minute int32) (domain.ClockTime, error) {
+	return domain.NewClockTime(int(minute)/60, int(minute)%60)
+}
+
+// fromProtoWeekday converts a wire weekday using Go's time.Weekday numbering
+// (Sunday = 0 .. Saturday = 6), the convention this codebase already uses in
+// pricing_rules and recurring_hire_templates alike. Out-of-range values are
+// rejected rather than wrapped: time.Weekday(9) is not a day, and silently
+// folding it to Tuesday would book a Club a slot it never asked for.
+func fromProtoWeekday(weekday int32) (time.Weekday, error) {
+	if weekday < 0 || weekday > 6 {
+		return 0, fmt.Errorf("%w: weekday %d is outside 0..6", domain.ErrInvalidClockTime, weekday)
+	}
+	return time.Weekday(weekday), nil
+}
+
+// fromProtoRecurringHireEndCondition rebuilds the end-condition variant
+// through the domain's own constructors, so the Kind/payload pairing can only
+// be produced one way — the same approach fromProtoEndCondition takes for
+// DiscountRule's variant.
+//
+// It differs from that function in one respect, and deliberately: a
+// non-positive END_AFTER_OCCURRENCES count is rejected here rather than passed
+// through, because T11.4's EndRecurringHireAfterOccurrences validates at
+// construction (returning an error) while T11.1's EndAfterOccurrences defers
+// to NewDiscountRule. The resulting gRPC code is the same InvalidArgument
+// either way; only the layer that notices differs.
+//
+// An unspecified or unrecognized kind becomes NoRecurringHireEnd — the only
+// reading that cannot invent an end date the caller never sent. Note that an
+// open-ended template is still bounded on approval by the app layer's
+// generation horizon, so this is not a path to an unbounded write.
+func fromProtoRecurringHireEndCondition(c *bookingv1.RecurringHireEndCondition) (domain.RecurringHireEndCondition, error) {
+	switch c.GetKind() {
+	case bookingv1.RecurringHireEndConditionKind_RECURRING_HIRE_END_CONDITION_KIND_END_AFTER_DATE:
+		return domain.EndRecurringHireAfterDate(c.GetEndDate().AsTime()), nil
+	case bookingv1.RecurringHireEndConditionKind_RECURRING_HIRE_END_CONDITION_KIND_END_AFTER_OCCURRENCES:
+		return domain.EndRecurringHireAfterOccurrences(int(c.GetOccurrences()))
+	default:
+		return domain.NoRecurringHireEnd(), nil
+	}
+}
+
+func toProtoRecurringHireEndCondition(c domain.RecurringHireEndCondition) *bookingv1.RecurringHireEndCondition {
+	out := &bookingv1.RecurringHireEndCondition{}
+	switch c.Kind {
+	case domain.RecurringHireEndAfterDate:
+		out.Kind = bookingv1.RecurringHireEndConditionKind_RECURRING_HIRE_END_CONDITION_KIND_END_AFTER_DATE
+		out.EndDate = timestamppb.New(c.Date)
+	case domain.RecurringHireEndAfterOccurrences:
+		out.Kind = bookingv1.RecurringHireEndConditionKind_RECURRING_HIRE_END_CONDITION_KIND_END_AFTER_OCCURRENCES
+		out.Occurrences = int32(c.Occurrences)
+	default:
+		out.Kind = bookingv1.RecurringHireEndConditionKind_RECURRING_HIRE_END_CONDITION_KIND_NO_END
+	}
+	return out
+}
+
+func toProtoRecurringHireStatus(s domain.RecurringHireStatus) bookingv1.RecurringHireStatus {
+	switch s {
+	case domain.RecurringHireStatusRequested:
+		return bookingv1.RecurringHireStatus_RECURRING_HIRE_STATUS_REQUESTED
+	case domain.RecurringHireStatusApproved:
+		return bookingv1.RecurringHireStatus_RECURRING_HIRE_STATUS_APPROVED
+	case domain.RecurringHireStatusRejected:
+		return bookingv1.RecurringHireStatus_RECURRING_HIRE_STATUS_REJECTED
+	case domain.RecurringHireStatusCancelled:
+		return bookingv1.RecurringHireStatus_RECURRING_HIRE_STATUS_CANCELLED
+	default:
+		return bookingv1.RecurringHireStatus_RECURRING_HIRE_STATUS_UNSPECIFIED
+	}
+}
+
+func toProtoOccurrenceOutcome(o app.OccurrenceOutcome) bookingv1.RecurringHireOccurrenceOutcome {
+	switch o {
+	case app.OccurrenceBooked:
+		return bookingv1.RecurringHireOccurrenceOutcome_RECURRING_HIRE_OCCURRENCE_OUTCOME_BOOKED
+	case app.OccurrenceSkippedConflict:
+		return bookingv1.RecurringHireOccurrenceOutcome_RECURRING_HIRE_OCCURRENCE_OUTCOME_SKIPPED_CONFLICT
+	case app.OccurrenceSkippedError:
+		return bookingv1.RecurringHireOccurrenceOutcome_RECURRING_HIRE_OCCURRENCE_OUTCOME_SKIPPED_ERROR
+	default:
+		return bookingv1.RecurringHireOccurrenceOutcome_RECURRING_HIRE_OCCURRENCE_OUTCOME_UNSPECIFIED
+	}
+}
+
+func toProtoRecurringHireTemplate(t domain.RecurringHireTemplate) *bookingv1.RecurringHireTemplate {
+	return &bookingv1.RecurringHireTemplate{
+		Id:                t.ID,
+		RequestedByUserId: t.RequestedByUserID,
+		CourtId:           t.CourtID,
+		Weekday:           int32(t.Weekday),
+		StartMinute:       int32(t.StartTime),
+		EndMinute:         int32(t.EndTime),
+		StartsAt:          timestamppb.New(t.StartsAt),
+		EndCondition:      toProtoRecurringHireEndCondition(t.EndCondition),
+		Status:            toProtoRecurringHireStatus(t.Status),
 	}
 }
 

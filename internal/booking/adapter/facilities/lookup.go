@@ -82,6 +82,27 @@ func (l *Lookup) FacilityIDForCourt(ctx context.Context, courtID string) (string
 	return c.FacilityID, nil
 }
 
+// CourtIDsForFacility resolves the Facility and returns the IDs of its Courts
+// (T11.5). Facilities' own GetFacility already carries them on the aggregate,
+// so this needs no second round trip and, more importantly, no query against
+// the courts table from Booking's side — the court->facility fact stays owned
+// by the context that owns Courts.
+//
+// Only the IDs cross the boundary; the facilitiesdomain.Court values are
+// discarded, per port.FacilityLookup's rule that nothing on the Booking side
+// may read another context's aggregate.
+func (l *Lookup) CourtIDsForFacility(ctx context.Context, facilityID string) ([]string, error) {
+	f, err := l.facilitiesSvc.GetFacility(ctx, facilityID)
+	if err != nil {
+		return nil, translate(facilityID, err)
+	}
+	out := make([]string, 0, len(f.Courts))
+	for _, c := range f.Courts {
+		out = append(out, c.ID)
+	}
+	return out, nil
+}
+
 // translate maps the Facilities sentinels Booking has its own names for, and
 // strips the original type off anything else — %s, not %w — so a caller can
 // never accidentally errors.Is() against a facilitiesdomain sentinel from the
