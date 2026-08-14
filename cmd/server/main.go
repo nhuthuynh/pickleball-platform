@@ -22,6 +22,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
@@ -63,6 +64,8 @@ import (
 	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	paymentsapp "github.com/nhuthuynh/white-label/internal/payments/app"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
+	"github.com/nhuthuynh/white-label/internal/platform/auth/rs256"
 	"github.com/nhuthuynh/white-label/internal/platform/grpcrecovery"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
 	"github.com/nhuthuynh/white-label/internal/platform/pg"
@@ -235,9 +238,30 @@ func run(logger *slog.Logger) error {
 	// Chain* rather than the single-interceptor options so adding auth/metrics/
 	// tracing later is an append, and recovery — which must be outermost to
 	// cover the other interceptors too — stays first in the chain.
+	// The auth interceptors sit immediately after recovery — inside its
+	// protection, ahead of every handler. They are OBSERVE-ONLY (T12.2): when
+	// a caller presents a valid bearer token they put an auth.Principal in the
+	// request context, and in every other case — no token, expired, forged,
+	// wrong audience, or no verifier configured at all — the request proceeds
+	// to its handler exactly as it did before, with no principal and no error.
+	// Nothing in this process enforces authentication yet; the per-context
+	// migration tickets (T12.7/T12.8/T12.9) turn that on RPC by RPC. Adding
+	// them here therefore cannot change the behavior of any shipped endpoint,
+	// which is the entire point of landing the platform capability first.
+	tokenVerifier, err := tokenVerifierFromEnv(logger)
+	if err != nil {
+		return err
+	}
+
 	grpcServer := grpc.NewServer(
-		grpc.ChainUnaryInterceptor(grpcrecovery.UnaryInterceptor(logger)),
-		grpc.ChainStreamInterceptor(grpcrecovery.StreamInterceptor(logger)),
+		grpc.ChainUnaryInterceptor(
+			grpcrecovery.UnaryInterceptor(logger),
+			auth.UnaryInterceptor(tokenVerifier, logger),
+		),
+		grpc.ChainStreamInterceptor(
+			grpcrecovery.StreamInterceptor(logger),
+			auth.StreamInterceptor(tokenVerifier, logger),
+		),
 	)
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
 	socialplayv1.RegisterSocialPlayServiceServer(grpcServer, socialplayHandler)
@@ -294,6 +318,70 @@ func run(logger *slog.Logger) error {
 	_ = httpServer.Shutdown(shutdownCtx)
 	grpcServer.GracefulStop()
 	return nil
+}
+
+// tokenVerifierFromEnv builds the token verifier this process runs with, or
+// returns nil when the deployment has not been given an identity provider to
+// verify against.
+//
+// A nil verifier is a supported, currently-normal state, not a failure: no
+// identity provider tenant is provisioned for this project, because doing so
+// is server-side infrastructure work no coding session here can perform (the
+// same gap HANDOFF.md records honestly for the Jenkins server). With a nil
+// verifier the interceptors resolve nothing and every request behaves exactly
+// as it does today. See ADR-0013.
+//
+// Partial configuration, by contrast, is a hard startup failure. Someone who
+// sets AUTH_ISSUER intends tokens to be verified, and a process that silently
+// verified nothing because AUTH_JWKS_FILE had a typo would be the worst of
+// both worlds — configured-looking and inert. Once enforcement lands, this
+// function must go further and refuse to start with no verifier at all, since
+// by then a nil verifier is fail-open rather than merely quiet.
+func tokenVerifierFromEnv(logger *slog.Logger) (auth.TokenVerifier, error) {
+	var (
+		issuer   = os.Getenv("AUTH_ISSUER")
+		audience = os.Getenv("AUTH_AUDIENCE")
+		jwksFile = os.Getenv("AUTH_JWKS_FILE")
+	)
+
+	if issuer == "" && audience == "" && jwksFile == "" {
+		logger.Info("auth: no token verifier configured; running with no caller identity " +
+			"(set AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE to enable verification)")
+		return nil, nil
+	}
+	if issuer == "" || audience == "" || jwksFile == "" {
+		return nil, errors.New("auth: AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE must be set together")
+	}
+
+	// A file rather than a URL: fetching a live JWKS needs an HTTP client,
+	// a cache, and a rotation policy, none of which exist yet and none of
+	// which can be tested against a provider this project cannot provision.
+	// rs256.KeySource is the seam a remote implementation slots into later
+	// without touching the verification logic.
+	document, err := os.ReadFile(jwksFile)
+	if err != nil {
+		return nil, fmt.Errorf("auth: reading AUTH_JWKS_FILE: %w", err)
+	}
+	keys, err := rs256.NewStaticKeysFromJWKS(document)
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+
+	verifier, err := rs256.NewVerifier(rs256.Config{
+		Issuer:   issuer,
+		Audience: audience,
+		Keys:     keys,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("auth: %w", err)
+	}
+
+	logger.Info("auth: token verifier configured (observe-only; nothing is enforced yet)",
+		"issuer", issuer,
+		"audience", audience,
+		"jwks_file", jwksFile,
+	)
+	return verifier, nil
 }
 
 func envOr(key, fallback string) string {
