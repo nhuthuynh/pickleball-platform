@@ -55,6 +55,9 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
 - `make test-domain` — run the dependency-free domain + app tests (no DB/codegen).
 - `make generate` — buf + sqlc → `internal/gen` and `openapi/`.
 - `make tidy` — `go mod tidy` (run after first generate).
+- `make vet-integration` — `go vet -tags=integration ./...` (depends on
+  `generate`). Compiles the `//go:build integration` files without Docker;
+  does not run them. Part of `make ci`.
 - `make test` — full suite: race + JUnit + coverage.
 - `make up` / `make down` — run / tear down via docker compose.
 - `make lint` — golangci-lint.
@@ -133,11 +136,18 @@ its filename alone and nothing collides or goes stale silently:
   Don't write adapter code assuming one row type across queries — see
   `fromFields` in `internal/booking/adapter/postgres/repository.go` for the
   pattern (convert from the shared columns, not a shared struct).
-- The `internal/booking/adapter/postgres` concurrency test
-  (`concurrency_integration_test.go`) is gated behind `//go:build integration`
-  and needs Docker (testcontainers-go). Run it with `go test
-  -tags=integration ./...` or `make test`; it's intentionally excluded from
-  `make test-domain` and plain `go test ./...`.
+- **11 test files across 4 contexts** are gated behind `//go:build
+  integration` — socialplay (5), payments (3), competitions (2), booking (1),
+  all under `adapter/`. Verify with `grep -rl "go:build integration"`. They
+  need Docker (testcontainers-go) to *run*, so they are excluded from
+  `make test-domain` and from plain `go test ./...`/`go vet ./...` — which
+  means a break in one of them is invisible to every gate a machine without a
+  Docker daemon can run. `make vet-integration` (`go vet -tags=integration
+  ./...`, depends on `generate`) closes that hole by **compiling** them
+  without Docker, and `make ci` runs it after `test-domain`. *Executing* them
+  still needs Docker: `make ci-integration`, or `make test`. Added T12.1 after
+  booking's `concurrency_integration_test.go` broke twice in T11 with every
+  runnable command reporting green — see `docs/process/t11-retro.md` finding 2.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +

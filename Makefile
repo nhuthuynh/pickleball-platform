@@ -1,4 +1,4 @@
-.PHONY: test-domain test-tools generate generate-client tidy test up down lint lint-web test-web test-web-ci \
+.PHONY: test-domain test-tools generate generate-client tidy test vet-integration up down lint lint-web test-web test-web-ci \
         build-web security security-go security-npm loadtest ci ci-integration tools-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
@@ -34,6 +34,25 @@ tidy:
 test:
 	mkdir -p build
 	gotestsum --junitfile build/junit.xml -- -race -tags=integration -coverprofile=build/coverage.out ./...
+
+# Type-checks the //go:build integration files WITHOUT running them, so they
+# stop being invisible to every gate a machine without Docker can run.
+# `make test` and `make ci-integration` are the only other targets that compile
+# these files, and both are hard-gated on a Docker daemon — so on a machine
+# without one (which is most of them, and every agent session so far) a broken
+# integration-tagged file reported green everywhere until a human happened to
+# notice. 11 files across 4 contexts (socialplay 5, payments 3, competitions 2,
+# booking 1) sit behind that tag; booking's concurrency test broke twice in T11
+# for exactly this reason. See docs/process/t11-retro.md finding 2.
+#
+# Depends on `generate` deliberately: internal/gen/** is gitignored (see
+# CLAUDE.md gotchas), so on a clean checkout the bare `go vet -tags=integration
+# ./...` fails with "no required module provides package .../internal/gen/..."
+# — a missing-codegen error that has nothing to do with build tags. Do NOT
+# "fix" that by dropping -tags or narrowing the package pattern; the
+# prerequisite is the fix. No Docker needed: vet compiles, it does not run.
+vet-integration: generate
+	go vet -tags=integration ./...
 
 # `make up` now builds the web image too, which needs the generated TS
 # client present on the host (see web/Dockerfile's guard).
@@ -119,16 +138,17 @@ loadtest:
 #
 # `make ci` runs exactly the checks the Jenkins pipeline's gating stages
 # run, in the same order, so "works on my machine" and "green in CI" mean
-# the same thing. It deliberately EXCLUDES the Docker-dependent integration
-# stage — see `make ci-integration` below, and the Jenkinsfile, which skips
-# that stage on the same condition.
-ci: generate tidy lint test-domain test-tools generate-client lint-web test-web build-web
+# the same thing. It deliberately EXCLUDES *running* the Docker-dependent
+# integration tests — but `vet-integration` still type-checks them here, so a
+# broken integration-tagged file fails this gate. See `make ci-integration`
+# below, and the Jenkinsfile, which skips that stage on the same condition.
+ci: generate tidy lint test-domain vet-integration test-tools generate-client lint-web test-web build-web
 	go build ./...
 	$(MAKE) security
 	@echo
 	@echo "make ci: OK — lint, unit tests, codegen, build, and the security gate all passed."
-	@echo "NOT covered here: the integration/concurrency tests (need Docker)."
-	@echo "Run 'make ci-integration' on a machine with a Docker daemon."
+	@echo "The //go:build integration files ARE compiled here (vet-integration), but NOT executed."
+	@echo "Run 'make ci-integration' on a machine with a Docker daemon to actually execute them."
 
 # The Docker-dependent half: the testcontainers-backed integration and
 # concurrency tests that actually prove the no-double-booking invariant.
