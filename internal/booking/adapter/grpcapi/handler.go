@@ -20,7 +20,25 @@ import (
 	"github.com/nhuthuynh/white-label/internal/booking/app"
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 )
+
+// actor resolves the acting user for an authenticated RPC (T12.7).
+//
+// This one function is the whole of A11 Ruling 3 for this context: the
+// Principal is translated into the plain actor string app.Service already
+// takes, here at the grpcapi boundary, so internal/booking/{domain,app} keep
+// their existing signatures and never import internal/platform/auth.
+//
+// It takes only a context, deliberately. The request's actor_user_id field is
+// not passed in and cannot be consulted, so no handler can fall back to the
+// caller's claim when there is no principal - the failure the T12.7 ticket
+// calls out as "a handler that falls back to the claimed value has changed
+// nothing". Missing principal is codes.Unauthenticated ("I do not know who you
+// are"), never PermissionDenied (ADR-0013 section 5).
+func actor(ctx context.Context) (string, error) {
+	return auth.RequireSubject(ctx)
+}
 
 type Handler struct {
 	bookingv1.UnimplementedBookingServiceServer
@@ -118,10 +136,16 @@ func (h *Handler) CreateDiscountRule(ctx context.Context, req *bookingv1.CreateD
 
 	// No ID is read off the request — CreateDiscountRuleRequest has no id
 	// field at all (T11.2's creation-RPC checklist item 1); app.Service mints
-	// it from the IDGenerator port.
+	// it from the IDGenerator port. Nor is the actor read off the request any
+	// more (T12.7): req.ActorUserId is deprecated and ignored.
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	rule, err := h.svc.CreateDiscountRule(ctx, app.CreateDiscountRuleInput{
 		FacilityID:   req.GetFacilityId(),
-		ActorUserID:  req.GetActorUserId(),
+		ActorUserID:  actorUserID,
 		DiscountType: discountType,
 		Amount: domain.DiscountAmount{
 			Percent: req.GetPercent(),
@@ -203,8 +227,13 @@ func (h *Handler) RequestRecurringHire(ctx context.Context, req *bookingv1.Reque
 		return nil, toStatus(err)
 	}
 
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	template, err := h.svc.RequestRecurringHire(ctx, app.RequestRecurringHireInput{
-		ActorUserID:  req.GetActorUserId(),
+		ActorUserID:  actorUserID,
 		CourtID:      req.GetCourtId(),
 		Weekday:      weekday,
 		StartTime:    startTime,
@@ -220,7 +249,12 @@ func (h *Handler) RequestRecurringHire(ctx context.Context, req *bookingv1.Reque
 }
 
 func (h *Handler) ApproveRecurringHire(ctx context.Context, req *bookingv1.ApproveRecurringHireRequest) (*bookingv1.ApproveRecurringHireResponse, error) {
-	result, err := h.svc.ApproveRecurringHire(ctx, req.GetTemplateId(), req.GetActorUserId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := h.svc.ApproveRecurringHire(ctx, req.GetTemplateId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -243,7 +277,12 @@ func (h *Handler) ApproveRecurringHire(ctx context.Context, req *bookingv1.Appro
 }
 
 func (h *Handler) RejectRecurringHire(ctx context.Context, req *bookingv1.RejectRecurringHireRequest) (*bookingv1.RejectRecurringHireResponse, error) {
-	template, err := h.svc.RejectRecurringHire(ctx, req.GetTemplateId(), req.GetActorUserId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	template, err := h.svc.RejectRecurringHire(ctx, req.GetTemplateId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -251,7 +290,12 @@ func (h *Handler) RejectRecurringHire(ctx context.Context, req *bookingv1.Reject
 }
 
 func (h *Handler) ListRecurringHireTemplatesForFacility(ctx context.Context, req *bookingv1.ListRecurringHireTemplatesForFacilityRequest) (*bookingv1.ListRecurringHireTemplatesForFacilityResponse, error) {
-	templates, err := h.svc.ListRecurringHireTemplatesForFacility(ctx, req.GetFacilityId(), req.GetActorUserId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	templates, err := h.svc.ListRecurringHireTemplatesForFacility(ctx, req.GetFacilityId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -269,7 +313,12 @@ func (h *Handler) ListRecurringHireTemplatesForFacility(ctx context.Context, req
 // request is still open. See the app method for the authorization reasoning
 // (the actor's identity is the scope; deliberately no role check).
 func (h *Handler) ListRecurringHireTemplatesForActor(ctx context.Context, req *bookingv1.ListRecurringHireTemplatesForActorRequest) (*bookingv1.ListRecurringHireTemplatesForActorResponse, error) {
-	templates, err := h.svc.ListRecurringHireTemplatesForActor(ctx, req.GetActorUserId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	templates, err := h.svc.ListRecurringHireTemplatesForActor(ctx, actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}

@@ -197,7 +197,6 @@ func newRecurringHandler() *recurringHarness {
 // Monday 2026-01-05.
 func validRequest(occurrences int32) *bookingv1.RequestRecurringHireRequest {
 	return &bookingv1.RequestRecurringHireRequest{
-		ActorUserId: userID(clubUser),
 		CourtId:     courtID(1),
 		Weekday:     int32(time.Monday),
 		StartMinute: 9 * 60,
@@ -212,7 +211,7 @@ func validRequest(occurrences int32) *bookingv1.RequestRecurringHireRequest {
 
 func mustRequestTemplate(t *testing.T, h *recurringHarness, occurrences int32) *bookingv1.RecurringHireTemplate {
 	t.Helper()
-	resp, err := h.handler.RequestRecurringHire(context.Background(), validRequest(occurrences))
+	resp, err := h.handler.RequestRecurringHire(ctxAs(userID(clubUser)), validRequest(occurrences))
 	if err != nil {
 		t.Fatalf("RequestRecurringHire: %v", err)
 	}
@@ -229,7 +228,7 @@ func mustRequestTemplate(t *testing.T, h *recurringHarness, occurrences int32) *
 func TestRequestRecurringHire_ClubActorSucceeds(t *testing.T) {
 	h := newRecurringHandler()
 
-	resp, err := h.handler.RequestRecurringHire(context.Background(), validRequest(4))
+	resp, err := h.handler.RequestRecurringHire(ctxAs(userID(clubUser)), validRequest(4))
 	if err != nil {
 		t.Fatalf("RequestRecurringHire(club): %v", err)
 	}
@@ -259,9 +258,11 @@ func TestRequestRecurringHire_NonClubActorIsPermissionDenied(t *testing.T) {
 	h := newRecurringHandler()
 
 	req := validRequest(4)
-	req.ActorUserId = userID(playerUser)
 
-	_, err := h.handler.RequestRecurringHire(context.Background(), req)
+	// T12.7: the non-club actor is now a *verified* non-club user. Before
+	// this ticket the identity was req.ActorUserId, which the handler took at
+	// face value; the role check it feeds is unchanged.
+	_, err := h.handler.RequestRecurringHire(ctxAs(userID(playerUser)), req)
 	requireCode(t, err, codes.PermissionDenied)
 	if h.templates.createCalls != 0 {
 		t.Fatalf("a non-club actor's template reached the repository (%d calls) — the role check must run before anything is persisted", h.templates.createCalls)
@@ -274,10 +275,14 @@ func TestRequestRecurringHire_NonClubActorIsPermissionDenied(t *testing.T) {
 // oracle. Both shapes — well-formed-but-unknown and malformed — get the same
 // code as a known non-club actor, so the response reveals nothing about which
 // ids exist.
+// T12.7 note: the empty-string case this loop used to carry has moved. An
+// empty subject is not an identity — auth.ContextWithPrincipal refuses to
+// store one — so that caller is now Unauthenticated, not PermissionDenied, and
+// is asserted in authz_regression_test.go's no-principal test. The remaining
+// shapes are unchanged: a verified subject that resolves to no User.
 func TestRequestRecurringHire_UnresolvableActorIsPermissionDenied(t *testing.T) {
 	for _, id := range []string{
 		userID(99),
-		"",
 		"not-a-uuid",
 		"{6ba7b810-9dad-11d1-80b4-00c04fd430c8}",
 		"urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8",
@@ -286,9 +291,8 @@ func TestRequestRecurringHire_UnresolvableActorIsPermissionDenied(t *testing.T) 
 			h := newRecurringHandler()
 
 			req := validRequest(4)
-			req.ActorUserId = id
 
-			_, err := h.handler.RequestRecurringHire(context.Background(), req)
+			_, err := h.handler.RequestRecurringHire(ctxAs(id), req)
 			requireCode(t, err, codes.PermissionDenied)
 			if h.templates.createCalls != 0 {
 				t.Fatalf("an unresolvable actor's template reached the repository (%d calls)", h.templates.createCalls)
@@ -314,7 +318,7 @@ func TestRequestRecurringHire_UnresolvableCourtIsNotFound(t *testing.T) {
 			req := validRequest(4)
 			req.CourtId = id
 
-			_, err := h.handler.RequestRecurringHire(context.Background(), req)
+			_, err := h.handler.RequestRecurringHire(ctxAs(userID(clubUser)), req)
 			requireCode(t, err, codes.NotFound)
 			if h.templates.createCalls != 0 {
 				t.Fatalf("an unresolvable court's template reached the repository (%d calls)", h.templates.createCalls)
@@ -376,7 +380,7 @@ func TestRequestRecurringHire_InvalidScheduleIsInvalidArgument(t *testing.T) {
 			req := validRequest(4)
 			tt.mutate(req)
 
-			_, err := h.handler.RequestRecurringHire(context.Background(), req)
+			_, err := h.handler.RequestRecurringHire(ctxAs(userID(clubUser)), req)
 			requireCode(t, err, codes.InvalidArgument)
 			if h.templates.createCalls != 0 {
 				t.Fatalf("an invalid template reached the repository (%d calls)", h.templates.createCalls)
@@ -413,9 +417,8 @@ func TestApproveRecurringHire_PartialConflictIsReportedNotFatal(t *testing.T) {
 		t.Fatalf("fixture CreateBooking: %v", err)
 	}
 
-	resp, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-		TemplateId:  tpl.GetId(),
-		ActorUserId: userID(ownerUser),
+	resp, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+		TemplateId: tpl.GetId(),
 	})
 	if err != nil {
 		t.Fatalf("ApproveRecurringHire returned %v; one already-booked week must not fail the whole approval", err)
@@ -492,16 +495,13 @@ func TestApproveRecurringHire_PartialConflictIsReportedNotFatal(t *testing.T) {
 // The Club that submitted the request is included on purpose — being the
 // requester is not the same as being the approver.
 func TestApproveRecurringHire_NonOwnerIsPermissionDenied(t *testing.T) {
-	ctx := context.Background()
-
 	for _, actor := range []string{userID(attackerUser), userID(clubUser)} {
 		t.Run(actor, func(t *testing.T) {
 			h := newRecurringHandler()
 			tpl := mustRequestTemplate(t, h, 4)
 
-			_, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-				TemplateId:  tpl.GetId(),
-				ActorUserId: actor,
+			_, err := h.handler.ApproveRecurringHire(ctxAs(actor), &bookingv1.ApproveRecurringHireRequest{
+				TemplateId: tpl.GetId(),
 			})
 			requireCode(t, err, codes.PermissionDenied)
 			if h.templates.updateCalls != 0 {
@@ -526,9 +526,8 @@ func TestApproveRecurringHire_UnknownTemplateIsNotFound(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			h := newRecurringHandler()
 
-			_, err := h.handler.ApproveRecurringHire(context.Background(), &bookingv1.ApproveRecurringHireRequest{
-				TemplateId:  id,
-				ActorUserId: userID(ownerUser),
+			_, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+				TemplateId: id,
 			})
 			requireCode(t, err, codes.NotFound)
 		})
@@ -540,21 +539,19 @@ func TestApproveRecurringHire_UnknownTemplateIsNotFound(t *testing.T) {
 // proves re-approval does not quietly generate a second set of Bookings for
 // the same weeks.
 func TestRecurringHire_AlreadyDecidedIsFailedPrecondition(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("re-approving an approved template", func(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 2)
 
-		if _, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		if _, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		}); err != nil {
 			t.Fatalf("first approval: %v", err)
 		}
 		afterFirst := len(h.bookings.bookings)
 
-		_, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		_, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		})
 		requireCode(t, err, codes.FailedPrecondition)
 		if got := len(h.bookings.bookings); got != afterFirst {
@@ -566,14 +563,14 @@ func TestRecurringHire_AlreadyDecidedIsFailedPrecondition(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 2)
 
-		if _, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		if _, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		}); err != nil {
 			t.Fatalf("approval: %v", err)
 		}
 
-		_, err := h.handler.RejectRecurringHire(ctx, &bookingv1.RejectRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		_, err := h.handler.RejectRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.RejectRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		})
 		requireCode(t, err, codes.FailedPrecondition)
 	})
@@ -582,14 +579,14 @@ func TestRecurringHire_AlreadyDecidedIsFailedPrecondition(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 2)
 
-		if _, err := h.handler.RejectRecurringHire(ctx, &bookingv1.RejectRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		if _, err := h.handler.RejectRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.RejectRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		}); err != nil {
 			t.Fatalf("rejection: %v", err)
 		}
 
-		_, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		_, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		})
 		requireCode(t, err, codes.FailedPrecondition)
 		if got := len(h.bookings.bookings); got != 0 {
@@ -601,14 +598,12 @@ func TestRecurringHire_AlreadyDecidedIsFailedPrecondition(t *testing.T) {
 // --- RejectRecurringHire -----------------------------------------------
 
 func TestRejectRecurringHire(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("owner rejects and no bookings are created", func(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 4)
 
-		resp, err := h.handler.RejectRecurringHire(ctx, &bookingv1.RejectRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		resp, err := h.handler.RejectRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.RejectRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		})
 		if err != nil {
 			t.Fatalf("RejectRecurringHire: %v", err)
@@ -625,8 +620,8 @@ func TestRejectRecurringHire(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 4)
 
-		_, err := h.handler.RejectRecurringHire(ctx, &bookingv1.RejectRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(attackerUser),
+		_, err := h.handler.RejectRecurringHire(ctxAs(userID(attackerUser)), &bookingv1.RejectRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		})
 		requireCode(t, err, codes.PermissionDenied)
 		if h.templates.updateCalls != 0 {
@@ -642,14 +637,12 @@ func TestRejectRecurringHire(t *testing.T) {
 // authorization — the deliberate difference from T11.2's unauthenticated
 // ListDiscountRulesForFacility, recorded in the RPC's own proto comment.
 func TestListRecurringHireTemplatesForFacility(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("owner sees the queue", func(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 4)
 
-		resp, err := h.handler.ListRecurringHireTemplatesForFacility(ctx, &bookingv1.ListRecurringHireTemplatesForFacilityRequest{
-			FacilityId: facilityID(1), ActorUserId: userID(ownerUser),
+		resp, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(userID(ownerUser)), &bookingv1.ListRecurringHireTemplatesForFacilityRequest{
+			FacilityId: facilityID(1),
 		})
 		if err != nil {
 			t.Fatalf("ListRecurringHireTemplatesForFacility: %v", err)
@@ -663,8 +656,8 @@ func TestListRecurringHireTemplatesForFacility(t *testing.T) {
 		h := newRecurringHandler()
 		mustRequestTemplate(t, h, 4)
 
-		_, err := h.handler.ListRecurringHireTemplatesForFacility(ctx, &bookingv1.ListRecurringHireTemplatesForFacilityRequest{
-			FacilityId: facilityID(1), ActorUserId: userID(attackerUser),
+		_, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(userID(attackerUser)), &bookingv1.ListRecurringHireTemplatesForFacilityRequest{
+			FacilityId: facilityID(1),
 		})
 		requireCode(t, err, codes.PermissionDenied)
 		if h.templates.listCalls != 0 {
@@ -675,8 +668,8 @@ func TestListRecurringHireTemplatesForFacility(t *testing.T) {
 	t.Run("unknown or malformed facility is not found", func(t *testing.T) {
 		for _, id := range []string{facilityID(77), "", "not-a-uuid"} {
 			h := newRecurringHandler()
-			_, err := h.handler.ListRecurringHireTemplatesForFacility(ctx, &bookingv1.ListRecurringHireTemplatesForFacilityRequest{
-				FacilityId: id, ActorUserId: userID(ownerUser),
+			_, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(userID(ownerUser)), &bookingv1.ListRecurringHireTemplatesForFacilityRequest{
+				FacilityId: id,
 			})
 			requireCode(t, err, codes.NotFound)
 		}
@@ -694,15 +687,11 @@ func TestListRecurringHireTemplatesForFacility(t *testing.T) {
 // obvious alternative implementation, filtering the list to open requests —
 // would let the Club's screen imply a decided request is still pending.
 func TestListRecurringHireTemplatesForActor(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("actor sees their own templates and nobody else's", func(t *testing.T) {
 		h := newRecurringHandler()
 		mine := mustRequestTemplate(t, h, 4)
 
-		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
-			ActorUserId: userID(clubUser),
-		})
+		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(userID(clubUser)), &bookingv1.ListRecurringHireTemplatesForActorRequest{})
 		if err != nil {
 			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
 		}
@@ -712,9 +701,7 @@ func TestListRecurringHireTemplatesForActor(t *testing.T) {
 
 		// The Facility Owner requested nothing, so their list is empty even
 		// though they can see this same template through the owner queue.
-		ownerResp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
-			ActorUserId: userID(ownerUser),
-		})
+		ownerResp, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(userID(ownerUser)), &bookingv1.ListRecurringHireTemplatesForActorRequest{})
 		if err != nil {
 			t.Fatalf("ListRecurringHireTemplatesForActor (owner): %v", err)
 		}
@@ -727,15 +714,13 @@ func TestListRecurringHireTemplatesForActor(t *testing.T) {
 		h := newRecurringHandler()
 		tpl := mustRequestTemplate(t, h, 4)
 
-		if _, err := h.handler.RejectRecurringHire(ctx, &bookingv1.RejectRecurringHireRequest{
-			TemplateId: tpl.GetId(), ActorUserId: userID(ownerUser),
+		if _, err := h.handler.RejectRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.RejectRecurringHireRequest{
+			TemplateId: tpl.GetId(),
 		}); err != nil {
 			t.Fatalf("RejectRecurringHire: %v", err)
 		}
 
-		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
-			ActorUserId: userID(clubUser),
-		})
+		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(userID(clubUser)), &bookingv1.ListRecurringHireTemplatesForActorRequest{})
 		if err != nil {
 			t.Fatalf("ListRecurringHireTemplatesForActor: %v", err)
 		}
@@ -751,13 +736,14 @@ func TestListRecurringHireTemplatesForActor(t *testing.T) {
 	// ordinary empty list, not an error and not a panic (the malformed values
 	// would otherwise reach the adapter's mustUUID).
 	t.Run("unknown or malformed actor is an empty list, not an error", func(t *testing.T) {
-		for _, id := range []string{userID(99), "", "not-a-uuid", "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8"} {
+		// The empty id is gone for the reason above: with no storable
+		// principal the call is Unauthenticated, which
+		// authz_regression_test.go asserts.
+		for _, id := range []string{userID(99), "not-a-uuid", "urn:uuid:6ba7b810-9dad-11d1-80b4-00c04fd430c8"} {
 			h := newRecurringHandler()
 			mustRequestTemplate(t, h, 4)
 
-			resp, err := h.handler.ListRecurringHireTemplatesForActor(ctx, &bookingv1.ListRecurringHireTemplatesForActorRequest{
-				ActorUserId: id,
-			})
+			resp, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(id), &bookingv1.ListRecurringHireTemplatesForActorRequest{})
 			if err != nil {
 				t.Fatalf("ListRecurringHireTemplatesForActor(%q): %v", id, err)
 			}
@@ -782,20 +768,19 @@ func TestListRecurringHireTemplatesForActor(t *testing.T) {
 // pinned here rather than left to be discovered by whoever first approves an
 // open-ended request in production.
 func TestApproveRecurringHire_OpenEndedTemplateIsBoundedByTheHorizon(t *testing.T) {
-	ctx := context.Background()
 	h := newRecurringHandler()
 
 	req := validRequest(0)
 	req.EndCondition = &bookingv1.RecurringHireEndCondition{
 		Kind: bookingv1.RecurringHireEndConditionKind_RECURRING_HIRE_END_CONDITION_KIND_NO_END,
 	}
-	created, err := h.handler.RequestRecurringHire(ctx, req)
+	created, err := h.handler.RequestRecurringHire(ctxAs(userID(clubUser)), req)
 	if err != nil {
 		t.Fatalf("RequestRecurringHire: %v", err)
 	}
 
-	resp, err := h.handler.ApproveRecurringHire(ctx, &bookingv1.ApproveRecurringHireRequest{
-		TemplateId: created.GetTemplate().GetId(), ActorUserId: userID(ownerUser),
+	resp, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)), &bookingv1.ApproveRecurringHireRequest{
+		TemplateId: created.GetTemplate().GetId(),
 	})
 	if err != nil {
 		t.Fatalf("ApproveRecurringHire: %v", err)
