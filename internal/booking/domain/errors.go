@@ -36,6 +36,18 @@ var (
 	// before either repository call happens.
 	ErrInvalidCourtReference = errors.New("booking: court id does not reference a usable court")
 
+	// DiscountRule errors (T11.1). ErrInvalidSource (above) is reused for an
+	// AppliesTo entry outside the four locked Source values, rather than
+	// adding a second sentinel for the same underlying condition — CLAUDE.md
+	// rule 7's "one ubiquitous language": an invalid Source is an invalid
+	// Source everywhere, whether it's Booking.Source or DiscountRule.AppliesTo.
+	ErrEmptyFacilityID                = errors.New("booking: facility id is required")
+	ErrInvalidDiscountType            = errors.New("booking: invalid discount type")
+	ErrInvalidDiscountAmount          = errors.New("booking: discount amount out of range for its discount type")
+	ErrEmptyAppliesTo                 = errors.New("booking: discount rule must apply to at least one source")
+	ErrInvalidEndConditionOccurrences = errors.New("booking: end-after-occurrences count must be positive")
+	ErrAmbiguousDiscountRule          = errors.New("booking: more than one discount rule matches the requested facility/source/time")
+
 	// RecurringHireTemplate sentinels (T11.4). Named with a RecurringHire
 	// prefix so they cannot collide as Go identifiers with T11.1's
 	// DiscountRule sentinels landing in this same errors.go file (e.g. its

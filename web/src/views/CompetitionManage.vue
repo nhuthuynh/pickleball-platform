@@ -171,6 +171,15 @@ onMounted(() => {
 
 <template>
   <section class="competition-manage" :data-breakpoint="breakpoint" aria-label="Manage competition">
+    <!-- T11.7 fix (WCAG 2.4.6/2.4.10, axe page-has-heading-one): the "real"
+         heading below (the competition's own name) only exists once
+         `competition` has actually loaded — before this fix, the
+         loading/error states had no <h1> anywhere on the page at all. This
+         fallback is mutually exclusive with that one (`v-if="!competition"`
+         here vs. `competition` being required for the other to render), so
+         there is always exactly one <h1>, never zero and never two. -->
+    <h1 v-if="!competition" class="cm-heading">Manage competition</h1>
+
     <p v-if="loading" class="cm-status" role="status">Loading this competition…</p>
 
     <div v-else-if="error" class="cm-error" role="alert" data-testid="manage-error">

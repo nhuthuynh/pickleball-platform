@@ -119,10 +119,30 @@ onMounted(() => {
       <RouterLink :to="tab.to" class="app-nav__item" active-class="app-nav__item--active">
         {{ tab.label }}
         <!-- WCAG 1.4.1: the count itself is text (a visible number), never a
-             color-only dot — plus visually-hidden context for screen readers. -->
-        <span v-if="tab.id === 'payments' && pendingCashPaymentsCount > 0" class="app-nav__badge">
-          {{ pendingCashPaymentsCount }}
-          <span class="app-nav__badge-sr-text"> pending cash payments</span>
+             color-only dot — plus visually-hidden context for screen readers.
+
+             WCAG 4.1.3 (T11.7 fix): this count changes asynchronously with
+             NO direct user action on this element itself — e.g. marking a
+             cash payment paid on /host/payments updates the shared
+             `pendingCashPaymentsCount` state while AppNav stays mounted,
+             unchanged, elsewhere on screen (App.vue's persistent chrome).
+             Before this fix there was no role and no aria-live anywhere
+             here, so a screen-reader user got silence exactly when the
+             badge appeared, changed, or disappeared — the same class of gap
+             DisplayName.vue/VenueName.vue's own T10.8 fix closed for their
+             shape of async update. The fix mirrors that pattern exactly: an
+             always-present wrapper (stable for the lifetime of this
+             component — `tab.id` never changes under a `v-for` over a
+             constant NAV_TABS array) carries `aria-live="polite"`, so its
+             inner content's appearance/value-change/disappearance all
+             announce, rather than conditionally rendering the live region
+             itself (which is unreliable — the region has to already exist
+             for AT to be watching it when the change happens). -->
+        <span v-if="tab.id === 'payments'" class="app-nav__badge-live" aria-live="polite">
+          <span v-if="pendingCashPaymentsCount > 0" class="app-nav__badge">
+            {{ pendingCashPaymentsCount }}
+            <span class="app-nav__badge-sr-text"> pending cash payments</span>
+          </span>
         </span>
       </RouterLink>
 
@@ -183,6 +203,25 @@ onMounted(() => {
 .app-nav__subitem--active {
   color: var(--court);
   background: var(--paper-raised);
+}
+
+/* The aria-live wrapper itself (T11.7). Deliberately NOT `display: contents`
+   — that's a well-documented accessibility footgun: several browser/AT
+   engine combinations strip an element carrying ARIA attributes (including
+   aria-live) out of the accessibility tree entirely when it has `display:
+   contents`, which would make the aria-live fix this wrapper exists for a
+   no-op for real screen-reader users (jsdom doesn't model that pruning, so
+   nothing in this repo's test suite could have caught it — a PR review
+   caught it instead; see AppNav.spec.ts's tests for the regression this is
+   guarding). `inline-flex` keeps the wrapper a normal, always-in-the-tree
+   box while staying visually inert: `.app-nav__item` (this wrapper's
+   parent) is itself `display: flex`, so this wrapper is a plain flex item
+   sized to its content either way, exactly as `.app-nav__badge` alone was
+   before this wrapper existed — `.app-nav__badge` still does all the actual
+   visual styling (margin, colour, shape). */
+.app-nav__badge-live {
+  display: inline-flex;
+  align-items: center;
 }
 
 .app-nav__badge {
