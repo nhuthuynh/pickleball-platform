@@ -473,6 +473,22 @@ defineExpose({ submitDiscount, currentStep })
   cursor: not-allowed;
 }
 
+/* WCAG 2.4.7 Focus Visible — T12.5's keyboard pass. This screen shipped with
+   no focus indicator of its own, relying on the user agent's default ring,
+   whose contrast is not guaranteed against the `--court`-filled submit button
+   or the tinted section backgrounds. Explicit indicator, matching the
+   convention CompetitionLanding.vue / CompetitionEntryPanel.vue already
+   established (3px solid --court, offset 2px) rather than a new one. Every
+   interactive element on this screen is covered: the step nav, the submit
+   button, and all the native form controls. */
+.fd-steps__item:focus-visible,
+.fd-actions button:focus-visible,
+.fd-field input:focus-visible,
+.fd-fieldset input:focus-visible {
+  outline: 3px solid var(--court);
+  outline-offset: 2px;
+}
+
 .fd-empty {
   margin: 0;
   color: var(--ink-soft);
