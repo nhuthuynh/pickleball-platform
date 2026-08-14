@@ -165,10 +165,12 @@ message DiscountRule {
 // so there is nothing here a caller can self-declare to become an owner.
 message CreateDiscountRuleRequest {
   string facility_id = 1;
-  // actor_user_id is a caller-supplied claim, not a verified identity — see
-  // HANDOFF.md's Auth cross-cutting item. The object-level check it feeds is
-  // real regardless: it is resolved against the Facility's actual owner.
-  string actor_user_id = 2;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  string actor_user_id = 2 [deprecated = true];
   DiscountType discount_type = 3;
   double percent = 4;
   int64 fixed_amount_cents = 5;
@@ -262,10 +264,12 @@ message RecurringHireTemplate {
 // A caller who could self-declare `is_club` would be granting themselves the
 // privilege the check exists to gate.
 message RequestRecurringHireRequest {
-  // actor_user_id is a caller-supplied claim, not a verified identity — see
-  // HANDOFF.md's Auth cross-cutting item. The role check it feeds is real
-  // regardless: it is resolved against the User's actual Roles.
-  string actor_user_id = 1;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  string actor_user_id = 1 [deprecated = true];
   string court_id = 2;
   int32 weekday = 3;
   int32 start_minute = 4;
@@ -306,8 +310,15 @@ message RecurringHireOccurrence {
 
 message ApproveRecurringHireRequest {
   string template_id = 1;
-  // actor_user_id must own the Facility that owns the template's Court.
-  string actor_user_id = 2;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  // The owner check itself is unchanged: the approver must own the Facility
+  // that owns the template's Court — it is just the verified principal that
+  // is checked against it now.
+  string actor_user_id = 2 [deprecated = true];
 }
 
 // ApproveRecurringHireResponse reports the approved template plus one entry
@@ -327,7 +338,12 @@ message ApproveRecurringHireResponse {
 
 message RejectRecurringHireRequest {
   string template_id = 1;
-  string actor_user_id = 2;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  string actor_user_id = 2 [deprecated = true];
 }
 
 message RejectRecurringHireResponse {
@@ -336,10 +352,14 @@ message RejectRecurringHireResponse {
 
 message ListRecurringHireTemplatesForFacilityRequest {
   string facility_id = 1;
-  // actor_user_id must own the Facility. Unlike
-  // ListDiscountRulesForFacility, this read is owner-only — see the RPC's own
-  // comment below.
-  string actor_user_id = 2;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  // The rule is unchanged: this read is owner-only, unlike
+  // ListDiscountRulesForFacility — see the RPC's own comment below.
+  string actor_user_id = 2 [deprecated = true];
 }
 
 message ListRecurringHireTemplatesForFacilityResponse {
@@ -354,12 +374,17 @@ message ListRecurringHireTemplatesForFacilityResponse {
 // the open requests — the exact shape that would hide a rejection instead of
 // reporting it.
 message ListRecurringHireTemplatesForActorRequest {
-  // actor_user_id is a caller-supplied claim, not a verified identity — see
-  // HANDOFF.md's Auth cross-cutting item. Unlike the Facility-scoped read
-  // above, where an object-level owner check still constrains a forged actor,
-  // here the actor id IS the scope: authenticating the actor is what makes
-  // this endpoint correctly scoped, and nothing else can.
-  string actor_user_id = 1;
+  // DEPRECATED (T12.7): ignored by the server. The acting user is now taken
+  // from the verified bearer token's principal, never from this field. It is
+  // retained, not deleted, because removing a proto field is a breaking wire
+  // change and web/ still sends it until its own follow-up; a client that
+  // still populates it is neither helped nor harmed.
+  // This is the field whose forgery mattered most: unlike the
+  // Facility-scoped read above, where an object-level owner check still
+  // constrained a forged actor, here the actor id WAS the entire scope. The
+  // principal now supplies it, which is what makes this endpoint correctly
+  // scoped — as this comment previously noted nothing else could.
+  string actor_user_id = 1 [deprecated = true];
 }
 
 message ListRecurringHireTemplatesForActorResponse {

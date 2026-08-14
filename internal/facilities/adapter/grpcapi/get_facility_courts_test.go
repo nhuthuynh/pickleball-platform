@@ -15,23 +15,26 @@ import (
 )
 
 func TestGetFacility_ReturnsCourtsAddedViaAddCourt(t *testing.T) {
+	// GetFacility stays public (see PublicMethods) but AddCourt does not, so
+	// the two writes below authenticate as the owner while the read is made
+	// with a bare context — which also keeps this test honest about the
+	// browse path remaining callable without a token.
 	ctx := context.Background()
+	ownerCtx := ctxAs("owner-1")
 	h, _ := newTestHandler()
 
 	facility := seedFacility(t, h, "owner-1")
 
-	addResp1, err := h.AddCourt(ctx, &facilitiesv1.AddCourtRequest{
-		FacilityId:  facility.GetId(),
-		Name:        "Court 1",
-		ActorUserId: "owner-1",
+	addResp1, err := h.AddCourt(ownerCtx, &facilitiesv1.AddCourtRequest{
+		FacilityId: facility.GetId(),
+		Name:       "Court 1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err adding Court 1: %v", err)
 	}
-	addResp2, err := h.AddCourt(ctx, &facilitiesv1.AddCourtRequest{
-		FacilityId:  facility.GetId(),
-		Name:        "Court 2",
-		ActorUserId: "owner-1",
+	addResp2, err := h.AddCourt(ownerCtx, &facilitiesv1.AddCourtRequest{
+		FacilityId: facility.GetId(),
+		Name:       "Court 2",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err adding Court 2: %v", err)

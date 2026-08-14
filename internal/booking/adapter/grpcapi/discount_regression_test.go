@@ -164,7 +164,6 @@ func newTestHandler(t *testing.T) (*grpcapi.Handler, *fakeDiscountRepo) {
 func validCreateRequest() *bookingv1.CreateDiscountRuleRequest {
 	return &bookingv1.CreateDiscountRuleRequest{
 		FacilityId:   facilityID(1),
-		ActorUserId:  userID(ownerUser),
 		DiscountType: bookingv1.DiscountType_DISCOUNT_TYPE_PERCENT,
 		Percent:      15,
 		AppliesTo:    []bookingv1.Source{bookingv1.Source_SOURCE_INDIVIDUAL},
@@ -195,7 +194,7 @@ func requireCode(t *testing.T, err error, want codes.Code) {
 func TestCreateDiscountRule_OwnerSucceeds(t *testing.T) {
 	h, discounts := newTestHandler(t)
 
-	resp, err := h.CreateDiscountRule(context.Background(), validCreateRequest())
+	resp, err := h.CreateDiscountRule(ownerCtx(), validCreateRequest())
 	if err != nil {
 		t.Fatalf("CreateDiscountRule(owner): %v", err)
 	}
@@ -219,9 +218,11 @@ func TestCreateDiscountRule_NonOwnerIsPermissionDenied(t *testing.T) {
 	h, discounts := newTestHandler(t)
 
 	req := validCreateRequest()
-	req.ActorUserId = userID(attackerUser)
 
-	_, err := h.CreateDiscountRule(context.Background(), req)
+	// T12.7: the non-owner is now a *verified* non-owner. Before this ticket
+	// this line was req.ActorUserId = userID(attackerUser) — a claim the
+	// handler took at face value.
+	_, err := h.CreateDiscountRule(ctxAs(userID(attackerUser)), req)
 	requireCode(t, err, codes.PermissionDenied)
 	if discounts.createCalls != 0 {
 		t.Fatalf("a non-owner's rule reached the repository (%d calls) — the ownership check must run before anything is persisted", discounts.createCalls)
@@ -251,7 +252,7 @@ func TestCreateDiscountRule_UnknownOrMalformedFacilityIsNotFound(t *testing.T) {
 			req := validCreateRequest()
 			req.FacilityId = id
 
-			_, err := h.CreateDiscountRule(context.Background(), req)
+			_, err := h.CreateDiscountRule(ownerCtx(), req)
 			requireCode(t, err, codes.NotFound)
 			if discounts.createCalls != 0 {
 				t.Fatalf("an unresolvable facility's rule reached the repository (%d calls)", discounts.createCalls)
@@ -322,7 +323,7 @@ func TestCreateDiscountRule_InvalidInputIsInvalidArgument(t *testing.T) {
 			req := validCreateRequest()
 			tt.mutate(req)
 
-			_, err := h.CreateDiscountRule(context.Background(), req)
+			_, err := h.CreateDiscountRule(ownerCtx(), req)
 			requireCode(t, err, codes.InvalidArgument)
 			if discounts.createCalls != 0 {
 				t.Fatalf("an invalid rule reached the repository (%d calls)", discounts.createCalls)
@@ -343,7 +344,7 @@ func TestGetQuote_DiscountReachesTheWire(t *testing.T) {
 	ctx := context.Background()
 	h, _ := newTestHandler(t)
 
-	if _, err := h.CreateDiscountRule(ctx, validCreateRequest()); err != nil {
+	if _, err := h.CreateDiscountRule(ownerCtx(), validCreateRequest()); err != nil {
 		t.Fatalf("CreateDiscountRule: %v", err)
 	}
 
@@ -380,7 +381,7 @@ func TestGetQuote_UnspecifiedSourceUsesTheDocumentedDefault(t *testing.T) {
 	ctx := context.Background()
 	h, _ := newTestHandler(t)
 
-	if _, err := h.CreateDiscountRule(ctx, validCreateRequest()); err != nil {
+	if _, err := h.CreateDiscountRule(ownerCtx(), validCreateRequest()); err != nil {
 		t.Fatalf("CreateDiscountRule: %v", err)
 	}
 
@@ -432,7 +433,7 @@ func TestGetQuote_AmbiguousDiscountIsFailedPrecondition(t *testing.T) {
 	h, _ := newTestHandler(t)
 
 	for i := 0; i < 2; i++ {
-		if _, err := h.CreateDiscountRule(ctx, validCreateRequest()); err != nil {
+		if _, err := h.CreateDiscountRule(ownerCtx(), validCreateRequest()); err != nil {
 			t.Fatalf("CreateDiscountRule #%d: %v", i+1, err)
 		}
 	}
@@ -455,7 +456,7 @@ func TestListDiscountRulesForFacility(t *testing.T) {
 	ctx := context.Background()
 	h, _ := newTestHandler(t)
 
-	if _, err := h.CreateDiscountRule(ctx, validCreateRequest()); err != nil {
+	if _, err := h.CreateDiscountRule(ownerCtx(), validCreateRequest()); err != nil {
 		t.Fatalf("CreateDiscountRule: %v", err)
 	}
 

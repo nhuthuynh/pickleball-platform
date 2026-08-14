@@ -253,14 +253,39 @@ func run(logger *slog.Logger) error {
 		return err
 	}
 
+	// The authentication policy, composed from each context's own list
+	// (A11 Ruling 2). One line per context, and each context decides which of
+	// its RPCs are public next to the handlers that break if it is wrong —
+	// see the AuthenticatedMethods/PublicMethods pair in each grpcapi package,
+	// where a test fails if any RPC on the service is in neither list.
+	authenticatedMethods := auth.NewMethodSet(
+		bookinggrpc.AuthenticatedMethods(),    // T12.7
+		facilitiesgrpc.AuthenticatedMethods(), // T12.7
+	)
+	if tokenVerifier == nil {
+		// Enforcement without a verifier is fail-*closed*, not fail-open: no
+		// token can ever resolve, so every authenticated RPC rejects every
+		// caller with Unauthenticated. That is the safe direction, but it is
+		// also a deployment that cannot perform a single authenticated write,
+		// so it is said out loud at startup rather than discovered per
+		// request. ADR-0013 anticipates a future step further — refusing to
+		// start at all — which is deliberately not taken here: no identity
+		// provider is provisioned for this project yet, and a hard failure
+		// would make the server unstartable for local development.
+		logger.Warn("no token verifier configured: every authenticated RPC will reject every caller",
+			"authenticated_methods", len(bookinggrpc.AuthenticatedMethods())+len(facilitiesgrpc.AuthenticatedMethods()))
+	}
+
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(
 			grpcrecovery.UnaryInterceptor(logger),
 			auth.UnaryInterceptor(tokenVerifier, logger),
+			auth.RequireUnaryInterceptor(authenticatedMethods),
 		),
 		grpc.ChainStreamInterceptor(
 			grpcrecovery.StreamInterceptor(logger),
 			auth.StreamInterceptor(tokenVerifier, logger),
+			auth.RequireStreamInterceptor(authenticatedMethods),
 		),
 	)
 	bookingv1.RegisterBookingServiceServer(grpcServer, bookingHandler)
