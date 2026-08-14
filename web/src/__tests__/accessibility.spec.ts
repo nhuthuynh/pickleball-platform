@@ -87,6 +87,7 @@ async function mountAppAt(path: string) {
 const ROUTES_UNDER_TEST: { path: string; label: string }[] = [
   { path: '/facilities', label: 'facilities' },
   { path: '/facilities/onboard', label: 'facilities-onboard' },
+  { path: '/facilities/facility-1/discounts', label: 'facility-discounts' },
   { path: '/games', label: 'games' },
   { path: '/games/new', label: 'games-new' },
   { path: '/games/game-1/checkout', label: 'game-checkout' },

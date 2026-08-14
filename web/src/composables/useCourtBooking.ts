@@ -91,8 +91,16 @@ export function useCourtBooking(client: BookingClient = bookingClient): UseCourt
     conflict.value = null
     bookingError.value = null
     try {
+      // `source` (added to GetQuoteRequest by T11.2) selects which
+      // DiscountRules may apply. It is sent EXPLICITLY as SOURCE_INDIVIDUAL
+      // rather than left unspecified: every Booking this composable creates
+      // is SOURCE_INDIVIDUAL (see confirmBooking below), so the quote must
+      // ask about the same source the booking will use. booking.proto does
+      // define unspecified as meaning individual here, but relying on that
+      // default would make the quote and the booking two separate claims
+      // that only happen to agree.
       const { data, error } = await client.POST('/v1/quotes', {
-        body: { courtId, startsAt, endsAt },
+        body: { courtId, startsAt, endsAt, source: 'SOURCE_INDIVIDUAL' },
       })
       if (error || !data) {
         quoteError.value = 'Could not get a quote for this slot. Please try again.'

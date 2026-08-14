@@ -16,7 +16,8 @@
 // which).
 import { ref, computed } from 'vue'
 import { useCourtBooking } from '../../composables/useCourtBooking'
-import { formatPriceCents, type BookingSlot } from '../../models/booking'
+import { formatPriceCents, quoteSavingCents, type BookingSlot } from '../../models/booking'
+import { formatDiscountAmount, formatEndCondition } from '../../models/discount'
 import type { BookingClient } from '../../api/bookingClient'
 
 const props = defineProps<{
@@ -86,6 +87,20 @@ function onBookAnother(): void {
   startTime.value = ''
 }
 
+/**
+ * T11.3 instruction #2 — a discount is only ever shown ALONGSIDE the
+ * original band price, never as a silent substitution.
+ *
+ * `quote.discount` (absent, not zero-valued, when none applied — see
+ * booking.proto) is the authoritative signal that a rule was applied; the
+ * separate `savingCents` gate decides whether there is a real reduction to
+ * put a number on, so a rule that happens to reduce nothing still gets
+ * acknowledged without a phantom "$0.00 saved".
+ */
+const appliedDiscount = computed(() => quote.value?.discount ?? null)
+const savingCents = computed(() => (quote.value ? quoteSavingCents(quote.value) : 0))
+const showsOriginalPrice = computed(() => appliedDiscount.value !== null && savingCents.value > 0)
+
 function formatRange(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt)
   const end = new Date(endsAt)
@@ -143,9 +158,38 @@ function formatRange(startsAt: string, endsAt: string): string {
           <dt>Time</dt>
           <dd>{{ formatRange(reviewRange.startsAt, reviewRange.endsAt) }}</dd>
         </div>
+        <!-- T11.3: when a discount applied, the pre-discount band price
+             stays on screen with its own <dt> label. The <s> line-through
+             is REINFORCEMENT ONLY — the "Original price"/"Discounted price"
+             labels carry the meaning in text, so nothing depends on a
+             visual style a screen reader won't announce (WCAG 1.4.1 Use of
+             Colour / 1.3.3 Sensory Characteristics). -->
+        <div v-if="showsOriginalPrice" class="court-booking__summary-row">
+          <dt>Original price</dt>
+          <dd>
+            <s class="court-booking__original-price">{{ formatPriceCents(quote.bandPriceCents) }}</s>
+            <span class="court-booking__band">({{ quote.band }} rate, before discount)</span>
+          </dd>
+        </div>
         <div class="court-booking__summary-row">
-          <dt>Price</dt>
-          <dd>{{ formatPriceCents(quote.priceCents) }} <span class="court-booking__band">({{ quote.band }})</span></dd>
+          <dt>{{ showsOriginalPrice ? 'Discounted price' : 'Price' }}</dt>
+          <dd>
+            <span class="court-booking__price">{{ formatPriceCents(quote.priceCents) }}</span>
+            <span v-if="!showsOriginalPrice" class="court-booking__band">({{ quote.band }})</span>
+            <span v-if="showsOriginalPrice" class="court-booking__saving">
+              You save {{ formatPriceCents(savingCents) }}
+            </span>
+          </dd>
+        </div>
+        <!-- What the discount actually is, and when it ends — rendered from
+             the rule GetQuote returned. `formatEndCondition` never
+             fabricates a date or a remaining count (models/discount.ts). -->
+        <div v-if="appliedDiscount" class="court-booking__summary-row">
+          <dt>Discount applied</dt>
+          <dd>
+            <span class="court-booking__discount-amount">{{ formatDiscountAmount(appliedDiscount) }}</span>
+            <span class="court-booking__discount-end">{{ formatEndCondition(appliedDiscount.endCondition) }}</span>
+          </dd>
         </div>
       </dl>
 
@@ -331,6 +375,33 @@ function formatRange(startsAt: string, endsAt: string): string {
 .court-booking__band {
   font-weight: 400;
   color: var(--ink-soft);
+}
+
+/* T11.3 discount display. Every one of these is decorative reinforcement of
+   a label that is already present in text (see the template) — none of them
+   is the only way a discount is communicated. */
+.court-booking__original-price {
+  color: var(--ink-soft);
+}
+
+.court-booking__price {
+  font-weight: 600;
+}
+
+.court-booking__saving {
+  margin-left: 0.5rem;
+  font-weight: 600;
+  color: var(--ink-success);
+}
+
+.court-booking__discount-amount {
+  font-weight: 600;
+}
+
+.court-booking__discount-end {
+  margin-left: 0.5rem;
+  color: var(--ink-soft);
+  font-size: var(--font-size-sm);
 }
 
 .court-booking__conflict {

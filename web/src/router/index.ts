@@ -23,6 +23,7 @@ import { createRouter, createWebHistory, type Router, type RouteRecordRaw } from
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
 import FacilityOnboarding from '../views/FacilityOnboarding.vue'
+import FacilityDiscounts from '../views/FacilityDiscounts.vue'
 import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
@@ -46,6 +47,27 @@ export const routes: RouteRecordRaw[] = [
     name: 'facilities-onboard',
     component: FacilityOnboarding,
     meta: { title: 'Add a facility' },
+  },
+  // T11.3 (Pricing/discount UI, Flow 2) — the Facility Owner's discount
+  // create/list panel, against T11.2's real CreateDiscountRule/
+  // ListDiscountRulesForFacility endpoints.
+  //
+  // Like `/facilities/onboard` above, this is an Owner screen reached by URL
+  // rather than from AppNav: the nav's five tabs are Player/Host-facing, and
+  // there is no signed-in-owner context yet to gate an owner-only link on
+  // (see the view's MOCK_OWNER_ID note, and HANDOFF.md's Auth cross-cutting
+  // item). Registering it here is what puts it under the T11.7 a11y route
+  // sweep. `:facilityId` cannot collide with `onboard`: vue-router ranks a
+  // static segment above a dynamic one, and this route has an extra segment
+  // besides.
+  {
+    path: '/facilities/:facilityId/discounts',
+    name: 'facility-discounts',
+    component: FacilityDiscounts,
+    // `props: true` so the view takes the Facility id as a plain prop —
+    // which is also what lets its spec mount it without a router.
+    props: true,
+    meta: { title: 'Discounts' },
   },
   // T8.9 (Discover & Join Games) — real screen, replacing T8.1's placeholder.
   { path: '/games', name: 'games', component: DiscoverGames, meta: { title: 'Games' } },
