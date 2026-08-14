@@ -47,4 +47,15 @@ var (
 	ErrEmptyAppliesTo                 = errors.New("booking: discount rule must apply to at least one source")
 	ErrInvalidEndConditionOccurrences = errors.New("booking: end-after-occurrences count must be positive")
 	ErrAmbiguousDiscountRule          = errors.New("booking: more than one discount rule matches the requested facility/source/time")
+
+	// RecurringHireTemplate sentinels (T11.4). Named with a RecurringHire
+	// prefix so they cannot collide as Go identifiers with T11.1's
+	// DiscountRule sentinels landing in this same errors.go file (e.g. its
+	// own "EndAfterOccurrences n <= 0" validation) — see A9's shared-kernel
+	// note and A10's same-package watch item in
+	// docs/process/t11-sprint-plan.md.
+	ErrEmptyRequestedByUserID                  = errors.New("booking: requested by user id is required")
+	ErrInvalidRecurringHireTimeRange           = errors.New("booking: recurring hire start time must be before end time")
+	ErrInvalidRecurringHireEndAfterOccurrences = errors.New("booking: recurring hire end-after-occurrences count must be positive")
+	ErrInvalidRecurringHireStatusTransition    = errors.New("booking: invalid recurring hire status transition")
 )
