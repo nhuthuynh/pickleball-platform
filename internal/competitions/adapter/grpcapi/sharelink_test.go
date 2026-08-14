@@ -182,7 +182,7 @@ func TestGetCompetitionByShareToken_NotFoundIsNotAnOracle(t *testing.T) {
 			return err
 		}},
 		{"unknown competition id (ID-addressed read)", func() error {
-			_, err := h.GetCompetition(ctx, &competitionsv1.GetCompetitionRequest{CompetitionId: "no-such-competition"})
+			_, err := h.GetCompetition(ctx, &competitionsv1.GetCompetitionRequest{CompetitionId: fixtureUnknownCompetitionID})
 			return err
 		}},
 	}
