@@ -115,6 +115,16 @@ func (r *fakeRepo) AddCourt(_ context.Context, c domain.Court) (domain.Court, er
 
 // ListCourtsForFacility is T8.2's read path fake, mirroring
 // internal/facilities/adapter/postgres.Repository.ListCourtsForFacility.
+// GetCourtByID is T11.2's Court read (the one Booking's port.FacilityLookup
+// needs); this handler package never calls it, but port.Repository requires it.
+func (r *fakeRepo) GetCourtByID(_ context.Context, courtID string) (domain.Court, error) {
+	c, ok := r.courts[courtID]
+	if !ok {
+		return domain.Court{}, domain.ErrCourtNotFound
+	}
+	return c, nil
+}
+
 func (r *fakeRepo) ListCourtsForFacility(_ context.Context, facilityID string) ([]domain.Court, error) {
 	return r.courtsForFacility(facilityID), nil
 }

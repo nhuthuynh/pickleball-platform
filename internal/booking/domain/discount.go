@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // DiscountType is a closed enum for how a DiscountRule computes its
 // reduction: a percentage off the resolved price, or a flat amount off.
@@ -117,6 +120,52 @@ func NewDiscountRule(id, facilityID string, discountType DiscountType, amount Di
 		StartsAt:     startsAt,
 		EndCondition: endCondition,
 	}, nil
+}
+
+// Applies reports whether r is a real, resolved rule rather than the
+// zero-value DiscountRule ResolveDiscount returns for a no-match. The check
+// is DiscountType validity, not an ID or a bool flag: a DiscountRule that
+// came out of NewDiscountRule always has a valid DiscountType, and the zero
+// value never can, so this cannot drift out of sync with the constructor the
+// way a separate "found" flag would.
+func (r DiscountRule) Applies() bool {
+	return r.DiscountType.IsValid()
+}
+
+// ApplyToCents returns priceCents reduced by this rule. T11.2 added it: T11.1
+// resolved *which* rule applies but never applied one, since nothing consumed
+// a resolved rule until GetQuote did.
+//
+// Two rules are enforced here rather than at the call site, so every future
+// consumer inherits them:
+//   - A non-applying rule (the ResolveDiscount no-match zero value) returns
+//     priceCents unchanged — "no discount" is not a 0%-off discount.
+//   - The result is floored at 0. A 100%-off promotion, or a fixed_amount
+//     rule larger than the band price, makes a slot free; it never produces a
+//     negative price the payment path would have to interpret.
+//
+// Percent rounding is half away from zero on the *discount*, computed in
+// float64 only for the percentage multiplication (DiscountAmount.Percent is a
+// float64, e.g. 12.5) and immediately returned to integer cents — money is
+// never carried as a float across this boundary (ADR-0005's integer-minor-
+// units convention, the same reason Money.Cents is an int64).
+func (r DiscountRule) ApplyToCents(priceCents int64) int64 {
+	if !r.Applies() {
+		return priceCents
+	}
+
+	var off int64
+	switch r.DiscountType {
+	case DiscountTypePercent:
+		off = int64(math.Round(float64(priceCents) * r.Amount.Percent / 100))
+	case DiscountTypeFixedAmount:
+		off = r.Amount.Fixed.Cents
+	}
+
+	if off >= priceCents {
+		return 0
+	}
+	return priceCents - off
 }
 
 func (r DiscountRule) appliesToSource(source Source) bool {

@@ -48,6 +48,18 @@ var (
 	ErrInvalidEndConditionOccurrences = errors.New("booking: end-after-occurrences count must be positive")
 	ErrAmbiguousDiscountRule          = errors.New("booking: more than one discount rule matches the requested facility/source/time")
 
+	// ErrFacilityNotFound and ErrNotFacilityOwner are Booking's own,
+	// context-local sentinels for the two answers port.FacilityLookup can
+	// give (T11.2, Booking's first call into Facilities). They are
+	// deliberately NOT internal/facilities/domain's sentinels of the same
+	// name: CLAUDE.md rule 5 requires the adapter to translate at the
+	// boundary so no facilitiesdomain error type ever reaches Booking's app
+	// or grpcapi layers — the identical reasoning
+	// internal/socialplay/domain.ErrFacilityNotFound's own comment gives
+	// for keeping a per-context copy rather than importing one.
+	ErrFacilityNotFound = errors.New("booking: facility not found")
+	ErrNotFacilityOwner = errors.New("booking: actor is not authorized to modify this facility")
+
 	// RecurringHireTemplate sentinels (T11.4). Named with a RecurringHire
 	// prefix so they cannot collide as Go identifiers with T11.1's
 	// DiscountRule sentinels landing in this same errors.go file (e.g. its

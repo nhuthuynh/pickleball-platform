@@ -73,7 +73,15 @@ func TestCreateBooking_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 
 	repo := bookingpg.NewRepository(pool)
 	pricingRepo := bookingpg.NewPricingRuleRepository(pool)
-	svc := bookingapp.NewService(repo, pricingRepo, idgen.UUID{})
+	// T11.2's two new dependencies. This test exercises CreateBooking only,
+	// which touches neither — the real Postgres DiscountRuleRepository is
+	// wired anyway (it is what production uses, and it costs nothing here),
+	// while the FacilityLookup is a nil-free stand-in rather than the real
+	// Facilities-backed adapter: wiring that would pull an entire second
+	// context's app.Service into a test about one EXCLUDE constraint, and a
+	// nil interface would panic the moment anything did reach it.
+	discountRepo := bookingpg.NewDiscountRuleRepository(pool)
+	svc := bookingapp.NewService(repo, pricingRepo, discountRepo, unusedFacilityLookup{}, idgen.UUID{})
 
 	rng := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 
@@ -178,4 +186,20 @@ func mustRange(t *testing.T, start, end string) domain.TimeRange {
 		t.Fatalf("bad fixture range: %v", err)
 	}
 	return r
+}
+
+// unusedFacilityLookup satisfies port.FacilityLookup without reaching the
+// Facilities context. This test's CreateBooking path never calls it (only
+// GetQuote and CreateDiscountRule do), so its methods report the same
+// "no Facility resolved" answer the real adapter gives for an unknown
+// reference rather than pretending an ownership check succeeded — if a
+// future change did route through here, it would fail closed.
+type unusedFacilityLookup struct{}
+
+func (unusedFacilityLookup) EnsureFacilityOwner(_ context.Context, _, _ string) error {
+	return domain.ErrFacilityNotFound
+}
+
+func (unusedFacilityLookup) FacilityIDForCourt(_ context.Context, _ string) (string, error) {
+	return "", domain.ErrFacilityNotFound
 }

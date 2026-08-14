@@ -100,11 +100,20 @@ type sequentialIDs struct{ n int }
 // internal/socialplay and internal/facilities' equivalent generators.
 func (g *sequentialIDs) NewID() string {
 	g.n++
-	// The "a000" group (vs. courtID's "9000" in malformed_id_test.go) keeps
-	// a Booking's own id visibly distinct from a Court id in test output,
-	// even though the two are stored in unrelated keyspaces and a value
-	// collision between them would not actually be a bug.
-	return fmt.Sprintf("00000000-0000-4000-a000-%012d", g.n)
+	return seqID(g.n)
+}
+
+// seqID is the shape sequentialIDs mints, factored out so a test asserting
+// "this ID came from the server's IDGenerator, not the caller" (T11.2's
+// creation-RPC checklist item 1, discount_test.go) can name the expected
+// value without re-declaring the format string and letting the two drift.
+//
+// The "a000" group (vs. courtID's "9000" and discount_test.go's facilityID
+// "c000") keeps a server-minted aggregate id visibly distinct from a Court or
+// Facility id in test output, even though the three are stored in unrelated
+// keyspaces and a value collision between them would not actually be a bug.
+func seqID(n int) string {
+	return fmt.Sprintf("00000000-0000-4000-a000-%012d", n)
 }
 
 func mustTimeRange(t *testing.T, start, end string) domain.TimeRange {
@@ -134,7 +143,7 @@ func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	competitionRange := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T11:00:00Z")
@@ -158,7 +167,7 @@ func TestCreateBooking_AllowsDifferentCourts(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -180,7 +189,7 @@ func TestCreateBooking_AllowsBackToBack(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	first := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -203,7 +212,7 @@ func TestCreateBooking_InvalidSourceRejectedBeforeTouchingRepo(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &fakePricingRepo{}, &sequentialIDs{})
+	svc := app.NewService(repo, &fakePricingRepo{}, newFakeDiscountRepo(), &fakeFacilityLookup{}, &sequentialIDs{})
 	ctx := context.Background()
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 

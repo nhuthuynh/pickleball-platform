@@ -68,11 +68,126 @@ message GetQuoteRequest {
   string court_id = 1;
   google.protobuf.Timestamp starts_at = 2;
   google.protobuf.Timestamp ends_at = 3;
+  // source selects which DiscountRules may apply to this quote
+  // (DiscountRule.applies_to). New in T11.2 — the quote path had no notion
+  // of Source before discounts existed.
+  //
+  // SOURCE_UNSPECIFIED is treated as SOURCE_INDIVIDUAL here, and that is
+  // part of the contract rather than an inference the server makes: GetQuote
+  // is the court-hire quote endpoint, and every Booking created from a quote
+  // is created with SOURCE_INDIVIDUAL (see web/src/composables/
+  // useCourtBooking.ts, whose CreateBooking call hardcodes it). Rejecting an
+  // unspecified source would break every already-shipped client of an
+  // endpoint that has existed since T1; silently applying no discount to it
+  // would make a Facility Owner's configured promotion decorative for
+  // exactly the caller this ticket exists to serve. Clients quoting one of
+  // the other three sources must set this field explicitly.
+  Source source = 4;
 }
 
 message GetQuoteResponse {
+  // price_cents is what the Player pays: band_price_cents with any resolved
+  // discount applied. It keeps field number 1 and its original meaning for
+  // clients that only ever read one number.
   int64 price_cents = 1;
   string band = 2;
+  // band_price_cents is the pre-discount price the band resolved to. Equal
+  // to price_cents when no discount applied. Sent so a client can show what
+  // was taken off rather than swapping one number for another with no
+  // indication a discount was applied.
+  int64 band_price_cents = 3;
+  // discount is the rule that was applied, absent when none was. Absence,
+  // not a zero-valued rule, is what "no discount" looks like on the wire —
+  // a 0%-off discount and no discount are different statements.
+  DiscountRule discount = 4;
+}
+
+// DiscountType mirrors internal/booking/domain.DiscountType (T11.1): a
+// closed enum for how a DiscountRule computes its reduction.
+enum DiscountType {
+  DISCOUNT_TYPE_UNSPECIFIED = 0;
+  DISCOUNT_TYPE_PERCENT = 1;
+  DISCOUNT_TYPE_FIXED_AMOUNT = 2;
+}
+
+// EndConditionKind mirrors internal/booking/domain.EndConditionKind: which
+// of EndCondition's three shapes is in play.
+enum EndConditionKind {
+  END_CONDITION_KIND_UNSPECIFIED = 0;
+  END_CONDITION_KIND_END_AFTER_DATE = 1;
+  END_CONDITION_KIND_END_AFTER_OCCURRENCES = 2;
+  END_CONDITION_KIND_NO_END = 3;
+}
+
+// EndCondition mirrors internal/booking/domain.EndCondition, a small variant
+// (design doc v1-system-design.md §3.2): a DiscountRule ends on a fixed
+// date, after a fixed number of occurrences, or never. Only the field
+// matching `kind` is meaningful; the others are unset.
+message EndCondition {
+  EndConditionKind kind = 1;
+  google.protobuf.Timestamp end_date = 2;
+  int32 occurrences = 3;
+}
+
+// DiscountRule mirrors internal/booking/domain.DiscountRule (T11.1): a
+// facility-wide promotion layered on top of pricing. Facility-scoped only
+// this sprint (t11-sprint-plan.md A9's explicit narrowing) — there is no
+// court_id field, and adding one later is additive.
+message DiscountRule {
+  string id = 1;
+  string facility_id = 2;
+  DiscountType discount_type = 3;
+  // percent is meaningful only when discount_type is
+  // DISCOUNT_TYPE_PERCENT: a value in (0, 100].
+  double percent = 4;
+  // fixed_amount_cents/currency are meaningful only when discount_type is
+  // DISCOUNT_TYPE_FIXED_AMOUNT. Integer minor units paired with an ISO 4217
+  // code (ADR-0005) — money is never a float on this wire, only the
+  // percentage is.
+  int64 fixed_amount_cents = 5;
+  string currency = 6;
+  // applies_to must be non-empty and a subset of the four locked Source
+  // values.
+  repeated Source applies_to = 7;
+  google.protobuf.Timestamp starts_at = 8;
+  EndCondition end_condition = 9;
+}
+
+// CreateDiscountRuleRequest deliberately has NO id field: the ID is minted
+// server-side, so no caller can choose or squat a DiscountRule's permanent
+// identifier (T11.2's creation-RPC checklist item 1, sprint plan A4).
+//
+// Checklist item 2, recorded as a checked negative finding: no field here
+// gates authorization or privilege on the actor. discount_type/percent/
+// fixed_amount_cents/applies_to/starts_at/end_condition all describe the
+// discount; actor_user_id is checked against the Facility's real OwnerID
+// server-side (Facility.EnsureOwner, T7.7's pattern) rather than believed,
+// so there is nothing here a caller can self-declare to become an owner.
+message CreateDiscountRuleRequest {
+  string facility_id = 1;
+  // actor_user_id is a caller-supplied claim, not a verified identity — see
+  // HANDOFF.md's Auth cross-cutting item. The object-level check it feeds is
+  // real regardless: it is resolved against the Facility's actual owner.
+  string actor_user_id = 2;
+  DiscountType discount_type = 3;
+  double percent = 4;
+  int64 fixed_amount_cents = 5;
+  string currency = 6;
+  repeated Source applies_to = 7;
+  google.protobuf.Timestamp starts_at = 8;
+  EndCondition end_condition = 9;
+}
+
+message CreateDiscountRuleResponse {
+  DiscountRule discount_rule = 1;
+}
+
+message ListDiscountRulesForFacilityRequest {
+  string facility_id = 1;
+}
+
+message ListDiscountRulesForFacilityResponse {
+  repeated DiscountRule discount_rules = 1;
 }
 
 // BookingService is the API contract for the Booking bounded context. buf
@@ -109,6 +224,26 @@ service BookingService {
     option (google.api.http) = {
       post: "/v1/quotes"
       body: "*"
+    };
+  }
+
+  // CreateDiscountRule configures a facility-wide discount (T11.2). The
+  // actor must own the target Facility — a non-owner is rejected with
+  // PermissionDenied before anything is constructed or persisted.
+  rpc CreateDiscountRule(CreateDiscountRuleRequest) returns (CreateDiscountRuleResponse) {
+    option (google.api.http) = {
+      post: "/v1/facilities/{facility_id}/discount-rules"
+      body: "*"
+    };
+  }
+
+  // ListDiscountRulesForFacility is the read side of the same resource. It
+  // is unauthenticated, matching ListCourtBookings: the discounted price is
+  // something a Player is quoted anyway, so the rules behind it are not
+  // owner-only information. Creating one is the privileged operation.
+  rpc ListDiscountRulesForFacility(ListDiscountRulesForFacilityRequest) returns (ListDiscountRulesForFacilityResponse) {
+    option (google.api.http) = {
+      get: "/v1/facilities/{facility_id}/discount-rules"
     };
   }
 }
