@@ -16,6 +16,8 @@
 // separately in flagshipFlows.spec.ts against the real component tree with
 // fixture data, which is where a per-state check actually belongs.
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { mount, flushPromises } from '@vue/test-utils'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
@@ -170,5 +172,108 @@ describe('WCAG 2.2 AA automated pass (axe-core) — every registered route', () 
     } finally {
       wrapper.unmount()
     }
+  })
+})
+
+// ── T12.5: the KEYBOARD half of the WCAG pass, for T11's three new screens ──
+//
+// T11.7's automated sweep above ran in T11 Wave 1; T11.3 and T11.6 merged in
+// Waves 3 and 4. The sweep covers their routes (the path-identity guard at the
+// top of this file makes that structural, not a claim), but the MANUAL half —
+// keyboard traversal, focus visibility — never ran against them, because they
+// did not exist yet.
+//
+// This block is the reproducible part of that manual pass. It does not replace
+// a real keyboard-and-screen-reader session (see the PR's checked-negatives
+// list and the issue filed for the part still owed); what it does is pin shut
+// the failure modes a later edit could silently reintroduce, stated as
+// properties over the three screens rather than as one-off spot checks.
+//
+// flagshipFlows.spec.ts asserts the first of these for the two flagship flows
+// by recording that a grep "found none" at review time. A grep at review time
+// protects the revision it was run against and nothing after it, so here the
+// same check is executable instead.
+const T11_NEW_SCREENS = [
+  { file: 'FacilityDiscounts.vue', route: '/facilities/:facilityId/discounts', ticket: 'T11.3' },
+  { file: 'FacilityRentalRequests.vue', route: '/facilities/:facilityId/rental-requests', ticket: 'T11.6' },
+  { file: 'ClubRentals.vue', route: '/clubs/rentals', ticket: 'T11.6' },
+] as const
+
+function sourceOf(file: string): string {
+  // Resolved from the Vitest root (web/), not from `import.meta.url`: under
+  // Vitest a spec's `import.meta.url` is the transformed module's
+  // root-relative URL, so `new URL('../views/…')` yields `/src/views/…` and
+  // misses the project directory entirely.
+  return readFileSync(resolve(process.cwd(), 'src/views', file), 'utf8')
+}
+
+/** The template half of a single-file component — style/script blocks carry
+ * neither click handlers nor tabindex, and prose comments in them would
+ * otherwise produce false matches. */
+function templateOf(file: string): string {
+  const source = sourceOf(file)
+  const start = source.indexOf('<template>')
+  const end = source.lastIndexOf('</template>')
+  expect(start, `${file} has no <template> block`).toBeGreaterThan(-1)
+  return source.slice(start, end)
+}
+
+describe('WCAG 2.1.1 Keyboard / 2.4.7 Focus Visible — T11.3 + T11.6 screens', () => {
+  // 2.1.1: a `<div @click>` is unreachable and unoperable by keyboard. Native
+  // interactive elements (or, at minimum, an explicit role plus a tabindex)
+  // are the only shapes that are not. Asserted over the whole template rather
+  // than against a list of the controls that happen to exist today.
+  it.each(T11_NEW_SCREENS)(
+    '$file ($ticket): every click handler is on a natively keyboard-operable element',
+    ({ file }) => {
+      const template = templateOf(file)
+
+      // Every element that opens a tag and carries a click handler before that
+      // tag closes, captured together with its tag name.
+      const clickable = [...template.matchAll(/<([a-zA-Z][\w-]*)\b[^>]*?@click[^>]*>/g)]
+      expect(clickable.length, `${file}: expected at least one interactive control`).toBeGreaterThan(0)
+
+      const NATIVE_INTERACTIVE = new Set(['button', 'a', 'input', 'select', 'textarea', 'summary'])
+      for (const [tagMarkup, tag] of clickable) {
+        const isNative = NATIVE_INTERACTIVE.has(tag!.toLowerCase())
+        // The escape hatch a non-native control would need to be operable at
+        // all: an explicit role AND a tabindex placing it in the tab order.
+        const isPolyfilled = /\brole=/.test(tagMarkup) && /\btabindex=/.test(tagMarkup)
+        expect(
+          isNative || isPolyfilled,
+          `${file}: <${tag}> has @click but is neither natively keyboard-operable nor given role+tabindex`,
+        ).toBe(true)
+      }
+    },
+  )
+
+  // 2.4.7: none of these three screens declared a focus indicator of its own
+  // before T12.5 — each inherited whatever ring the user agent draws, whose
+  // contrast is not guaranteed against a `--court`-filled button or a tinted
+  // panel. This asserts the indicator is DECLARED. It deliberately does NOT
+  // claim the indicator's rendered contrast has been measured: jsdom applies
+  // no scoped styles and implements no :focus-visible matching, so that stays
+  // a checked negative in the PR rather than something this file proves.
+  it.each(T11_NEW_SCREENS)('$file ($ticket): declares an explicit focus-visible indicator', ({ file }) => {
+    const source = sourceOf(file)
+    const styles = source.slice(source.indexOf('<style'))
+
+    expect(styles, `${file}: no :focus-visible rule`).toMatch(/:focus-visible/)
+    // An indicator that only changed colour would fail 1.4.1; the convention
+    // this codebase already uses (CompetitionLanding.vue) is an outline.
+    expect(styles, `${file}: :focus-visible rule draws no outline`).toMatch(
+      /:focus-visible[^{]*\{[^}]*outline:[^};]*(solid|auto)/,
+    )
+  })
+
+  // A positive tabindex re-orders the tab sequence away from DOM order and is
+  // the classic way a "sensible tab order" quietly stops being one. `-1`
+  // (programmatic focus — e.g. the confirm panel T12.5 adds) is fine, `0` is
+  // fine, anything above 0 is not.
+  it.each(T11_NEW_SCREENS)('$file ($ticket): uses no positive tabindex', ({ file }) => {
+    const positive = [...templateOf(file).matchAll(/tabindex="(\d+)"/g)].filter(
+      ([, value]) => Number(value) > 0,
+    )
+    expect(positive.map(([match]) => match), `${file}: positive tabindex re-orders the tab sequence`).toEqual([])
   })
 })

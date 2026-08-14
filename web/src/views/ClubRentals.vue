@@ -314,11 +314,24 @@ defineExpose({ submitRequest, currentStep, selectFacility })
 
         <label class="cr-field">
           <span>First date</span>
+          <!-- T12.5 (WCAG 3.3.1 / 1.3.1): this field is the only one on the
+               form carrying a HINT as well as an error, and it previously
+               hard-coded `aria-describedby` to the hint alone — so its error
+               was rendered but never part of the control's description. A
+               screen-reader user hears `role="alert"` once as the error
+               appears, then tabs back to fix it and hears only the hint. Both
+               ids are referenced now, hint first: the hint is the correction
+               guidance (3.3.3) and stays useful precisely while the error is
+               being fixed, so it is added to rather than replaced. -->
           <input
             id="rental-starts-at"
             v-model="form.startsAt"
             type="date"
-            aria-describedby="rental-starts-at-hint"
+            :aria-describedby="
+              fieldErrors.startsAt
+                ? 'rental-starts-at-hint rental-starts-at-error'
+                : 'rental-starts-at-hint'
+            "
             :aria-invalid="fieldErrors.startsAt ? 'true' : undefined"
           />
           <!-- States the server's own rule rather than computing a first
@@ -639,6 +652,21 @@ defineExpose({ submitRequest, currentStep, selectFacility })
 .cr-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* WCAG 2.4.7 Focus Visible — T12.5's keyboard pass. Same reasoning and the
+   same values as FacilityDiscounts.vue's block: this screen had no focus
+   indicator of its own, and the convention being followed is
+   CompetitionLanding.vue's (3px solid --court, offset 2px), not a new one.
+   Covers the step nav, the submit button, and every native form control
+   including the <select>s this screen uses for facility/court/weekday. */
+.cr-steps__item:focus-visible,
+.cr-actions button:focus-visible,
+.cr-field input:focus-visible,
+.cr-field select:focus-visible,
+.cr-fieldset input:focus-visible {
+  outline: 3px solid var(--court);
+  outline-offset: 2px;
 }
 
 .cr-empty {

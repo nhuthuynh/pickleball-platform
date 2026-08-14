@@ -291,6 +291,67 @@ describe('ClubRentals — requesting a rental', () => {
     expect(wrapper.find('#rental-end-time').attributes('aria-invalid')).toBe('true')
   })
 
+  // T12.5 — the same criterion, stated as a PROPERTY over every field rather
+  // than pinned on the one field above. This is what caught the real defect:
+  // `#rental-starts-at` renders `#rental-starts-at-error` but hard-coded
+  // `aria-describedby="rental-starts-at-hint"`, so its error was the one
+  // field error on this screen never programmatically associated with its
+  // control. `role="alert"` announces such an error once as it appears, but a
+  // screen-reader user who tabs back to the field afterwards to correct it
+  // hears only the hint — the error is not part of the control's description
+  // (WCAG 3.3.1 Error Identification / 1.3.1 Info and Relationships).
+  //
+  // The property: for EVERY error this form renders, the control it belongs
+  // to must reference that error's id in aria-describedby. Quantified over
+  // whatever errors actually render, so a field added later is covered
+  // without this test being edited.
+  it('associates every rendered field error with its own control, not just some', async () => {
+    const { wrapper } = await mountScreen({})
+    await openRequestStep(wrapper)
+    await fillValidRequest(wrapper)
+    // Clear two fields whose errors are rendered by DIFFERENT markup shapes:
+    // end-time's describedby is error-only, starts-at's also carries a hint.
+    await wrapper.find('#rental-starts-at').setValue('')
+    await wrapper.find('#rental-end-time').setValue('')
+
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    const errors = wrapper.findAll('.cr-field-error[id]')
+    expect(errors.length).toBeGreaterThan(1)
+
+    for (const error of errors) {
+      const errorId = error.attributes('id')!
+      // Convention on this screen: `<control-id>-error`.
+      const control = wrapper.find(`#${errorId.replace(/-error$/, '')}`)
+      expect(control.exists(), `no control found for ${errorId}`).toBe(true)
+
+      const describedBy = (control.attributes('aria-describedby') ?? '').split(/\s+/).filter(Boolean)
+      expect(describedBy, `${errorId} is rendered but not referenced by its control`).toContain(
+        errorId,
+      )
+      expect(control.attributes('aria-invalid')).toBe('true')
+    }
+  })
+
+  // The hint must SURVIVE the error rather than be replaced by it: it states
+  // the server's own generation rule, which is exactly what a user needs
+  // while correcting the field (WCAG 3.3.3 Error Suggestion).
+  it('keeps the starts-at hint described alongside its error', async () => {
+    const { wrapper } = await mountScreen({})
+    await openRequestStep(wrapper)
+    await fillValidRequest(wrapper)
+    await wrapper.find('#rental-starts-at').setValue('')
+
+    await wrapper.find('form').trigger('submit.prevent')
+    await flushPromises()
+
+    const describedBy = wrapper.find('#rental-starts-at').attributes('aria-describedby') ?? ''
+    expect(describedBy.split(/\s+/)).toEqual(
+      expect.arrayContaining(['rental-starts-at-hint', 'rental-starts-at-error']),
+    )
+  })
+
   // The server is still the authority on the role; a 403 gets its own
   // message rather than a generic failure the club cannot act on.
   it('explains a server-side role rejection specifically', async () => {

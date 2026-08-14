@@ -30,8 +30,8 @@
 // than reconstructing one from the schedule (which would be a guess presented
 // as a record). Likewise a rejected request is terminal: no Approve control is
 // offered for it, and the copy states a new request would be required.
-import { onMounted } from 'vue'
-import { useFacilityRentalRequests } from '../composables/useFacilityRentalRequests'
+import { onMounted, nextTick, ref, computed } from 'vue'
+import { useFacilityRentalRequests, type Decision } from '../composables/useFacilityRentalRequests'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import {
   formatWeekday,
@@ -79,10 +79,107 @@ const {
   decisionError,
   statusMessage,
   approvalResults,
+  pendingDecision,
+  requestDecision,
+  cancelDecision,
   load,
   approve,
   reject,
 } = useFacilityRentalRequests(props.client)
+
+// ── CONFIRM BEFORE COMMIT (WCAG 3.3.4 Error Prevention) — T12.5 ──────────
+// T11.6 shipped Approve/Reject as single-click, one-way, no-undo controls.
+// Approving generates real Bookings across every implied week and T11.4
+// models both transitions as terminal (this file's header, above), which is
+// exactly 3.3.4's Legal/Financial/Data scope. The flow that already answers
+// this criterion in this codebase is CourtBookingFlow.vue's REVIEW/CONFIRM
+// STEP, so this is the same shape rather than a second convention: a review
+// panel stating what is about to happen, an explicit confirm control, and a
+// way back out — with the GATE itself in the composable (see
+// useFacilityRentalRequests), not only in this markup.
+const pendingPanel = ref<HTMLElement | null>(null)
+const triggerButtons: Record<string, HTMLElement | null> = {}
+
+function registerTrigger(key: string, el: unknown): void {
+  triggerButtons[key] = (el as HTMLElement | null) ?? null
+}
+
+function isAwaitingConfirmation(templateId: string): boolean {
+  return pendingDecision.value?.templateId === templateId
+}
+
+/** Everything the confirm step renders, resolved in one place so the
+ * template never has to re-derive which decision is staged (and so the
+ * control for the decision that was NOT chosen is never in the DOM at all —
+ * hidden-but-present would still be reachable by a screen reader and by any
+ * "is this control offered?" scan). */
+const activeConfirm = computed(() => {
+  const pending = pendingDecision.value
+  if (!pending) return null
+  const template = templates.value.find((t) => t.id === pending.templateId)
+  if (!template) return null
+  return {
+    template,
+    decision: pending.decision,
+    heading: CONFIRM_HEADINGS[pending.decision],
+    consequence: CONFIRM_CONSEQUENCES[pending.decision],
+    confirmLabel: CONFIRM_LABELS[pending.decision],
+  }
+})
+
+/** Commits whichever decision is staged. Routing both through one handler
+ * keeps the component from being a second place that decides which write to
+ * fire — the composable's gate remains the only thing that can authorise
+ * either one. */
+function commitPending(): void {
+  const pending = pendingDecision.value
+  if (!pending) return
+  const run = pending.decision === 'approve' ? approve : reject
+  void run(pending.templateId, MOCK_OWNER_ID)
+}
+
+/** Keyboard (WCAG 2.4.3 Focus Order): choosing a decision REPLACES the
+ * button that has focus, so without this focus would fall to <body> and a
+ * keyboard-only owner would have to re-traverse the queue to reach the
+ * confirmation they just asked for. Same technique CompetitionLanding.vue
+ * uses for its heading: `tabindex="-1"` so the panel is programmatically
+ * focusable without becoming a tab stop of its own. */
+async function chooseDecision(templateId: string, decision: Decision): Promise<void> {
+  requestDecision(templateId, decision)
+  await nextTick()
+  pendingPanel.value?.focus()
+}
+
+/** And the return journey: backing out puts focus back on the control the
+ * owner left, not at the top of the document. */
+async function backOut(templateId: string, decision: Decision): Promise<void> {
+  cancelDecision()
+  await nextTick()
+  triggerButtons[`${decision}-${templateId}`]?.focus()
+}
+
+const CONFIRM_HEADINGS: Record<Decision, string> = {
+  approve: 'Confirm this approval',
+  reject: 'Confirm this rejection',
+}
+
+/** The consequence, in text — the thing an owner is actually being asked to
+ * check. Deliberately does NOT claim how many weeks will be booked: the
+ * per-week outcome exists only in the approval response (see this file's
+ * header), so a count here would be a guess presented as a fact. */
+const CONFIRM_CONSEQUENCES: Record<Decision, string> = {
+  approve:
+    'Approving creates a real booking for every week this request covers, and cannot be undone from ' +
+    'this screen — any week you did not want would have to be cancelled one at a time.',
+  reject:
+    'Rejecting books no courts and closes this request for good. It cannot be undone — the club would ' +
+    'have to send a new request.',
+}
+
+const CONFIRM_LABELS: Record<Decision, string> = {
+  approve: 'Yes, approve this request',
+  reject: 'Yes, reject this request',
+}
 
 /** A decision is offered only while the request is still open. T11.4 models
  * approve/reject as one-way transitions, so an already-answered request cannot
@@ -107,7 +204,11 @@ onMounted(() => {
 
 // Exposed so tests can drive the decisions directly, proving they are real
 // code paths rather than only UI affordances — same as FacilityDiscounts.vue.
-defineExpose({ approve, reject })
+// `requestDecision`/`cancelDecision` join them so a test can stage a decision
+// without the markup too. Note this exposure is exactly why the 3.3.4 gate
+// had to go in the composable: `approve`/`reject` are reachable here without
+// any button being pressed, so a markup-only confirm step would not be one.
+defineExpose({ approve, reject, requestDecision, cancelDecision })
 </script>
 
 <template>
@@ -153,25 +254,92 @@ defineExpose({ approve, reject })
 
           <p class="frr-request__explanation">{{ statusExplanation(template.status) }}</p>
 
-          <div v-if="canDecide(template)" class="frr-actions">
+          <!-- CHOOSE. Neither control commits anything: each only stages a
+               decision for the confirm step below (WCAG 3.3.4). They are
+               replaced by that step for the request being decided, while
+               every OTHER request in the queue stays answerable. -->
+          <div v-if="canDecide(template) && !isAwaitingConfirmation(template.id)" class="frr-actions">
             <button
+              :ref="(el) => registerTrigger(`approve-${template.id}`, el)"
               type="button"
               :data-testid="`approve-${template.id}`"
               :disabled="deciding === template.id"
-              @click="approve(template.id, MOCK_OWNER_ID)"
+              @click="chooseDecision(template.id, 'approve')"
             >
-              {{ deciding === template.id ? 'Working…' : 'Approve request' }}
+              Approve request
             </button>
             <button
+              :ref="(el) => registerTrigger(`reject-${template.id}`, el)"
               type="button"
               class="frr-actions__secondary"
               :data-testid="`reject-${template.id}`"
               :disabled="deciding === template.id"
-              @click="reject(template.id, MOCK_OWNER_ID)"
+              @click="chooseDecision(template.id, 'reject')"
             >
               Reject request
             </button>
           </div>
+
+          <!-- REVIEW/CONFIRM STEP (WCAG 3.3.4 Error Prevention) — the same
+               shape CourtBookingFlow.vue uses for this criterion: a heading,
+               a <dl> restating exactly what is about to happen, the
+               consequence in words, then an explicit confirm and an explicit
+               way back out. `tabindex="-1"` so focus can be moved here
+               without adding a tab stop of its own. -->
+          <template v-if="activeConfirm && activeConfirm.template.id === template.id">
+            <div
+              :ref="(el) => (pendingPanel = el as HTMLElement | null)"
+              class="frr-confirm"
+              tabindex="-1"
+              role="group"
+              :aria-labelledby="`confirm-heading-${template.id}`"
+              :data-testid="`confirm-step-${activeConfirm.decision}-${template.id}`"
+            >
+              <h3 :id="`confirm-heading-${template.id}`" class="frr-confirm__heading">
+                {{ activeConfirm.heading }}
+              </h3>
+
+              <dl class="frr-confirm__summary">
+                <div class="frr-request__row">
+                  <dt>Slot</dt>
+                  <dd>
+                    {{ formatWeekday(template.weekday) }},
+                    {{ formatTimeRange(template.startMinute, template.endMinute) }}
+                  </dd>
+                </div>
+                <div class="frr-request__row">
+                  <dt>From</dt>
+                  <dd>{{ formatDate(template.startsAt) || 'Not specified' }}</dd>
+                </div>
+                <div class="frr-request__row">
+                  <dt>Runs</dt>
+                  <dd>{{ formatRecurringEndCondition(template.endCondition) }}</dd>
+                </div>
+              </dl>
+
+              <p class="frr-confirm__consequence">{{ activeConfirm.consequence }}</p>
+
+              <div class="frr-actions">
+                <button
+                  type="button"
+                  :data-testid="`confirm-${activeConfirm.decision}-${template.id}`"
+                  :disabled="deciding === template.id"
+                  @click="commitPending()"
+                >
+                  {{ deciding === template.id ? 'Working…' : activeConfirm.confirmLabel }}
+                </button>
+                <button
+                  type="button"
+                  class="frr-actions__secondary"
+                  :data-testid="`cancel-${activeConfirm.decision}-${template.id}`"
+                  :disabled="deciding === template.id"
+                  @click="backOut(template.id, activeConfirm.decision)"
+                >
+                  No, keep this request open
+                </button>
+              </div>
+            </div>
+          </template>
 
           <!-- The per-week result of an approval made in THIS session. -->
           <div
@@ -344,6 +512,51 @@ defineExpose({ approve, reject })
 .frr-actions button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* WCAG 2.4.7 Focus Visible / 2.4.11 Focus Appearance. T12.5's keyboard pass:
+   this screen shipped relying on the user agent's default focus ring, which
+   is not guaranteed to have adequate contrast against the `--court`-filled
+   primary button. Explicit indicator, matching the convention
+   CompetitionLanding.vue / CompetitionEntryPanel.vue already established
+   (3px solid --court, offset 2px) rather than a new one. */
+.frr-actions button:focus-visible,
+.frr-confirm:focus-visible {
+  outline: 3px solid var(--court);
+  outline-offset: 2px;
+}
+
+/* The confirm step is visually set apart from the request it belongs to, but
+   nothing here depends on that: the heading, the <dl> and the consequence
+   sentence carry the meaning in TEXT (WCAG 1.4.1). */
+.frr-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 2px solid var(--court);
+  border-radius: var(--radius-sm);
+  background: var(--paper-raised);
+}
+
+.frr-confirm__heading {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--court);
+}
+
+.frr-confirm__summary {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: var(--font-size-sm);
+  color: var(--ink-soft);
+}
+
+.frr-confirm__consequence {
+  margin: 0;
+  font-size: var(--font-size-sm);
 }
 
 .frr-occurrences {

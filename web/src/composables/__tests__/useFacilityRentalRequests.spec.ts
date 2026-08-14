@@ -109,6 +109,10 @@ describe('useFacilityRentalRequests.approve', () => {
     )
     await queue.load('facility-1', OWNER)
 
+    // WCAG 3.3.4: the write is gated on a staged confirmation (T12.5), so
+    // every direct call must stage one first — the gate is the composable's,
+    // not the markup's.
+    queue.requestDecision('template-1', 'approve')
     const ok = await queue.approve('template-1', OWNER)
 
     expect(ok).toBe(true)
@@ -143,6 +147,10 @@ describe('useFacilityRentalRequests.approve', () => {
     )
     await queue.load('facility-1', OWNER)
 
+    // WCAG 3.3.4: the write is gated on a staged confirmation (T12.5), so
+    // every direct call must stage one first — the gate is the composable's,
+    // not the markup's.
+    queue.requestDecision('template-1', 'approve')
     await queue.approve('template-1', OWNER)
 
     expect(queue.templates.value[0]?.status).toBe('RECURRING_HIRE_STATUS_APPROVED')
@@ -155,6 +163,10 @@ describe('useFacilityRentalRequests.approve', () => {
     )
     await queue.load('facility-1', OWNER)
 
+    // WCAG 3.3.4: the write is gated on a staged confirmation (T12.5), so
+    // every direct call must stage one first — the gate is the composable's,
+    // not the markup's.
+    queue.requestDecision('template-1', 'approve')
     const ok = await queue.approve('template-1', OWNER)
 
     expect(ok).toBe(false)
@@ -184,6 +196,10 @@ describe('useFacilityRentalRequests.reject', () => {
     const queue = useFacilityRentalRequests(fakeClient())
     await queue.load('facility-1', OWNER)
 
+    // WCAG 3.3.4: the write is gated on a staged confirmation (T12.5), so
+    // every direct call must stage one first — the gate is the composable's,
+    // not the markup's.
+    queue.requestDecision('template-1', 'reject')
     const ok = await queue.reject('template-1', OWNER)
 
     expect(ok).toBe(true)
@@ -199,8 +215,95 @@ describe('useFacilityRentalRequests.reject', () => {
     )
     await queue.load('facility-1', OWNER)
 
+    // WCAG 3.3.4: the write is gated on a staged confirmation (T12.5), so
+    // every direct call must stage one first — the gate is the composable's,
+    // not the markup's.
+    queue.requestDecision('template-1', 'reject')
     await queue.reject('template-1', OWNER)
 
     expect(queue.decisionError.value).toMatch(/already been answered/i)
+  })
+})
+
+// ── T12.5 — WCAG 3.3.4 Error Prevention, at the layer that enforces it ─────
+//
+// Approving generates a real Booking for every implied week and T11.4 makes
+// both transitions one-way, so neither may fire on a single unconfirmed
+// activation. The gate is HERE rather than in FacilityRentalRequests.vue's
+// markup — the same placement `useCourtBooking` uses for this criterion — so
+// that it holds for any caller, including the component's own `defineExpose`d
+// `approve`/`reject`.
+//
+// Stated as a property over both decisions rather than as two hand-written
+// cases: every terminal write must be unreachable without a staged
+// confirmation naming exactly that decision on exactly that template.
+describe('useFacilityRentalRequests — the confirm-step gate (WCAG 3.3.4)', () => {
+  const DECISIONS = [
+    { decision: 'approve', other: 'reject', path: APPROVE_PATH },
+    { decision: 'reject', other: 'approve', path: REJECT_PATH },
+  ] as const
+
+  it.each(DECISIONS)('$decision does nothing at all with no confirmation staged', async ({ decision }) => {
+    const client = fakeClient()
+    const queue = useFacilityRentalRequests(client)
+    await queue.load('facility-1', OWNER)
+    ;(client.POST as ReturnType<typeof vi.fn>).mockClear()
+
+    expect(await queue[decision]('template-1', OWNER)).toBe(false)
+    expect(client.POST).not.toHaveBeenCalled()
+    // And it does not half-run: no spinner left on, no error invented for a
+    // decision the owner never actually made.
+    expect(queue.deciding.value).toBeNull()
+    expect(queue.decisionError.value).toBeNull()
+  })
+
+  it.each(DECISIONS)('$decision is not authorised by staging the OTHER decision', async ({ decision, other }) => {
+    const client = fakeClient()
+    const queue = useFacilityRentalRequests(client)
+    await queue.load('facility-1', OWNER)
+
+    queue.requestDecision('template-1', other)
+    expect(await queue[decision]('template-1', OWNER)).toBe(false)
+    expect(client.POST).not.toHaveBeenCalled()
+  })
+
+  it.each(DECISIONS)('$decision is not authorised by a confirmation staged for another request', async ({ decision }) => {
+    const client = fakeClient()
+    const queue = useFacilityRentalRequests(client)
+    await queue.load('facility-1', OWNER)
+
+    queue.requestDecision('some-other-template', decision)
+    expect(await queue[decision]('template-1', OWNER)).toBe(false)
+    expect(client.POST).not.toHaveBeenCalled()
+  })
+
+  it.each(DECISIONS)('$decision spends its confirmation: a replay is not authorised', async ({ decision, path }) => {
+    const client = fakeClient()
+    const queue = useFacilityRentalRequests(client)
+    await queue.load('facility-1', OWNER)
+
+    queue.requestDecision('template-1', decision)
+    expect(await queue[decision]('template-1', OWNER)).toBe(true)
+    expect(client.POST).toHaveBeenCalledWith(path, expect.anything())
+
+    // The staged confirmation is consumed, so a repeated call (a double
+    // submit, a retry loop) cannot commit a second time off the same answer.
+    expect(queue.pendingDecision.value).toBeNull()
+    ;(client.POST as ReturnType<typeof vi.fn>).mockClear()
+    expect(await queue[decision]('template-1', OWNER)).toBe(false)
+    expect(client.POST).not.toHaveBeenCalled()
+  })
+
+  it('cancelling a staged confirmation de-authorises the write', async () => {
+    const client = fakeClient()
+    const queue = useFacilityRentalRequests(client)
+    await queue.load('facility-1', OWNER)
+
+    queue.requestDecision('template-1', 'approve')
+    queue.cancelDecision()
+
+    expect(queue.pendingDecision.value).toBeNull()
+    expect(await queue.approve('template-1', OWNER)).toBe(false)
+    expect(client.POST).not.toHaveBeenCalled()
   })
 })

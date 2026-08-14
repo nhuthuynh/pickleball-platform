@@ -14,6 +14,15 @@ import {
  * a single floating banner. */
 export type ApprovalResults = Record<string, OccurrenceView[]>
 
+/** Which of the two one-way transitions is being asked for. */
+export type Decision = 'approve' | 'reject'
+
+/** A decision the owner has CHOSEN but not yet CONFIRMED (WCAG 3.3.4). */
+export interface PendingDecision {
+  templateId: string
+  decision: Decision
+}
+
 export interface UseFacilityRentalRequestsResult {
   templates: Ref<RecurringHireTemplateView[]>
   loading: Ref<boolean>
@@ -21,6 +30,12 @@ export interface UseFacilityRentalRequestsResult {
   /** Template id currently being approved/rejected, or `null`. */
   deciding: Ref<string | null>
   decisionError: Ref<string | null>
+  /** The decision awaiting confirmation, or `null` (WCAG 3.3.4). */
+  pendingDecision: Ref<PendingDecision | null>
+  /** Stage a decision for confirmation. Writes nothing to the server. */
+  requestDecision: (templateId: string, decision: Decision) => void
+  /** Abandon the staged decision. Writes nothing to the server. */
+  cancelDecision: () => void
   /** Success/result confirmation, announced through an ARIA live region
    * (WCAG 4.1.3). For an approval this always carries the per-week counts. */
   statusMessage: Ref<string>
@@ -47,6 +62,19 @@ export interface UseFacilityRentalRequestsResult {
  * "all booked" for a template approved in an earlier session. A previously
  * approved template simply has no entry, and the view says so rather than
  * inventing one (T11.6 instructions #2 and #4).
+ *
+ * **The confirm-step gate (WCAG 3.3.4 Error Prevention) lives here, not just
+ * in the UI** — deliberately the same placement `useCourtBooking` uses for
+ * the same criterion, so the two screens answer 3.3.4 the same way rather
+ * than each inventing a shape. `approve`/`reject` are no-ops returning
+ * `false` unless `requestDecision` has staged exactly that decision for
+ * exactly that template first, so neither irreversible write can fire
+ * without a confirmation regardless of what the calling component does.
+ * This matters concretely here: FacilityRentalRequests.vue exposes both
+ * methods via `defineExpose`, so a markup-only confirm step would leave the
+ * write reachable by a caller that never touches a button. T11.4 models
+ * both transitions as one-way and approval generates real Bookings across
+ * every implied week, which is what puts them in 3.3.4's scope at all.
  */
 export function useFacilityRentalRequests(
   client: BookingClient = bookingClient,
@@ -58,6 +86,26 @@ export function useFacilityRentalRequests(
   const decisionError = ref<string | null>(null)
   const statusMessage = ref('')
   const approvalResults = ref<ApprovalResults>({})
+  const pendingDecision = ref<PendingDecision | null>(null)
+
+  function requestDecision(templateId: string, decision: Decision): void {
+    // Staging a decision clears the previous attempt's error: the owner is
+    // being asked a fresh question, so a stale failure alongside it would
+    // read as if it applied to this one.
+    decisionError.value = null
+    pendingDecision.value = { templateId, decision }
+  }
+
+  function cancelDecision(): void {
+    pendingDecision.value = null
+  }
+
+  /** The 3.3.4 gate itself. `true` only when THIS decision on THIS template
+   * is the one the owner confirmed — not merely "some decision is staged". */
+  function isConfirmed(templateId: string, decision: Decision): boolean {
+    const pending = pendingDecision.value
+    return pending !== null && pending.templateId === templateId && pending.decision === decision
+  }
 
   async function load(facilityId: string, actorUserId: string): Promise<void> {
     loading.value = true
@@ -110,6 +158,10 @@ export function useFacilityRentalRequests(
   }
 
   async function approve(templateId: string, actorUserId: string): Promise<boolean> {
+    // Confirm-step gate (WCAG 3.3.4): never generate a season of Bookings
+    // for a decision the owner has not confirmed.
+    if (!isConfirmed(templateId, 'approve')) return false
+
     deciding.value = templateId
     decisionError.value = null
     try {
@@ -142,10 +194,19 @@ export function useFacilityRentalRequests(
       return false
     } finally {
       deciding.value = null
+      // The confirmation is spent either way. On success the request is now
+      // decided and offers no controls at all; on failure the owner is
+      // returned to the queue with the reason, and must choose again rather
+      // than find a still-armed confirmation waiting.
+      pendingDecision.value = null
     }
   }
 
   async function reject(templateId: string, actorUserId: string): Promise<boolean> {
+    // Confirm-step gate (WCAG 3.3.4): rejection is terminal too — the club
+    // would have to send a new request — so it is confirmed the same way.
+    if (!isConfirmed(templateId, 'reject')) return false
+
     deciding.value = templateId
     decisionError.value = null
     try {
@@ -175,6 +236,11 @@ export function useFacilityRentalRequests(
       return false
     } finally {
       deciding.value = null
+      // The confirmation is spent either way. On success the request is now
+      // decided and offers no controls at all; on failure the owner is
+      // returned to the queue with the reason, and must choose again rather
+      // than find a still-armed confirmation waiting.
+      pendingDecision.value = null
     }
   }
 
@@ -186,6 +252,9 @@ export function useFacilityRentalRequests(
     decisionError,
     statusMessage,
     approvalResults,
+    pendingDecision,
+    requestDecision,
+    cancelDecision,
     load,
     approve,
     reject,
