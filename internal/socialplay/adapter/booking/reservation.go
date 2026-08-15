@@ -56,6 +56,22 @@ func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, e
 		if errors.Is(err, bookingdomain.ErrCourtDoubleBooked) {
 			return "", domain.ErrCourtUnavailable
 		}
+		// T15.6 (closes #185). courtID names no court: either it is
+		// malformed (bookingapp.CreateBooking's uuidShape guard — not
+		// reachable from ScheduleGame, whose own T14.8 shape guard runs
+		// first, but reachable from any other caller of this port) or it is
+		// well-formed and names no courts row, which only the FK on
+		// bookings.court_id can detect and which Booking's Postgres adapter
+		// now translates rather than leaving as a raw 23503.
+		//
+		// Translated to this context's own sentinel, never propagated as the
+		// bookingdomain type (CLAUDE.md rule 5) — the same shape as the
+		// ErrCourtDoubleBooked arm above it. Without this arm the error
+		// falls to the %s-stripped wrap below, arrives at toStatus with no
+		// sentinel to match, and answers Internal: the defect itself.
+		if errors.Is(err, bookingdomain.ErrInvalidCourtReference) {
+			return "", domain.ErrCourtNotFound
+		}
 		// Any other error (e.g. a wrapped infra failure) is stripped of its
 		// original type before crossing the boundary — %s, not %w — so a
 		// caller can never accidentally errors.Is() against a bookingdomain

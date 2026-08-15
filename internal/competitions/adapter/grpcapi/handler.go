@@ -329,7 +329,16 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrNotCompetitionHost):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrCompetitionNotFound),
-		errors.Is(err, domain.ErrFacilityNotFound):
+		errors.Is(err, domain.ErrFacilityNotFound),
+		// T15.6 (closes #185): ScheduleCompetition naming a court that does
+		// not exist. Joins the not-found group — the same "this request
+		// references something that isn't there" concept — and pointedly NOT
+		// ErrCourtUnavailable's AlreadyExists group below: a court that never
+		// existed is not a court that is busy. Before this ticket the
+		// underlying FK violation reached this switch with no sentinel at
+		// all and answered Internal. Twin of the arm in
+		// internal/socialplay/adapter/grpcapi.toStatus.
+		errors.Is(err, domain.ErrCourtNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrAlreadyEntered),
 		errors.Is(err, domain.ErrCourtUnavailable),

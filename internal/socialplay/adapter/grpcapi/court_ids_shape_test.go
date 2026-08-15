@@ -50,15 +50,45 @@ func courtID(n int) string {
 
 // --- real Booking context, in-memory persistence --------------------------
 
+// knownCourts MODELS THE FOREIGN KEY, deliberately and explicitly (T15.6,
+// issue #185). Read this before using this fake for anything court-shaped.
+//
+// bookings.court_id is `uuid NOT NULL REFERENCES courts (id)`
+// (db/migrations/0001_init.sql:24). A well-formed UUID naming no courts row
+// passes bookingapp.CreateBooking's uuidShape guard — a shape check and
+// nothing more — and is rejected only at the INSERT, as Postgres 23503, which
+// bookingpg.translateErr turns into bookingdomain.ErrInvalidCourtReference
+// (proved against that code path in
+// internal/booking/adapter/postgres/foreign_key_test.go, and against a real
+// Postgres in that package's unknown_court_integration_test.go).
+//
+// Without this check the fake accepts any well-formed court id and passes
+// whether or not the bug exists. That is precisely what hid #185: #156's fix
+// reached only the malformed half, because the fixture backing it could not
+// represent the unknown half at all. It is the fixture-infidelity trap
+// docs/LESSONS.md' T9 entry names, on the very file that closed #156.
+// newShapeBookingRepo seeds both fixture courts, so the FK is modelled by
+// default and a test must opt out on purpose to get the naive behaviour.
 type shapeBookingRepo struct {
-	bookings map[string]bookingdomain.Booking
+	bookings    map[string]bookingdomain.Booking
+	knownCourts map[string]bool
 }
 
 func newShapeBookingRepo() *shapeBookingRepo {
-	return &shapeBookingRepo{bookings: make(map[string]bookingdomain.Booking)}
+	return &shapeBookingRepo{
+		bookings: make(map[string]bookingdomain.Booking),
+		knownCourts: map[string]bool{
+			shapeFixtureCourtA: true,
+			shapeFixtureCourtB: true,
+		},
+	}
 }
 
 func (r *shapeBookingRepo) Create(_ context.Context, b bookingdomain.Booking) (bookingdomain.Booking, error) {
+	// The FK, modelled — see knownCourts' comment on the struct.
+	if !r.knownCourts[b.CourtID] {
+		return bookingdomain.Booking{}, bookingdomain.ErrInvalidCourtReference
+	}
 	r.bookings[b.ID] = b
 	return b, nil
 }

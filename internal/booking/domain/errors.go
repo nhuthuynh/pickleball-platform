@@ -17,23 +17,64 @@ var (
 	ErrAmbiguousPricingRule         = errors.New("booking: more than one pricing rule matches the requested slot")
 	ErrPricingSlotSpansMultipleDays = errors.New("booking: pricing slot must fall within a single calendar day")
 
-	// ErrInvalidCourtReference is CreateBooking's malformed-CourtID guard
-	// sentinel (T10.7, closing issue #97). It deliberately maps to Internal
-	// (the default, unclassified case in adapter/grpcapi's toStatus — see
-	// that switch's comment), matching this codebase's own existing,
-	// pre-T10.7 behavior for a well-formed-but-*unknown* CourtID: Postgres
-	// adapter's Create INSERTs against bookings.court_id REFERENCES
-	// courts(id), so an unknown court hits a 23503 FK violation that
-	// translateErr does not specifically classify, and it falls through to
-	// the same default Internal today. This is a real, disclosed gap (a
-	// clean NotFound would be better — see the PR description's scope
-	// note), but not this ticket's to fix: T10.7 only needs a malformed
-	// *shape* (e.g. "not-a-uuid") to answer no worse than an unknown
-	// well-formed one already does, without panicking to get there. A
-	// malformed shape previously reached Repository.ListActiveForCourt's
-	// mustUUID and panicked before Create was ever called; this sentinel is
-	// what CreateBooking now returns instead, from the app-layer guard,
-	// before either repository call happens.
+	// ErrInvalidCourtReference is the single answer to "this CourtID does not
+	// name a court this context can use", raised from BOTH of the two places
+	// that can discover it:
+	//
+	//   - app.Service.CreateBooking's uuidShape guard, for a malformed id
+	//     (T10.7, issue #97). A value that is not a canonical UUID cannot
+	//     name any court that exists or ever will.
+	//   - adapter/postgres.translateErr, on a 23503 foreign_key_violation
+	//     from bookings.court_id REFERENCES courts(id), for a well-formed id
+	//     naming no row (T15.6, issue #185). A shape check cannot detect
+	//     this; only the FK can.
+	//
+	// It maps to codes.NotFound (adapter/grpcapi's toStatus).
+	//
+	// T15.6 changed both halves of that, and the reasoning is worth keeping
+	// because the previous comment here recorded the opposite decision.
+	// T10.7 mapped this sentinel to Internal *deliberately*, to match the
+	// unknown-id path: that path produced an unclassified 23503 and answered
+	// Internal, and T10.7's scope was only to stop a malformed id panicking,
+	// not to answer better than the unknown case already did. That made
+	// Internal the correct choice for consistency at the time and the wrong
+	// answer in absolute terms, as that comment said in as many words ("a
+	// clean NotFound would be better"). T15.6 fixes the path it was matching,
+	// so the reason to stay on Internal is gone with it.
+	//
+	// Why one sentinel for both halves rather than a second one for the
+	// unknown case: this file's own precedent, twice. ErrFacilityNotFound
+	// ("an unknown or malformed FacilityID ... the app layer answers a
+	// malformed one exactly like an unknown one") and
+	// ErrRecurringHireTemplateNotFound ("an unknown or malformed template
+	// id") already collapse exactly this distinction, and CLAUDE.md rule 7
+	// wants one name for one concept. Splitting them would also hand a
+	// caller a distinction the codebase deliberately denies elsewhere,
+	// for no gain: both halves mean the same thing to a client and warrant
+	// the same fix on their side.
+	//
+	// Why NotFound rather than InvalidArgument: it is what this codebase
+	// answers for "the request names something that does not exist" —
+	// ErrFacilityNotFound and ErrRecurringHireTemplateNotFound here,
+	// ErrGameNotFound in socialplay, ErrCompetitionNotFound in competitions.
+	// InvalidArgument is reserved for request *shape* problems that need no
+	// lookup to reject (ErrInvalidTimeRange, and socialplay/competitions'
+	// ErrMalformedCourtID on their own repeated court_ids field). The
+	// malformed half is genuinely shape-shaped and could argue for
+	// InvalidArgument on its own, but it is subordinate here: it shares a
+	// sentinel with the unknown half by the paragraph above, and a shared
+	// sentinel gets one code. Client impact of the difference is nil over
+	// REST for the malformed case only in the sense that both are 4xx — 404
+	// vs 400 — and 404 is the honest answer to "no such court".
+	//
+	// No enumeration oracle is created by answering NotFound here, and this
+	// was checked rather than assumed (T15.6, #185's note): court ids are
+	// already public. facilities' ListFacilities and GetFacility are both
+	// absent from that context's AuthenticatedMethods — deliberately, as the
+	// browse path — and GetFacilityResponse carries `repeated Court courts`
+	// (T8.2). Anyone who can call CreateBooking can already enumerate every
+	// court id from the public facility detail page, so "no such court"
+	// discloses nothing new.
 	ErrInvalidCourtReference = errors.New("booking: court id does not reference a usable court")
 
 	// DiscountRule errors (T11.1). ErrInvalidSource (above) is reused for an

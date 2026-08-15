@@ -242,10 +242,20 @@ func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (dom
 	// follow-up, closing issue #97): ListActiveForCourt below is the same
 	// mustUUID-backed adapter method ListCourtBookings' own already-guarded
 	// read calls, and a malformed CourtID reached it unguarded — panicking
-	// there, one step before Create's own FK-violation path, which is what
-	// this sentinel's gRPC code (Internal, via adapter/grpcapi's default
-	// toStatus case — see the sentinel's own doc comment) is chosen to
-	// match. An empty CourtID is unaffected: domain.NewBooking's own
+	// there, one step before Create's own FK-violation path.
+	//
+	// This guard is a *shape* check and only a shape check: a well-formed
+	// UUID naming no courts row passes it, reaches Create, and is caught by
+	// the FK on bookings.court_id, which adapter/postgres translates to this
+	// same sentinel (T15.6, closes #185). Both halves answer NotFound. That
+	// is a deliberate change from T10.7, which matched the FK path's
+	// then-unclassified Internal; see the sentinel's doc comment in
+	// domain/errors.go. Note in particular that this guard is NOT an
+	// existence check and must not be mistaken for one — the FK is the
+	// authoritative half (CLAUDE.md rule 4's shape), because any app-level
+	// existence pre-check would still race the INSERT.
+	//
+	// An empty CourtID is unaffected: domain.NewBooking's own
 	// ErrEmptyCourtID check above already runs first and still fires for
 	// that case, exactly as before this guard was added.
 	if !uuidShape.MatchString(in.CourtID) {

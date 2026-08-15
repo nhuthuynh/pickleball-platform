@@ -64,6 +64,35 @@ var (
 	// already has a confirmed Booking of any source.
 	ErrCourtUnavailable = errors.New("socialplay: court unavailable for the requested time range")
 
+	// ErrCourtNotFound is this context's local translation of
+	// bookingdomain.ErrInvalidCourtReference (T15.6, closing issue #185),
+	// produced by internal/socialplay/adapter/booking.Reservation for the
+	// same reason and by the same rule as ErrCourtUnavailable above: the
+	// Booking sentinel must never cross this boundary as a type.
+	//
+	// It is deliberately a THIRD sentinel, distinct from both of its
+	// neighbours, because it says something neither of them says:
+	//
+	//   - not ErrCourtUnavailable: that court is real and busy, and the
+	//     caller's fix is a different time. Here the court does not exist,
+	//     and the caller's fix is a different id. Answering AlreadyExists
+	//     for a court that was never there is simply false.
+	//   - not ErrMalformedCourtID: ScheduleGame's shape guard rejects
+	//     malformed entries before any reservation is attempted, so this
+	//     sentinel is only ever reached by an id that IS well-formed. The
+	//     two are not interchangeable in either direction, and merging them
+	//     would give one gRPC code to two conditions that a client
+	//     distinguishes.
+	//
+	// It maps to NotFound (adapter/grpcapi's toStatus), matching
+	// ErrGameNotFound beside it and bookingdomain.ErrInvalidCourtReference's
+	// own code on Booking's side of the boundary — the same answer to the
+	// same question, whichever RPC asked it (CLAUDE.md rule 7). Before
+	// T15.6 this path had no sentinel at all: the untranslated FK violation
+	// was stripped at the boundary and fell through to codes.Internal, so
+	// ScheduleGame answered 500 for a caller's own bad court id.
+	ErrCourtNotFound = errors.New("socialplay: court not found")
+
 	// ErrInvalidPaymentStatus is returned by Registration.MarkPaymentStatus
 	// (T6.5) for a status value outside PaymentStatus's closed enum — the
 	// domain-side guard keeping Registration.PaymentStatus a projection of

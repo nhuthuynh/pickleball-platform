@@ -362,13 +362,15 @@ func (h *Handler) ListRecurringHireTemplatesForActor(ctx context.Context, req *b
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking
 // returns 409" smoke test true end-to-end.
 //
-// domain.ErrInvalidCourtReference (CreateBooking's malformed-CourtID guard,
-// T10.7) is deliberately left unmatched here, not given an explicit case:
-// it falls through to the same default Internal branch below, matching —
-// on purpose, see that sentinel's own doc comment — this codebase's
-// existing, pre-T10.7, still-not-fully-fixed behavior for a well-formed-
-// but-*unknown* CourtID (an untranslated Postgres FK violation, also
-// unmatched, also Internal today).
+// domain.ErrInvalidCourtReference used to be deliberately left unmatched
+// here, falling through to the default Internal branch to match the
+// untranslated Postgres FK violation an unknown-but-well-formed CourtID
+// produced. T15.6 (closes #185) translated that FK violation — 23503 ->
+// ErrInvalidCourtReference in adapter/postgres, per CLAUDE.md rule 5 — so
+// both halves now arrive as one sentinel and get one explicit NotFound case
+// below. See that sentinel's doc comment in domain/errors.go for why one
+// sentinel covers both, why NotFound, and why it is not an enumeration
+// oracle.
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrCourtDoubleBooked):
@@ -383,7 +385,16 @@ func toStatus(err error) error {
 		// approved, and NotFound is the honest answer for it.
 		errors.Is(err, domain.ErrFacilityNotFound),
 		// An unknown or malformed template id on approve/reject (T11.5).
-		errors.Is(err, domain.ErrRecurringHireTemplateNotFound):
+		errors.Is(err, domain.ErrRecurringHireTemplateNotFound),
+		// T15.6 (closes #185): a CourtID naming no usable court, whether
+		// because it is malformed (app-layer uuidShape guard) or because it
+		// is well-formed but names no courts row (the Postgres FK, 23503,
+		// now translated in adapter/postgres). Joins the two arms directly
+		// above it — the same "an unknown or malformed id for a thing this
+		// request references" concept they already collapse — rather than
+		// the InvalidArgument group: this is a missing referent, not a
+		// malformed request envelope.
+		errors.Is(err, domain.ErrInvalidCourtReference):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrNotFacilityOwner),
 		// T11.5's two Identity answers. Both are PermissionDenied rather than

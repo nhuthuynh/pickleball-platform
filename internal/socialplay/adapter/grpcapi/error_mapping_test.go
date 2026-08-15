@@ -287,6 +287,25 @@ func errorMappingCases() []errorMappingCase {
 			wantCode: codes.NotFound,
 			why:      "an unknown CreateGameRequest.venue_facility_id is a 404, not a 500 or a silent accept (T8.3)",
 		},
+		{
+			name:     "court id naming no court",
+			sentinel: "ErrCourtNotFound",
+			err:      domain.ErrCourtNotFound,
+			wantCode: codes.NotFound,
+			why: "T15.6 (closes #185): an unknown-but-well-formed CourtIds entry answered Internal/500 until this " +
+				"ticket — its Postgres FK violation was never translated, and the (correct) %s-stripping at the " +
+				"Booking boundary left this switch nothing to match. Deliberately NOT ErrCourtUnavailable's " +
+				"AlreadyExists: a court that does not exist is not a court that is busy, and the two carry " +
+				"different fixes for the caller. This row was added because THIS FILE's own " +
+				"TestSentinelToCodeTableCoversEveryDomainSentinel failed on the new sentinel first",
+			invoke: func(t *testing.T) error {
+				// The REAL Booking chain over an FK-modelling repository
+				// fake — see unknown_court_test.go.
+				h, _, _ := newBookingBackedHandler()
+				_, err := h.CreateGame(ctxAs("host-1"), shapeCreateGameReq(shapeUnknownCourt))
+				return err
+			},
+		},
 
 		// --- permission denied ---
 		{

@@ -40,15 +40,59 @@ const (
 // ListActiveForCourt with genuine overlap matching. That is what lets
 // app.Service.CreateBooking's domain.EnsureNoConflict pre-check produce a real
 // ErrCourtDoubleBooked, which the partial-success test depends on.
+//
+// knownCourts MODELS THE FOREIGN KEY, deliberately and explicitly (T15.6,
+// issue #185). bookings.court_id is `uuid NOT NULL REFERENCES courts (id)`
+// (db/migrations/0001_init.sql:24), so a well-formed UUID naming no courts
+// row passes app.Service.CreateBooking's uuidShape guard — a shape check and
+// nothing more — and is rejected only at the INSERT, as Postgres 23503, which
+// adapter/postgres.translateErr turns into domain.ErrInvalidCourtReference
+// (proved against that code path in
+// internal/booking/adapter/postgres/foreign_key_test.go, and against a real
+// Postgres in that package's unknown_court_integration_test.go).
+//
+// A fake without this check accepts every well-formed court id and reports
+// green whether or not the bug exists — the fixture infidelity that hid #185
+// for two sprints (docs/LESSONS.md' T9 entry). knownCourts is nil by default
+// here, which means "every court exists", because most tests in this package
+// are about something else entirely and courtID(1..n) are all legitimate
+// fixtures to them; unknown_court_test.go opts in via seedKnownCourts. That
+// default is a deliberate, documented choice and NOT an oversight: see
+// seedKnownCourts' comment for why the opt-in direction is safe here and the
+// opt-out direction was chosen in the socialplay/competitions twins.
 type storingBookingRepo struct {
-	bookings map[string]domain.Booking
+	bookings    map[string]domain.Booking
+	knownCourts map[string]bool
 }
 
 func newStoringBookingRepo() *storingBookingRepo {
 	return &storingBookingRepo{bookings: make(map[string]domain.Booking)}
 }
 
+// seedKnownCourts switches this fake from "every court exists" to modelling
+// the bookings.court_id foreign key against exactly the listed courts.
+//
+// The opt-IN direction is safe in this package specifically because the
+// mapping under test at this layer is domain sentinel -> gRPC code, and every
+// other test here supplies courtID(n) fixtures that stand for real courts. In
+// internal/socialplay and internal/competitions' grpcapi twins the FK is
+// modelled by DEFAULT instead, because those packages hold the RPCs #185 was
+// actually reported against and a new test there must not be able to get the
+// naive behaviour by forgetting.
+func (r *storingBookingRepo) seedKnownCourts(ids ...string) *storingBookingRepo {
+	r.knownCourts = make(map[string]bool, len(ids))
+	for _, id := range ids {
+		r.knownCourts[id] = true
+	}
+	return r
+}
+
 func (r *storingBookingRepo) Create(_ context.Context, b domain.Booking) (domain.Booking, error) {
+	// The FK, modelled — see knownCourts' comment on the struct. A nil map
+	// means the FK is not modelled and every court is treated as real.
+	if r.knownCourts != nil && !r.knownCourts[b.CourtID] {
+		return domain.Booking{}, domain.ErrInvalidCourtReference
+	}
 	r.bookings[b.ID] = b
 	return b, nil
 }

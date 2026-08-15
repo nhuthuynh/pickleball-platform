@@ -440,16 +440,18 @@ func errorMappingCases() []errorMappingCase {
 			},
 		},
 
-		// --- deliberately unclassified ---
 		{
-			name:     "malformed court id on CreateBooking",
+			name:     "court id naming no usable court, on CreateBooking",
 			sentinel: "ErrInvalidCourtReference",
 			err:      domain.ErrInvalidCourtReference,
-			wantCode: codes.Internal,
-			why: "deliberately left unmatched in toStatus (T10.7, #97), matching this codebase's existing behavior " +
-				"for a well-formed-but-unknown CourtID, whose Postgres FK violation is also unclassified and also " +
-				"Internal today. A disclosed gap, not an oversight — pinned here so closing it is a visible test " +
-				"change rather than a silent one. See the sentinel's own doc comment in domain/errors.go",
+			wantCode: codes.NotFound,
+			why: "T15.6 (closes #185) moved this row off codes.Internal, which is what the previous version of " +
+				"this table pinned — 'a disclosed gap, not an oversight ... pinned here so closing it is a visible " +
+				"test change rather than a silent one'. This is that visible change. Both halves the sentinel now " +
+				"covers (a malformed id, caught by app.CreateBooking's uuidShape guard; a well-formed id naming no " +
+				"courts row, caught by the bookings.court_id FK as 23503 and translated in adapter/postgres) mean " +
+				"'no such court', which is NotFound here exactly as ErrFacilityNotFound and " +
+				"ErrRecurringHireTemplateNotFound already are. See the sentinel's doc comment in domain/errors.go",
 			invoke: func(t *testing.T) error {
 				h := newRecurringHandler()
 				req := mapCreateBookingRequest()

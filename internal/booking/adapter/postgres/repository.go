@@ -30,8 +30,19 @@ import (
 // docs/LESSONS.md for how this was found: an initial, unverified claim that
 // concurrent CreateBooking calls always produce a clean 23P01 turned out to
 // be false under real load).
+// 23503 is a foreign-key violation: the row being written names a parent row
+// that does not exist. On this adapter's writes that means one thing —
+// bookings.court_id (db/migrations/0001_init.sql:24) referencing a courts(id)
+// that isn't there, i.e. the caller named a court that does not exist. That
+// is a client error, and until T15.6 (issue #185) it had no arm in
+// translateErr at all, so it fell through to the wrapped default and answered
+// codes.Internal: a 500 for a caller's own mistake. Like 23P01 and unlike
+// 40P01/40001 it is permanent — retrying an INSERT against a court that does
+// not exist cannot make it exist — so it is deliberately absent from
+// isRetryableConflict.
 const (
 	pgExclusionViolation   = "23P01"
+	pgForeignKeyViolation  = "23503"
 	pgDeadlockDetected     = "40P01"
 	pgSerializationFailure = "40001"
 )
@@ -135,8 +146,24 @@ func (r *Repository) Update(ctx context.Context, b domain.Booking) (domain.Booki
 // errors allowed to cross out of this package (CLAUDE.md rule 5).
 func translateErr(err error) error {
 	var pgErr *pgconn.PgError
-	if errors.As(err, &pgErr) && pgErr.Code == pgExclusionViolation {
-		return domain.ErrCourtDoubleBooked
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgExclusionViolation:
+			return domain.ErrCourtDoubleBooked
+		case pgForeignKeyViolation:
+			// T15.6 (issue #185). The caller named a court that does not
+			// exist: a well-formed UUID passes app.Service.CreateBooking's
+			// uuidShape guard — which is a *shape* check and nothing more —
+			// and only the FK on bookings.court_id can tell it from a real
+			// court. Without this arm the 23503 fell through to the wrapped
+			// default below and answered codes.Internal, reporting a
+			// client's own mistake as a server fault.
+			//
+			// It shares ErrInvalidCourtReference with the app-layer shape
+			// guard on purpose; see that sentinel's doc comment in
+			// domain/errors.go for why one sentinel covers both halves.
+			return domain.ErrInvalidCourtReference
+		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrBookingNotFound
