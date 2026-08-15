@@ -1544,3 +1544,33 @@ Ceremony 1's own file-list predictions, confirming the call in hindsight.
 **Finding 6** confirms D1's footprint held steady and D2 had its fifth
 consecutive sprint with nothing to score, matching T19's own Ceremony 1
 prediction.
+
+## T20 sprint retro
+
+Held as `docs/process/t20-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17/T18/T19 set and CLAUDE.md's **Docs
+index & naming convention**.
+
+T20 was this project's first 0-ticket sprint (PR #218). This retro found no
+incident and no shipped code to mutation-test; its work was independently
+re-verifying, live rather than from the plan's own prose, that the sprint's
+own "confirm-and-report" goal actually held: all 8 open issues' `updated_at`
+timestamps predate the plan's own merge (none moved mid-sprint), the
+`golang-migrate`/`goose` roadmap-debt classification is unchanged against a
+fresh grep and a fresh full read of `HANDOFF.md`'s Cross-cutting section,
+and neither D1 nor D2 was answered — D2's null result named as a
+structurally different, weaker shape than T15–T19's five instances ("no PR
+existed to test the interim rule against," not "a PR existed and needed no
+fix"), per T19 retro's own precedent-setting distinction. **The one genuine
+finding** is this retro's direct re-examination of PM's carried-forward
+stalled-backlog concern rather than a restatement of the plan's defense of
+it: the shrinking-sprint-size trend (T17: 5 tickets, T18: 1, T19: 2, T20: 0)
+has an ordinary explanation — a one-time FK-translation cleanup burst at T17
+followed by a genuinely finite pool of small disclosed-but-unfiled gaps
+running low — and the part of the backlog that actually resembles a stalled
+process is not sprint size at all, it is **DECISION D1 sitting with a single
+unchanging ADR comment for eight sprints running with no escalation beyond
+that comment**. This retro recommends T21 raise D1's silence to the user by
+name, rather than folding it into a general "sprints are getting smaller"
+framing that has an ordinary explanation and would misdirect the actual
+signal.
