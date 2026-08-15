@@ -39,16 +39,21 @@ import (
 //     describes, which until now compared the Host against a string the caller
 //     supplied about themselves.
 //   - ListEntriesForCompetition: moved here from PublicMethods by T13.6
-//     (partial fix for #147). The Host-facing roster read returns every
-//     entrant's player_id and payment status, and as a public method it handed
-//     that to anyone holding a competition_id — a value the public
+//     (partial fix for #147). The Host-or-admin-facing roster read returns
+//     every entrant's player_id and payment status, and as a public method it
+//     handed that to anyone holding a competition_id — a value the public
 //     ListCompetitions and GetCompetition responses supply, which is what made
 //     the leak enumerable. T12.8 could not fix it because there was no check
-//     to re-plumb; T13.6 adds the check itself (Host-only,
-//     domain.Competition.EnsureHost, applied in app.Service). It is the one
-//     entry here whose reason is a *read*: the other three need a principal
-//     because they write or act on an aggregate, this one because the response
-//     body is private data.
+//     to re-plumb; T13.6 added the check itself, Host-only at the time
+//     (domain.Competition.EnsureHost) because "assigned Competition Admin" had
+//     no durable store to resolve. T15.3 built that store and T15.4 (closes
+//     #147) widened the check to
+//     domain.Competition.EnsureHostOrCompetitionAdmin, applied in app.Service
+//     — still reached through this same authenticated entry, since a
+//     Competition Admin needs a verified principal to be recognised as one.
+//     It is the one entry here whose reason is a *read*: the other three need
+//     a principal because they write or act on an aggregate, this one because
+//     the response body is private data.
 //   - AssignCompetitionAdmin / RevokeCompetitionAdmin: added by T15.3 (partial
 //     fix for #168). Both delegate — or withdraw — authority over a
 //     Competition, so both are Host-only

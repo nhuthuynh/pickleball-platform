@@ -309,6 +309,23 @@ func errorMappingCases() []errorMappingCase {
 				return err
 			},
 		},
+		{
+			name:     "a non-host, non-admin reads the roster",
+			sentinel: "ErrNotCompetitionHostOrAdmin",
+			err:      domain.ErrNotCompetitionHostOrAdmin,
+			wantCode: codes.PermissionDenied,
+			why: "T15.4 (closes #147): the widened roster-read rejection — same BOLA-shaped 403 as " +
+				"ErrNotCompetitionHost above, kept a distinct sentinel per its own DO-NOT-UNIFY note " +
+				"because it gates a different permitted-actor set (Host or admin, not Host-only)",
+			invoke: func(t *testing.T) error {
+				h, _ := newTestHandler()
+				c := seedCompetition(t, h, mapHostID, 16, 2)
+				_, err := h.ListEntriesForCompetition(ctxAs("map-stranger"), &competitionsv1.ListEntriesForCompetitionRequest{
+					CompetitionId: c.GetId(),
+				})
+				return err
+			},
+		},
 
 		// --- invalid argument: genuinely state-independent request defects ---
 		{

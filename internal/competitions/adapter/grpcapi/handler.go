@@ -223,17 +223,20 @@ func (h *Handler) CancelCompetition(ctx context.Context, req *competitionsv1.Can
 	return &competitionsv1.CancelCompetitionResponse{Competition: toProtoCompetition(competition)}, nil
 }
 
-// ListEntriesForCompetition is the Host-facing roster read.
+// ListEntriesForCompetition is the Host-or-Competition-Admin-facing roster
+// read.
 //
 // T13.6 (partial fix for #147): no longer a public read. It returns every
 // entrant's player_id and payment status, and it used to hand that to any
 // caller who knew a competition_id — a value the public ListCompetitions and
 // GetCompetition responses supply. The actor is the verified principal, so a
-// missing one is codes.Unauthenticated here and a non-Host one becomes
-// domain.ErrNotCompetitionHost -> codes.PermissionDenied in toStatus, never
-// Internal. The RPC moved from PublicMethods() to AuthenticatedMethods() in
-// authenticated.go to match. Exact twin of Social Play's
-// ListRegistrationsForGame.
+// missing one is codes.Unauthenticated here. T15.4 (closes #147) widened the
+// entitled set from Host-only to Host-or-assigned-Competition-Admin, now
+// that T15.3's store makes "assigned Competition Admin" a server fact; a
+// caller who is neither becomes domain.ErrNotCompetitionHostOrAdmin ->
+// codes.PermissionDenied in toStatus, never Internal. The RPC moved from
+// PublicMethods() to AuthenticatedMethods() in authenticated.go to match.
+// Exact twin of Social Play's ListRegistrationsForGame (T14.5).
 func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitionsv1.ListEntriesForCompetitionRequest) (*competitionsv1.ListEntriesForCompetitionResponse, error) {
 	actorUserID, err := actor(ctx)
 	if err != nil {
@@ -405,7 +408,13 @@ func toStatus(err error) error {
 		// InvalidArgument and FailedPrecondition to HTTP 400.
 		errors.Is(err, domain.ErrIllegalStatusTransition):
 		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, domain.ErrNotCompetitionHost):
+	case errors.Is(err, domain.ErrNotCompetitionHost),
+		// T15.4 (closes #147): ListEntriesForCompetition's widened
+		// Host-or-Competition-Admin rejection. Same PermissionDenied
+		// mapping as its stricter Host-only sibling above — see
+		// domain.ErrNotCompetitionHostOrAdmin's DO-NOT-UNIFY note for why
+		// the two stay distinct sentinels despite sharing this arm.
+		errors.Is(err, domain.ErrNotCompetitionHostOrAdmin):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrCompetitionNotFound),
 		errors.Is(err, domain.ErrFacilityNotFound),

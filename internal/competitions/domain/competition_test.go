@@ -413,6 +413,62 @@ func TestCompetition_EnsureHost_EmptyHostIDStillRejectsEmptyActor(t *testing.T) 
 	}
 }
 
+// TestCompetition_EnsureHostOrCompetitionAdmin proves T15.4's widened roster
+// read rule (ListEntriesForCompetition), the exact mirror of
+// TestGame_EnsureHostOrGameAdmin one context over.
+func TestCompetition_EnsureHostOrCompetitionAdmin(t *testing.T) {
+	t.Parallel()
+
+	const thisCompetition = "competition-under-test"
+	admin := func(userID string) domain.CompetitionAdmin {
+		return domain.CompetitionAdmin{CompetitionID: thisCompetition, UserID: userID, AssignedBy: "host-1"}
+	}
+
+	tests := []struct {
+		name        string
+		hostID      string
+		actorUserID string
+		assigned    []domain.CompetitionAdmin
+		wantErr     error
+	}{
+		{"host is allowed", "host-1", "host-1", nil, nil},
+		{"assigned competition admin is allowed", "host-1", "admin-2", []domain.CompetitionAdmin{admin("admin-1"), admin("admin-2")}, nil},
+		{"host is allowed even with no admins assigned", "host-1", "host-1", []domain.CompetitionAdmin{}, nil},
+		{"mismatched actor is rejected", "host-1", "random-player", []domain.CompetitionAdmin{admin("admin-1")}, domain.ErrNotCompetitionHostOrAdmin},
+		{"empty actor is rejected", "host-1", "", []domain.CompetitionAdmin{admin("admin-1")}, domain.ErrNotCompetitionHostOrAdmin},
+		{"empty actor against an empty host is still rejected", "", "", nil, domain.ErrNotCompetitionHostOrAdmin},
+		// A blank stored UserID must not match a blank actor.
+		// AssignCompetitionAdmin refuses to create such a row, but a rule
+		// that relies on the other end having been enforced breaks the
+		// first time a row arrives from somewhere else (a backfill, a
+		// manual insert).
+		{"a blank stored admin row never matches", "host-1", "", []domain.CompetitionAdmin{admin("")}, domain.ErrNotCompetitionHostOrAdmin},
+		// Authority is per-Competition. The caller of this method is
+		// responsible for passing the set scoped to *this* Competition
+		// (app.Service does, by querying with the Competition's own id);
+		// this row states what the method itself does with a row whose
+		// UserID matches — it matches. That is deliberate: the scoping
+		// lives in the query, and duplicating it here as a CompetitionID
+		// filter would create two places for it to be wrong. See
+		// TestListEntriesForCompetition_UnentitledActorsAreStillRefused's
+		// "an admin of a different Competition" row for the end-to-end
+		// proof that the scoping actually holds.
+		{"a row for another Competition still matches on user id alone", "host-1", "admin-9",
+			[]domain.CompetitionAdmin{{CompetitionID: "some-other-competition", UserID: "admin-9"}}, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c := domain.Competition{ID: thisCompetition, HostID: tt.hostID}
+			err := c.EnsureHostOrCompetitionAdmin(tt.actorUserID, tt.assigned)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("got err %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // TestCompetition_Cancel proves scheduled -> cancelled is the only legal
 // transition, and that cancelling twice is rejected rather than silently
 // idempotent (mirrors booking.Booking.Cancel / socialplay.Game.Cancel).

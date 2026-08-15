@@ -483,6 +483,9 @@ func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID, 
 	// malformed one must yield an empty roster too. Matching *this* method's
 	// own not-found answer is the point — the invariant is "malformed is
 	// indistinguishable from unknown", not "malformed is always NotFound".
+	// T15.4 (closes #147) leaves this unchanged on purpose: it adds a second
+	// repository read below, and this guard is what stops a malformed id
+	// reaching either one.
 	if !uuidShape.MatchString(competitionID) {
 		return []domain.CompetitionEntry{}, nil
 	}
@@ -491,7 +494,10 @@ func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID, 
 	// fact being compared against. The not-found answer stays an empty roster
 	// rather than becoming ErrCompetitionNotFound — that invariant is
 	// unchanged by this ticket, and a Competition that does not exist has no
-	// roster to withhold.
+	// roster to withhold. It also has to come before the admin read below: a
+	// Competition that does not exist has no admins either, and answering
+	// from the assignment store alone would make "unknown Competition"
+	// reachable through a second, differently-shaped path.
 	competition, err := s.competitions.GetByID(ctx, competitionID)
 	if err != nil {
 		if errors.Is(err, domain.ErrCompetitionNotFound) {
@@ -500,7 +506,28 @@ func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID, 
 		return nil, err
 	}
 
-	if err := competition.EnsureHost(actorUserID); err != nil {
+	// T15.4 (closes #147): widened from Host-only to Host-or-assigned-
+	// Competition-Admin now that T15.3 makes "assigned Competition Admin" a
+	// server fact instead of a caller-supplied list. Resolved fresh on every
+	// call — never cached — so a Host revoking an admin's authority takes
+	// effect on that admin's very next read, and scoped to this
+	// competitionID by construction: ListCompetitionAdmins only ever returns
+	// rows for the Competition it was asked about, so an admin of a
+	// different Competition cannot pass EnsureHostOrCompetitionAdmin below
+	// even though they hold a real, valid row elsewhere.
+	admins, err := s.competitionAdmins.ListCompetitionAdmins(ctx, competitionID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Deliberately NOT short-circuited with an EnsureHost fast path for the
+	// Host's own read. Skipping the admin query when the actor is already
+	// the Host would put half the authorization rule here, in the app
+	// layer, where CLAUDE.md rule 2 says it does not belong — and the
+	// saving is one indexed read of a table a single human populates one
+	// row at a time. T14.5 refused the identical fast path for Social
+	// Play's twin, and the reasoning transfers unchanged.
+	if err := competition.EnsureHostOrCompetitionAdmin(actorUserID, admins); err != nil {
 		return nil, err
 	}
 
