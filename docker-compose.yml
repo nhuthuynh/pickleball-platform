@@ -24,6 +24,36 @@ services:
       DATABASE_URL: postgres://pickleball:pickleball@db:5432/pickleball?sslmode=disable
       GRPC_ADDR: ":8081"
       HTTP_ADDR: ":8080"
+
+      # --- Local-development authentication (T14.9, issue #160) -----------
+      #
+      # Since T13.5 this binary REFUSES TO START without all three of these:
+      # it declares 24 authenticated RPCs across six contexts, and a process
+      # that demands tokens it cannot verify must not run. That is correct,
+      # and it is what broke `make up` — the values below are what fix it.
+      #
+      # They point at a keypair COMMITTED TO THIS REPOSITORY (dev/auth/),
+      # which makes it public, which makes it worthless. That is the whole
+      # design: a real verifier verifying real signatures, so local
+      # development exercises the same code path a deployment does, rather
+      # than a bypass of it. Read dev/auth/README.md before copying any of
+      # this anywhere — a deployment sets these three to a real identity
+      # provider's issuer, audience and JWKS, and NEVER mounts dev/auth.
+      #
+      # `.invalid` is reserved by RFC 2606 and can never resolve, so neither
+      # of these strings can collide with a real provider's URLs.
+      #
+      # Mint a token for these values with:  make dev-token
+      AUTH_ISSUER: https://dev-auth.pickleball.invalid/
+      AUTH_AUDIENCE: https://api.pickleball.invalid/dev
+      AUTH_JWKS_FILE: /etc/pickleball/dev-auth/dev-only-insecure.jwks.json
+    volumes:
+      # Bind-mounted read-only rather than COPYd in the Dockerfile, so the
+      # image this compose file builds is byte-identical to the one a
+      # deployment builds and carries no dev key material at all. A server
+      # started from that image without this mount fails exactly as T13.5
+      # made it fail.
+      - ./dev/auth:/etc/pickleball/dev-auth:ro
     ports:
       - "8080:8080"
       - "8081:8081"

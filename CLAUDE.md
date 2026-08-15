@@ -87,7 +87,15 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   `generate`). Compiles the `//go:build integration` files without Docker;
   does not run them. Part of `make ci`.
 - `make test` — full suite: race + JUnit + coverage.
-- `make up` / `make down` — run / tear down via docker compose.
+- `make up` / `make down` — run / tear down via docker compose. `up` supplies
+  `AUTH_ISSUER`/`AUTH_AUDIENCE`/`AUTH_JWKS_FILE` from the committed local-dev
+  key fixture in `dev/auth/` (T14.9, #160) — without them the server refuses
+  to start, by design (T13.5).
+- `make dev-token` — mint a local-dev bearer token against that fixture, so an
+  authenticated RPC can be exercised locally: `TOKEN=$(make -s dev-token)`,
+  then `curl -H "Authorization: Bearer $TOKEN" …`. **Dev-only and public** —
+  the keypair is committed, therefore worthless; never point a deployment at
+  `dev/auth/`. See `dev/auth/README.md`.
 - `make lint` — golangci-lint.
 - `make fmt-check` — fails if `gofmt -l ./internal ./cmd ./tools` names any
   file. Part of `make ci-checks` (after `generate`). Added T14.2; before it

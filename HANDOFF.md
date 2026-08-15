@@ -276,6 +276,22 @@ above.
    isn't available — both were exercised during T4), then smoke-test with the
    `curl`s in `README.md`: creating a booking returns 200, an overlapping one
    returns 409. If both hold, the slice is live.
+   **Auth (T14.9, issue #160):** since T13.5 the server refuses to start
+   without `AUTH_ISSUER`, `AUTH_AUDIENCE` and `AUTH_JWKS_FILE`. `make up`
+   now sets all three from the committed dev fixture in `dev/auth/`, so it
+   starts as documented. Running the binary directly needs them passed
+   explicitly:
+   ```bash
+   AUTH_ISSUER=https://dev-auth.pickleball.invalid/ \
+   AUTH_AUDIENCE=https://api.pickleball.invalid/dev \
+   AUTH_JWKS_FILE=dev/auth/dev-only-insecure.jwks.json \
+     go run ./cmd/server
+   ```
+   Then `TOKEN=$(make -s dev-token)` mints a token those settings accept —
+   see `README.md`'s "Authenticated endpoints" and `dev/auth/README.md`. The
+   fixture is public, worthless key material for local development only; a
+   deployment points the same three variables at a real identity provider and
+   still fails closed without them.
 5. Only then start the backlog below.
 
 ## Task backlog (ordered, TDD-first)
