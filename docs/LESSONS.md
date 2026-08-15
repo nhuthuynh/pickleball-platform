@@ -864,3 +864,118 @@ disclosed gaps, a dramatic improvement on T11's zero — but 18 of those
 19 were opened by the reviewing session rather than by the PR A5's text
 names, so the outcome rests on one reviewer's attention with nothing in
 the record signalling the dependency.
+
+## T13 (2026-08-15) — nine PRs said "closes #N", nine issues stayed open, and the sprint's one countable goal failed on the step nobody owns
+
+Incident postmortem for the mechanism behind `docs/process/t13-retro.md`
+finding 1.
+
+- **Mistake:** T13 shipped and verified the code for nine tracked issues —
+  #123, #129, #135, #136, #138, #146, #148, #152, #154 — and closed **none**
+  of them. Six were the "residual auth issues" the sprint's goal promised to
+  close *"rather than carry"*, and closing them was the whole point of the
+  Ceremony 1 exercise (`docs/process/t13-sprint-plan.md` A1) that ranked
+  eleven issues and took eight. The open-issue count went **up**, 19 → 28.
+  Verified by arithmetic before being checked individually: 19 inherited + 9
+  opened in-sprint = 28 open, so nothing had been closed. #123's
+  `updated_at` still equals its `created_at` from T12's Ceremony 1, and its
+  `closed_by_pull_requests` count is 0, despite PR #172 being titled
+  "(closes #123)".
+- **Why this is a repeat, not a first.** `sprint-process.md` DoD step 5
+  already documents this exact failure, in bold: *"Writing `Closes #N` in the
+  PR body is still good practice … but **it is not sufficient by itself and
+  must not be treated as satisfying this step**."* That text exists because
+  GitHub's auto-close structurally cannot fire on this project's branch
+  topology — every PR merges into `claude/go-backend-pickleball-7up34j`, not
+  the default branch — and because it silently never fired for any ticket
+  from T5 through T10 until T11.8 repaired the backlog retroactively
+  (issue #111, `docs/process/t10-retro.md` finding 6). The rule was written,
+  the mechanism was diagnosed, the backlog was repaired, and two sprints
+  later it happened again in full.
+- **What makes it a process failure rather than forgetfulness.** The same
+  session that skipped nine one-line API calls performed nine independent
+  mutation checks, nine fresh-worktree toolchain runs, and caught more test
+  failures than two PRs claimed. Attention was not scarce; **the step has no
+  slot.** T12's A6 added *"every review enumerates the issues it **opened**"*
+  and nobody added the symmetric half for issues **closed**, so a reviewer
+  working their own checklist finds nothing missing. Every review ends
+  "Merging per CLAUDE.md rule 9" and moves to the next ticket — and closing
+  happens *after* merge, at the exact moment attention has already moved to
+  dispatching the next wave. The one review that did think about it, PR
+  #170's, wrote *"This closes issue #154"* as an accomplished fact while the
+  call was never made: the record asserted the act because someone wrote that
+  it was done.
+- **Why it costs more than tidiness.** The issue list is this project's board
+  of record for everything outliving a sprint, and Ceremony 1 ranks the
+  backlog off it — which is exactly what T13's A1 did, well. That list now
+  misdescribes the codebase in six places: #138 claims the auth spine runs in
+  no gate (it runs in `make test-platform`), #123 claims booking takes 7
+  positional parameters (it takes a `ServiceOptions`), #148 claims
+  `ConfirmOnlinePayment` has no owner check (it has one, mutation-proven). A
+  future ceremony reading it will re-rank finished work.
+- **Fix / lesson.** **A merge is not done until the close call is made** —
+  treat "PR merged" and "issue closed" as one indivisible step, never two,
+  because the second one lands in the attention gap between tickets. Two
+  mitigations, adopted together because this sprint proved either alone is
+  insufficient: (i) every review states the issues the PR **closes**, and the
+  reviewer performs the close before moving on — the symmetric half of A6;
+  (ii) a sprint-level Definition-of-Done check that no issue remains open
+  whose fix merged this sprint, verifiable in one API call **by a party other
+  than the merger**, so it fails loudly instead of silently. Note
+  specifically that getting the *wording* right is not evidence the *act*
+  happened: T13 followed A5's "partial fix for #N, never closes #N" rule
+  perfectly across all nine PRs while closing nothing. The judgement-laden
+  half was performed correctly and the mechanical half was skipped entirely.
+
+## T13 sprint retro
+
+Held as `docs/process/t13-retro.md`, following the convention
+T5/T9/T10/T11/T12 set (see the `## T5 sprint retro` … `## T12 sprint retro`
+entries above) and CLAUDE.md's **Docs index & naming convention**.
+
+Six findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #155–#172, issues #123–#168), with every claim
+re-derived here rather than taken from the coordinating session's summary.
+**Sprint outcome: all 9 tickets merged on their first loop, no defect reached
+the shared branch, and the Wave-1.5 checkpoint held in its strongest form** —
+all three Wave-2 branches and the Wave-3 branch are git descendants of the
+checkpoint's merge commit, not merely later in time. The two subject↔uuid
+seams are fixed under one recorded decision (ADR-0014: translate at each
+context's grpcapi `actor()` funnel, never widen), so `RequestRecurringHire`
+and `CreateFacility` work for a real caller for the first time.
+
+The sprint's one failed clause is finding 1, in the entry above: six residual
+auth issues were fixed in code and never closed on GitHub. Finding 2 is its
+structural sibling — T13.1 wrote five new adapter test packages and T13.4
+built the Docker-free gate **in the same wave**, and the gate does not run
+them; 22 adapter packages' tests are executed by no gate (#157), the third
+consecutive sprint of that class after T11's build-tag hole and T12's
+`internal/platform/**` hole. The dependency-completeness check T12's retro
+introduced is defined over capabilities a downstream ticket *consumes*, so it
+structurally cannot see a gate whose coverage set its own siblings are
+changing in parallel — A13 arrow 7 dismissed T13.4 with *"nothing consumes
+it; it is a gate, not a capability."* Finding 5 is the same shape in
+miniature: a two-line `gofmt` fix survived nine PRs and three reviews that
+each re-observed it, because `make ci` has no formatting gate and every
+ticket's scope discipline *correctly* forbade touching another context's
+file — correct rules producing a stuck outcome, with no janitor lane.
+
+Finding 4 records a complete inversion of T12 finding 6: **all eight
+execution-opened issues were opened by implementers before their own PRs**
+(T12: 1 of 19), resolving the PO/BA disagreement in PO's favour and producing
+markedly better-specified issues — while BA's half recurred exactly where BA
+predicted, with #167 unlabelled and #168 carrying three labels that are not in
+the taxonomy at all. All four carried-forward questions were scored and none
+deferred (finding 6): **A9(a)'s roll-call is closed as unfalsifiable in
+practice** with a stated reopening trigger (a sprint spanning more than one
+work block) rather than a fourth deferral; **QA's port-contract-change rule is
+closed in PE's favour** — the dependency-completeness check caught the
+semantic half before dispatch and the Go compiler caught the mechanical half
+at test-merge, leaving only semantic-only drift, tracked as #164;
+**T13.6's Host-only roster scope is resolved in PE's favour**, with QA's
+overclaim concern fully honoured by A5's "partial fix" title rule and the
+substantive blocker tracked as #168; and **the Wave-1.5 checkpoint's cost is
+deliberately left unscored** — PdE's objection was conditional on a second
+review loop, T13.2 merged first-loop in 5m14s, and recording "the checkpoint
+is cheap" from one fast run would be CLAUDE.md rule 10 violated at the process
+level.
