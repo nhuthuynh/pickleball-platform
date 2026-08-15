@@ -18,6 +18,25 @@ import (
 // 0006_socialplay_capacity_guard.sql) must translate to domain.ErrGameFull
 // — neither may leak as a raw pgconn.PgError, per the adapter boundary
 // CLAUDE.md rule 5 requires. Runs without internal/gen or a real database.
+//
+// T17.2 (part of #195) adds the 23503 case: registrations.game_id uuid NOT
+// NULL REFERENCES games (id) (db/migrations/0005_socialplay.sql — default
+// Postgres naming, no CONSTRAINT clause given, gives
+// registrations_game_id_fkey) firing when the Game named by a Create call no
+// longer exists. app.Service.RegisterForGame already calls
+// s.games.GetByID(in.GameID) before this insert, so in the non-racing case
+// that read's own domain.ErrGameNotFound wins and this arm is unreached; #195's
+// point is the narrower window where the Game is deleted *between* that read
+// and this insert, which only the FK — not the app-level read — can still
+// catch. Before this ticket that 23503 fell through to the wrapped default
+// below and answered codes.Internal (see toStatus's default case) — a 500 for
+// what is, at the moment it happens, a legitimate client-visible race.
+// Deliberately the same sentinel the guarding read itself would have
+// returned (ErrGameNotFound, not a new one) — the caller-visible fact is
+// identical in the racing and non-racing case, per #195's own reasoning.
+// Postgres actually raising 23503 for this insert is a separate claim, proved
+// against a real database in foreign_key_race_integration_test.go; this test
+// proves only the translation.
 func TestTranslateRegistrationErr(t *testing.T) {
 	t.Parallel()
 
@@ -29,6 +48,21 @@ func TestTranslateRegistrationErr(t *testing.T) {
 		{"unique violation (23505) becomes ErrAlreadyRegistered", &pgconn.PgError{Code: "23505"}, domain.ErrAlreadyRegistered},
 		{"capacity guard trigger (P0001) becomes ErrGameFull", &pgconn.PgError{Code: "P0001"}, domain.ErrGameFull},
 		{"no rows becomes ErrRegistrationNotFound", pgx.ErrNoRows, domain.ErrRegistrationNotFound},
+		{
+			name:    "foreign key violation (23503) on registrations.game_id becomes ErrGameNotFound",
+			err:     &pgconn.PgError{Code: "23503", ConstraintName: "registrations_game_id_fkey"},
+			wantErr: domain.ErrGameNotFound,
+		},
+		{
+			// Constraint name deliberately not part of the match — see
+			// TestTranslateGameErr's identical case for why: Postgres names
+			// FKs from the table/column by default, but a migration is free
+			// to rename one, and matching on the name string would make the
+			// mapping silently fall back to Internal the day that happens.
+			name:    "23503 without a constraint name still translates",
+			err:     &pgconn.PgError{Code: "23503"},
+			wantErr: domain.ErrGameNotFound,
+		},
 		{"unrelated pg error is wrapped, not silently mapped", &pgconn.PgError{Code: "42601"}, nil},
 	}
 
@@ -43,7 +77,7 @@ func TestTranslateRegistrationErr(t *testing.T) {
 				}
 				return
 			}
-			if errors.Is(got, domain.ErrAlreadyRegistered) || errors.Is(got, domain.ErrRegistrationNotFound) || errors.Is(got, domain.ErrGameFull) {
+			if errors.Is(got, domain.ErrAlreadyRegistered) || errors.Is(got, domain.ErrRegistrationNotFound) || errors.Is(got, domain.ErrGameFull) || errors.Is(got, domain.ErrGameNotFound) {
 				t.Fatalf("translateRegistrationErr(%v) = %v, an unrelated pg error must not be mismapped to a specific domain sentinel", tt.err, got)
 			}
 		})
@@ -51,19 +85,70 @@ func TestTranslateRegistrationErr(t *testing.T) {
 }
 
 // TestTranslateGameErr mirrors TestTranslateRegistrationErr for the Game
-// repository's only mapped case (not-found); games has no unique-constraint
-// translation to prove since Create's only failure mode today is a
-// malformed/duplicate ID collision, which is not a modelled domain error.
+// repository. Before T17.2 its only mapped case was not-found (games had no
+// unique-constraint translation to prove since Create's only failure mode
+// was a malformed/duplicate ID collision, which is not a modelled domain
+// error).
+//
+// T17.2 (part of #195) adds the 23503 case: games.venue_facility_id uuid
+// REFERENCES facilities (id) (db/migrations/0011_socialplay_facility_fk.sql
+// — an ALTER TABLE ADD COLUMN with no CONSTRAINT clause, so Postgres's
+// default naming gives games_venue_facility_id_fkey) firing when the Facility
+// named by a Create call no longer exists. app.Service.ScheduleGame already
+// calls facilities.FacilityExists(ctx, game.VenueFacilityID) before this
+// insert, so in the non-racing case that read's own
+// domain.ErrFacilityNotFound wins; #195's point is the narrower window where
+// the Facility is deleted *between* that read and this insert. games has
+// exactly one FK column (VenueFacilityID; CourtIDs is a uuid[] with no
+// database-level FK — see 0005_socialplay.sql's own doc comment on why), so a
+// 23503 from this table's Create is unambiguous: it can only be this
+// constraint. Reuses domain.ErrFacilityNotFound rather than minting a new
+// sentinel — the same reasoning TestTranslateRegistrationErr's comment gives,
+// and this context's own existing precedent: FacilityLookup.FacilityExists
+// already returns this exact sentinel for the non-racing "unknown Facility"
+// case (internal/socialplay/adapter/facilities/lookup.go).
 func TestTranslateGameErr(t *testing.T) {
 	t.Parallel()
 
-	if got := translateGameErr(pgx.ErrNoRows); !errors.Is(got, domain.ErrGameNotFound) {
-		t.Fatalf("translateGameErr(pgx.ErrNoRows) = %v, want ErrGameNotFound", got)
+	tests := []struct {
+		name    string
+		err     error
+		wantErr error
+	}{
+		{"no rows becomes ErrGameNotFound", pgx.ErrNoRows, domain.ErrGameNotFound},
+		{
+			name:    "foreign key violation (23503) on games.venue_facility_id becomes ErrFacilityNotFound",
+			err:     &pgconn.PgError{Code: "23503", ConstraintName: "games_venue_facility_id_fkey"},
+			wantErr: domain.ErrFacilityNotFound,
+		},
+		{
+			// Constraint name deliberately not part of the match, mirroring
+			// booking's own T15.6 precedent (internal/booking/adapter/
+			// postgres/foreign_key_test.go): a migration is free to rename
+			// the constraint, and matching on the name string would make
+			// this mapping silently fall back to Internal that day.
+			name:    "23503 without a constraint name still translates",
+			err:     &pgconn.PgError{Code: "23503"},
+			wantErr: domain.ErrFacilityNotFound,
+		},
+		{"unrelated pg error is wrapped, not silently mapped", &pgconn.PgError{Code: "42601"}, nil},
 	}
 
-	unrelated := errors.New("boom")
-	if got := translateGameErr(unrelated); errors.Is(got, domain.ErrGameNotFound) {
-		t.Fatalf("translateGameErr(%v) = %v, an unrelated error must not be mismapped to ErrGameNotFound", unrelated, got)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := translateGameErr(tt.err)
+			if tt.wantErr != nil {
+				if !errors.Is(got, tt.wantErr) {
+					t.Fatalf("translateGameErr(%v) = %v, want errors.Is match for %v", tt.err, got, tt.wantErr)
+				}
+				return
+			}
+			if errors.Is(got, domain.ErrGameNotFound) || errors.Is(got, domain.ErrFacilityNotFound) {
+				t.Fatalf("translateGameErr(%v) = %v, an unrelated pg error must not be mismapped to a specific domain sentinel", tt.err, got)
+			}
+		})
 	}
 }
 
