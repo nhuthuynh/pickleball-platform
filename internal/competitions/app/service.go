@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"regexp"
 
@@ -419,7 +420,34 @@ func (s *Service) ListCompetitions(ctx context.Context, filter port.CompetitionL
 // entries included — see port.Repository.ListEntriesForCompetition for why
 // this is a different method from the capacity check's own
 // ListActiveEntriesForCompetition rather than the same one with a flag.
-func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID string) ([]domain.CompetitionEntry, error) {
+//
+// # T13.6: Host-only (partial fix for #147)
+//
+// This method shipped with no authorization check at all — anyone holding a
+// competition_id read every entrant's player_id and payment status, and
+// competition_id is readable off the *public* ListCompetitions and
+// GetCompetition responses, which made the leak enumerable (#147).
+// actorUserID must be the Competition's Host or the read is refused with
+// domain.ErrNotCompetitionHost (PermissionDenied at the handler, never
+// Internal).
+//
+// **Host-only is narrower than #147's entitled set, deliberately** — the
+// admin list that would widen it is caller-supplied and persisted nowhere
+// (#168), so honouring it would let any caller name themselves an admin.
+// Whether an entrant should see the roster of a Competition they are in is an
+// open product question #147 does not pre-answer; until it is answered, they
+// may not. Social Play's ListRegistrationsForGame carries the full reasoning
+// and this is its exact twin.
+//
+// **No identifier resolution happens here, on purpose** (ADR-0014 §5a).
+// Competition.HostID is `text` holding the subject CreateCompetition minted
+// from the verified principal, and actorUserID is what actor(ctx) returns —
+// the same subject space on both sides, compared unchanged. ADR-0014 rules
+// explicitly that T13.6 adds no Identity port to this context.
+//
+// The check uses only facts this Service already holds (s.competitions), so
+// it adds no constructor dependency — a constraint T13.8 is planned on.
+func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID, actorUserID string) ([]domain.CompetitionEntry, error) {
 	// Same boundary guard as GetCompetition, but this read is list-shaped: an
 	// unknown Competition yields an empty roster rather than an error, so a
 	// malformed one must yield an empty roster too. Matching *this* method's
@@ -428,6 +456,24 @@ func (s *Service) ListEntriesForCompetition(ctx context.Context, competitionID s
 	if !uuidShape.MatchString(competitionID) {
 		return []domain.CompetitionEntry{}, nil
 	}
+
+	// Loading the Competition is what makes the check possible: HostID is the
+	// fact being compared against. The not-found answer stays an empty roster
+	// rather than becoming ErrCompetitionNotFound — that invariant is
+	// unchanged by this ticket, and a Competition that does not exist has no
+	// roster to withhold.
+	competition, err := s.competitions.GetByID(ctx, competitionID)
+	if err != nil {
+		if errors.Is(err, domain.ErrCompetitionNotFound) {
+			return []domain.CompetitionEntry{}, nil
+		}
+		return nil, err
+	}
+
+	if err := competition.EnsureHost(actorUserID); err != nil {
+		return nil, err
+	}
+
 	return s.competitions.ListEntriesForCompetition(ctx, competitionID)
 }
 

@@ -506,6 +506,20 @@ service CompetitionsService {
   // ListEntriesForCompetition is the Host-facing roster read — see its
   // request message for why it includes cancelled entries. A GET on the same
   // path EnterCompetition POSTs to.
+  //
+  // **Requires a verified caller, who must be the Competition's Host**
+  // (T13.6, partial fix for #147). This RPC shipped public and returned every
+  // entrant's player_id and payment status to anyone holding a
+  // competition_id — a value the public ListCompetitions and GetCompetition
+  // responses supply. No token is codes.Unauthenticated (HTTP 401); a token
+  // belonging to anyone but the Host is codes.PermissionDenied (HTTP 403).
+  // There is deliberately no actor field on the request: the acting identity
+  // comes from the bearer token, never from the wire (T12.8).
+  //
+  // Note this does NOT authenticate GetCompetitionByShareToken — a share-link
+  // recipient can still open the Competition without an account, which is the
+  // whole point of that feature (T9.5). The share token grants a view of the
+  // Competition, never of its roster.
   rpc ListEntriesForCompetition(ListEntriesForCompetitionRequest) returns (ListEntriesForCompetitionResponse) {
     option (google.api.http) = {
       get: "/v1/competitions/{competition_id}/entries"

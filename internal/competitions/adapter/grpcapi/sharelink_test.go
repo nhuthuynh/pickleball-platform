@@ -356,10 +356,14 @@ func TestEnterCompetition_SourceIsValidatedNotInferred(t *testing.T) {
 // catches the plausible bug: a handler that emitted one source for the whole
 // list, or defaulted every row to app, would still populate the field.
 func TestListEntriesForCompetition_ReturnsEachEntrySource(t *testing.T) {
-	ctx := context.Background()
 	h, _ := newTestHandler()
 
-	created, _ := seedSharedCompetition(t, h, "host-1")
+	// T13.6: the roster read is Host-only, so this reads as the Host that
+	// seedSharedCompetition creates the Competition under. The test is about
+	// per-entry EntrySource, not authorization — reading as the Host is the
+	// precondition that keeps it that way.
+	const host = "host-1"
+	created, _ := seedSharedCompetition(t, h, host)
 
 	entrants := []struct {
 		playerID string
@@ -378,7 +382,7 @@ func TestListEntriesForCompetition_ReturnsEachEntrySource(t *testing.T) {
 		}
 	}
 
-	resp, err := h.ListEntriesForCompetition(ctx, &competitionsv1.ListEntriesForCompetitionRequest{
+	resp, err := h.ListEntriesForCompetition(ctxAs(host), &competitionsv1.ListEntriesForCompetitionRequest{
 		CompetitionId: created.GetId(),
 	})
 	if err != nil {

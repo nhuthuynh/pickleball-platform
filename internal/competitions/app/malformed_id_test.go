@@ -170,6 +170,12 @@ func TestGetCompetition_MalformedIDIsNotFoundAndNeverReachesTheAdapter(t *testin
 // an error, so a malformed one must answer identically — same
 // indistinguishability argument as above, applied to this method's own contract
 // instead of imported from GetCompetition's.
+//
+// T13.6 added a Host-only check to this read and deliberately left this
+// invariant alone. The actor below is a stranger, so this also proves the
+// malformed-ID guard runs *before* the Host check — a malformed ID cannot be
+// told apart from an unknown one by authorization status either, and it still
+// never reaches the adapter.
 func TestListEntriesForCompetition_MalformedIDIsEmptyAndNeverReachesTheAdapter(t *testing.T) {
 	t.Parallel()
 
@@ -180,7 +186,7 @@ func TestListEntriesForCompetition_MalformedIDIsEmptyAndNeverReachesTheAdapter(t
 			repo := &mustUUIDRepo{}
 			svc := newGuardedService(repo)
 
-			got, err := svc.ListEntriesForCompetition(context.Background(), tc.id)
+			got, err := svc.ListEntriesForCompetition(context.Background(), tc.id, "auth0|a-stranger")
 			if err != nil {
 				t.Fatalf("ListEntriesForCompetition(%q) error = %v, want nil", tc.id, err)
 			}

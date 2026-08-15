@@ -25,6 +25,12 @@ func gameID(n int) string {
 // TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic pins the fix. The
 // read answers an unknown Game with an empty roster, so a malformed Game ID
 // must answer identically.
+//
+// T13.6 added a Host-only check to this read and deliberately left this
+// invariant alone. The actor below is a stranger, which makes this test do
+// double duty: it proves the malformed-ID guard still runs *before* the Host
+// check, so a malformed ID cannot be told apart from an unknown one by
+// authorization status either.
 func TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic(t *testing.T) {
 	t.Parallel()
 
@@ -50,7 +56,7 @@ func TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic(t *testing.T) {
 
 			svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
 
-			got, err := svc.ListRegistrationsForGame(context.Background(), id)
+			got, err := svc.ListRegistrationsForGame(context.Background(), id, "auth0|a-stranger")
 			if err != nil {
 				t.Fatalf("ListRegistrationsForGame(%q) error = %v, want nil", id, err)
 			}
@@ -63,19 +69,28 @@ func TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic(t *testing.T) {
 
 // TestListRegistrationsForGame_WellFormedIDStillReads is the too-strict guard
 // rail: rejecting real Game IDs would silently empty every Host's roster.
+//
+// T13.6 note: the Game is now seeded into the game repository and read as its
+// Host, because the Host check needs a Game to compare against. That is not
+// test scaffolding for its own sake — it is what makes this guard rail still
+// mean "the ID guard is not too strict" rather than accidentally becoming a
+// test of the new authorization check.
 func TestListRegistrationsForGame_WellFormedIDStillReads(t *testing.T) {
 	t.Parallel()
 
+	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
 
+	const host = "auth0|host-1"
 	id := gameID(7)
+	games.games[id] = domain.Game{ID: id, HostID: host}
 	registrations.registrations["r-1"] = domain.Registration{
 		ID: "r-1", GameID: id, PlayerID: "player-1",
 		Status: domain.RegistrationStatusRegistered, PaymentStatus: domain.PaymentStatusUnpaid,
 	}
 
-	got, err := svc.ListRegistrationsForGame(context.Background(), id)
+	got, err := svc.ListRegistrationsForGame(context.Background(), id, host)
 	if err != nil {
 		t.Fatalf("ListRegistrationsForGame on a real Game: %v", err)
 	}

@@ -223,8 +223,24 @@ func (h *Handler) CancelCompetition(ctx context.Context, req *competitionsv1.Can
 	return &competitionsv1.CancelCompetitionResponse{Competition: toProtoCompetition(competition)}, nil
 }
 
+// ListEntriesForCompetition is the Host-facing roster read.
+//
+// T13.6 (partial fix for #147): no longer a public read. It returns every
+// entrant's player_id and payment status, and it used to hand that to any
+// caller who knew a competition_id — a value the public ListCompetitions and
+// GetCompetition responses supply. The actor is the verified principal, so a
+// missing one is codes.Unauthenticated here and a non-Host one becomes
+// domain.ErrNotCompetitionHost -> codes.PermissionDenied in toStatus, never
+// Internal. The RPC moved from PublicMethods() to AuthenticatedMethods() in
+// authenticated.go to match. Exact twin of Social Play's
+// ListRegistrationsForGame.
 func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitionsv1.ListEntriesForCompetitionRequest) (*competitionsv1.ListEntriesForCompetitionResponse, error) {
-	entries, err := h.svc.ListEntriesForCompetition(ctx, req.GetCompetitionId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	entries, err := h.svc.ListEntriesForCompetition(ctx, req.GetCompetitionId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}

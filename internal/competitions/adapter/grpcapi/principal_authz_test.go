@@ -182,10 +182,19 @@ func TestPublicRPCs_StayReachableAnonymously(t *testing.T) {
 	if _, err := h.ListCompetitions(ctx, &competitionsv1.ListCompetitionsRequest{}); err != nil {
 		t.Errorf("ListCompetitions anonymously should succeed, got: %v", err)
 	}
+
+	// ListEntriesForCompetition used to be asserted here, as an RPC that
+	// "should succeed" anonymously. T13.6 inverted that (partial fix for
+	// #147): the roster is per-person data, not a browse path, and the
+	// assertion that it stayed anonymously readable was pinning the leak in
+	// place. Its replacement is immediately below, plus the full four-case
+	// proof in roster_authz_test.go.
 	if _, err := h.ListEntriesForCompetition(ctx, &competitionsv1.ListEntriesForCompetitionRequest{
 		CompetitionId: competition.GetId(),
-	}); err != nil {
-		t.Errorf("ListEntriesForCompetition anonymously should succeed, got: %v", err)
+	}); err == nil {
+		t.Error("ListEntriesForCompetition anonymously should be refused — the roster is not a public browse path (#147)")
+	} else {
+		requireCode(t, "ListEntriesForCompetition with no principal", err, codes.Unauthenticated)
 	}
 }
 

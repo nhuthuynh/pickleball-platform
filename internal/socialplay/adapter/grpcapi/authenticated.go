@@ -15,7 +15,7 @@ import (
 // a hand-written name that drifted from the proto would silently stop matching
 // and silently stop enforcing. Using the constant makes that a compile error.
 //
-// # Why each of these six requires a principal
+// # Why each of these seven requires a principal
 //
 //   - CreateGame: establishes Host-ship. Its host_id is no longer read off the
 //     wire — the Game is hosted by the verified caller. This is the same
@@ -40,6 +40,18 @@ import (
 //     player against a string the caller supplied about themselves.
 //   - RecordMatchResult: guarded by domain.Game.EnsureHostOrGameAdmin, same
 //     claimed-actor shape.
+//   - ListRegistrationsForGame: moved here from PublicMethods by T13.6
+//     (partial fix for #147). It is the Host's pending-cash-payments dashboard
+//     read (T8.10) and it returns per-person data — every registrant's
+//     player_id, payment_status and guest_count. As a public method it handed
+//     that to anyone holding a game_id, and game_id is readable off the public
+//     ListGames response, so the leak was enumerable rather than theoretical.
+//     T12.8 could not fix it because there was no check to re-plumb; T13.6
+//     adds the check itself (Host-only, domain.Game.EnsureHost, applied in
+//     app.Service). Note this is the one entry here whose reason is a *read*
+//     rather than a write: the T12.8 six all needed a principal because they
+//     wrote or acted on an aggregate, whereas this one needs it because the
+//     response body is private data.
 //   - CancelGame: shipped with a claimed-actor check in T12.4 and is named
 //     explicitly in the T12.8 ticket as the RPC not to miss — this is the
 //     ticket that makes its domain.Game.EnsureHost check rest on a verified
@@ -54,6 +66,7 @@ func AuthenticatedMethods() []string {
 		socialplayv1.SocialPlayService_JoinWaitlist_FullMethodName,
 		socialplayv1.SocialPlayService_CancelRegistration_FullMethodName,
 		socialplayv1.SocialPlayService_RecordMatchResult_FullMethodName,
+		socialplayv1.SocialPlayService_ListRegistrationsForGame_FullMethodName,
 		socialplayv1.SocialPlayService_CancelGame_FullMethodName,
 	}
 }
@@ -67,7 +80,7 @@ func AuthenticatedMethods() []string {
 // RPC was added and nobody decided whether it needs auth" from a silent
 // default-to-public into a failing test.
 //
-// # Why each of these three stays public
+// # Why each of these two stays public
 //
 //   - ListGames: the Discover & Join Games browse path (T8.9), reached by
 //     players who have not signed in. Authenticating it would break a shipped
@@ -75,24 +88,18 @@ func AuthenticatedMethods() []string {
 //   - ListMatchesForGame: recorded Match results are a public fact about a
 //     Game that already happened, and the message carries no per-caller data
 //     (ADR-0012 keeps ratings off it entirely).
-//   - ListRegistrationsForGame: public **not because that is right, but
-//     because making it otherwise is out of this ticket's reach**, and leaving
-//     that unsaid would be worse than saying it. This is the Host's
-//     pending-cash-payments dashboard read (T8.10): it returns the roster —
-//     every registrant's player_id and payment status — to anyone holding a
-//     game_id. It has no actor field and no ownership check anywhere in the
-//     domain, so there is nothing to migrate here; giving it one means adding
-//     a Host-only read rule to the domain, and A11 Ruling 3 scopes this ticket
-//     to the handler boundary precisely so it does not make domain changes in
-//     passing. Requiring a bare token instead would be worse than either
-//     option: it would look like authorization while granting every
-//     authenticated user on the platform the same roster access an anonymous
-//     one has today. Disclosed and tracked as a GitHub issue per the sprint's
-//     A5 standing rule, exactly as T12.7 did for CreateBooking/CancelBooking.
+//
+// ListRegistrationsForGame used to be the third entry here, carrying a long
+// comment that said in so many words that it was public *not because that was
+// right* but because T12.8 could not reach it. T13.6 reached it: it is now in
+// AuthenticatedMethods above, Host-only. The disclosure is kept in git history
+// rather than restated, but the shape of it is worth remembering — a comment
+// honestly recording a known hole is not a substitute for closing it, and the
+// thing that eventually closed it was the tracked issue (#147), not the
+// comment.
 func PublicMethods() []string {
 	return []string{
 		socialplayv1.SocialPlayService_ListGames_FullMethodName,
 		socialplayv1.SocialPlayService_ListMatchesForGame_FullMethodName,
-		socialplayv1.SocialPlayService_ListRegistrationsForGame_FullMethodName,
 	}
 }
