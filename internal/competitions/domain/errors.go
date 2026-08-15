@@ -183,4 +183,50 @@ var (
 	ErrHostCannotBeCompetitionAdmin = errors.New("competitions: a competition's host cannot also be one of its competition admins")
 	ErrAlreadyCompetitionAdmin      = errors.New("competitions: user is already a competition admin for this competition")
 	ErrCompetitionAdminNotFound     = errors.New("competitions: competition admin assignment not found")
+
+	// ErrNotCompetitionHostOrAdmin is
+	// Competition.EnsureHostOrCompetitionAdmin's rejection (T15.4, closes
+	// #147): the actor is neither the Competition's Host nor one of its
+	// assigned Competition Admins. Mirrors
+	// socialplay.ErrNotGameHostOrAdmin's flat, single-sentinel shape (a
+	// caller does not get to distinguish "wrong actor" from "not an admin
+	// either" from this error alone) and gates exactly one caller today —
+	// ListEntriesForCompetition — the same as ErrNotGameHostOrAdmin gated
+	// only RecordMatchResult before T14.5 gave it a second one. "assigned"
+	// means resolved from the competition_admins store (T15.3), never
+	// caller-supplied.
+	//
+	// DO NOT UNIFY THIS WITH ErrNotCompetitionHost ABOVE. The two sentinels
+	// look near-identical and gate near-identical-looking checks, but they
+	// encode two genuinely different authorization rules on the same
+	// aggregate, and collapsing them would silently widen one of them:
+	//
+	//   - ErrNotCompetitionHostOrAdmin gates the roster read
+	//     ListEntriesForCompetition (T15.4), which the Host *or* any
+	//     assigned Competition Admin may perform. Reading the roster is
+	//     the routine work a Competition Admin exists to do — CLAUDE.md's
+	//     locked decision that "per-game Game Admins can record offline
+	//     payments" names the identical delegation shape for Competition
+	//     Admins in T15.5, and reconciling cash entry fees is
+	//     unperformable without the roster.
+	//   - ErrNotCompetitionHost gates CancelCompetition and the
+	//     Competition-Admin assignment writes AssignCompetitionAdmin /
+	//     RevokeCompetitionAdmin (T15.3), all of which are **Host-only**.
+	//     Cancelling is destructive, and delegating the power to appoint
+	//     admins to an admin would make the Host-only distinction
+	//     worthless (#168) — a Competition Admin who may legitimately read
+	//     the roster must still be refused here. See
+	//     domain.TestAssignCompetitionAdmin_AnAdminCannotAppointAnAdmin,
+	//     which exists precisely to fail if the two are ever merged.
+	//
+	// T13.6 had the roster read on the stricter ErrNotCompetitionHost, and
+	// said why: a Competition Admin arguably *should* be entitled to read a
+	// roster, but the admin list was caller-supplied and persisted nowhere
+	// (#168), so honouring it would have let any caller name themselves an
+	// admin. Host-only was the narrower, honest answer *until that store
+	// existed*. T15.3 built it and T15.4 moves the read, which is the
+	// resolution of a stated product limitation rather than a widening of a
+	// domain rule — the exact sequence T14.4/T14.5 already proved for Social
+	// Play.
+	ErrNotCompetitionHostOrAdmin = errors.New("competitions: only the competition's host or an assigned competition admin may perform this action on this competition")
 )

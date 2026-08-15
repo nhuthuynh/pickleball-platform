@@ -217,6 +217,59 @@ func (c Competition) EnsureHost(actorUserID string) error {
 	return nil
 }
 
+// EnsureHostOrCompetitionAdmin returns ErrNotCompetitionHostOrAdmin unless
+// actorUserID matches c.HostID exactly, or holds a Competition-Admin
+// assignment in assigned — the object-level (BOLA) authorization check
+// T15.4's roster read requires (ListEntriesForCompetition), mirroring
+// socialplay.Game.EnsureHostOrGameAdmin's shape exactly (an empty
+// actorUserID is always rejected, even against a Competition with an empty
+// HostID — an unidentified caller is never the host or an admin).
+//
+// # assigned is a resolved set, and its type is the enforcement
+//
+// Until T15.4 this rule did not exist at all: ListEntriesForCompetition
+// (T13.6) was Host-only, and stayed that way rather than accepting a
+// caller-supplied admin list — the same reasoning
+// socialplay.Game.EnsureHostOrGameAdmin's doc comment gives for
+// EnsureHostOrGameAdmin's original []string signature having been a mistake.
+// T15.3 built the durable store (port.CompetitionAdminRepository, the
+// competition_admins table), and this method is written to consume it from
+// the start: assigned is typed []CompetitionAdmin, a type the app layer can
+// only obtain by reading the repository, so no request DTO can be handed to
+// this method however carelessly a future call site is written. **The
+// parameter type is the enforcement, not a style choice** — a signature
+// change back to []string would silently reopen the forgeable check
+// T14.5 warns about for Social Play's twin.
+//
+// The membership test itself is HasCompetitionAdmin (competition_admin.go),
+// including its blank-entry guard, so the roster read and any future
+// Competition-Admin-gated check cannot drift apart by re-deriving it. This
+// method takes the whole set rather than a pre-computed bool for the same
+// reason EnsureHostOrGameAdmin does: a caller that computed "isAdmin" itself
+// would be holding the rule, and the rule belongs here.
+//
+// Keeping the domain pure (CLAUDE.md rule 2) is why the *resolution* —
+// asking the repository for a Competition's assignments — happens in
+// app.Service and not here. This package imports nothing outside the
+// standard library and gains no port import from this method.
+//
+// actorUserID is a verified subject (internal/platform/auth.RequireSubject),
+// in the same identifier space c.HostID and CompetitionAdmin.UserID hold —
+// see domain.CompetitionAdmin's doc comment and ADR-0014 §5a. Nothing is
+// resolved or converted on either side.
+func (c Competition) EnsureHostOrCompetitionAdmin(actorUserID string, assigned []CompetitionAdmin) error {
+	if actorUserID == "" {
+		return ErrNotCompetitionHostOrAdmin
+	}
+	if actorUserID == c.HostID {
+		return nil
+	}
+	if HasCompetitionAdmin(assigned, actorUserID) {
+		return nil
+	}
+	return ErrNotCompetitionHostOrAdmin
+}
+
 // Cancel transitions a Competition to cancelled. The only legal transition
 // is scheduled -> cancelled; cancelling an already-cancelled Competition is
 // rejected rather than silently accepted, mirroring

@@ -1,12 +1,23 @@
-// T13.6 — the roster read is Host-only (partial fix for #147).
+// T13.6 — the roster read stopped being public (partial fix for #147).
 //
-// The exact twin of internal/socialplay/adapter/grpcapi/roster_authz_test.go,
-// against the RPC #147 names alongside it. Before this ticket
-// ListEntriesForCompetition had no authorization check of any kind: it was in
-// PublicMethods(), took no actor, and returned every entrant's player_id and
-// payment status to anyone holding a competition_id — a value readable off
-// the *public* ListCompetitions and GetCompetition responses, which is what
-// made the leak enumerable rather than merely theoretical.
+// **Superseded in part by T15.4** (closes #147), which widened the entitled
+// set from Host-only to Host-or-assigned-Competition-Admin once T15.3's
+// durable store made "assigned Competition Admin" a server fact. The cases
+// below are unchanged and still hold — the Host reads, a stranger and an
+// entrant are refused, an anonymous caller is Unauthenticated, an unknown or
+// malformed id is an empty roster. What is no longer true is this file's
+// original claim that the *admin* is refused too; roster_admin_authz_test.go
+// carries that half now. The two files are kept separate rather than merged
+// so the T13.6 proof stays legible as the thing it was: the fix for the leak
+// itself, which is independent of who the entitled set eventually grew to
+// include — the exact split Social Play's twin already established at T14.5.
+//
+// Before this ticket ListEntriesForCompetition had no authorization check of
+// any kind: it was in PublicMethods(), took no actor, and returned every
+// entrant's player_id and payment status to anyone holding a competition_id —
+// a value readable off the *public* ListCompetitions and GetCompetition
+// responses, which is what made the leak enumerable rather than merely
+// theoretical.
 //
 // The four cases, in the shape principal_authz_test.go established:
 //
@@ -18,10 +29,12 @@
 // (b) and (c) stay distinct codes per ADR-0013 §5, and (b) is asserted as
 // PermissionDenied specifically, never Internal.
 //
-// The entrant case in (b) is the same deliberate, disclosed narrowness Social
-// Play's twin documents: T13.6 (sprint plan A17) ships Host-only because the
-// admin list #147's "entitled set" would need is caller-supplied and
-// persisted nowhere (#168).
+// The entrant case in (b) is a deliberate, disclosed narrowness that
+// *outlives* this widening: #147 leaves open whether an entrant should be
+// able to see the roster of a Competition they entered, and T15.4 does not
+// answer that product question — see roster_admin_read_test.go's header for
+// why answering it here would smuggle a product decision into an
+// authorization change.
 package grpcapi_test
 
 import (
