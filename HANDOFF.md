@@ -31,7 +31,9 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 
 | T12 | `docs/process/t12-sprint-plan.md` (Ceremony 1 verifies real auth is buildable now — the platform half, not the IdP-tenant half — and resolves T11 retro finding 6's board-of-record question; Ceremony 2 tickets 9 items, 46 points, threading all six T11-retro findings into ticket text and designing finding 3's shared-append collision class out via a per-context `AuthenticatedMethods()` ruling) | `docs/process/t12-retro.md` (6 findings, 2 recorded as unresolved disagreements, 10 recommendations for T13's ceremonies; indexed from `docs/LESSONS.md`'s `## T12 sprint retro`) | PRs #127 (Ceremony 1/2 doc) → #128 (T12.1) → #132 (T12.4) → #133 (T12.3) → #140 (T12.2) → #139 (T12.5) → #141 (T12.6) → #142 (T12.7) → #143 (T12.9) → #150 (T12.8) → #151 (unticketed hotfix, partial fix for #146) → #153 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0013` (T12.2: auth is platform not context; observe-only → per-context enforcement; `Principal` is not `User`; what "auth exists" does and does not mean) | — |
 
-| T13 | `docs/process/t13-sprint-plan.md` (Ceremony 1 ranks T12's 11 residual auth issues and takes 8 of them, adopts the retro's dependency-completeness check — which found live defect #154 before dispatch — and fixes recommendation 9's stale-Docs-index-row cause structurally; Ceremony 2 tickets 9 items, 40 points, threading all six T12-retro findings and all ten recommendations into ticket text, with a Wave-1.5 checkpoint per A14's scored lesson) | not yet written | T13.2 (closes #146, #152 — the Wave-1.5 checkpoint that must merge before Wave 2 dispatches) | `adr/0014` (T13.2: actor identifier space — **translate**, not widen; a verified subject becomes a `User.ID` at each context's grpcapi `actor()` funnel and never below it; rules for all six contexts, incl. the checked "do NOT resolve in Social Play / Competitions / Payments" answer T13.6 and T13.7 depend on; unresolvable subject → `PermissionDenied`; no migration, `0020` stays unclaimed) | — |
+| T13 | `docs/process/t13-sprint-plan.md` (Ceremony 1 ranks T12's 11 residual auth issues and takes 8 of them, adopts the retro's dependency-completeness check — which found live defect #154 before dispatch — and fixes recommendation 9's stale-Docs-index-row cause structurally; Ceremony 2 tickets 9 items, 40 points, threading all six T12-retro findings and all ten recommendations into ticket text, with a Wave-1.5 checkpoint per A14's scored lesson) | `docs/process/t13-retro.md` (6 findings, 2 recorded as unresolved disagreements, all four carried-forward questions scored and none deferred, 10 recommendations for T14's ceremonies; indexed from `docs/LESSONS.md`'s `## T13 sprint retro`) | PRs #155 (Ceremony 1/2 doc) → #159 (T13.9) → #161 (T13.1) → #162 (T13.4) → #163 (T13.5) → #166 (T13.2 — the Wave-1.5 checkpoint, merged and reviewed before Wave 2 dispatched) → #169 (T13.7) → #170 (T13.3) → #171 (T13.6) → #172 (T13.8) → #173 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention — this sprint's merge order and numeric order agree, which was only knowable by checking) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0014` (T13.2: actor identifier space — **translate**, not widen; a verified subject becomes a `User.ID` at each context's grpcapi `actor()` funnel and never below it; rules for all six contexts, incl. the checked "do NOT resolve in Social Play / Competitions / Payments" answer T13.6 and T13.7 depend on; unresolvable subject → `PermissionDenied`; no migration, `0020` stays unclaimed — verified still unclaimed at T14's Ceremony 1) | — |
+
+| T14 | `docs/process/t14-sprint-plan.md` (Ceremony 1 closes the nine issues T13 fixed but never closed **as its first act**, before ranking — the first live test of the "correct the previous sprint's row" amendment T13 itself added; re-measures #157's gate gap and finds 22 packages, not the 20 its title claims; surfaces #144's product decision as **D1**, escalated to the user rather than guessed; decides the label taxonomy; Ceremony 2 tickets 9 items, 39 points, threading all ten T13-retro recommendations into ticket text) | not yet written | not yet opened | `adr/0015` (T14.3: what owns a Booking made through the public quote-and-book flow — three options, costs stated, **decision escalated to the user**, trigger tied to the answer and not a sprint boundary; distinguished from ADR-0012's Q1/Q2, which are blocked indefinitely rather than merely unanswered) | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -525,7 +527,75 @@ booking made through the public quote-and-book flow) and #149 (needs
 cross-context read ports Payments does not have) with stated reasoning. A
 **Wave-1.5 checkpoint** applies per the retro's scored A14 lesson: T13.2 must
 merge and be reviewed before Wave 2 dispatches, because its ADR has four
-first-time consumers. Not yet implemented as of this entry.
+first-time consumers.
+
+**Outcome: all 9 tickets (40 points) implemented, reviewed, and MERGED** (PRs
+#159–#172, plus #155 for the Ceremony 1/2 doc and #173 for the retro). Retro:
+`docs/process/t13-retro.md` — 6 findings, 2 recorded as unresolved
+disagreements, all four carried-forward questions scored (none deferred), and
+10 recommendations that bind T14's Ceremony 1 and 2
+(`docs/process/t14-sprint-plan.md` threads all of them).
+
+**State the outcome in this form, not a stronger one.** This is the retro's own
+agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires the retro's
+form, not a stronger one). The engineering claim is strong and should not be
+undersold; the closure claim must not be made at all.
+
+> T13 fixed both seams where a verified subject reached a `uuid` column, under
+> one recorded decision (ADR-0014: translate at each context's grpcapi `actor()`
+> funnel, never widen), so `RequestRecurringHire` and `CreateFacility` work for
+> a real caller for the first time — proven by end-to-end tests against the real
+> Identity service and by reviewer-performed mutation checks, though not against
+> Postgres or a real IdP. Three RPCs that never had an authorization check now
+> have one, deliberately narrower than their issues ask (#168, #149 remain).
+> `internal/platform/**` is gated for the first time and the `Jenkinsfile` calls
+> `make ci-checks` — though no Jenkins job exists to run it, and **22 adapter
+> packages' tests are still executed by no gate (#157)**. All 9 tickets merged
+> on their first loop with no defect reaching the shared branch, the first sprint
+> in this project's history where that is true. **The six residual auth issues
+> the sprint set out to close are fixed in code but were never closed on GitHub;
+> the open-issue count rose from 19 to 28.** Nine issues await closure at T14's
+> Ceremony 1.
+
+**The closure sequence, stated accurately: shipped correctly, closed late,
+corrected same-day.** The final sentence above was true when the retro was
+written and is no longer true. **T14's Ceremony 1 closed all nine** (#123, #129,
+#135, #136, #138, #146, #148, #152, #154) as its first act before ranking
+anything, each with `state_reason: completed` and a comment naming the merged PR
+that resolved it, per `sprint-process.md` DoD step 5. Verified two ways:
+individually, and by the same arithmetic the retro used to prove the opposite —
+`list_issues(state: OPEN)` now returns **19**, and 28 − 9 = 19 exactly. #131 and
+#147 were re-checked as correctly *left* open (both were honestly titled
+"partial fix for #N" by T13.9 and T13.6 respectively). **The engineering was
+never in doubt; the bookkeeping was, for one day.** Do not restate this as "T13
+closed six issues" — it did not; T14's Ceremony 1 did, which is the whole point
+of the durable fix T14.6 amends into `sprint-process.md`.
+
+Recommendation 9's own question, answered: **the structural fix worked.** T13's
+Ceremony 1 amended `sprint-process.md` so that correcting the previous sprint's
+Docs-index row is Ceremony 1's first job; T14's Ceremony 1 performed it — the
+T13 row above — without a separate reminder. Option (b) is retained.
+
+**T14 — Answer the gate question once and for all, give Game Admins a real
+store, and make issue closure structural.** Ceremony 1/2 complete; full ticket
+breakdown, the re-measured gate gap, #144's escalated product decision, the
+decided label taxonomy, and all ten T13-retro recommendations threaded into
+ticket text: `docs/process/t14-sprint-plan.md`. 9 tickets, 39 points. The
+marquee item is **#157 built mechanically** rather than as a fourth glob
+widening — a check that enumerates every package holding a `func Test` and every
+package the gates execute, and diffs them, so the *general* question is answered
+once (three consecutive sprints have each closed the named glob and left the
+next). Also: a `gofmt` gate landing with the one violation it fires on (#165), a
+durable **Game-Admin store** for Social Play closing the sub-gap under both
+#147's residue and #149, #158/#131's cross-context error mapping, #156, and
+#160's local-dev auth fixture (which restores `make up`, i.e. step 4 of "First
+actions on resume" above). **#144 is escalated, not implemented** — ADR-0015
+records three options and puts the question to the user, because what owns a
+booking made through the public quote-and-book flow is a product decision, not
+an engineering one. **No Wave-1.5 checkpoint**: the condition was checked and
+does not fire (T14.4 has one first-time in-sprint consumer, not three), which
+recommendation 7 explicitly asks not to be generalised. Not yet implemented as
+of this entry.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args
