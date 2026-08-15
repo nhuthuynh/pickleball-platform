@@ -83,11 +83,15 @@ func TestRecordMatchResult_RejectsNonHostNonAdmin(t *testing.T) {
 
 	game := seedGame(t, gameRepo, "game-1", 4)
 
+	// T14.5: the wire list now names the CALLER, and must still buy nothing.
+	// Before this ticket that field was the entitled set, so this exact request
+	// succeeded. It is the deprecated-but-retained field's regression — see
+	// match_admin_store_test.go for the full mutation proof.
 	_, err := h.RecordMatchResult(ctxAs("random-player"), &socialplayv1.RecordMatchResultRequest{
 		GameId:                   game.ID,
 		Players:                  []string{"player-1", "player-2"},
 		Score:                    map[string]int32{"player-1": 11, "player-2": 7},
-		AssignedGameAdminUserIds: []string{"admin-1"},
+		AssignedGameAdminUserIds: []string{"random-player"},
 	})
 	if err == nil {
 		t.Fatal("RecordMatchResult(random-player) succeeded silently — a Player who is neither the Game's Host nor an assigned Game Admin was able to record a match result (BOLA regression)")
@@ -138,16 +142,29 @@ func TestRecordMatchResult_AllowsHost(t *testing.T) {
 // TestRecordMatchResult_AllowsAssignedGameAdmin mirrors
 // TestRecordMatchResult_AllowsHost for the assigned-Game-Admin path: an
 // admin who is not the Host may still record the match result.
+//
+// T14.5: the admin is established by the Host calling the real AssignGameAdmin
+// RPC, not by the caller listing themselves in the request. The request below
+// deliberately sends NO admin list at all — which is the positive half of the
+// same proof its negative twin makes: authority comes from the store now, so
+// the entitled caller needs nothing on the wire and the unentitled one gains
+// nothing from it.
 func TestRecordMatchResult_AllowsAssignedGameAdmin(t *testing.T) {
 	h, gameRepo, _ := newTestHandlerWithMatches()
 
 	game := seedGame(t, gameRepo, "game-3", 4)
 
+	if _, err := h.AssignGameAdmin(ctxAs("host-1"), &socialplayv1.AssignGameAdminRequest{
+		GameId: game.ID,
+		UserId: "admin-2",
+	}); err != nil {
+		t.Fatalf("the Host assigning admin-2 as a Game Admin: %v", err)
+	}
+
 	resp, err := h.RecordMatchResult(ctxAs("admin-2"), &socialplayv1.RecordMatchResultRequest{
-		GameId:                   game.ID,
-		Players:                  []string{"player-1", "player-2"},
-		Score:                    map[string]int32{"player-1": 11, "player-2": 7},
-		AssignedGameAdminUserIds: []string{"admin-1", "admin-2"},
+		GameId:  game.ID,
+		Players: []string{"player-1", "player-2"},
+		Score:   map[string]int32{"player-1": 11, "player-2": 7},
 	})
 	if err != nil {
 		t.Fatalf("RecordMatchResult(admin-2) (an assigned Game Admin) should succeed, got: %v", err)

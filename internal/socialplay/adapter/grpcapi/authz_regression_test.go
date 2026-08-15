@@ -551,13 +551,21 @@ func TestCancelGame_RejectsGameAdminActor(t *testing.T) {
 	game := seedGameWithHost(t, gameRepo, "cancel-game-3", "player-A")
 	const gameAdmin = "player-admin"
 
+	// T14.5: the assignment is a real one, made by the Host through the real
+	// RPC, rather than a name this request supplied for itself.
+	if _, err := h.AssignGameAdmin(ctxAs("player-A"), &socialplayv1.AssignGameAdminRequest{
+		GameId: game.ID,
+		UserId: gameAdmin,
+	}); err != nil {
+		t.Fatalf("the Host assigning %q as a Game Admin: %v", gameAdmin, err)
+	}
+
 	// Fixture precondition, asserted rather than assumed: this actor really
 	// is authorized for the Host-or-Admin operation.
 	if _, err := h.RecordMatchResult(ctxAs(gameAdmin), &socialplayv1.RecordMatchResultRequest{
-		GameId:                   game.ID,
-		Players:                  []string{"player-A", "player-B"},
-		Score:                    map[string]int32{"player-A": 11, "player-B": 7},
-		AssignedGameAdminUserIds: []string{gameAdmin},
+		GameId:  game.ID,
+		Players: []string{"player-A", "player-B"},
+		Score:   map[string]int32{"player-A": 11, "player-B": 7},
 	}); err != nil {
 		t.Fatalf("fixture precondition: %q must be accepted as an assigned game admin by RecordMatchResult, got: %v", gameAdmin, err)
 	}

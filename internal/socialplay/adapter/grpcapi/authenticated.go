@@ -47,11 +47,15 @@ import (
 //     that to anyone holding a game_id, and game_id is readable off the public
 //     ListGames response, so the leak was enumerable rather than theoretical.
 //     T12.8 could not fix it because there was no check to re-plumb; T13.6
-//     adds the check itself (Host-only, domain.Game.EnsureHost, applied in
-//     app.Service). Note this is the one entry here whose reason is a *read*
-//     rather than a write: the T12.8 six all needed a principal because they
-//     wrote or acted on an aggregate, whereas this one needs it because the
-//     response body is private data.
+//     adds the check itself, applied in app.Service. T14.5 widened it from
+//     Host-only (domain.Game.EnsureHost) to Host-or-assigned-Game-Admin
+//     (domain.Game.EnsureHostOrGameAdmin, resolved from T14.4's store) — which
+//     changes nothing about this RPC's membership here: both rules need a
+//     verified principal, and a wider entitled set makes the principal more
+//     load-bearing, not less. Note this is the one entry here whose reason is
+//     a *read* rather than a write: the T12.8 six all needed a principal
+//     because they wrote or acted on an aggregate, whereas this one needs it
+//     because the response body is private data.
 //   - CancelGame: shipped with a claimed-actor check in T12.4 and is named
 //     explicitly in the T12.8 ticket as the RPC not to miss — this is the
 //     ticket that makes its domain.Game.EnsureHost check rest on a verified

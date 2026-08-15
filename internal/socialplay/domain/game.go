@@ -114,39 +114,50 @@ func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, 
 }
 
 // EnsureHostOrGameAdmin returns ErrNotGameHostOrAdmin unless actorUserID
-// matches g.HostID exactly, or appears in assignedGameAdminUserIDs — the
-// object-level (BOLA) authorization check T10.4's RecordMatchResult
-// requires, mirroring competitions.Competition.EnsureHost and
-// facilities.Facility.EnsureOwner's shape (an empty actorUserID is always
-// rejected, even against a Game with an empty HostID — an unidentified
-// caller is never the host or an admin).
+// matches g.HostID exactly, or holds a Game-Admin assignment in assigned — the
+// object-level (BOLA) authorization check T10.4's RecordMatchResult requires
+// and T14.5's roster read now shares, mirroring
+// competitions.Competition.EnsureHost and facilities.Facility.EnsureOwner's
+// shape (an empty actorUserID is always rejected, even against a Game with an
+// empty HostID — an unidentified caller is never the host or an admin).
 //
-// assignedGameAdminUserIDs is a caller-supplied fact, not a persisted one:
-// this codebase has never built a durable Game-Admin-assignment mechanism
-// (internal/payments/app.RecordOfflinePaymentInput's
-// AssignedGameAdminUserIDs doc comment records the same gap for T6.3's
-// identical authorization shape, and this method's caller,
-// app.Service.RecordMatchResult, is deliberately the minimal version needed
-// to enforce the rule this ticket requires — not a new persistence feature).
-// A blank entry in assignedGameAdminUserIDs never matches (mirrors
-// authorizeOfflineRecording's identical "adminID != \"\"" guard) so an
-// unset actorUserID can't accidentally match a zero-valued slice element.
+// # assigned is a resolved set, and its type is the enforcement
 //
-// As with every actor-scoped check in this codebase, actorUserID is a
-// caller-supplied claim, not a verified identity: real authentication
-// remains HANDOFF.md's open Auth item, and this method must not be read as
-// closing it.
-func (g Game) EnsureHostOrGameAdmin(actorUserID string, assignedGameAdminUserIDs []string) error {
+// Until T14.5 this parameter was `assignedGameAdminUserIDs []string`, taken
+// **straight off the wire**: this codebase had no durable Game-Admin store, so
+// the caller asserted who the admins were and this method believed them. Any
+// caller could name themselves and pass. T14.4 built the store
+// (port.GameAdminRepository, the game_admins table), and this signature is what
+// makes using it non-optional: []GameAdmin is a type the app layer can only
+// obtain by reading the repository, so no request DTO can be handed to this
+// method however carelessly a future call site is written. Changing it back to
+// []string would silently restore the forgeable check — the parameter type is
+// load-bearing, not stylistic.
+//
+// The membership test itself is HasGameAdmin (game_admin.go), including its
+// blank-entry guard, so the roster read and the match-recording path cannot
+// drift apart by re-deriving it. Note this method takes the whole set rather
+// than a pre-computed bool for the same reason: a caller that computed
+// "isAdmin" itself would be holding the rule, and the rule belongs here.
+//
+// Keeping the domain pure (CLAUDE.md rule 2) is why the *resolution* — asking
+// the repository for a Game's assignments — happens in app.Service and not
+// here. This package imports nothing outside the standard library and gains no
+// port import from this change.
+//
+// actorUserID is a verified subject as of T12.8 (the handler passes the bearer
+// token's principal, never a request field), in the same identifier space
+// g.HostID and GameAdmin.UserID hold — see domain.GameAdmin's doc comment and
+// ADR-0014 §5a. Nothing is resolved or converted on either side.
+func (g Game) EnsureHostOrGameAdmin(actorUserID string, assigned []GameAdmin) error {
 	if actorUserID == "" {
 		return ErrNotGameHostOrAdmin
 	}
 	if actorUserID == g.HostID {
 		return nil
 	}
-	for _, adminID := range assignedGameAdminUserIDs {
-		if adminID != "" && adminID == actorUserID {
-			return nil
-		}
+	if HasGameAdmin(assigned, actorUserID) {
+		return nil
 	}
 	return ErrNotGameHostOrAdmin
 }
