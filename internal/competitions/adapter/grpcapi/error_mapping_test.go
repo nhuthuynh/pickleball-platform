@@ -179,6 +179,10 @@ func errorMappingCases() []errorMappingCase {
 			sentinel: "ErrCompetitionNotFound",
 			err:      domain.ErrCompetitionNotFound,
 			wantCode: codes.NotFound,
+			why: "also the sentinel translateEntryErr's 23503 arm returns for a concurrent-delete race on " +
+				"competition_entries.competition_id (T17.3, #195) — same value, so this row already covers " +
+				"that raise site; proven against a real Postgres in adapter/postgres's FK-race integration test, " +
+				"which no in-memory fake can model",
 			invoke: func(t *testing.T) error {
 				h, _ := newTestHandler()
 				_, err := h.CancelCompetition(ctxAs(mapHostID), &competitionsv1.CancelCompetitionRequest{
@@ -269,7 +273,10 @@ func errorMappingCases() []errorMappingCase {
 			sentinel: "ErrFacilityNotFound",
 			err:      domain.ErrFacilityNotFound,
 			wantCode: codes.NotFound,
-			why:      "an unknown venue_facility_id is a 404-shaped answer, not a 500 (T9.4)",
+			why: "an unknown venue_facility_id is a 404-shaped answer, not a 500 (T9.4); also the sentinel " +
+				"translateErr's 23503 arm returns for a concurrent-delete race on competitions.venue_facility_id " +
+				"(T17.3, #195) — same value, so this row already covers that raise site too; proven against a " +
+				"real Postgres in adapter/postgres's FK-race integration test, which no in-memory fake can model",
 		},
 		{
 			name:     "court id naming no court",
