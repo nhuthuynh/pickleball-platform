@@ -1,0 +1,22 @@
+{
+  "_WARNING": [
+    "DEV-ONLY FIXTURE — NOT A SECRET. This key material is committed to a",
+    "public repository on purpose, which is exactly why it is worthless.",
+    "NEVER use it in any environment that matters: anyone who has read this",
+    "repository can mint a token that this key verifies.",
+    "Regenerate with: go run ./cmd/devtoken -regenerate",
+    "See dev/auth/README.md and issue #160."
+  ],
+  "kty": "RSA",
+  "use": "sig",
+  "alg": "RS256",
+  "kid": "dev-only-insecure-do-not-trust",
+  "n": "sbwztBkFCvAHl3Yk_7qJ3jyL-niIo6AcHH6wsAOo8wwbBSSYPtlGdVq73rr7N_UhdJCmJNhSiVc69Dvo_4NAYUDfQtWeJX2IIr8x1bNndgcxoxnkH2uoB_AGTYnPOJURVnPEubv5IVNSejmg1xFDPUFHRKP7RgkJ2nsYXXhPmXjDfa4pMbrn1lUonR_mWQNyDNabJHHYhKSMnuY2c6-zLtBotak71WBpzZkR_X3t-fW7WSDyjZs2ceqy1VrLoR1nmp5DePKG16gPTorGIypzi8wD0zRdq3L7BMMurRcvpmkPAr-ICcR7fpwSwAdUKMaSNGFbMTyAoeqnrkass_mwHQ",
+  "e": "AQAB",
+  "d": "JWsngXug_agCGSek63f0zaZ2m-Fjdvte37rmbPAgUicSyzbknJq2xD85fU9lU2cWx4kqiWhHnCWSwleYmq6hz7fOKS57EI6IqjQRhFm0Zvtlvl5Vki3inuUwFoP0bgeoMkjGOooyDYuSuivGynCWdN945yEU5i5B9k7jFs6dB4S05k_RtsDueiE1626J175TulULqUW4olyM91AiwM_PQInShAOcRgdpHdD9_LqJnLZGeKgOvGGMFR0QBz5mGhfJIiOWWagG1BYGSYVkGhKZgpIXABunn4rUsGGAvHMXxvGS0fCeywPne5L1ZpDy1lXr9qUsVXyhIxFHpSmS5q05iw",
+  "p": "1iaRaf5f7HODK6Fm_UBocNgOrgsp3lntBa-wJz9HkZ_YANKL2ewJ3CIKi0bFnGmb_S4SI3HP4KsF1tAJ7viAj_mOvKFyNvbJnDY5yVkcS9nJfo9ZuxLsSwvO4t39GDsMBvfeeM56itYD15it2P4M0MA4WNUJ4GRvavmbrcRV2F8",
+  "q": "1HfbL39zyNWS5OW-6r4Asz-L6cDMhSKrlzo5M_05yoPKRSNuH9_5YaC4Ga0zh6wXTBlUMatEjLGsuLAnajxaBlvnzXkB7l_kl-VrUDyo_yRpmLJguwJjJus2H7Txnu2wqLh7RthO8yBtY-Ekx7AdixRrJ6kAyZDT8LWSsrYVOQM",
+  "dp": "lk-b4XnaemzZtNYlI70BkbMVGrRbPuZ_p24ZhnK0GVLImksuPlee1BRQslGKgq7d_mdH8_j-oANqpcyALGvgUS4pMd1f_ZRbDnpBNUKGyfajp2GW6efuUv6GyFZoP4myd3Gjhcfn22s8ZyeTXqty81L4OeHOfOICEmQBEYateqE",
+  "dq": "ZE8150XYB0B1-qVRLoiH0hi1WKXSqSSGOH6flSD_kNIJw_yHOHtIxMPZRx4TjwE7eo0Wx-BhG7-imQtpgGl_4zKuzL5NoBob1W7V7GrHKrYpOJM2wfPNlglEY1HNJUh4uB9o7DihhX2Qx6_66mAGgqwgLvhGS-OZfDJtUPxQJrs",
+  "qi": "z8VQf45N_oMewWoSR3BakaQWmbCb8Y96IQ8T8vXF1yov10LHGOE46tASjm1V60MXbcDFdrdCn8ASq3BJc2UazpYC3sAAE8-q_0hZoxU7tMeOXJQDoAuDGMgyBCFtX9whpvH7eihXpNikM5tz2TlMM8dZQetthzSloXbYaNXzz4s"
+}

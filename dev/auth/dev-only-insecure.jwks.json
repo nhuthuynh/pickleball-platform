@@ -1,0 +1,20 @@
+{
+  "_WARNING": [
+    "DEV-ONLY FIXTURE — NOT A SECRET. This key material is committed to a",
+    "public repository on purpose, which is exactly why it is worthless.",
+    "NEVER use it in any environment that matters: anyone who has read this",
+    "repository can mint a token that this key verifies.",
+    "Regenerate with: go run ./cmd/devtoken -regenerate",
+    "See dev/auth/README.md and issue #160."
+  ],
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "alg": "RS256",
+      "kid": "dev-only-insecure-do-not-trust",
+      "n": "sbwztBkFCvAHl3Yk_7qJ3jyL-niIo6AcHH6wsAOo8wwbBSSYPtlGdVq73rr7N_UhdJCmJNhSiVc69Dvo_4NAYUDfQtWeJX2IIr8x1bNndgcxoxnkH2uoB_AGTYnPOJURVnPEubv5IVNSejmg1xFDPUFHRKP7RgkJ2nsYXXhPmXjDfa4pMbrn1lUonR_mWQNyDNabJHHYhKSMnuY2c6-zLtBotak71WBpzZkR_X3t-fW7WSDyjZs2ceqy1VrLoR1nmp5DePKG16gPTorGIypzi8wD0zRdq3L7BMMurRcvpmkPAr-ICcR7fpwSwAdUKMaSNGFbMTyAoeqnrkass_mwHQ",
+      "e": "AQAB"
+    }
+  ]
+}

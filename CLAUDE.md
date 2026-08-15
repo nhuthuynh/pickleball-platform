@@ -58,13 +58,44 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   but deliberately a separate target: `test-domain`'s pattern is
   domain+app-only and matches nothing under `internal/platform/`. Part of
   `make ci`. Added T13.4 — before it, those tests ran in no gate at all (#138).
+- `make test-adapters` — run every `internal/*/adapter/*` package's tests
+  (depends on `generate`; some of them import `internal/gen`). Part of
+  `make ci-checks`. Added T14.1 — before it these 22 packages ran in no gate
+  (#157), including T13.1's five new behavioural tests and #146's regression
+  test.
+- `make test-cmd` — run `./cmd/...`'s tests (depends on `generate`). Part of
+  `make ci-checks`. Added T14.1: `cmd/server/main_test.go` proves the server
+  refuses to start without an auth verifier (#136) and ran in no gate either.
+  It was missed by #157 **and** by the T14 plan's own re-enumeration, both of
+  which scanned `internal`/`tools` and not `cmd` — the gate-coverage check
+  below is what found it.
+- `make gate-coverage` — **the standing answer to "which packages hold tests
+  that no gate executes?"** Fails, naming the packages, when some package
+  holds a `func Test` and nothing reachable from `ci-checks` runs it. Both
+  sides are computed at run time: side A from a scan of the tree, side B by
+  parsing this repo's own `Makefile` and expanding its `go test` patterns
+  with `go list`. **There is no package list in the tool, and adding one is
+  the one change that would defeat it** — three sprints running (T11, T12,
+  T13/#157) shipped a hand-written glob that was stale before its sprint
+  ended. Fix a failure by widening a `go test` pattern in a target reachable
+  from `ci-checks`, never by adding an exclusion. Tool in
+  `tools/gatecoverage` (covered by `make test-tools`), entry point
+  `cmd/gatecoverage`. Added T14.1.
 - `make generate` — buf + sqlc → `internal/gen` and `openapi/`.
 - `make tidy` — `go mod tidy` (run after first generate).
 - `make vet-integration` — `go vet -tags=integration ./...` (depends on
   `generate`). Compiles the `//go:build integration` files without Docker;
   does not run them. Part of `make ci`.
 - `make test` — full suite: race + JUnit + coverage.
-- `make up` / `make down` — run / tear down via docker compose.
+- `make up` / `make down` — run / tear down via docker compose. `up` supplies
+  `AUTH_ISSUER`/`AUTH_AUDIENCE`/`AUTH_JWKS_FILE` from the committed local-dev
+  key fixture in `dev/auth/` (T14.9, #160) — without them the server refuses
+  to start, by design (T13.5).
+- `make dev-token` — mint a local-dev bearer token against that fixture, so an
+  authenticated RPC can be exercised locally: `TOKEN=$(make -s dev-token)`,
+  then `curl -H "Authorization: Bearer $TOKEN" …`. **Dev-only and public** —
+  the keypair is committed, therefore worthless; never point a deployment at
+  `dev/auth/`. See `dev/auth/README.md`.
 - `make lint` — golangci-lint.
 - `make fmt-check` — fails if `gofmt -l ./internal ./cmd ./tools` names any
   file. Part of `make ci-checks` (after `generate`). Added T14.2; before it
@@ -159,6 +190,13 @@ its filename alone and nothing collides or goes stale silently:
   still needs Docker: `make ci-integration`, or `make test`. Added T12.1 after
   booking's `concurrency_integration_test.go` broke twice in T11 with every
   runnable command reporting green — see `docs/process/t11-retro.md` finding 2.
+  As of T14.1 `make gate-coverage` reports these packages explicitly as
+  **compiled-but-never-executed** rather than leaving the distinction to this
+  paragraph. That state is deliberately a NOTE and not a failure; a package
+  whose *only* tests sit behind the tag is correctly not expected to run in a
+  Docker-free gate. **The counts above are narrative, not a gate** — do not
+  hand-edit them into a checklist, and never add an exclusion list to
+  `tools/gatecoverage` to keep them true.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +
