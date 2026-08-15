@@ -29,7 +29,9 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 
 | T11 | `docs/process/t11-sprint-plan.md` (Ceremony 1 re-verifies T10's A2 "not gated on real auth" analysis and tickets pricing/discount UI, Club rentals, and a WCAG 2.2 AA audit; Ceremony 2 tickets 9 items, 47 points, threading all five of T10 retro's adopted process changes into ticket text) | `docs/process/t11-retro.md` (6 findings, 3 recorded as unresolved disagreements; indexed from `docs/LESSONS.md`'s `## T11 sprint retro`) | PRs #112 (Ceremony 1/2 doc) → #113 (T11.8) → #114 (T11.1) → #115 (T11.7) → #116 (T11.4) → #117 (T11.9) → #118 (T11.2) → #119 (T11.3) → #120 (T11.5) → #121 (T11.6) → #122 (retro doc), verified against each PR's `merged_at` per this project's standing convention — all merged, all reviewed via GitHub review comments, see naming convention | none new | — |
 
-| T12 | `docs/process/t12-sprint-plan.md` (Ceremony 1 verifies real auth is buildable now — the platform half, not the IdP-tenant half — and resolves T11 retro finding 6's board-of-record question; Ceremony 2 tickets 9 items, 46 points, threading all six T11-retro findings into ticket text and designing finding 3's shared-append collision class out via a per-context `AuthenticatedMethods()` ruling) | not yet written | not yet opened | `adr/0013` (planned, T12.2: auth is platform not context; observe-only → per-context enforcement; `Principal` is not `User`) | — |
+| T12 | `docs/process/t12-sprint-plan.md` (Ceremony 1 verifies real auth is buildable now — the platform half, not the IdP-tenant half — and resolves T11 retro finding 6's board-of-record question; Ceremony 2 tickets 9 items, 46 points, threading all six T11-retro findings into ticket text and designing finding 3's shared-append collision class out via a per-context `AuthenticatedMethods()` ruling) | `docs/process/t12-retro.md` (6 findings, 2 recorded as unresolved disagreements, 10 recommendations for T13's ceremonies; indexed from `docs/LESSONS.md`'s `## T12 sprint retro`) | PRs #127 (Ceremony 1/2 doc) → #128 (T12.1) → #132 (T12.4) → #133 (T12.3) → #140 (T12.2) → #139 (T12.5) → #141 (T12.6) → #142 (T12.7) → #143 (T12.9) → #150 (T12.8) → #151 (unticketed hotfix, partial fix for #146) → #153 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0013` (T12.2: auth is platform not context; observe-only → per-context enforcement; `Principal` is not `User`; what "auth exists" does and does not mean) | — |
+
+| T13 | `docs/process/t13-sprint-plan.md` (Ceremony 1 ranks T12's 11 residual auth issues and takes 8 of them, adopts the retro's dependency-completeness check — which found live defect #154 before dispatch — and fixes recommendation 9's stale-Docs-index-row cause structurally; Ceremony 2 tickets 9 items, 40 points, threading all six T12-retro findings and all ten recommendations into ticket text, with a Wave-1.5 checkpoint per A14's scored lesson) | not yet written | not yet opened | none new planned (T13.2 adds `adr/0014` — the identifier space of persisted actor columns: translate subject→`User.ID` vs. widen columns to text) | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -475,7 +477,55 @@ authorization (open since T5.5). **Ceremony 1 resolved T11 retro finding
 board of record for in-sprint tickets, and GitHub issues are *mandatory*
 for anything outliving its sprint — issues #123–#126 were opened at that
 ceremony as the rule's first four instances, for the cross-sprint items
-T12 explicitly defers. Not yet implemented as of this entry.
+T12 explicitly defers.
+
+**Outcome: all 9 tickets (46 points) implemented, reviewed, and MERGED**
+(PRs #128–#150, plus #127 for the Ceremony 1/2 doc, #151 for an unticketed
+hotfix, and #153 for the retro). Retro: `docs/process/t12-retro.md` — 6
+findings, 2 recorded as unresolved disagreements, and 10 recommendations that
+bind T13's Ceremony 1 and 2 (`docs/process/t13-sprint-plan.md` threads all of
+them).
+
+**State the outcome in this form, not a stronger one.** The retro's finding 4
+wrote this sentence specifically because overclaiming here is worse than
+elsewhere: a future ticket that believes authorization is finished will not go
+looking for #149.
+
+> The verified-principal **mechanism** exists, is real, is tested, and is
+> consumed by all six bounded contexts: 24 RPCs resolve their actor from a
+> verified token subject, the wire `actor_*` fields are ignored (proven by
+> mutation), a new RPC cannot become silently public, and the `CreateUser`
+> squatting DoS is closed. What does **not** yet hold is the stronger claim:
+> several RPCs still have no authorization check at all (#144, #147, #148),
+> Payments still compares a verified actor against caller-supplied ownership
+> facts (#149), one migrated capability is non-functional (#146/#152), and no
+> token from a real identity provider can be verified until a remote JWKS
+> source exists (#137). Eleven tracked exceptions, every one of them with an
+> issue.
+
+**One defect reached the shared branch and is still there** — the first since
+T10. T12.7 and T12.9's interaction broke `RequestRecurringHire` for every
+caller; PR #151 fixed one of its two causes, and the second is tracked as
+#152. A **second instance of the same class** was found during T13's Ceremony
+1 and is tracked as **#154**: `CreateFacility` writes a verified subject into
+`facilities.owner_id uuid NOT NULL` through a helper that panics. T13.2 and
+T13.3 close them under one recorded decision (ADR-0014) rather than twice.
+
+**T13 — Making the verified principal actually work end to end, plus T12
+retro's adopted process fixes.** Ceremony 1/2 complete; full ticket breakdown,
+the ranked disposition of all 11 residual auth issues, the new
+dependency-completeness check, migration/shared-file pre-assignment, and all
+six T12-retro findings + ten recommendations threaded into ticket text:
+`docs/process/t13-sprint-plan.md`. 9 tickets, 40 points. Takes 8 of the 11
+residual auth issues (closing 6 outright), backfills behavioural tests for the
+5 cross-context adapter packages that have none, and gates
+`internal/platform/**` in `make ci` for the first time. Defers #144 (needs a
+Booking owner concept, a migration, and a product decision on what owns a
+booking made through the public quote-and-book flow) and #149 (needs
+cross-context read ports Payments does not have) with stated reasoning. A
+**Wave-1.5 checkpoint** applies per the retro's scored A14 lesson: T13.2 must
+merge and be reviewed before Wave 2 dispatches, because its ADR has four
+first-time consumers. Not yet implemented as of this entry.
 
 ## Cross-cutting / later
 - `app.Service.NewService`'s constructor has grown to 3 positional args
