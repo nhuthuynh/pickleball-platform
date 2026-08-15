@@ -1398,3 +1398,53 @@ merged-fix sweep in full regardless of this retro's clean result.
 ceremony's own explicit instruction distinguishing "correcting the prior
 ceremony's now-knowable placeholder" from the disallowed "citing this PR's
 own future number."
+
+## T17 sprint retro
+
+Held as `docs/process/t17-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16 set and CLAUDE.md's **Docs index & naming
+convention**.
+
+Five findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #202–#207, issues #124–#198), with every claim
+re-derived at the retro rather than taken from any PR's or the plan's own
+prose. **Sprint outcome: all 5 tickets (17 points) merged in one unbroken
+31m46s work block, no session interruption; the merged-fix sweep reconciles
+exactly (`11 − 2 + 0 = 9`), a third consecutive clean sweep; the new
+same-wave shared-interface rule correctly found zero opportunities to fire,
+confirmed by diffing every PR's actual files rather than trusting the plan's
+own claim.**
+
+**Finding 1** is the merged-fix sweep, clean and reconciled, both closes
+(#198, #195) independently re-verified against the merged code. **Finding 2**
+is the sprint's most novel positive result: #195's close depended on
+coordinating four independent PRs correctly, not one, and all four got it
+right on the mechanism's first live test at that shape — three declined the
+close explicitly and correctly, the fourth performed it exactly as promised,
+citing all four resolving PRs. **Finding 3** confirms the same-wave rule
+found nothing to do because all five tickets were genuinely file-disjoint
+(checked via diff, not assumed), and notes every review ran the
+reconstructed-merge-tree check anyway as standing practice regardless.
+**Finding 4** is this sprint's one real process-gap: Ceremony 1's own ticket
+text for T17.4 named the wrong bounded context (`facilities`, not `booking`)
+for `discount_rules.facility_id`, a fact carried forward unchecked from
+#195's own filing a sprint earlier, when the migration file's own header
+comment has said "for the Booking context" since T11 — checked and found to
+be the first occurrence of this specific shape in this project's history,
+not a repeat, and caught by implementation-time diligence before anything
+shipped wrong. No LESSONS entry is warranted for it beyond this index
+pointer: unlike T16's finding 1, nothing reached the shared branch's tip in
+a broken state. **Finding 5** finds D1's footprint held steady rather than
+growing further this sprint (a contrast to T16), and D2 had a third
+consecutive sprint with no reviewer-authored gap-fix to score.
+
+Four recommendations bind T18's Ceremony 1 and 2: verify a ticket's target
+table's owning bounded context against its migration file before finalizing
+the ticket's file path, not only before merging; re-run the merged-fix sweep
+in full regardless of this retro's clean result; name the multi-PR
+coordinated-close pattern explicitly as the expected shape for any future
+issue whose fix spans more than one PR; and D1/D2 stay with the user, not
+re-decided here. `HANDOFF.md`'s T17 row is left untouched by this retro, per
+the ordinary convention (T16's retro's own self-correction was an
+explicitly-argued one-off, not a new standing practice) — T18's Ceremony 1
+corrects it.
