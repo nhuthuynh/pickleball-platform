@@ -477,6 +477,22 @@ service SocialPlayService {
   // why this RPC exists (there was no way to list a Game's Registrations
   // before it). A GET on the same path RegisterForGame POSTs to (standard
   // REST: GET lists a collection, POST creates into it).
+  //
+  // **Requires a verified caller, who must be the Game's Host** (T13.6,
+  // partial fix for #147). This RPC shipped public and returned every
+  // registrant's player_id, payment_status and guest_count to anyone holding
+  // a game_id — a value the public ListGames response supplies. No token is
+  // codes.Unauthenticated (HTTP 401); a token belonging to anyone but the
+  // Host is codes.PermissionDenied (HTTP 403). There is deliberately no
+  // actor field on the request: the acting identity comes from the bearer
+  // token, never from the wire, exactly as for this service's other
+  // authenticated RPCs (T12.8).
+  //
+  // Assigned Game Admins are NOT yet entitled to this read, though they
+  // arguably should be — the assigned-admin list is caller-supplied and
+  // persisted nowhere, so honouring it would let any caller name themselves
+  // an admin. Tracked as #168; Host-only is the honest narrower rule until a
+  // durable Game-Admin store exists.
   rpc ListRegistrationsForGame(ListRegistrationsForGameRequest) returns (ListRegistrationsForGameResponse) {
     option (google.api.http) = {
       get: "/v1/games/{game_id}/registrations"

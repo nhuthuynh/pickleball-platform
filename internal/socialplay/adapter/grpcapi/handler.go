@@ -224,11 +224,23 @@ func (h *Handler) ListGames(ctx context.Context, req *socialplayv1.ListGamesRequ
 
 // ListRegistrationsForGame serves the Host pending-cash-payments dashboard's
 // read (T8.10 — see ListRegistrationsForGameRequest's proto doc comment for
-// why this RPC exists). No error mapping beyond toStatus's default is
-// needed: this is a pure read with no domain-error-producing invariant to
-// violate, mirroring ListGames' identical reasoning.
+// why this RPC exists).
+//
+// T13.6 (partial fix for #147): this is no longer a public read. It returns
+// per-person data — every registrant's player_id, payment_status and
+// guest_count — and it used to hand that to any caller who knew a game_id,
+// which the public ListGames response supplies. The actor is the verified
+// principal, so a missing one is codes.Unauthenticated here and a non-Host
+// one becomes domain.ErrNotGameHost -> codes.PermissionDenied in toStatus,
+// never Internal. The RPC moved from PublicMethods() to
+// AuthenticatedMethods() in authenticated.go to match.
 func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv1.ListRegistrationsForGameRequest) (*socialplayv1.ListRegistrationsForGameResponse, error) {
-	regs, err := h.svc.ListRegistrationsForGame(ctx, req.GetGameId())
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	regs, err := h.svc.ListRegistrationsForGame(ctx, req.GetGameId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}

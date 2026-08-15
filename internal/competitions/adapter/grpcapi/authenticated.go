@@ -14,7 +14,7 @@ import (
 // hand-written strings, so a renamed RPC is a compile error instead of a
 // policy entry that silently stops matching and silently stops enforcing.
 //
-// # Why each of these three requires a principal
+// # Why each of these four requires a principal
 //
 //   - CreateCompetition: establishes Host-ship. Its host_id is no longer read
 //     off the wire — the Competition is hosted by the verified caller. Same
@@ -38,11 +38,23 @@ import (
 //   - CancelCompetition: guarded by the Host-only check its proto comment
 //     describes, which until now compared the Host against a string the caller
 //     supplied about themselves.
+//   - ListEntriesForCompetition: moved here from PublicMethods by T13.6
+//     (partial fix for #147). The Host-facing roster read returns every
+//     entrant's player_id and payment status, and as a public method it handed
+//     that to anyone holding a competition_id — a value the public
+//     ListCompetitions and GetCompetition responses supply, which is what made
+//     the leak enumerable. T12.8 could not fix it because there was no check
+//     to re-plumb; T13.6 adds the check itself (Host-only,
+//     domain.Competition.EnsureHost, applied in app.Service). It is the one
+//     entry here whose reason is a *read*: the other three need a principal
+//     because they write or act on an aggregate, this one because the response
+//     body is private data.
 func AuthenticatedMethods() []string {
 	return []string{
 		competitionsv1.CompetitionsService_CreateCompetition_FullMethodName,
 		competitionsv1.CompetitionsService_EnterCompetition_FullMethodName,
 		competitionsv1.CompetitionsService_CancelCompetition_FullMethodName,
+		competitionsv1.CompetitionsService_ListEntriesForCompetition_FullMethodName,
 	}
 }
 
@@ -55,7 +67,7 @@ func AuthenticatedMethods() []string {
 // RPC was added and nobody decided whether it needs auth" from a silent
 // default-to-public into a failing test.
 //
-// # Why each of these four stays public
+// # Why each of these three stays public
 //
 //   - ListCompetitions, GetCompetition: the browse path and the public detail
 //     page behind it, reached by players who have not signed in. Requiring a
@@ -67,22 +79,17 @@ func AuthenticatedMethods() []string {
 //     would defeat the feature rather than secure it — and note the token is
 //     deliberately absent from the Competition message so it cannot leak
 //     through this or any other read.
-//   - ListEntriesForCompetition: public **not because that is right, but
-//     because making it otherwise is out of this ticket's reach**, and leaving
-//     that unsaid would be worse than saying it. It is the Host-facing roster
-//     read: it returns every entrant's player_id and payment status to anyone
-//     holding a competition_id. It has no actor field and no ownership check
-//     anywhere in the domain, so there is nothing to migrate; giving it one
-//     means adding a Host-only read rule to the domain, and A11 Ruling 3
-//     scopes this ticket to the handler boundary precisely so it does not make
-//     domain changes in passing. This is the exact twin of Social Play's
-//     ListRegistrationsForGame, and both are disclosed and tracked as a GitHub
-//     issue per the sprint's A5 standing rule.
+//
+// ListEntriesForCompetition used to be the fourth entry here, carrying a long
+// comment that said in so many words that it was public *not because that was
+// right* but because T12.8 could not reach it. T13.6 reached it: it is now in
+// AuthenticatedMethods above, Host-only. Same note as Social Play's twin — an
+// honest comment about a known hole is not a substitute for closing it, and
+// what closed it was the tracked issue (#147).
 func PublicMethods() []string {
 	return []string{
 		competitionsv1.CompetitionsService_ListCompetitions_FullMethodName,
 		competitionsv1.CompetitionsService_GetCompetition_FullMethodName,
 		competitionsv1.CompetitionsService_GetCompetitionByShareToken_FullMethodName,
-		competitionsv1.CompetitionsService_ListEntriesForCompetition_FullMethodName,
 	}
 }

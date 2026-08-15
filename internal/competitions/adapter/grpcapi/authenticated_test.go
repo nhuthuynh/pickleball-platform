@@ -45,6 +45,26 @@ func TestAuthenticatedAndPublicMethods_CoverEveryRPC(t *testing.T) {
 	}
 }
 
+// TestAuthenticatedMethods_IncludesListEntriesForCompetition pins T13.6's half
+// of the fix for #147.
+//
+// The handler defends itself (it calls actor(ctx) and refuses without a
+// principal), so moving this RPC back to PublicMethods would NOT surface as a
+// roster leak in any behavioural test — it would only silently stop the
+// interceptor requiring a token, leaving the classification list and the
+// handler disagreeing about what this endpoint is. The exhaustiveness test
+// would accept either placement, so the intended one is asserted by name.
+func TestAuthenticatedMethods_IncludesListEntriesForCompetition(t *testing.T) {
+	for _, m := range grpcapi.AuthenticatedMethods() {
+		if m == competitionsv1.CompetitionsService_ListEntriesForCompetition_FullMethodName {
+			return
+		}
+	}
+	t.Errorf("ListEntriesForCompetition is not in AuthenticatedMethods() — it returns every "+
+		"entrant's player_id and payment status, and T13.6 made it Host-only (partial fix "+
+		"for #147). Got: %v", grpcapi.AuthenticatedMethods())
+}
+
 // TestAuthenticatedMethods_KeepsTheShareLinkAndBrowsePathPublic pins the two
 // regressions this service is most exposed to.
 //

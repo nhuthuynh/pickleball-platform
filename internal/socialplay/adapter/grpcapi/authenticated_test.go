@@ -65,6 +65,28 @@ func TestAuthenticatedMethods_IncludesCancelGame(t *testing.T) {
 		"verified identity (ticket item 4). Got: %v", grpcapi.AuthenticatedMethods())
 }
 
+// TestAuthenticatedMethods_IncludesListRegistrationsForGame pins T13.6's half
+// of the fix for #147 the same way the test above pins T12.8's.
+//
+// The handler defends itself (it calls actor(ctx) and refuses without a
+// principal), so moving this RPC back to PublicMethods would NOT show up as a
+// roster leak in any behavioural test — it would only silently stop the
+// interceptor requiring a token, leaving the classification list and the
+// handler disagreeing about what this endpoint is. That is exactly the kind of
+// quiet drift the two lists exist to make visible, so it gets an explicit
+// assertion rather than relying on the exhaustiveness test, which would happily
+// accept either placement.
+func TestAuthenticatedMethods_IncludesListRegistrationsForGame(t *testing.T) {
+	for _, m := range grpcapi.AuthenticatedMethods() {
+		if m == socialplayv1.SocialPlayService_ListRegistrationsForGame_FullMethodName {
+			return
+		}
+	}
+	t.Errorf("ListRegistrationsForGame is not in AuthenticatedMethods() — it returns per-person "+
+		"roster data (player_id, payment_status, guest_count) and T13.6 made it Host-only "+
+		"(partial fix for #147). Got: %v", grpcapi.AuthenticatedMethods())
+}
+
 // TestAuthenticatedMethods_KeepsTheBrowsePathPublic pins the regression the
 // migration tickets name: silently authenticating a currently-public read
 // breaks a shipped flow. ListGames is Discover & Join Games (T8.9), reached by

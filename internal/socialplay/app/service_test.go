@@ -1437,8 +1437,9 @@ func mustGame(t *testing.T, id, venueFacilityID string, r domain.TimeRange) doma
 func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 	t.Parallel()
 
+	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
 	ctx := context.Background()
 
 	// Game IDs are UUID-shaped because that is what the real system mints and
@@ -1446,6 +1447,13 @@ func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 	// no real Game ever has, which is why no test could see the malformed-ID
 	// crash this file's malformed_id_test.go sibling now covers.
 	gameOne, gameTwo := gameID(1), gameID(2)
+
+	// T13.6: the read is Host-only, so the Game must exist and the caller must
+	// be its Host for this scoping assertion to be reachable at all. The
+	// authorization behaviour itself is proved in the grpcapi package's
+	// roster_authz_test.go; here it is only a precondition.
+	const host = "auth0|host-1"
+	games.games[gameOne] = domain.Game{ID: gameOne, HostID: host}
 
 	registrations.registrations["r-active"] = domain.Registration{
 		ID: "r-active", GameID: gameOne, PlayerID: "player-1",
@@ -1460,7 +1468,7 @@ func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 		Status: domain.RegistrationStatusRegistered, PaymentStatus: domain.PaymentStatusUnpaid,
 	}
 
-	got, err := svc.ListRegistrationsForGame(ctx, gameOne)
+	got, err := svc.ListRegistrationsForGame(ctx, gameOne, host)
 	if err != nil {
 		t.Fatalf("ListRegistrationsForGame err: %v", err)
 	}

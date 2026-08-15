@@ -427,16 +427,67 @@ func (s *Service) ListGames(ctx context.Context, filter port.GameListingFilter) 
 // query), following the same "migration-free-read-path" pattern T8.2
 // (ListFacilityCourts) and T8.9 (ListGames) already established this sprint
 // for an analogous missing-list-RPC gap — no schema change, no new domain
-// type, same object-level-read openness ListGames already has (any caller
-// may list a Game's registrations, same as any caller may browse Games;
-// see internal/socialplay/adapter/grpcapi's handler doc comment).
-func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID string) ([]domain.Registration, error) {
+// type.
+//
+// # T13.6: Host-only (partial fix for #147)
+//
+// This method shipped with the same object-level-read openness ListGames has
+// — any caller could list any Game's registrations. That was wrong and is now
+// fixed: #147 recorded that it returned every registrant's player_id,
+// payment_status and guest_count to anyone holding a game_id, and game_id is
+// readable straight off the *public* ListGames response, so the leak was
+// enumerable. actorUserID must be the Game's Host or the read is refused with
+// domain.ErrNotGameHost (PermissionDenied at the handler, never Internal).
+//
+// **Host-only is narrower than #147's entitled set, deliberately.** An
+// assigned Game Admin should be able to read a roster too, but
+// assigned_game_admin_user_ids is caller-supplied and persisted nowhere
+// (#168; #149 has the Payments-side twin) — honouring a caller-supplied admin
+// list here would let any caller name themselves an admin and read the roster
+// anyway, i.e. authorization
+// theatre strictly worse than the Host check. That is why this method takes
+// no AssignedGameAdminUserIDs argument and uses Game.EnsureHost rather than
+// EnsureHostOrGameAdmin: the difference is a stated rule, not an accident of
+// the caller's arguments. Whether a *registrant* should see the roster of a
+// Game they are in is an open product question #147 deliberately does not
+// pre-answer; until it is answered, they may not.
+//
+// **No identifier resolution happens here, on purpose** (ADR-0014 §5a).
+// Game.HostID is `text` holding the subject CreateGame minted from the
+// verified principal, and actorUserID is the value actor(ctx) returns — the
+// same subject space on both sides. ADR-0014 rules explicitly that T13.6
+// compares the two unchanged and does NOT add an Identity port to this
+// context: doing so would put a uuid on one side of a comparison whose other
+// side is a subject, turning a working check into one that silently denies
+// everybody.
+//
+// The authorization needs only facts this Service already holds (s.games),
+// so it adds no constructor dependency — a constraint T13.8 is planned on.
+func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUserID string) ([]domain.Registration, error) {
 	// A malformed gameID is answered exactly like an unknown one. This read is
 	// list-shaped — an unknown Game yields an empty roster rather than an
 	// error — so a malformed Game must yield an empty roster too.
 	if !uuidShape.MatchString(gameID) {
 		return []domain.Registration{}, nil
 	}
+
+	// Loading the Game is what makes the check possible: HostID is the fact
+	// being compared against. Note the not-found answer stays an empty roster
+	// rather than becoming ErrGameNotFound — the "malformed is
+	// indistinguishable from unknown" invariant above is unchanged by this
+	// ticket, and a Game that does not exist has no roster to withhold.
+	game, err := s.games.GetByID(ctx, gameID)
+	if err != nil {
+		if errors.Is(err, domain.ErrGameNotFound) {
+			return []domain.Registration{}, nil
+		}
+		return nil, err
+	}
+
+	if err := game.EnsureHost(actorUserID); err != nil {
+		return nil, err
+	}
+
 	return s.registrations.ListActiveForGame(ctx, gameID)
 }
 
