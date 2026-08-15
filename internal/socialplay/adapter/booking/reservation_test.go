@@ -1,26 +1,26 @@
-// Package booking_test covers internal/competitions/adapter/booking, the one
-// place Competitions is allowed to call into the Booking context.
+// Package booking_test covers internal/socialplay/adapter/booking, the one
+// place Social Play is allowed to call into the Booking context.
 //
-// Before T13.1 this file held a single compile-time assertion and nothing else
-// — 25 lines that could not fail for any behavioural reason (T12 retro
-// finding 2).
+// Before T13.1 this package had no test file at all — not a vacuous test, an
+// empty set (T12 retro finding 2). It is one of the five cross-context
+// adapters that shipped with zero behavioural coverage, which is the gap that
+// let issue #146 through on a sibling seam.
 //
-// That assertion's original comment argued the behaviour should NOT be
-// unit-tested, on the grounds that "a test against a stubbed Booking service
-// would prove only that the stub returns what it was told to". The premise is
-// correct and the conclusion no longer follows: these tests do not stub
-// bookingapp.Service, they drive the REAL one over in-memory repository fakes,
-// so the court conflict below is produced by Booking's real
-// domain.EnsureNoConflict against a real overlapping Booking. The pattern is
-// internal/payments/adapter/socialplay/registration_updater_test.go's. No
-// Docker, no testcontainers.
+// These tests drive the REAL bookingapp.Service over in-memory repository
+// fakes, following
+// internal/payments/adapter/socialplay/registration_updater_test.go. That
+// choice is what makes the central case honest: the court conflict below is
+// produced by Booking's real domain.EnsureNoConflict against a real
+// overlapping Booking, not by a stub told to return a sentinel. No Docker, no
+// testcontainers.
 //
-// What these tests still do NOT prove, and what the original comment was right
-// about: that a conflict arising from the Postgres EXCLUDE constraint under
-// real concurrency surfaces the same way. That is the authoritative guard
-// (CLAUDE.md rule 4) and remains an integration concern. The
-// repo-returned-ErrCourtDoubleBooked case below is the closest Docker-free
-// approximation and is labelled as such.
+// What these tests still do NOT prove, stated rather than left to inference:
+// that a conflict arising from the Postgres EXCLUDE constraint under real
+// concurrency surfaces the same way. That is the authoritative guard
+// (CLAUDE.md rule 4) and it remains an integration concern —
+// internal/booking/adapter/postgres' own `-tags=integration` test is where it
+// is covered. The repo-returned-ErrCourtDoubleBooked case below is the
+// closest Docker-free approximation and is labelled as such.
 package booking_test
 
 import (
@@ -32,22 +32,16 @@ import (
 
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	bookingdomain "github.com/nhuthuynh/white-label/internal/booking/domain"
-	competitionsbooking "github.com/nhuthuynh/white-label/internal/competitions/adapter/booking"
-	"github.com/nhuthuynh/white-label/internal/competitions/domain"
-	"github.com/nhuthuynh/white-label/internal/competitions/port"
+	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
+	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
+	"github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
 
-// Compile-time proof that *competitionsbooking.Reservation satisfies
-// port.CourtReservation — the whole point of this package. Worth asserting
-// explicitly rather than relying on a call site to catch a mismatch, because
-// T9.3 had no call site yet: cmd/server didn't wire Competitions until T9.4,
-// so without this line a signature drift between the port and the adapter
-// would compile cleanly and stay hidden for a whole ticket. Mirrors
-// internal/payments/adapter/socialplay's identical assertion.
-//
-// Kept deliberately (T13.1 instruction 6): cheap and correct, and simply not a
-// test. Everything below it is.
-var _ port.CourtReservation = (*competitionsbooking.Reservation)(nil)
+// Compile-time proof that *socialplaybooking.Reservation satisfies
+// port.CourtReservation, mirroring the identical assertion in
+// internal/competitions/adapter/booking. Cheap and correct — and, as T13.1
+// instruction 6 puts it, simply not a test. Everything below it is.
+var _ port.CourtReservation = (*socialplaybooking.Reservation)(nil)
 
 // Fixture ids are uuid-shaped. This seam carries no actor at all —
 // ReserveCourt/ReleaseCourt take court, booking and reference ids only — so
@@ -56,11 +50,11 @@ var _ port.CourtReservation = (*competitionsbooking.Reservation)(nil)
 // never takes: bookingapp.Service guards CourtID and bookingID on uuidShape.
 // Stated as a checked negative rather than left to inference.
 const (
-	fixtureCourtID       = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
-	fixtureCompetitionID = "3f2504e0-4f89-11d3-9a0c-0305e82c3302"
-	mintedBookingID      = "3f2504e0-4f89-11d3-9a0c-0305e82c3401"
-	seededBookingID      = "3f2504e0-4f89-11d3-9a0c-0305e82c3402"
-	unknownBookingID     = "3f2504e0-4f89-11d3-9a0c-0305e82c34ff"
+	fixtureCourtID   = "3f2504e0-4f89-11d3-9a0c-0305e82c3301"
+	fixtureGameID    = "3f2504e0-4f89-11d3-9a0c-0305e82c3302"
+	mintedBookingID  = "3f2504e0-4f89-11d3-9a0c-0305e82c3401"
+	seededBookingID  = "3f2504e0-4f89-11d3-9a0c-0305e82c3402"
+	unknownBookingID = "3f2504e0-4f89-11d3-9a0c-0305e82c34ff"
 )
 
 // errRepoUnavailable stands in for an infrastructure failure with no
@@ -70,22 +64,15 @@ var errRepoUnavailable = errors.New("booking postgres: connection refused")
 func slot(t *testing.T, startHour, endHour int) bookingdomain.TimeRange {
 	t.Helper()
 
-	r, err := bookingdomain.NewTimeRange(hour(startHour), hour(endHour))
+	day := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	r, err := bookingdomain.NewTimeRange(
+		day.Add(time.Duration(startHour)*time.Hour),
+		day.Add(time.Duration(endHour)*time.Hour),
+	)
 	if err != nil {
 		t.Fatalf("building fixture range: %v", err)
 	}
 	return r
-}
-
-// slotFor is slot() without a *testing.T, for use in table literals. The
-// ranges here are all valid by construction, so NewTimeRange's error is
-// impossible; the struct is built directly rather than dropping an error.
-func slotFor(startHour, endHour int) bookingdomain.TimeRange {
-	return bookingdomain.TimeRange{Start: hour(startHour), End: hour(endHour)}
-}
-
-func hour(h int) time.Time {
-	return time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC).Add(time.Duration(h) * time.Hour)
 }
 
 // inMemoryRepo is a minimal booking port.Repository fake. It really stores
@@ -202,43 +189,44 @@ type fixedIDs struct{}
 
 func (fixedIDs) NewID() string { return mintedBookingID }
 
-// newReservation builds the adapter over a REAL bookingapp.Service and returns
-// the repo fake alongside it, so a test can seed conflicting bookings, fail the
-// upstream, and inspect what was actually written.
-func newReservation(t *testing.T) (*competitionsbooking.Reservation, *inMemoryRepo) {
+// newReservation builds the adapter over a REAL bookingapp.Service and
+// returns the repo fake alongside it, so a test can seed conflicting bookings,
+// fail the upstream, and inspect what was actually written.
+func newReservation(t *testing.T) (*socialplaybooking.Reservation, *inMemoryRepo) {
 	t.Helper()
 
 	repo := newInMemoryRepo()
 	svc := bookingapp.NewService(repo, stubPricing{}, stubDiscounts{}, stubRecurring{}, stubFacilities{}, stubIdentity{}, fixedIDs{})
-	return competitionsbooking.NewReservation(svc), repo
+	return socialplaybooking.NewReservation(svc), repo
 }
 
 // seedBooking writes a confirmed Booking straight through the repo fake.
 func seedBooking(repo *inMemoryRepo, id string, rng bookingdomain.TimeRange) {
 	repo.bookings[id] = bookingdomain.Booking{
-		ID:      id,
-		CourtID: fixtureCourtID,
-		Source:  bookingdomain.SourceIndividual,
-		Status:  bookingdomain.StatusConfirmed,
-		Range:   rng,
+		ID:          id,
+		CourtID:     fixtureCourtID,
+		Source:      bookingdomain.SourceIndividual,
+		Status:      bookingdomain.StatusConfirmed,
+		Range:       rng,
+		ReferenceID: "",
 	}
 }
 
-// TestReserveCourt_WritesACompetitionSourcedBooking proves the happy path
-// reaches the real Booking service and what it wrote is observable — not
-// merely that no error came back.
+// TestReserveCourt_WritesAGameSourcedBooking proves the happy path reaches the
+// real Booking service and what it wrote is observable — not merely that no
+// error came back.
 //
 // The Source assertion is the point, not decoration: port.CourtReservation
 // fixes the source here rather than accepting it as a parameter precisely so a
-// caller cannot write a Booking that misreports what is holding the court.
-// Nothing else in the repository tests that.
-func TestReserveCourt_WritesACompetitionSourcedBooking(t *testing.T) {
+// Social Play caller cannot write a Booking that misreports what is holding
+// the court. Nothing else in the repository tests that.
+func TestReserveCourt_WritesAGameSourcedBooking(t *testing.T) {
 	t.Parallel()
 
 	res, repo := newReservation(t)
 	rng := slot(t, 10, 11)
 
-	id, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureCompetitionID)
+	id, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -250,11 +238,11 @@ func TestReserveCourt_WritesACompetitionSourcedBooking(t *testing.T) {
 	if !ok {
 		t.Fatalf("no Booking was persisted for id %q", id)
 	}
-	if stored.Source != bookingdomain.SourceCompetition {
-		t.Fatalf("stored Source = %q, want %q", stored.Source, bookingdomain.SourceCompetition)
+	if stored.Source != bookingdomain.SourceGame {
+		t.Fatalf("stored Source = %q, want %q", stored.Source, bookingdomain.SourceGame)
 	}
-	if stored.ReferenceID != fixtureCompetitionID {
-		t.Fatalf("stored ReferenceID = %q, want %q", stored.ReferenceID, fixtureCompetitionID)
+	if stored.ReferenceID != fixtureGameID {
+		t.Fatalf("stored ReferenceID = %q, want %q", stored.ReferenceID, fixtureGameID)
 	}
 	if stored.CourtID != fixtureCourtID {
 		t.Fatalf("stored CourtID = %q, want %q", stored.CourtID, fixtureCourtID)
@@ -268,10 +256,6 @@ func TestReserveCourt_WritesACompetitionSourcedBooking(t *testing.T) {
 // real: a genuine overlapping Booking sits in the repository and Booking's own
 // domain.EnsureNoConflict rejects the candidate. Both sides of the translation
 // are asserted, per T13.1 instruction 3.
-//
-// The conflicting fixture is a SourceIndividual Booking on purpose: Booking's
-// invariant is source-agnostic (D3b/F1), so a Competition must be blocked by
-// an individual booking just as by another competition.
 func TestReserveCourt_ConflictIsTranslated(t *testing.T) {
 	t.Parallel()
 
@@ -294,7 +278,7 @@ func TestReserveCourt_ConflictIsTranslated(t *testing.T) {
 			res, repo := newReservation(t)
 			seedBooking(repo, seededBookingID, tt.existing)
 
-			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, tt.want.Start, tt.want.End, fixtureCompetitionID)
+			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, tt.want.Start, tt.want.End, fixtureGameID)
 
 			if !tt.conflict {
 				if err != nil {
@@ -303,12 +287,23 @@ func TestReserveCourt_ConflictIsTranslated(t *testing.T) {
 				return
 			}
 			if !errors.Is(err, domain.ErrCourtUnavailable) {
-				t.Fatalf("ReserveCourt = %v, want competitions domain.ErrCourtUnavailable", err)
+				t.Fatalf("ReserveCourt = %v, want socialplay domain.ErrCourtUnavailable", err)
 			}
 			if errors.Is(err, bookingdomain.ErrCourtDoubleBooked) {
 				t.Fatalf("ReserveCourt leaked the bookingdomain sentinel across the boundary: %v", err)
 			}
 		})
+	}
+}
+
+// slotFor is slot() without a *testing.T, for use in table literals. The
+// ranges here are all valid by construction, so the error NewTimeRange can
+// return is impossible; it is dropped deliberately rather than silently.
+func slotFor(startHour, endHour int) bookingdomain.TimeRange {
+	day := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	return bookingdomain.TimeRange{
+		Start: day.Add(time.Duration(startHour) * time.Hour),
+		End:   day.Add(time.Duration(endHour) * time.Hour),
 	}
 }
 
@@ -325,10 +320,10 @@ func TestReserveCourt_ConflictFromTheRepositoryIsTranslated(t *testing.T) {
 	repo.createFailsWith = bookingdomain.ErrCourtDoubleBooked
 	rng := slot(t, 10, 11)
 
-	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureCompetitionID)
+	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID)
 
 	if !errors.Is(err, domain.ErrCourtUnavailable) {
-		t.Fatalf("ReserveCourt = %v, want competitions domain.ErrCourtUnavailable", err)
+		t.Fatalf("ReserveCourt = %v, want socialplay domain.ErrCourtUnavailable", err)
 	}
 	if errors.Is(err, bookingdomain.ErrCourtDoubleBooked) {
 		t.Fatalf("ReserveCourt leaked the bookingdomain sentinel across the boundary: %v", err)
@@ -337,7 +332,7 @@ func TestReserveCourt_ConflictFromTheRepositoryIsTranslated(t *testing.T) {
 
 // TestReserveCourt_NeverLeaksBookingSentinels holds the other half of
 // CLAUDE.md rule 5: everything that is NOT the one translated sentinel is
-// wrapped with %s, not %w, so a Competitions caller cannot errors.Is() across
+// wrapped with %s, not %w, so a Social Play caller cannot errors.Is() across
 // the context boundary at all.
 func TestReserveCourt_NeverLeaksBookingSentinels(t *testing.T) {
 	t.Parallel()
@@ -346,6 +341,9 @@ func TestReserveCourt_NeverLeaksBookingSentinels(t *testing.T) {
 		name string
 		err  error
 	}{
+		// Real bookingdomain sentinels this adapter deliberately does not
+		// name. ErrInvalidCourtReference is the one CreateBooking's own
+		// uuidShape guard raises, so it is reachable from production input.
 		{name: "untranslated booking sentinel", err: bookingdomain.ErrBookingNotFound},
 		{name: "infrastructure failure", err: errRepoUnavailable},
 	}
@@ -358,7 +356,7 @@ func TestReserveCourt_NeverLeaksBookingSentinels(t *testing.T) {
 			repo.createFailsWith = up.err
 			rng := slot(t, 10, 11)
 
-			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureCompetitionID)
+			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID)
 			if err == nil {
 				t.Fatal("want an error when the upstream fails")
 			}
@@ -375,7 +373,7 @@ func TestReserveCourt_NeverLeaksBookingSentinels(t *testing.T) {
 	}
 }
 
-// TestReserveCourt_MalformedCourtIDDoesNotLeak covers the guard a Competitions
+// TestReserveCourt_MalformedCourtIDDoesNotLeak covers the guard a Social Play
 // caller can actually trip: bookingapp.CreateBooking answers a non-uuid
 // CourtID with ErrInvalidCourtReference before either repository call, and
 // that sentinel must not cross the boundary typed either.
@@ -385,7 +383,7 @@ func TestReserveCourt_MalformedCourtIDDoesNotLeak(t *testing.T) {
 	res, repo := newReservation(t)
 	rng := slot(t, 10, 11)
 
-	_, err := res.ReserveCourt(context.Background(), "not-a-uuid", rng.Start, rng.End, fixtureCompetitionID)
+	_, err := res.ReserveCourt(context.Background(), "not-a-uuid", rng.Start, rng.End, fixtureGameID)
 	if err == nil {
 		t.Fatal("want an error for a malformed court id")
 	}
@@ -408,7 +406,7 @@ func TestReserveCourt_InvalidRangeDoesNotLeak(t *testing.T) {
 	rng := slot(t, 10, 11)
 
 	// end before start.
-	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.End, rng.Start, fixtureCompetitionID)
+	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.End, rng.Start, fixtureGameID)
 	if err == nil {
 		t.Fatal("want an error for an inverted range")
 	}
@@ -436,7 +434,7 @@ func TestReleaseCourt_CancelsTheBooking(t *testing.T) {
 
 	// And the released slot is genuinely free again — the T3 standard for this
 	// assertion: prove the slot can be re-booked, not just that a field flipped.
-	if _, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureCompetitionID); err != nil {
+	if _, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID); err != nil {
 		t.Fatalf("re-reserving the released slot = %v, want nil", err)
 	}
 }
