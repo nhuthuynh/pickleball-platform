@@ -375,13 +375,33 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrWaitlistEntryNotFound),
 		errors.Is(err, domain.ErrFacilityNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, domain.ErrGameCancelled):
+	case errors.Is(err, domain.ErrGameCancelled),
+		// T14.7 (closes #158): ErrIllegalStatusTransition joins
+		// ErrGameCancelled here rather than staying in the InvalidArgument
+		// group below. The two are the same concept reached from different
+		// guards — "this aggregate's state forbids the operation" — and a
+		// client cancelling something twice got FailedPrecondition from
+		// CancelGame (which checks EnsureNotCancelled first) but
+		// InvalidArgument from CancelRegistration (which falls through to
+		// Registration.Cancel's own guard). That is #131's
+		// one-concept-two-codes defect, split across two RPCs.
+		//
+		// gRPC defines INVALID_ARGUMENT as a problem with the argument
+		// *regardless of the state of the system*; every raise site of this
+		// sentinel (Game.Cancel, Registration.Cancel,
+		// WaitlistEntry.Promote/Expire/Cancel) is a `Status != required`
+		// guard, so it is state-dependent by construction — precisely what
+		// FAILED_PRECONDITION means and what INVALID_ARGUMENT denies. Matches
+		// payments' own ErrIllegalStatusTransition since T13.9.
+		//
+		// Client impact is nil over REST: grpc-gateway maps both
+		// InvalidArgument and FailedPrecondition to HTTP 400.
+		errors.Is(err, domain.ErrIllegalStatusTransition):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidCapacity),
 		errors.Is(err, domain.ErrEmptyCourtIDs),
 		errors.Is(err, domain.ErrEmptyPlayerID),
-		errors.Is(err, domain.ErrIllegalStatusTransition),
 		errors.Is(err, domain.ErrGameNotFull),
 		errors.Is(err, domain.ErrInvalidPaymentMethod),
 		errors.Is(err, domain.ErrInvalidGuestAllowance),
