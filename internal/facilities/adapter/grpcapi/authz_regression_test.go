@@ -107,6 +107,19 @@ func (r *fakeRepo) ListFacilities(_ context.Context, nameFilter string) ([]domai
 	return out, nil
 }
 
+// AddCourt does not model courts.facility_id's FK
+// (db/migrations/0010_facilities.sql), unlike AddCameraLink below — checked
+// while investigating T17.4 (issue #195), and deliberately left as-is rather
+// than "fixed" for consistency. app.Service.AddCourt always calls
+// GetFacilityByID as its own object-level-ownership guard before ever
+// reaching this method (app/service.go), and every test in this package
+// drives AddCourt through the real Handler/app.Service, never this fake
+// directly — so an unknown FacilityID here is unreachable in practice: the
+// guard answers domain.ErrFacilityNotFound first every time, and adding an
+// FK check that a mutation check then proves no test can ever fail would be
+// the same "no production code without a test that demanded it" violation
+// CLAUDE.md rule 1 names, just committed inside a fixture instead of
+// production code.
 func (r *fakeRepo) AddCourt(_ context.Context, c domain.Court) (domain.Court, error) {
 	r.courts[c.ID] = c
 	r.courtOrder = append(r.courtOrder, c.ID)
