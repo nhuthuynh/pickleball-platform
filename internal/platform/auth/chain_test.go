@@ -108,6 +108,17 @@ func newChainFixture(t *testing.T, verifier auth.TokenVerifier, signKey *rsa.Pri
 			auth.StreamInterceptor(verifier, logger),
 		),
 	)
+	return serveFixture(t, srv, signKey)
+}
+
+// serveFixture is the bufconn plumbing shared by every fixture in this
+// package's tests: register the echo service on srv, serve it in memory, and
+// hand back a client. Split out of newChainFixture so panic_test.go can stand
+// up a server with a *different* interceptor chain — specifically, one with no
+// grpcrecovery in front — without duplicating any of this.
+func serveFixture(t *testing.T, srv *grpc.Server, signKey *rsa.PrivateKey) chainFixture {
+	t.Helper()
+
 	srv.RegisterService(&echoServiceDesc, &echoServer{})
 
 	lis := bufconn.Listen(1024 * 1024)
@@ -285,11 +296,23 @@ func (p panickingVerifier) Verify(_ context.Context, raw string) (auth.Principal
 	return auth.Principal{}, auth.ErrTokenMalformed
 }
 
-// TestVerifierPanicIsContainedByRecovery is the ordering proof. The recovery
-// interceptor is registered first in the chain, which makes it outermost, so
-// it wraps the auth interceptor rather than sitting beside it. Register auth
-// first and this test fails by crashing the whole test binary — which is
-// exactly the production failure mode grpcrecovery exists to prevent.
+// TestVerifierPanicIsContainedByRecovery pins the end-to-end result of a
+// panicking verifier through the chain cmd/server installs: codes.Internal,
+// and a server that keeps serving.
+//
+// T13.5 note on what this test does and no longer does. It was written as the
+// *ordering* proof — recovery registered first, therefore outermost, therefore
+// catching a panic the auth interceptor deliberately let through; reversing
+// the two used to crash this binary. T13.5 (#135) moved that containment into
+// the auth interceptor itself, so the assertions below now pass because auth
+// recovers the panic, and they would keep passing with grpcrecovery removed
+// entirely — see TestVerifierPanicDeniedWithNoRecoveryInterceptor in
+// panic_test.go, which is the test that now carries that weight.
+//
+// Kept, unchanged in substance, because the property it states is still the
+// one that matters to a caller and is worth pinning at the real wire boundary:
+// this is the assertion that would fail if some future change made a verifier
+// panic observable as anything other than Internal.
 func TestVerifierPanicIsContainedByRecovery(t *testing.T) {
 	t.Parallel()
 
