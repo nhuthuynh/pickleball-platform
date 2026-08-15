@@ -399,13 +399,32 @@ func toStatus(err error) error {
 		// its ErrNotFacilityOwner (T7.7): a known actor who may not touch
 		// this object, not an unknown object and not a server fault.
 		return status.Error(codes.PermissionDenied, err.Error())
-	case errors.Is(err, domain.ErrInvalidRecurringHireStatusTransition):
+	case errors.Is(err, domain.ErrInvalidRecurringHireStatusTransition),
+		// T14.7 (closes #158): ErrIllegalStatusTransition joins its own
+		// sibling here rather than staying in the InvalidArgument group
+		// below. Until this ticket, this single function sent two
+		// status-transition sentinels to two different codes with no RPC
+		// boundary to explain it — #131's one-concept-two-codes defect,
+		// entirely inside one switch. gRPC defines INVALID_ARGUMENT as a
+		// problem with the argument *regardless of the state of the system*;
+		// domain.Booking.Cancel's guard is `if b.Status != StatusConfirmed`,
+		// which is state-dependent by construction. The request is
+		// well-formed and would succeed against the same aggregate in a
+		// different state — precisely what FAILED_PRECONDITION ("the system
+		// is not in a state required for the operation's execution") means
+		// and what INVALID_ARGUMENT denies. Matches payments' own
+		// ErrIllegalStatusTransition since T13.9.
+		//
+		// Client impact is nil over REST: grpc-gateway maps both
+		// InvalidArgument and FailedPrecondition to HTTP 400.
+		errors.Is(err, domain.ErrIllegalStatusTransition):
 		// FailedPrecondition: approving or rejecting a template that is
-		// already approved/rejected/cancelled is a legal request against an
-		// object in the wrong state, not a malformed one (InvalidArgument)
-		// and not a missing one (NotFound). Mirrors the code this file
-		// already gives ErrAmbiguousPricingRule for the same "the request is
-		// fine, the world isn't" reason.
+		// already approved/rejected/cancelled, or cancelling an
+		// already-cancelled Booking, is a legal request against an object in
+		// the wrong state, not a malformed one (InvalidArgument) and not a
+		// missing one (NotFound). Mirrors the code this file already gives
+		// ErrAmbiguousPricingRule for the same "the request is fine, the
+		// world isn't" reason.
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrAmbiguousPricingRule),
 		// An ambiguous DiscountRule match surfaced through GetQuote (T11.2)
@@ -420,7 +439,6 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidSource),
 		errors.Is(err, domain.ErrEmptyCourtID),
-		errors.Is(err, domain.ErrIllegalStatusTransition),
 		errors.Is(err, domain.ErrPricingSlotSpansMultipleDays),
 		// T11.1's DiscountRule constructor sentinels (T11.2 surfaces them):
 		// every one is a malformed request the caller must fix, not a

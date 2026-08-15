@@ -305,7 +305,26 @@ func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitio
 // into the AlreadyExists group.
 func toStatus(err error) error {
 	switch {
-	case errors.Is(err, domain.ErrCompetitionCancelled):
+	case errors.Is(err, domain.ErrCompetitionCancelled),
+		// T14.7 (closes #158): ErrIllegalStatusTransition joins
+		// ErrCompetitionCancelled here rather than staying in the
+		// InvalidArgument group below. The two are the same concept reached
+		// from different guards — "this Competition's lifecycle state forbids
+		// the operation" — and a client got FailedPrecondition for entering a
+		// cancelled Competition but InvalidArgument for re-cancelling one.
+		// That is #131's one-concept-two-codes defect, and this switch had
+		// already conceded the point in its very first case.
+		//
+		// gRPC defines INVALID_ARGUMENT as a problem with the argument
+		// *regardless of the state of the system*; Competition.Cancel's guard
+		// is `if c.Status != StatusScheduled`, which is state-dependent by
+		// construction — precisely what FAILED_PRECONDITION means and what
+		// INVALID_ARGUMENT denies. Matches payments' own
+		// ErrIllegalStatusTransition since T13.9.
+		//
+		// Client impact is nil over REST: grpc-gateway maps both
+		// InvalidArgument and FailedPrecondition to HTTP 400.
+		errors.Is(err, domain.ErrIllegalStatusTransition):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrNotCompetitionHost):
 		return status.Error(codes.PermissionDenied, err.Error())
@@ -330,8 +349,7 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidGuestAllowance),
 		errors.Is(err, domain.ErrInvalidEntrySource),
 		errors.Is(err, domain.ErrInvalidMoney),
-		errors.Is(err, domain.ErrOverlappingSessions),
-		errors.Is(err, domain.ErrIllegalStatusTransition):
+		errors.Is(err, domain.ErrOverlappingSessions):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
