@@ -38,14 +38,18 @@ type KeySource interface {
 
 // StaticKeys is an in-process, immutable KeySource.
 //
-// It is the only KeySource implementation in this package today, and it is
-// enough to verify real tokens against real key material — it is what the
-// tests use, and what cmd/server uses when pointed at a JWKS file on disk.
-// What it deliberately does not do is fetch: there is no HTTP client, no
-// cache, and no rotation handling here, because a production identity provider
-// to fetch from is server-side infrastructure this project cannot provision
-// (see ADR-0013). A remote KeySource is a drop-in addition behind this same
-// interface when that changes.
+// It is what the tests use, and what cmd/server uses when AUTH_JWKS_FILE names
+// a JWKS on disk — including the committed local-dev fixture in dev/auth/
+// (T14.9). What it deliberately does not do is fetch: there is no HTTP client,
+// no cache, and no rotation handling here. That is RemoteKeys' job (T15.7,
+// issue #137), which fetches AUTH_JWKS_URL and slots in behind this same
+// interface without either of them knowing about the other.
+//
+// A file source cannot see a rotation: the document is read once at startup,
+// so rotating the provider's keys under a deployment pointed at a file
+// invalidates every token until someone re-exports the file and restarts.
+// That is correct for a fixture and wrong for a live provider, which is the
+// whole reason both implementations exist.
 //
 // Being immutable after construction makes it safe for concurrent use by every
 // in-flight request without a lock.

@@ -227,12 +227,19 @@ func run(logger *slog.Logger) error {
 	// instance already constructed, the same reordering constraint
 	// RegistrationUpdater already imposed on Social Play above.
 	competitionsRepo := competitionspg.NewRepository(pool)
+	// The durable Competition-Admin store (T15.3, partial fix for #168) — its
+	// own narrow repository over competition_admins, mirroring the Game-Admin
+	// store wired for Social Play above. See
+	// competitionsport.CompetitionAdminRepository for why it is a separate
+	// interface rather than three more methods on the Competitions repository.
+	competitionAdminRepo := competitionspg.NewCompetitionAdminRepository(pool)
 	competitionsSvc := competitionsapp.NewService(competitionsapp.ServiceOptions{
-		Competitions: competitionsRepo,
-		IDs:          idgen.UUID{},
-		Reservation:  competitionsbooking.NewReservation(bookingSvc),
-		Facilities:   competitionsfacilities.NewLookup(facilitiesSvc),
-		ShareTokens:  sharetoken.Generator{},
+		Competitions:      competitionsRepo,
+		IDs:               idgen.UUID{},
+		Reservation:       competitionsbooking.NewReservation(bookingSvc),
+		Facilities:        competitionsfacilities.NewLookup(facilitiesSvc),
+		ShareTokens:       sharetoken.Generator{},
+		CompetitionAdmins: competitionAdminRepo,
 	})
 	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
 
@@ -450,7 +457,8 @@ func authenticationPolicy(verifier auth.TokenVerifier, logger *slog.Logger) (aut
 
 	if err := auth.EnsureVerifierConfigured(verifier, set); err != nil {
 		return auth.MethodSet{}, fmt.Errorf(
-			"%w; set AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE so this process can verify the tokens it demands", err)
+			"%w; set AUTH_ISSUER, AUTH_AUDIENCE and exactly one of AUTH_JWKS_FILE or AUTH_JWKS_URL "+
+				"so this process can verify the tokens it demands", err)
 	}
 
 	logger.Info("auth: enforcement active", "authenticated_methods", set.Len())
@@ -478,29 +486,34 @@ func tokenVerifierFromEnv(logger *slog.Logger) (auth.TokenVerifier, error) {
 		issuer   = os.Getenv("AUTH_ISSUER")
 		audience = os.Getenv("AUTH_AUDIENCE")
 		jwksFile = os.Getenv("AUTH_JWKS_FILE")
+		jwksURL  = os.Getenv("AUTH_JWKS_URL")
 	)
 
-	if issuer == "" && audience == "" && jwksFile == "" {
+	if issuer == "" && audience == "" && jwksFile == "" && jwksURL == "" {
 		logger.Info("auth: no token verifier configured " +
-			"(set AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE to enable verification)")
+			"(set AUTH_ISSUER, AUTH_AUDIENCE and one of AUTH_JWKS_FILE / AUTH_JWKS_URL to enable verification)")
 		return nil, nil
 	}
-	if issuer == "" || audience == "" || jwksFile == "" {
-		return nil, errors.New("auth: AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE must be set together")
+	if issuer == "" || audience == "" || (jwksFile == "" && jwksURL == "") {
+		return nil, errors.New(
+			"auth: AUTH_ISSUER, AUTH_AUDIENCE and exactly one of AUTH_JWKS_FILE or AUTH_JWKS_URL must be set together")
+	}
+	// Both set is a startup error rather than a precedence rule (T15.7).
+	// Picking a winner would mean a deployment that believes it verifies
+	// against its live provider while actually trusting a stale file someone
+	// left in the image — the "configured-looking and inert" failure this
+	// function already refuses elsewhere, wearing a different hat. There is no
+	// deployment that legitimately wants both, so ambiguity here is always a
+	// mistake, and the cheapest place to find a mistake is at startup.
+	if jwksFile != "" && jwksURL != "" {
+		return nil, errors.New(
+			"auth: AUTH_JWKS_FILE and AUTH_JWKS_URL are mutually exclusive; set exactly one " +
+				"(a file for local development, a URL for a live identity provider)")
 	}
 
-	// A file rather than a URL: fetching a live JWKS needs an HTTP client,
-	// a cache, and a rotation policy, none of which exist yet and none of
-	// which can be tested against a provider this project cannot provision.
-	// rs256.KeySource is the seam a remote implementation slots into later
-	// without touching the verification logic.
-	document, err := os.ReadFile(jwksFile)
+	keys, source, err := keySourceFromEnv(jwksFile, jwksURL)
 	if err != nil {
-		return nil, fmt.Errorf("auth: reading AUTH_JWKS_FILE: %w", err)
-	}
-	keys, err := rs256.NewStaticKeysFromJWKS(document)
-	if err != nil {
-		return nil, fmt.Errorf("auth: %w", err)
+		return nil, err
 	}
 
 	verifier, err := rs256.NewVerifier(rs256.Config{
@@ -515,9 +528,53 @@ func tokenVerifierFromEnv(logger *slog.Logger) (auth.TokenVerifier, error) {
 	logger.Info("auth: token verifier configured",
 		"issuer", issuer,
 		"audience", audience,
-		"jwks_file", jwksFile,
+		"jwks_source", source,
 	)
 	return verifier, nil
+}
+
+// keySourceFromEnv builds the one key source this process trusts, and returns
+// a description of it for the startup log.
+//
+// The two sources are deliberately asymmetric in one respect only: the remote
+// one is fetched once here, before the server starts.
+func keySourceFromEnv(jwksFile, jwksURL string) (rs256.KeySource, string, error) {
+	if jwksFile != "" {
+		document, err := os.ReadFile(jwksFile)
+		if err != nil {
+			return nil, "", fmt.Errorf("auth: reading AUTH_JWKS_FILE: %w", err)
+		}
+		keys, err := rs256.NewStaticKeysFromJWKS(document)
+		if err != nil {
+			return nil, "", fmt.Errorf("auth: AUTH_JWKS_FILE: %w", err)
+		}
+		return keys, "file:" + jwksFile, nil
+	}
+
+	keys, err := rs256.NewRemoteKeys(rs256.RemoteConfig{URL: jwksURL})
+	if err != nil {
+		return nil, "", fmt.Errorf("auth: AUTH_JWKS_URL: %w", err)
+	}
+
+	// Warm the cache, and refuse to start if it cannot be warmed.
+	//
+	// The alternative — start, and let the first RPC discover the endpoint is
+	// wrong — is strictly worse. RemoteKeys is fail-closed with no cache to
+	// fall back on, so a typo'd or unreachable URL produces a process that
+	// boots, passes its health check, and denies every authenticated request
+	// with an error that looks to clients exactly like expired credentials.
+	// That is the #136 failure mode, one layer down. A process that cannot
+	// fetch its provider's keys cannot do its job either way; the only
+	// question is whether it says so at 03:00 or at the first request, and
+	// startup is the moment the condition is legible (ADR-0013, T13.5).
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := keys.Refresh(ctx); err != nil {
+		return nil, "", fmt.Errorf(
+			"auth: fetching the key set named by AUTH_JWKS_URL: %w "+
+				"(the process would otherwise start and deny every authenticated request)", err)
+	}
+	return keys, "url:" + jwksURL, nil
 }
 
 func envOr(key, fallback string) string {

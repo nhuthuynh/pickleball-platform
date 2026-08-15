@@ -252,6 +252,85 @@ func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitio
 	return &competitionsv1.ListEntriesForCompetitionResponse{Entries: out}, nil
 }
 
+// AssignCompetitionAdmin records that the verified caller — who must be this
+// Competition's Host — granted Competition-Admin authority over it to another
+// user (T15.3, partial fix for #168).
+//
+// The authorization rule lives in domain.AssignCompetitionAdmin (via
+// Competition.EnsureHost), reached through app.Service.AssignCompetitionAdmin;
+// this handler only translates the request and maps domain errors through
+// toStatus. Note what that means for the property #168 cares about most: an
+// assigned Competition Admin calling this RPC is refused by the same
+// EnsureHost check a stranger hits, because an admin is never the Host
+// (domain.ErrHostCannotBeCompetitionAdmin keeps the two roles disjoint). There
+// is no separate "reject admins" branch here that could be dropped.
+//
+// The actor is the verified principal, never the wire — the request has no
+// actor field at all. A missing principal is codes.Unauthenticated ("I do not
+// know who you are"), never PermissionDenied (ADR-0013 §5), which is what
+// actor(ctx) returns on its own.
+func (h *Handler) AssignCompetitionAdmin(ctx context.Context, req *competitionsv1.AssignCompetitionAdminRequest) (*competitionsv1.AssignCompetitionAdminResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	admin, err := h.svc.AssignCompetitionAdmin(ctx, app.AssignCompetitionAdminInput{
+		CompetitionID: req.GetCompetitionId(),
+		ActorUserID:   actorUserID,
+		AdminUserID:   req.GetUserId(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &competitionsv1.AssignCompetitionAdminResponse{CompetitionAdmin: toProtoCompetitionAdmin(admin)}, nil
+}
+
+// RevokeCompetitionAdmin withdraws a Competition-Admin assignment on the
+// Host's behalf (T15.3). Host-only for the same reason
+// AssignCompetitionAdmin is — see domain.EnsureMayRevokeCompetitionAdmin —
+// and with the same verified-principal treatment of the actor.
+//
+// Revoking a user who holds no assignment maps to codes.NotFound
+// (domain.ErrCompetitionAdminNotFound). A caller who is not the Host never
+// reaches that answer, nor the one an unknown competition_id produces: the
+// authorization check runs before the store is consulted, so neither can be
+// used to enumerate a Competition's admins.
+func (h *Handler) RevokeCompetitionAdmin(ctx context.Context, req *competitionsv1.RevokeCompetitionAdminRequest) (*competitionsv1.RevokeCompetitionAdminResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.svc.RevokeCompetitionAdmin(ctx, app.RevokeCompetitionAdminInput{
+		CompetitionID: req.GetCompetitionId(),
+		ActorUserID:   actorUserID,
+		AdminUserID:   req.GetUserId(),
+	}); err != nil {
+		return nil, toStatus(err)
+	}
+	return &competitionsv1.RevokeCompetitionAdminResponse{}, nil
+}
+
+// toProtoCompetitionAdmin converts a domain.CompetitionAdmin to its wire
+// message (T15.3).
+//
+// One-directional on purpose: there is no fromProtoCompetitionAdmin, because
+// nothing off the wire ever becomes a CompetitionAdmin.
+// AssignCompetitionAdminRequest carries a competition_id and a user_id and
+// nothing else — the assigner and the timestamp are server facts, minted from
+// the verified principal and the server clock. A client-supplied
+// CompetitionAdmin message would be exactly the caller-asserted admin fact
+// #168 exists to abolish.
+func toProtoCompetitionAdmin(a domain.CompetitionAdmin) *competitionsv1.CompetitionAdmin {
+	return &competitionsv1.CompetitionAdmin{
+		CompetitionId: a.CompetitionID,
+		UserId:        a.UserID,
+		AssignedBy:    a.AssignedBy,
+		AssignedAt:    timestamppb.New(a.AssignedAt),
+	}
+}
+
 // toStatus maps domain errors onto gRPC status codes; grpc-gateway then maps
 // those onto HTTP statuses. Mirrors internal/socialplay/adapter/grpcapi's
 // toStatus, with the four mappings T9.4 requires by name — none of which may
@@ -338,10 +417,24 @@ func toStatus(err error) error {
 		// underlying FK violation reached this switch with no sentinel at
 		// all and answered Internal. Twin of the arm in
 		// internal/socialplay/adapter/grpcapi.toStatus.
-		errors.Is(err, domain.ErrCourtNotFound):
+		errors.Is(err, domain.ErrCourtNotFound),
+		// T15.3: revoking a user who holds no assignment is NotFound, not a
+		// silent success — see port.CompetitionAdminRepository.Revoke's doc
+		// comment for why answering "done" to a revoke that removed nothing
+		// is the wrong answer to a Host asserting who holds authority. A
+		// caller who is not the Host never reaches this answer: the
+		// authorization check runs before the store is consulted, so it
+		// cannot be used to enumerate a Competition's admins.
+		errors.Is(err, domain.ErrCompetitionAdminNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrAlreadyEntered),
 		errors.Is(err, domain.ErrCourtUnavailable),
+		// T15.3: a second assignment of the same user to the same
+		// Competition, from either the domain pre-check or
+		// competition_admins' composite primary key — the two are
+		// indistinguishable by design (CLAUDE.md rules 4 and 5). Joins the
+		// conflict group for the same reason ErrAlreadyEntered is here.
+		errors.Is(err, domain.ErrAlreadyCompetitionAdmin),
 		errors.Is(err, domain.ErrCompetitionFull):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrGuestAllowanceExceeded),
@@ -358,6 +451,19 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidGuestAllowance),
 		errors.Is(err, domain.ErrInvalidEntrySource),
 		errors.Is(err, domain.ErrInvalidMoney),
+		// T15.3's two input rules. ErrEmptyCompetitionAdminUserID is the
+		// textbook InvalidArgument case: a blank user id names nobody,
+		// regardless of the state of the system. ErrHostCannotBeCompetitionAdmin
+		// is state-dependent in the literal sense — it compares the argument
+		// against the Competition's host_id — but it stays here rather than
+		// joining the FailedPrecondition group above, because the state it
+		// reads is the *identity of the resource being addressed*, not a
+		// lifecycle the caller could wait out: no sequence of other calls
+		// makes assigning the Host to their own Competition valid later.
+		// Matches Social Play's identical placement of
+		// ErrHostCannotBeGameAdmin (T14.4).
+		errors.Is(err, domain.ErrEmptyCompetitionAdminUserID),
+		errors.Is(err, domain.ErrHostCannotBeCompetitionAdmin),
 		errors.Is(err, domain.ErrOverlappingSessions):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:

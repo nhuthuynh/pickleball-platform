@@ -148,4 +148,39 @@ var (
 	// unpaid -> paid -> refunded transition itself is legal, see
 	// MarkPaymentStatus's doc comment).
 	ErrInvalidPaymentStatus = errors.New("competitions: invalid payment status")
+
+	// Competition-Admin sentinels (T15.3, partial fix for #168) — the exact
+	// mirror of Social Play's Game-Admin set in
+	// internal/socialplay/domain/errors.go.
+	//
+	// AssignCompetitionAdmin / EnsureMayRevokeCompetitionAdmin reuse
+	// **ErrNotCompetitionHost** above for their authorization rejection rather
+	// than declaring an admin-specific one, and that reuse is the point: the
+	// rule they enforce IS "only the Host", identical to CancelCompetition's.
+	// #168 requires an assigned admin to be refused exactly as a stranger is,
+	// so giving the two callers different sentinels would invite a handler or
+	// a future check to treat them differently.
+	//
+	//   - ErrEmptyCompetitionAdminUserID: AssignCompetitionAdmin was given a
+	//     blank user id. A blank row would match a blank actor at read time,
+	//     which is what HasCompetitionAdmin's blank-entry guard defends the
+	//     read end against; rejecting it here closes the write end too.
+	//     InvalidArgument at the handler.
+	//   - ErrHostCannotBeCompetitionAdmin: the Host was named as an admin of
+	//     their own Competition. The row would grant nothing (the Host is
+	//     already entitled) while making a later revoke look like it stripped
+	//     Host authority. InvalidArgument at the handler.
+	//   - ErrAlreadyCompetitionAdmin: this user already holds an assignment
+	//     for this Competition. Returned both by the domain's fail-fast
+	//     pre-check and by the Postgres adapter translating the composite
+	//     primary key's 23505, which is the authoritative guard under
+	//     concurrency (CLAUDE.md rules 4 and 5). AlreadyExists at the handler.
+	//   - ErrCompetitionAdminNotFound: RevokeCompetitionAdmin named a user
+	//     holding no assignment. An error rather than a silent success — see
+	//     port.CompetitionAdminRepository.Revoke's doc comment. NotFound at
+	//     the handler.
+	ErrEmptyCompetitionAdminUserID  = errors.New("competitions: competition admin user id is required")
+	ErrHostCannotBeCompetitionAdmin = errors.New("competitions: a competition's host cannot also be one of its competition admins")
+	ErrAlreadyCompetitionAdmin      = errors.New("competitions: user is already a competition admin for this competition")
+	ErrCompetitionAdminNotFound     = errors.New("competitions: competition admin assignment not found")
 )

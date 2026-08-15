@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"time"
 
 	"github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/competitions/port"
@@ -67,6 +68,11 @@ type Service struct {
 	reservation  port.CourtReservation
 	facilities   port.FacilityLookup
 	shareTokens  port.ShareTokenGenerator
+	// competitionAdmins is the durable Competition-Admin store (T15.3,
+	// partial fix for #168) — kept as its own narrow port rather than folded
+	// into competitions, for the reasons port.CompetitionAdminRepository's doc
+	// comment gives.
+	competitionAdmins port.CompetitionAdminRepository
 }
 
 // ServiceOptions is the dependency bundle for NewService.
@@ -91,16 +97,23 @@ type ServiceOptions struct {
 	Reservation  port.CourtReservation
 	Facilities   port.FacilityLookup
 	ShareTokens  port.ShareTokenGenerator
+	// CompetitionAdmins backs the durable Competition-Admin store (T15.3,
+	// partial fix for #168). Required by the three Competition-Admin methods
+	// and by nothing else, which is exactly why the options struct earns its
+	// keep here: a sixth positional argument would have had to be threaded
+	// through every existing call site that has no use for it.
+	CompetitionAdmins port.CompetitionAdminRepository
 }
 
 // NewService constructs a Service from opts.
 func NewService(opts ServiceOptions) *Service {
 	return &Service{
-		competitions: opts.Competitions,
-		ids:          opts.IDs,
-		reservation:  opts.Reservation,
-		facilities:   opts.Facilities,
-		shareTokens:  opts.ShareTokens,
+		competitions:      opts.Competitions,
+		ids:               opts.IDs,
+		reservation:       opts.Reservation,
+		facilities:        opts.Facilities,
+		shareTokens:       opts.ShareTokens,
+		competitionAdmins: opts.CompetitionAdmins,
 	}
 }
 
@@ -568,4 +581,163 @@ func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUse
 	}
 
 	return s.competitions.UpdateStatus(ctx, competition.ID, competition.Status)
+}
+
+// AssignCompetitionAdminInput is the use-case input for assigning a
+// Competition Admin (T15.3, partial fix for #168).
+//
+// There is deliberately no field here for a caller-supplied admin list. That
+// is the shape this ticket exists to retire: the whole point of the store is
+// that "who is an admin of this Competition" becomes a fact the server holds,
+// not one the request asserts.
+type AssignCompetitionAdminInput struct {
+	// CompetitionID is the Competition the assignment is scoped to.
+	CompetitionID string
+	// ActorUserID is the acting identity, resolved by the grpcapi adapter
+	// from the verified auth.Principal (T12.8/ADR-0014), never read off the
+	// wire. Only the Competition's Host passes
+	// domain.AssignCompetitionAdmin's check.
+	ActorUserID string
+	// AdminUserID is the subject being granted Competition-Admin authority.
+	AdminUserID string
+}
+
+// RevokeCompetitionAdminInput is the use-case input for withdrawing a
+// Competition-Admin assignment (T15.3). Same actor semantics as
+// AssignCompetitionAdminInput.
+type RevokeCompetitionAdminInput struct {
+	CompetitionID string
+	ActorUserID   string
+	AdminUserID   string
+}
+
+// AssignCompetitionAdmin records that a Competition's Host granted
+// Competition-Admin authority over that Competition to another user (T15.3,
+// partial fix for #168). The mirror of
+// internal/socialplay/app.Service.AssignGameAdmin.
+//
+// Order of checks, and why:
+//
+//  1. A malformed CompetitionID is answered with the bare
+//     domain.ErrCompetitionNotFound before the repository is touched at all —
+//     the T10.7-shaped boundary guard every caller-supplied Competition id in
+//     this file already carries, for the identical reason (the Postgres
+//     adapter's mustUUID panics on a non-uuid, and grpc installs no recover()
+//     of its own).
+//  2. s.competitions.GetByID: the Competition must exist, and its HostID is
+//     the fact the authorization check compares against — loading it is what
+//     makes the check possible, exactly as in ListEntriesForCompetition
+//     (T13.6).
+//  3. s.competitionAdmins.ListCompetitionAdmins: the Competition's current
+//     assignments, handed to the domain as the already-assigned pre-check's
+//     input.
+//  4. domain.AssignCompetitionAdmin: the Host-only authorization rule
+//     (**including "an admin cannot appoint an admin"**), the blank- and
+//     self-assignment input rules, and the duplicate pre-check. All of them
+//     live there, not here — this method holds no business rule of its own
+//     (CLAUDE.md rule 2).
+//
+// An unknown Competition answers domain.ErrCompetitionNotFound rather than the
+// empty answer ListEntriesForCompetition gives, because this is a write: there
+// is no "nothing to show you" outcome, and a Host whose assignment silently
+// landed nowhere is worse served than one told the Competition does not exist.
+//
+// Under concurrency, competition_admins' composite primary key is the
+// authoritative duplicate guard; step 3/4's pre-check exists to fail fast with
+// a clear domain error, the same relationship domain.Enter has with the
+// competition_entries unique index (CLAUDE.md rule 4). The Postgres adapter
+// translates that constraint's violation into the same
+// domain.ErrAlreadyCompetitionAdmin this method's pre-check returns, so a
+// caller cannot tell which of the two answered — and has no reason to.
+func (s *Service) AssignCompetitionAdmin(ctx context.Context, in AssignCompetitionAdminInput) (domain.CompetitionAdmin, error) {
+	if !uuidShape.MatchString(in.CompetitionID) {
+		return domain.CompetitionAdmin{}, domain.ErrCompetitionNotFound
+	}
+
+	competition, err := s.competitions.GetByID(ctx, in.CompetitionID)
+	if err != nil {
+		return domain.CompetitionAdmin{}, err
+	}
+
+	existing, err := s.competitionAdmins.ListCompetitionAdmins(ctx, in.CompetitionID)
+	if err != nil {
+		return domain.CompetitionAdmin{}, err
+	}
+
+	admin, err := domain.AssignCompetitionAdmin(competition, existing, in.ActorUserID, in.AdminUserID, time.Now())
+	if err != nil {
+		return domain.CompetitionAdmin{}, err
+	}
+
+	return s.competitionAdmins.Assign(ctx, admin)
+}
+
+// RevokeCompetitionAdmin withdraws a Competition-Admin assignment on the
+// Host's behalf (T15.3). Host-only, via
+// domain.EnsureMayRevokeCompetitionAdmin: granting and withdrawing a delegated
+// authority are the same authority, so an assigned Competition Admin is
+// refused here exactly as they are on the assign path.
+//
+// Revoking a user who holds no assignment returns
+// domain.ErrCompetitionAdminNotFound rather than succeeding silently — see
+// port.CompetitionAdminRepository.Revoke's doc comment for why a no-op success
+// is the wrong answer to a Host asserting a belief about who holds authority.
+// The authorization check still runs first, so an unauthorized caller cannot
+// use the distinction between "not assigned" and "revoked" to enumerate a
+// Competition's admins.
+func (s *Service) RevokeCompetitionAdmin(ctx context.Context, in RevokeCompetitionAdminInput) error {
+	if !uuidShape.MatchString(in.CompetitionID) {
+		return domain.ErrCompetitionNotFound
+	}
+
+	competition, err := s.competitions.GetByID(ctx, in.CompetitionID)
+	if err != nil {
+		return err
+	}
+
+	if err := domain.EnsureMayRevokeCompetitionAdmin(competition, in.ActorUserID); err != nil {
+		return err
+	}
+
+	return s.competitionAdmins.Revoke(ctx, in.CompetitionID, in.AdminUserID)
+}
+
+// ListCompetitionAdmins returns every Competition-Admin assignment recorded
+// against competitionID (T15.3) — the read half of the sprint plan's §A12 GAP
+// A, which T15.3 is required to ship even though it consumes none of it.
+// **T15.4 resolves the roster read's entitled set from it, and T15.5 calls it
+// from the Payments context**, which is why it is exported from app.Service
+// and not merely available on the port.
+//
+// An unknown or malformed competitionID answers domain.ErrCompetitionNotFound
+// rather than an empty slice: an empty admin list is a real and common state
+// (most Competitions have no admins), so returning it for a Competition that
+// does not exist would make the two indistinguishable to the one kind of
+// caller — an authorization decision — that must not confuse them. Note this
+// deliberately differs from ListEntriesForCompetition's empty-roster answer,
+// which is a *response body* for an end user rather than an input to a check.
+//
+// **This method performs no authorization check of its own, and is
+// deliberately not exposed as an RPC.** It is an in-process read for callers
+// that have already authorized their own operation: AssignCompetitionAdmin's
+// pre-check above, and T15.4/T15.5's paths, which run their own Host-or-admin
+// check against the set this returns. That is the shape
+// MarkCompetitionEntryPaymentStatus already has (no check of its own, because
+// its only caller crosses a context boundary rather than arriving from an end
+// user). Putting a Competition's admin roster on the wire needs its own
+// decision about who may see it — plausibly the Host and the admins
+// themselves, plausibly every entrant — and no ticket has made that decision;
+// inventing an answer here would be a product decision smuggled in as an
+// implementation detail. Named as out of scope so it is a decision rather than
+// an omission, exactly as socialplay's ListGameAdmins is.
+func (s *Service) ListCompetitionAdmins(ctx context.Context, competitionID string) ([]domain.CompetitionAdmin, error) {
+	if !uuidShape.MatchString(competitionID) {
+		return nil, domain.ErrCompetitionNotFound
+	}
+
+	if _, err := s.competitions.GetByID(ctx, competitionID); err != nil {
+		return nil, err
+	}
+
+	return s.competitionAdmins.ListCompetitionAdmins(ctx, competitionID)
 }

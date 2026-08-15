@@ -170,8 +170,8 @@ during development (not just unit-tested) — see
 Every `curl` above hits a **public** RPC, which is why none of them carries a
 token. 24 RPCs across the six contexts are not public: they require a verified
 bearer token, and since T13.5 the server refuses to start at all unless it has
-been given something to verify tokens with (`AUTH_ISSUER`, `AUTH_AUDIENCE`,
-`AUTH_JWKS_FILE`).
+been given something to verify tokens with (`AUTH_ISSUER`, `AUTH_AUDIENCE`, and
+exactly one of `AUTH_JWKS_FILE` or `AUTH_JWKS_URL`).
 
 `make up` supplies all three from a **development key fixture committed to
 this repository** under `dev/auth/` — public key material, therefore worthless,
@@ -217,6 +217,39 @@ three variables at a real identity provider; the Docker image contains no copy
 of the fixture (compose bind-mounts it at run time), and a server started
 without them still fails closed exactly as it did before. See
 `dev/auth/README.md` and issue #160.
+
+### Pointing at a real identity provider
+
+`AUTH_JWKS_URL` is the deployment counterpart of `AUTH_JWKS_FILE`: instead of
+reading a key set once from disk, the server fetches the provider's published
+JWKS over HTTPS, caches it, and refreshes it — so a key rotation is picked up
+without a redeploy (T15.7, issue #137).
+
+```bash
+AUTH_ISSUER=https://your-tenant.auth0.com/ \
+AUTH_AUDIENCE=https://api.your-domain.example/ \
+AUTH_JWKS_URL=https://your-tenant.auth0.com/.well-known/jwks.json \
+go run ./cmd/server
+```
+
+Four properties worth knowing before you deploy it:
+
+- **The two sources are mutually exclusive.** Setting both `AUTH_JWKS_FILE` and
+  `AUTH_JWKS_URL` is a startup error, not a precedence rule — a deployment that
+  believes it follows its live provider while actually trusting a stale file in
+  the image is exactly the failure this refuses to make quietly.
+- **The URL must be `https`.** A JWKS fetched over plaintext can be swapped in
+  flight, which would let an attacker choose the keys this process trusts.
+- **Startup fetches once and fails if it cannot.** A wrong URL stops the
+  server rather than producing one that boots, looks healthy, and rejects every
+  authenticated request with something clients cannot distinguish from an
+  expired credential.
+- **It fails closed at run time too.** If the provider becomes unreachable,
+  cached keys keep serving for a bounded window (15 min TTL + 1 h grace by
+  default) and then every token is denied. Tokens naming a `kid` that no
+  fetched key set contained are denied throughout, and an unknown `kid`
+  triggers at most one refresh per minute so an anonymous caller cannot use
+  this server to hammer your provider.
 
 ## Repository layout
 

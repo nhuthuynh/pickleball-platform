@@ -107,9 +107,10 @@ gate-coverage:
 #
 # This is NOT an auth bypass and does not weaken the deployed path. It signs
 # with a keypair committed to this repository — public, therefore worthless —
-# and cmd/server only ever trusts the JWKS that AUTH_JWKS_FILE names, which
-# in a deployment is a real provider's. `make up` mounts the fixture; nothing
-# else does. See dev/auth/README.md.
+# and cmd/server only ever trusts the JWKS its configuration names — the file
+# AUTH_JWKS_FILE points at, or the endpoint AUTH_JWKS_URL fetches, which in a
+# deployment is a real provider's (T15.7). `make up` mounts the fixture;
+# nothing else does. See dev/auth/README.md.
 dev-token:
 	@go run ./cmd/devtoken
 

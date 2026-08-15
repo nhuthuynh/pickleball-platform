@@ -51,7 +51,10 @@ func TestAuthenticationPolicyRefusesToStartWithoutAVerifier(t *testing.T) {
 	// The remedy belongs in this binary's vocabulary — see the doc comment on
 	// authenticationPolicy. An operator hitting a hard startup failure at
 	// 03:00 should not have to read source to learn which variables to set.
-	for _, want := range []string{"AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_JWKS_FILE"} {
+	// AUTH_JWKS_URL joins the list in T15.7: an operator reading this error is
+	// being told how to satisfy it, and "point it at your provider's JWKS
+	// endpoint" is now one of the two honest answers.
+	for _, want := range []string{"AUTH_ISSUER", "AUTH_AUDIENCE", "AUTH_JWKS_FILE", "AUTH_JWKS_URL"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("startup error %q does not name %s", err.Error(), want)
 		}
@@ -90,4 +93,136 @@ func TestComposedPolicyIsNonEmpty(t *testing.T) {
 		t.Errorf("composed policy covers %d methods; all six bounded contexts declare authenticated RPCs, so this should not be near zero", set.Len())
 	}
 	t.Logf("composed authentication policy covers %d RPCs", set.Len())
+}
+
+// T15.7 / #137 — the configuration matrix.
+//
+// tokenVerifierFromEnv is the only place that decides what this process trusts
+// to verify tokens, and until now nothing tested it. It gained a second key
+// source (AUTH_JWKS_URL, a live provider's JWKS endpoint) alongside
+// AUTH_JWKS_FILE, which makes three questions worth pinning: that the
+// file path T14.9 built still works exactly as it did, that the two sources
+// are mutually exclusive rather than one silently winning, and that a
+// misconfigured URL is a startup failure rather than a server that runs and
+// denies every request.
+//
+// t.Setenv rules out t.Parallel here, which is the correct trade: these cases
+// are about process-wide state.
+func TestTokenVerifierFromEnv(t *testing.T) {
+	// The committed local-dev fixture (T14.9, #160). Using the real file
+	// rather than a temp one means this test fails if that path is ever
+	// renamed or its shape drifts — `make up` depends on both.
+	const devJWKS = "../../dev/auth/dev-only-insecure.jwks.json"
+
+	// Nothing listens here, so the warm-up fetch fails immediately rather
+	// than waiting out a timeout.
+	const unreachableJWKS = "https://127.0.0.1:1/.well-known/jwks.json"
+
+	tests := []struct {
+		name         string
+		issuer       string
+		audience     string
+		jwksFile     string
+		jwksURL      string
+		wantVerifier bool
+		wantErr      bool
+		// wantErrMentions are substrings an operator needs in order to fix the
+		// misconfiguration without reading this source file.
+		wantErrMentions []string
+	}{
+		{
+			// A build of this server that enforces nothing may still run
+			// without auth; authenticationPolicy, not this function, decides
+			// whether that is acceptable.
+			name: "nothing configured is not an error here",
+		},
+		{
+			name:         "AUTH_JWKS_FILE still builds a verifier (T14.9 dev path)",
+			issuer:       "https://dev-auth.pickleball.invalid/",
+			audience:     "https://api.pickleball.invalid/dev",
+			jwksFile:     devJWKS,
+			wantVerifier: true,
+		},
+		{
+			name:            "both sources set is a startup error, not a precedence rule",
+			issuer:          "https://dev-auth.pickleball.invalid/",
+			audience:        "https://api.pickleball.invalid/dev",
+			jwksFile:        devJWKS,
+			jwksURL:         "https://tenant.example.com/.well-known/jwks.json",
+			wantErr:         true,
+			wantErrMentions: []string{"AUTH_JWKS_FILE", "AUTH_JWKS_URL"},
+		},
+		{
+			name:            "issuer and audience with no key source",
+			issuer:          "https://dev-auth.pickleball.invalid/",
+			audience:        "https://api.pickleball.invalid/dev",
+			wantErr:         true,
+			wantErrMentions: []string{"AUTH_JWKS_FILE", "AUTH_JWKS_URL"},
+		},
+		{
+			name:            "a URL with no issuer is partial configuration",
+			jwksURL:         "https://tenant.example.com/.well-known/jwks.json",
+			wantErr:         true,
+			wantErrMentions: []string{"AUTH_ISSUER"},
+		},
+		{
+			name:            "a plaintext AUTH_JWKS_URL is refused",
+			issuer:          "https://dev-auth.pickleball.invalid/",
+			audience:        "https://api.pickleball.invalid/dev",
+			jwksURL:         "http://tenant.example.com/.well-known/jwks.json",
+			wantErr:         true,
+			wantErrMentions: []string{"https"},
+		},
+		{
+			// The warm-up. Without it this process would start, look healthy,
+			// and reject every authenticated RPC until someone read the logs.
+			name:            "an unreachable AUTH_JWKS_URL fails at startup",
+			issuer:          "https://dev-auth.pickleball.invalid/",
+			audience:        "https://api.pickleball.invalid/dev",
+			jwksURL:         unreachableJWKS,
+			wantErr:         true,
+			wantErrMentions: []string{"AUTH_JWKS_URL"},
+		},
+		{
+			name:            "a missing AUTH_JWKS_FILE fails at startup",
+			issuer:          "https://dev-auth.pickleball.invalid/",
+			audience:        "https://api.pickleball.invalid/dev",
+			jwksFile:        "../../dev/auth/does-not-exist.json",
+			wantErr:         true,
+			wantErrMentions: []string{"AUTH_JWKS_FILE"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AUTH_ISSUER", tc.issuer)
+			t.Setenv("AUTH_AUDIENCE", tc.audience)
+			t.Setenv("AUTH_JWKS_FILE", tc.jwksFile)
+			t.Setenv("AUTH_JWKS_URL", tc.jwksURL)
+
+			verifier, err := tokenVerifierFromEnv(discardLogger())
+
+			if tc.wantErr {
+				if err == nil {
+					t.Fatal("tokenVerifierFromEnv returned no error; a misconfigured verifier must not reach a running server")
+				}
+				if verifier != nil {
+					t.Error("tokenVerifierFromEnv returned a verifier alongside an error")
+				}
+				for _, want := range tc.wantErrMentions {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("error %q does not name %s", err.Error(), want)
+					}
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("tokenVerifierFromEnv: %v", err)
+			}
+			if got := verifier != nil; got != tc.wantVerifier {
+				t.Errorf("verifier != nil = %t, want %t", got, tc.wantVerifier)
+			}
+		})
+	}
 }
