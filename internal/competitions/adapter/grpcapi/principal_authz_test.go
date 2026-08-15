@@ -48,7 +48,7 @@ func createCompetitionReq() *competitionsv1.CreateCompetitionRequest {
 	return &competitionsv1.CreateCompetitionRequest{
 		HostId:         "auth0|not-the-caller",
 		Name:           "Spring Doubles Open",
-		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
+		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1))},
 		Capacity:       8,
 		GuestAllowance: 0,
 		PaymentMethod:  competitionsv1.PaymentMethod_PAYMENT_METHOD_EITHER,

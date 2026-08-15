@@ -37,7 +37,7 @@ func seedSharedCompetition(t *testing.T, h *grpcapi.Handler, hostID string) (*co
 	t.Helper()
 	resp, err := h.CreateCompetition(ctxAs(hostID), &competitionsv1.CreateCompetitionRequest{
 		Name:           "Spring Doubles Open",
-		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
+		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1))},
 		Capacity:       16,
 		GuestAllowance: 2,
 		PaymentMethod:  competitionsv1.PaymentMethod_PAYMENT_METHOD_EITHER,

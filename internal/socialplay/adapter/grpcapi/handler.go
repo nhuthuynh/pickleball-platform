@@ -380,6 +380,10 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrInvalidTimeRange),
 		errors.Is(err, domain.ErrInvalidCapacity),
 		errors.Is(err, domain.ErrEmptyCourtIDs),
+		// T14.8 (issue #156): a malformed court id joins the empty-list
+		// case it sat next to in the request. Both are the client's
+		// mistake; only one of them used to say so.
+		errors.Is(err, domain.ErrMalformedCourtID),
 		errors.Is(err, domain.ErrEmptyPlayerID),
 		errors.Is(err, domain.ErrIllegalStatusTransition),
 		errors.Is(err, domain.ErrGameNotFull),

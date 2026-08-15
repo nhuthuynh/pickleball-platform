@@ -8,9 +8,32 @@ import "errors"
 // not shared with that package (CLAUDE.md: socialplay/domain must not
 // import internal/booking/domain).
 var (
-	ErrInvalidTimeRange        = errors.New("socialplay: invalid time range")
-	ErrInvalidCapacity         = errors.New("socialplay: capacity must be greater than zero")
-	ErrEmptyCourtIDs           = errors.New("socialplay: at least one court id is required")
+	ErrInvalidTimeRange = errors.New("socialplay: invalid time range")
+	ErrInvalidCapacity  = errors.New("socialplay: capacity must be greater than zero")
+	ErrEmptyCourtIDs    = errors.New("socialplay: at least one court id is required")
+
+	// ErrMalformedCourtID is ScheduleGame's shape guard on the entries of
+	// the caller-supplied court_ids list (T14.8, closing issue #156). It is
+	// deliberately a separate sentinel from ErrEmptyCourtIDs above, which
+	// says something different ("you sent no courts" vs "one of the courts
+	// you sent cannot be a court id") — the two share a gRPC code, and a
+	// shared code is never a reason to share a sentinel (see
+	// ErrNotGameHost's note below for the same argument).
+	//
+	// Why InvalidArgument rather than the not-found/Internal answer the
+	// T10.7 convention gives a malformed *Game* ID: that convention exists
+	// so a malformed id cannot be told apart from an unknown one, denying an
+	// attacker an existence oracle. There is no oracle to deny here. A value
+	// that fails the canonical-UUID check cannot name any court that exists
+	// or ever will, so answering "this is not a court id" reveals nothing
+	// about which courts do exist — and an unknown-but-well-formed court id
+	// keeps answering exactly as it did before this ticket (the disclosed
+	// #97 gap on bookingdomain.ErrInvalidCourtReference), so the two are
+	// still not distinguishable in the direction that matters. What was
+	// distinguishable, and shouldn't have been, is a client's own typo from
+	// a server fault: court_ids [] answered 400 while ["not-a-uuid"]
+	// answered 500.
+	ErrMalformedCourtID        = errors.New("socialplay: court id is not a valid court reference")
 	ErrIllegalStatusTransition = errors.New("socialplay: illegal status transition")
 	ErrEmptyPlayerID           = errors.New("socialplay: player id is required")
 

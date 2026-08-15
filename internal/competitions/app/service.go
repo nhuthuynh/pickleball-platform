@@ -204,6 +204,23 @@ func (s *Service) ScheduleCompetition(ctx context.Context, in ScheduleCompetitio
 		return domain.Competition{}, err
 	}
 
+	// Every court id in every session is shape-checked here — the whole
+	// input, before the facility lookup and before the nested reservation
+	// loop below (T14.8, closing issue #156). See the twin guard in
+	// internal/socialplay/app.ScheduleGame for the full reasoning; the one
+	// difference is that this input is a collection of collections, so a
+	// malformed entry can hide in a later session behind an earlier one that
+	// would have reserved perfectly well. Validating all of them up front is
+	// what keeps that case from leaving reserved courts and a rejected
+	// Competition behind.
+	for _, sess := range competition.Sessions {
+		for _, courtID := range sess.CourtIDs {
+			if !uuidShape.MatchString(courtID) {
+				return domain.Competition{}, domain.ErrMalformedCourtID
+			}
+		}
+	}
+
 	if competition.VenueFacilityID != "" {
 		if err := s.facilities.FacilityExists(ctx, competition.VenueFacilityID); err != nil {
 			return domain.Competition{}, fmt.Errorf("competitions: validating venue facility %s for competition %s: %w", competition.VenueFacilityID, competition.ID, err)

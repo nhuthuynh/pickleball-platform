@@ -434,7 +434,7 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1", "court-2")
+	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	g, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
@@ -461,7 +461,7 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 	t.Parallel()
 
-	reservation := newFakeReservation("court-1")
+	reservation := newFakeReservation(courtID(1))
 	svc := app.NewService(app.ServiceOptions{
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
@@ -469,7 +469,7 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
@@ -487,7 +487,7 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 	t.Parallel()
 
-	reservation := newFakeReservation("court-2")
+	reservation := newFakeReservation(courtID(2))
 	svc := app.NewService(app.ServiceOptions{
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
@@ -495,7 +495,7 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1", "court-2")
+	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
@@ -517,7 +517,7 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 	t.Parallel()
 
-	reservation := newFakeReservation("court-2")
+	reservation := newFakeReservation(courtID(2))
 	reservation.releaseErr = errors.New("release: boom")
 	svc := app.NewService(app.ServiceOptions{
 		IDs:           &sequentialIDs{},
@@ -526,7 +526,7 @@ func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1", "court-2")
+	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
@@ -553,7 +553,7 @@ func TestScheduleGame_InvalidInputRejectedBeforeTouchingPort(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.Capacity = 0
 
@@ -585,7 +585,7 @@ func TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts(t *testi
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.VenueFacilityID = "no-such-facility"
 
@@ -615,7 +615,7 @@ func TestScheduleGame_KnownVenueFacilityAccepted(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.VenueFacilityID = "facility-1"
 
@@ -645,7 +645,7 @@ func TestScheduleGame_EmptyVenueFacilitySkipsLookup(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	// newFakeFacilityLookup() with no known IDs seeded: if ScheduleGame
@@ -676,7 +676,7 @@ func TestScheduleGame_PersistsGame(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	g, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
@@ -710,7 +710,7 @@ func TestScheduleGame_RollsBackReservationsWhenPersistFails(t *testing.T) {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 	})
-	in := validInput("court-1", "court-2")
+	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
 	_, err := svc.ScheduleGame(context.Background(), in, reservation, newFakeFacilityLookup())
@@ -742,7 +742,7 @@ func TestRegisterForGame_Valid(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
@@ -786,7 +786,7 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Capacity = 1
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, in, newFakeReservation(), newFakeFacilityLookup())
@@ -840,7 +840,7 @@ func TestCancelRegistration_OwnerSucceeds(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
@@ -887,7 +887,7 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
@@ -934,7 +934,7 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
@@ -998,7 +998,7 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
@@ -1030,7 +1030,7 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 // start from "the game is definitely full" without repeating the setup.
 func fixtureFullGame(t *testing.T, ctx context.Context, svc *app.Service, capacity int) domain.Game {
 	t.Helper()
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Capacity = capacity
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, in, newFakeReservation(), newFakeFacilityLookup())
@@ -1102,7 +1102,7 @@ func TestJoinWaitlist_GameNotFull(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	in := validInput("court-1")
+	in := validInput(courtID(1))
 	in.Capacity = 4
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, in, newFakeReservation(), newFakeFacilityLookup())
@@ -1199,7 +1199,7 @@ func TestCancelRegistration_NoWaitlistIsNotAnError(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {
@@ -1597,7 +1597,7 @@ func TestListGames_ComputesSpotsLeft(t *testing.T) {
 // fake repository.
 func mustGame(t *testing.T, id, venueFacilityID string, r domain.TimeRange) domain.Game {
 	t.Helper()
-	g, err := domain.NewGame(id, "host-1", "", venueFacilityID, []string{"court-1"}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	g, err := domain.NewGame(id, "host-1", "", venueFacilityID, []string{courtID(1)}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("fixture NewGame err: %v", err)
 	}
@@ -1690,7 +1690,7 @@ func newMatchTestService(t *testing.T) (*app.Service, domain.Game, *fakeGameRepo
 		Matches:       matches,
 	})
 
-	fixtureIn := validInput("court-1")
+	fixtureIn := validInput(courtID(1))
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	g, err := svc.ScheduleGame(context.Background(), fixtureIn, newFakeReservation(), newFakeFacilityLookup())
 	if err != nil {

@@ -246,6 +246,34 @@ func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reserv
 		return domain.Game{}, err
 	}
 
+	// Every court id is shape-checked here — the whole list, before the
+	// facility lookup and before the reservation loop below (T14.8, closing
+	// issue #156).
+	//
+	// This is the same T10.7 boundary guard the caller-supplied Game IDs in
+	// this file get, applied to the one caller-supplied id *collection* on
+	// this context's write path that the T10.7 sweep missed: CourtIDs is
+	// consumed by the Booking context across port.CourtReservation, and that
+	// sweep only covered ids consumed within this context. Without it,
+	// bookingapp.CreateBooking's own uuidShape guard fired instead, and its
+	// sentinel is correctly stripped at the adapter boundary (%s, not %w —
+	// CLAUDE.md rule 5), so nothing survived for adapter/grpcapi's toStatus
+	// to classify: a client typo answered Internal/500 while an empty
+	// CourtIDs answered InvalidArgument/400.
+	//
+	// Placed AFTER domain.NewGame so the domain keeps first say on its own
+	// invariants — an empty CourtIDs is still ErrEmptyCourtIDs, which says
+	// more than "malformed" would. Placed BEFORE FacilityExists and the
+	// reservation loop so a bad id costs no I/O and, more importantly, so a
+	// malformed entry anywhere in the list can never leave a reserved court
+	// or a persisted Game behind (the whole-input requirement; same
+	// reasoning as the VenueFacilityID check immediately below).
+	for _, courtID := range game.CourtIDs {
+		if !uuidShape.MatchString(courtID) {
+			return domain.Game{}, domain.ErrMalformedCourtID
+		}
+	}
+
 	if game.VenueFacilityID != "" {
 		if err := facilities.FacilityExists(ctx, game.VenueFacilityID); err != nil {
 			return domain.Game{}, fmt.Errorf("socialplay: validating venue facility %s for game %s: %w", game.VenueFacilityID, game.ID, err)
