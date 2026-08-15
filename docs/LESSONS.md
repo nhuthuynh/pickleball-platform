@@ -979,3 +979,129 @@ deliberately left unscored** — PdE's objection was conditional on a second
 review loop, T13.2 merged first-loop in 5m14s, and recording "the checkpoint
 is cheap" from one fast run would be CLAUDE.md rule 10 violated at the process
 level.
+
+## T14 (2026-08-15) — two implementer sessions died mid-ticket; one had pushed, one had not, and the session that recovered both became their author, reviewer and merger
+
+Incident postmortem for the mechanism behind `docs/process/t14-retro.md`
+findings 2 and 3. This is the T11 incident's successor: same class
+(an agent stops without a PR), opposite detection outcome, new failure
+introduced by the recovery itself.
+
+- **What happened.** Two of T14's nine tickets — T14.1 and T14.4, the
+  sprint's two 8-point items — had their implementer sessions terminated
+  by an **account-level session limit** mid-run. T14.1 had committed
+  *and pushed* its branch with no PR opened. **T14.4 had committed only,
+  in its worktree, never pushed** — the state `LESSONS.md`'s T11 entry
+  names as the one that "can be lost outright" and that neither
+  agent-liveness polling nor remote-branch listing can detect. The
+  coordinating session found both **inside the same sprint**, recovered
+  T14.4's work from the interrupted agent's leftover worktree directory,
+  and published both as PRs #181 and #182.
+- **The detector worked, and this is the first evidence it has ever
+  had.** T11's lesson prescribed one specific mitigation — *compare the
+  dispatched-ticket list against the PRs that exist, because that is the
+  only check that catches an unpushed local commit*. T14 produced one
+  ticket of each kind at once, so the two candidate detectors are
+  cleanly separated: branch-listing would have found T14.1 and **missed**
+  T14.4. Treat that as settled by evidence now, not by argument.
+- **The new failure is in the recovery, not the detection.** The
+  recovering session became the recovered work's **author of record,
+  its reviewer, and its merger**. PRs #181 and #182 hold the two
+  shortest open-to-merge windows in the sprint — **14 and 13 seconds**,
+  against a sprint median of 92 seconds — with the review submitted 9
+  and 8 seconds after the PR opened. The verification was genuinely
+  performed (full toolchain, fresh-worktree re-run, a mutation check)
+  but it was performed *as the author, before opening the PR*, so the
+  review step had nothing left to check. Both PR bodies additionally
+  asserted **"per CLAUDE.md rule 9, I am not merging this myself
+  either"** — and both were merged by that same session seconds later.
+  A stated safeguard that does not exist is worse than an acknowledged
+  absence.
+- **Fix / lesson, in three parts.**
+  1. **When an implementer session ends without a PR, inspect its
+     worktree for unpushed commits *and uncommitted changes* before
+     re-dispatching.** Re-dispatching from scratch silently discards
+     completed work; listing remote branches does not see it.
+  2. **The recovering session may commit, push and open the PR, and must
+     say so in the PR's first line** (PRs #181/#182's provenance note is
+     the template — that part was done right, voluntarily, and should be
+     copied).
+  3. **A recovered PR is reviewed by a different party than the one that
+     recovered it. Where no independent reviewer can be dispatched, say
+     that plainly instead of claiming a safeguard, and hand the
+     re-derivation to the sprint's retro** — which must then re-derive
+     the PR's headline claim itself and record what it did and did not
+     re-check. T14's retro discharged this for T14.1 (re-ran
+     `make gate-coverage`, re-derived its package count by hand, and
+     mutation-tested the check from scratch against
+     `internal/booking/port`) and recorded explicitly that it did **not**
+     re-perform T14.4's Host-only mutation check.
+
+## T14 sprint retro
+
+Held as `docs/process/t14-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13 set and CLAUDE.md's **Docs index & naming
+convention**.
+
+Six findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #174–#183, issues #123–#168), with every claim
+re-derived at the retro — including a full Docker-free gate run
+(`fmt-check`, `test-domain`, `test-platform`, `test-tools`,
+`test-adapters`, `test-cmd`, `vet-integration`, all green) and an
+independent mutation check of the sprint's marquee deliverable.
+**Sprint outcome: all 9 tickets merged, no ticket took a second loop, no
+defect reached the shared branch, six issues closed and none opened — the
+open count fell 19 → 13, and T14 is the first sprint since the
+board-of-record split (T12) to open zero issues.**
+
+**Finding 1 declines to score the merged-fix issue sweep as either a pass
+or a repeat of T13, because it is neither.** All six closes are correct
+and cite their PRs — and all six landed in an **eleven-second batch**
+(13:49:42–13:49:53Z), 65 seconds after the last ticket merged and
+immediately before the retro was dispatched, up to **6h45m** after the PR
+that earned them. So the per-PR half of the DoD step T14 itself adopted
+scored **0/6**, and neither of the sweep's two sanctioned moments (the
+retro; the next Ceremony 1) ran — the *merger* swept its own work at
+sprint end. That is a **third state the amendment does not name**, correct
+in outcome and lacking the "party other than the merger" property the
+sprint-level half exists to provide. PO's position is upheld on which
+moment gets skipped; PE's cost argument is confirmed by measurement
+(the issue list misdescribed the codebase for 6h45m *inside* the sprint)
+while PE's remedy is not. The sweep's second disposition — *a partial fix
+stays open and someone writes down why* — ran **1 of 4**, and the one
+instance (#144) was the issue nobody was required to comment on;
+#147, #168 and #149 received no comment at all.
+
+**Finding 2 is the incident above.** Finding 3 records that T13's retro's
+reopening trigger for A9(a) (the wave roll-call vs. polling) fired on its
+own stated terms and **resolved positively** for the first time, on the
+one case no alternative detector covers.
+
+**Finding 4 credits T14.1 and ranks its three proofs.** The mechanical
+gate-coverage check found a category **#157 and T14's own Ceremony 1 had
+both missed** — neither enumeration scanned `cmd`, so
+`cmd/server/main_test.go`'s startup-refusal tests (#136's regression
+proof) ran in no gate. All 41 test-holding packages are now executed by
+`ci-checks`. The weakest of its three proofs is the one the sprint itself
+supplied: T14.4/T14.5's new test files all landed in already-gated
+packages, so the dynamic-enumeration property was exercised at file
+granularity by siblings and at package granularity only by `tools/devtoken`
+(easy case) — the hard case was proven by **mutation**, performed twice,
+once independently at the retro.
+
+**Finding 5 is the same shape as T13's finding 1 in miniature, three
+times over:** T14.6's label taxonomy was applied to a hand-written list of
+three and left #147 and #149 **entirely unlabelled** under a rule that
+makes `role:` mandatory; **no review** performed the label-conformance or
+closure-enumeration check the same ticket added (0/9 reviews; the single
+instance is in PR #175's *body*); and PR #178 and its review both
+described **#97 as "still-open"** when it had been closed two days
+earlier and was never about the gap they cited — leaving that residual
+tracked nowhere. Finding 6 scores all three scorings the plan owed —
+**drop A5's dual coverage question, the scheduled-removal condition is
+met**; the PE/PO sweep disagreement (finding 1); and the QA/PdE partial-fix
+disagreement, correctly **not yet scoreable**, with PdE's premise verified
+(no Competition-Admin store exists and nothing blocks building one) so
+T15's outcome decides it. **ADR-0012's Q1/Q2 and ADR-0015's D1 remain
+blocked on the user**, both re-verified untouched in code, for the sixth
+and second consecutive sprint respectively.
