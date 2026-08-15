@@ -1,0 +1,46 @@
+-- Payments context schema (T18.1, docs/process/t18-sprint-plan.md T18.1
+-- section; closes #167): the Postgres home for the idempotency ledger
+-- app.Service.HandleStripeWebhookEvent uses (port.WebhookEventStore) so a
+-- redelivered Stripe webhook event is a safe no-op rather than a second
+-- capture attempt.
+--
+-- 0022 is the next free number: db/migrations ended at 0021
+-- (0021_competitions_competition_admins.sql, T15.3), confirmed by listing
+-- the directory before naming this file rather than assuming the sprint
+-- plan's number was still free. The number was also pre-assigned to this
+-- ticket by the sprint plan's §A6/§A8 (T18.1 is this sprint's only ticket,
+-- so no in-sprint collision is possible); if one lands anyway, the PR that
+-- merges second renumbers on its own source branch rather than on the
+-- shared branch (CLAUDE.md rule 9, and 0015's own precedent).
+--
+-- Prototype-only migration tooling: applied via docker-compose initdb.d on a
+-- FRESH volume only (see CLAUDE.md gotchas) — after this lands, `make down`
+-- (which drops the volume) then `make up`. Adopt golang-migrate/goose before
+-- production.
+--
+-- # Why event_id alone, as a bare PRIMARY KEY, is the whole of the invariant
+--
+-- Stripe's event_id is already globally unique per event across every
+-- delivery/redelivery of it (Stripe's own guarantee), so
+-- "have we processed this event before" reduces exactly to "does this
+-- primary key already exist" — the Postgres primary key constraint alone
+-- already fully enforces the invariant this table exists for (CLAUDE.md
+-- rule 4: this is a case where Postgres enforcement is sufficient on its
+-- own, not a case where the domain-side half was omitted by oversight). No
+-- separate EXCLUDE constraint or unique index is needed the way
+-- payments_payable_unique_idx (0005) needed one for a *composite* key —
+-- there is exactly one column here and it is already the primary key — and
+-- no domain-side pre-check (mirroring EnsureNoConflict/
+-- EnsureOnePaymentPerPayable) is added either: a pre-check exists to give a
+-- fast, in-memory answer *before* reaching Postgres for a multi-row
+-- invariant a single INSERT can't enforce alone; here the single
+-- `INSERT ... ON CONFLICT (event_id) DO NOTHING` *is* the check, atomically,
+-- in one round trip, so a separate pre-check would only duplicate the
+-- constraint for no reason. This reasoning is stated here, not only in the
+-- PR description, so a future ceremony's migration-header-ownership check
+-- (T17 retro recommendation 1) finds the owning-context answer AND this
+-- design rationale in the same read.
+CREATE TABLE payments_webhook_events (
+    event_id     text PRIMARY KEY,
+    received_at  timestamptz NOT NULL DEFAULT now()
+);

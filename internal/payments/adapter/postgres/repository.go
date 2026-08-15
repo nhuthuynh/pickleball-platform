@@ -60,6 +60,15 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domain.Payment, er
 	return fromFields(row.ID, row.PayableType, row.PayableID, row.AmountCents, row.CurrencyCode, row.Method, row.Status, row.StripeReference, row.RecordedByUserID), nil
 }
 
+// GetByStripeReference implements port.Repository (T18.1, closes #167).
+func (r *Repository) GetByStripeReference(ctx context.Context, ref string) (domain.Payment, error) {
+	row, err := r.q.GetPaymentByStripeReference(ctx, toText(ref))
+	if err != nil {
+		return domain.Payment{}, translateErr(err)
+	}
+	return fromFields(row.ID, row.PayableType, row.PayableID, row.AmountCents, row.CurrencyCode, row.Method, row.Status, row.StripeReference, row.RecordedByUserID), nil
+}
+
 func (r *Repository) Update(ctx context.Context, p domain.Payment) (domain.Payment, error) {
 	row, err := r.q.UpdatePayment(ctx, paymentsdb.UpdatePaymentParams{
 		ID:              mustUUID(p.ID),

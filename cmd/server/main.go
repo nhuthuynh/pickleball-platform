@@ -64,6 +64,7 @@ import (
 	paymentspg "github.com/nhuthuynh/white-label/internal/payments/adapter/postgres"
 	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
+	"github.com/nhuthuynh/white-label/internal/payments/adapter/webhookstub"
 	paymentsapp "github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/platform/auth"
 	"github.com/nhuthuynh/white-label/internal/platform/auth/rs256"
@@ -268,6 +269,16 @@ func run(logger *slog.Logger) error {
 	// internal/payments/app/service.go's Service doc comment for why these
 	// five are not optional the way registrationUpdater/
 	// competitionEntryUpdater are.
+	// webhookVerifier/webhookEventRepo (T18.1, closes #167) back
+	// ReceiveStripeWebhookEvent — webhookstub.NewVerifier stands in for a
+	// real Stripe signature check the identical way stripestub.NewProcessor
+	// stands in for the real capture/refund calls above: no Stripe SDK
+	// dependency, no network call, no STRIPE_* environment variable read
+	// this ticket (see webhookstub's own doc comment). The shared secret is
+	// a placeholder literal, matching how stripestub.NewProcessor() needs no
+	// configuration at all today — a future real
+	// internal/payments/adapter/stripe package is what reads a real
+	// STRIPE_WEBHOOK_SECRET-shaped env var, not this ticket.
 	paymentsRepo := paymentspg.NewRepository(pool)
 	registrationUpdater := paymentssocialplay.NewRegistrationUpdater(socialplaySvc)
 	competitionEntryUpdater := paymentscompetitions.NewEntryUpdater(competitionsSvc)
@@ -276,6 +287,8 @@ func run(logger *slog.Logger) error {
 	gameAdminReader := paymentssocialplay.NewGameAdminReader(socialplaySvc)
 	entryLookup := paymentscompetitions.NewEntryLookup(competitionsSvc)
 	competitionAdminReader := paymentscompetitions.NewCompetitionAdminReader(competitionsSvc)
+	webhookVerifier := webhookstub.NewVerifier("whsec_placeholder_dev_only")
+	webhookEventRepo := paymentspg.NewWebhookEventRepository(pool)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments:                paymentsRepo,
 		IDs:                     idgen.UUID{},
@@ -287,6 +300,8 @@ func run(logger *slog.Logger) error {
 		GameAdminReader:         gameAdminReader,
 		EntryLookup:             entryLookup,
 		CompetitionAdminReader:  competitionAdminReader,
+		WebhookVerifier:         webhookVerifier,
+		WebhookEvents:           webhookEventRepo,
 	})
 	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
 

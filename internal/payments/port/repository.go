@@ -27,6 +27,13 @@ type Repository interface {
 	// GetByID returns a single Payment, or domain.ErrPaymentNotFound.
 	GetByID(ctx context.Context, id string) (domain.Payment, error)
 
+	// GetByStripeReference returns the single Payment whose StripeReference
+	// matches ref, or domain.ErrPaymentNotFound (T18.1, closes #167) — the
+	// lookup a Stripe webhook delivery needs, since it carries Stripe's own
+	// intent reference, not this backend's internal Payment id. Mirrors
+	// GetByID's shape exactly.
+	GetByStripeReference(ctx context.Context, ref string) (domain.Payment, error)
+
 	// Update persists changes to an existing Payment (e.g. a status
 	// transition from MarkPaid or Refund).
 	Update(ctx context.Context, p domain.Payment) (domain.Payment, error)

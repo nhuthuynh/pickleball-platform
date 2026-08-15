@@ -195,6 +195,17 @@ func (r *fakeRepository) GetByID(_ context.Context, id string) (domain.Payment, 
 	return p, nil
 }
 
+// GetByStripeReference implements port.Repository (T18.1, closes #167) — a
+// linear scan over the same in-memory map GetByID already uses.
+func (r *fakeRepository) GetByStripeReference(_ context.Context, ref string) (domain.Payment, error) {
+	for _, p := range r.byID {
+		if p.StripeReference == ref {
+			return p, nil
+		}
+	}
+	return domain.Payment{}, domain.ErrPaymentNotFound
+}
+
 func (r *fakeRepository) Update(_ context.Context, p domain.Payment) (domain.Payment, error) {
 	if _, ok := r.byID[p.ID]; !ok {
 		return domain.Payment{}, domain.ErrPaymentNotFound

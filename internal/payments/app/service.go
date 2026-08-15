@@ -98,6 +98,18 @@ type Service struct {
 	gameAdminReader        port.GameAdminReader
 	entryLookup            port.EntryLookup
 	competitionAdminReader port.CompetitionAdminReader
+
+	// webhookVerifier/webhookEvents (T18.1, closes #167) back
+	// HandleStripeWebhookEvent below. Unlike registrationUpdater/
+	// competitionEntryUpdater above (optional side effects, safely skipped
+	// when nil), these two are load-bearing for a security-critical path —
+	// HandleStripeWebhookEvent fails CLOSED when either is nil, mirroring
+	// authorizeGameRecording/authorizeCompetitionEntryRecording's own nil
+	// guards: a deployment that forgets to wire one gets "no webhook event
+	// is ever accepted", never "every webhook event is accepted
+	// unverified".
+	webhookVerifier port.WebhookVerifier
+	webhookEvents   port.WebhookEventStore
 }
 
 // ServiceOptions is the dependency bundle for NewService (T6.4).
@@ -128,6 +140,14 @@ type ServiceOptions struct {
 	GameAdminReader        port.GameAdminReader
 	EntryLookup            port.EntryLookup
 	CompetitionAdminReader port.CompetitionAdminReader
+
+	// WebhookVerifier/WebhookEvents (T18.1, closes #167) back
+	// HandleStripeWebhookEvent — see Service's own doc comment for the
+	// fail-closed behaviour when either is left nil. Required for any
+	// deployment/test that exercises the webhook path; every other use
+	// case on this Service is unaffected by leaving them nil.
+	WebhookVerifier port.WebhookVerifier
+	WebhookEvents   port.WebhookEventStore
 }
 
 // NewService constructs a Service from opts. IDs is required by every use
@@ -150,6 +170,9 @@ func NewService(opts ServiceOptions) *Service {
 		gameAdminReader:        opts.GameAdminReader,
 		entryLookup:            opts.EntryLookup,
 		competitionAdminReader: opts.CompetitionAdminReader,
+
+		webhookVerifier: opts.WebhookVerifier,
+		webhookEvents:   opts.WebhookEvents,
 	}
 }
 
@@ -306,11 +329,24 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 	if err := authorizeOnlineConfirmation(p, actorUserID); err != nil {
 		return domain.Payment{}, err
 	}
+	return s.captureAndMarkPaid(ctx, p)
+}
 
-	// Any processor-side failure (declined or otherwise unavailable) means
-	// no capture happened, so p is returned exactly as it was passed in —
-	// there is nothing to roll back because MarkPaid was never called, and
-	// nothing is persisted.
+// captureAndMarkPaid is the capture-then-mark-paid-then-reconcile sequence
+// shared by ConfirmOnlinePayment above (after authorizeOnlineConfirmation
+// passes) and HandleStripeWebhookEvent below (after signature verification
+// and the idempotency claim pass, no principal involved) — T18.1, closes
+// #167, extracted rather than duplicated (CLAUDE.md's DRY expectation) so
+// the already-paid guard HandleStripeWebhookEvent needs is correct in
+// exactly one place instead of two. This is the exact body
+// ConfirmOnlinePayment had inline before this ticket; behaviour is
+// unchanged for that caller.
+//
+// Any processor-side failure (declined or otherwise unavailable) means no
+// capture happened, so p is returned exactly as it was passed in — there is
+// nothing to roll back because MarkPaid was never called, and nothing is
+// persisted.
+func (s *Service) captureAndMarkPaid(ctx context.Context, p domain.Payment) (domain.Payment, error) {
 	if err := s.processor.CapturePayment(ctx, p.StripeReference); err != nil {
 		return p, err
 	}
@@ -331,6 +367,117 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 		return updated, err
 	}
 	return updated, nil
+}
+
+// stripeEventTypePaymentIntentSucceeded is the one Stripe webhook event
+// type HandleStripeWebhookEvent acts on (T18.1, closes #167). Every other
+// event type is acked and ignored — see that method's own doc comment.
+const stripeEventTypePaymentIntentSucceeded = "payment_intent.succeeded"
+
+// HandleStripeWebhookEventInput is the use-case input for a single Stripe
+// webhook delivery (T18.1, closes #167) — mirrors
+// ReceiveStripeWebhookEventRequest field-for-field; see that message's own
+// doc comment in proto/pickleball/payments/v1/payments.proto for why these
+// are separate structured fields rather than requiring this layer to parse
+// them out of RawPayload itself (a disclosed, bounded simplification for a
+// future real-Stripe ticket to close).
+type HandleStripeWebhookEventInput struct {
+	RawPayload      []byte
+	SignatureHeader string
+	EventID         string
+	EventType       string
+	StripeReference string
+}
+
+// HandleStripeWebhookEvent lets a successful Stripe charge complete its own
+// Payment even if the client's own ConfirmOnlinePayment call never lands —
+// a dropped connection, a closed tab, a crashed app (T18.1, closes #167).
+// This is a second, independent completion path: ConfirmOnlinePayment above
+// is unchanged and stays the only path a Player's own device drives
+// directly.
+//
+// No principal is involved anywhere in this method — Stripe itself has no
+// login on this platform, so the signature check below IS the
+// authentication for this one caller, not a stand-in for one (see
+// internal/payments/adapter/grpcapi.PublicMethods()).
+//
+// Ordering, each step short-circuiting the rest:
+//
+//  1. Verify the signature (port.WebhookVerifier.VerifySignature) over the
+//     exact raw bytes. Failure is domain.ErrWebhookSignatureInvalid,
+//     mapped by grpcapi's toStatus to PermissionDenied, never Internal — a
+//     forged or malformed signature is a rejected caller, not a server
+//     bug, the same discipline #195's four tickets established for FK
+//     violations. Runs first, before anything else is touched, so a
+//     forged delivery cannot probe whether an event_id or
+//     stripe_reference exists.
+//  2. Claim the event (port.WebhookEventStore.ClaimEvent) — if this
+//     delivery's event_id was already claimed by an earlier call, return
+//     nil without reprocessing: the redelivery-safe no-op Stripe's own
+//     retry behaviour requires. This is checked before the event-type
+//     filter below so a redelivered event of ANY type short-circuits
+//     identically, not just the one type this method acts on.
+//  3. Filter by event type: only "payment_intent.succeeded" (the constant
+//     above) proceeds. Every other type is acked and ignored — an
+//     explicit, tested, disclosed no-op, not a silent crash or
+//     Unimplemented, since a real Stripe account delivers many event
+//     types this platform does not yet act on.
+//  4. Resolve the Payment via port.Repository.GetByStripeReference. An
+//     unrecognised stripe_reference answers domain.ErrPaymentNotFound
+//     (mapped to NotFound, never Internal), the same discipline (a) uses.
+//  5. Already-paid guard: if the resolved Payment is not StatusUnpaid,
+//     return nil without calling captureAndMarkPaid again. Proven
+//     necessary by domain.Payment.MarkPaid's own illegal-transition
+//     behaviour — without this guard, a webhook event racing an
+//     already-completed client-driven ConfirmOnlinePayment call (or a
+//     second, differently-event_id'd redelivery of conceptually the same
+//     underlying event) would surface domain.ErrIllegalStatusTransition
+//     as an error instead of the safe no-op Stripe's semantics require.
+//  6. Call the shared captureAndMarkPaid — the identical
+//     capture-then-mark-paid-then-reconcile sequence ConfirmOnlinePayment
+//     uses, not a second implementation.
+//
+// webhookVerifier/webhookEvents both fail CLOSED when nil (Service's own
+// doc comment): a deployment that forgot to wire either gets "no webhook
+// event is ever accepted" (domain.ErrWebhookSignatureInvalid, the same
+// PermissionDenied-shaped sentinel a genuinely forged signature gets — from
+// the caller's perspective a misconfigured verifier and a failed
+// verification are indistinguishable, and both must refuse rather than
+// silently trust), never "every webhook event is accepted unverified".
+func (s *Service) HandleStripeWebhookEvent(ctx context.Context, in HandleStripeWebhookEventInput) error {
+	if s.webhookVerifier == nil {
+		return domain.ErrWebhookSignatureInvalid
+	}
+	if err := s.webhookVerifier.VerifySignature(in.RawPayload, in.SignatureHeader); err != nil {
+		return err
+	}
+
+	if s.webhookEvents == nil {
+		return domain.ErrWebhookSignatureInvalid
+	}
+	claimed, err := s.webhookEvents.ClaimEvent(ctx, in.EventID)
+	if err != nil {
+		return err
+	}
+	if !claimed {
+		return nil
+	}
+
+	if in.EventType != stripeEventTypePaymentIntentSucceeded {
+		return nil
+	}
+
+	p, err := s.payments.GetByStripeReference(ctx, in.StripeReference)
+	if err != nil {
+		return err
+	}
+
+	if p.Status != domain.StatusUnpaid {
+		return nil
+	}
+
+	_, err = s.captureAndMarkPaid(ctx, p)
+	return err
 }
 
 // RecordOfflinePaymentInput is the use-case input for recording an offline

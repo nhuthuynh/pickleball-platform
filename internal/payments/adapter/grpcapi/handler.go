@@ -245,6 +245,29 @@ func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPayme
 	return &paymentsv1.RefundPaymentResponse{Payment: toProto(p)}, nil
 }
 
+// ReceiveStripeWebhookEvent lets a successful Stripe charge complete its own
+// Payment even if the client's own ConfirmOnlinePayment call never lands
+// (T18.1, closes #167). Deliberately calls no actor(ctx): this RPC is
+// PublicMethods()-listed (see that function's doc comment), authenticated
+// by app.Service.HandleStripeWebhookEvent's own signature check rather than
+// a verified principal — Stripe itself has no login on this platform to
+// hold a token. See that method's own doc comment for the full ordering
+// (signature verify -> idempotency claim -> event-type filter -> Payment
+// resolution -> already-paid guard -> capture).
+func (h *Handler) ReceiveStripeWebhookEvent(ctx context.Context, req *paymentsv1.ReceiveStripeWebhookEventRequest) (*paymentsv1.ReceiveStripeWebhookEventResponse, error) {
+	err := h.svc.HandleStripeWebhookEvent(ctx, app.HandleStripeWebhookEventInput{
+		RawPayload:      req.GetRawPayload(),
+		SignatureHeader: req.GetSignatureHeader(),
+		EventID:         req.GetEventId(),
+		EventType:       req.GetEventType(),
+		StripeReference: req.GetStripeReference(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &paymentsv1.ReceiveStripeWebhookEventResponse{}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, PermissionDenied ->
 // 403, NotFound -> 404, InvalidArgument -> 400, FailedPrecondition -> 400,
@@ -299,6 +322,18 @@ func toStatus(err error) error {
 		// sentinels, one code — deliberately, per the doc comment above:
 		// they mean different things to us and the same thing to a client.
 		errors.Is(err, domain.ErrNotPaymentOwner):
+		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.Is(err, domain.ErrWebhookSignatureInvalid):
+		// T18.1 (closes #167): a forged or malformed Stripe webhook
+		// signature. Also PermissionDenied, but for a different reason
+		// than the two sentinels above — there is no principal at all on
+		// this RPC (it is PublicMethods()-listed), so this is not "a
+		// verified caller failed an object-level check" but "the one
+		// authentication mechanism this RPC has (the signature) did not
+		// check out". Both answer PermissionDenied on the wire because
+		// both mean "this caller is refused" — the same "different
+		// sentinels, same code" reasoning the doc comment above states for
+		// ErrNotPaymentRecorder/ErrNotPaymentOwner.
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrPaymentNotFound):
 		return status.Error(codes.NotFound, err.Error())
