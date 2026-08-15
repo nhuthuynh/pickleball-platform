@@ -899,6 +899,40 @@ func TestRegisterForGame_GameNotFound(t *testing.T) {
 	}
 }
 
+// TestRegisterForGame_RejectsCancelledGame is T19.1's app-level proof
+// (closes #212): a Player calling RegisterForGame against an already
+// cancelled Game gets domain.ErrGameCancelled, propagated bare from
+// domain.Register through app.Service.RegisterForGame unchanged.
+func TestRegisterForGame_RejectsCancelledGame(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
+	})
+	ctx := context.Background()
+
+	fixtureIn := validInput(courtID(1))
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+	if _, err := svc.CancelGame(ctx, g.ID, "host-1"); err != nil {
+		t.Fatalf("fixture game should cancel, got %v", err)
+	}
+
+	_, err = svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-1"})
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want ErrGameCancelled", err)
+	}
+}
+
 // TestCancelRegistration_OwnerSucceeds proves the happy path: the owning
 // player can cancel their own registration, and the persisted status
 // actually flips (not just the in-memory value returned).
@@ -1196,6 +1230,40 @@ func TestJoinWaitlist_GameNotFull(t *testing.T) {
 	_, err = svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-1"})
 	if !errors.Is(err, domain.ErrGameNotFull) {
 		t.Fatalf("got err %v, want ErrGameNotFull", err)
+	}
+}
+
+// TestJoinWaitlist_RejectsCancelledGame is T19.1's app-level proof (closes
+// #212): a Player calling JoinWaitlist against an already cancelled Game
+// gets domain.ErrGameCancelled, propagated bare from domain.JoinWaitlist
+// through app.Service.JoinWaitlist unchanged.
+func TestJoinWaitlist_RejectsCancelledGame(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
+	})
+	ctx := context.Background()
+
+	fixtureIn := validInput(courtID(1))
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+	if _, err := svc.CancelGame(ctx, g.ID, "host-1"); err != nil {
+		t.Fatalf("fixture game should cancel, got %v", err)
+	}
+
+	_, err = svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-1"})
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want ErrGameCancelled", err)
 	}
 }
 

@@ -59,6 +59,13 @@ type WaitlistEntry struct {
 // JoinWaitlist builds a new WaitlistEntry for playerID against game, legal
 // only when the Game is actually full for this player.
 //
+// Cancelled Game (T19.1, closing #212): a Game whose Status is
+// StatusCancelled returns ErrGameCancelled, checked FIRST — before the
+// not-full/already-registered/already-on-waitlist checks below — the
+// identical ordering rationale and identical sentinel domain.Register's own
+// cancelled-Game check uses (see that function's doc comment): the game not
+// being in a bookable state at all is the more fundamental fact.
+//
 // Reuse, not duplication (CLAUDE.md rule 4 / T6.6 ticket instruction):
 // "actually full for this player" is derived from the exact same
 // countActiveRegistrations helper Register itself calls — JoinWaitlist does
@@ -79,6 +86,9 @@ type WaitlistEntry struct {
 // latter derives it from the still-waiting subset instead of Position
 // itself.
 func JoinWaitlist(game Game, existingRegistrations []Registration, existingEntries []WaitlistEntry, playerID string) (WaitlistEntry, error) {
+	if game.Status == StatusCancelled {
+		return WaitlistEntry{}, ErrGameCancelled
+	}
 	if playerID == "" {
 		return WaitlistEntry{}, ErrEmptyPlayerID
 	}
