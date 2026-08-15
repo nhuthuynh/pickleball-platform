@@ -32,12 +32,37 @@ import (
 // 0012_socialplay_guest_capacity.sql T8.7 to a weighted sum) firing — the
 // DB-level mirror of domain.ErrGameFull, closing the race domain.Register's
 // in-process count check alone can't (PR #14 loop-1 review finding).
+//
+// 23503 is a foreign-key violation: the row being written names a parent row
+// that does not exist. This adapter now classifies it on two tables (T17.2,
+// part of #195):
+//   - registrations.game_id uuid NOT NULL REFERENCES games (id) (db/
+//     migrations/0005_socialplay.sql). No CONSTRAINT clause is given, so
+//     Postgres's default naming gives registrations_game_id_fkey — confirmed
+//     by reading the migration rather than assumed (this ticket's own
+//     instruction), and deliberately NOT matched on in translateRegistrationErr
+//     below, for the same reason booking's T15.6 gives (a renamed constraint
+//     must not silently fall back to Internal).
+//   - games.venue_facility_id uuid REFERENCES facilities (id) (db/migrations/
+//     0011_socialplay_facility_fk.sql, an ALTER TABLE ADD COLUMN with no
+//     CONSTRAINT clause either — default naming gives
+//     games_venue_facility_id_fkey).
+//
+// translateMatchErr (T10.4) already classified matches.game_id's own 23503
+// this same way; this ticket extends the pattern to the two paths #195 named
+// as reachable only under a race (app.Service.RegisterForGame's
+// s.games.GetByID and ScheduleGame's facilities.FacilityExists both guard
+// their own insert first, so this arm only fires when the parent is deleted
+// between that read and the insert — see translateRegistrationErr/
+// translateGameErr's own doc comments).
 const (
 	pgUniqueViolation  = "23505"
 	pgCapacityExceeded = "P0001"
-	// pgForeignKeyViolation (T10.4) is matches.game_id's REFERENCES games (id)
-	// constraint firing — see translateMatchErr's doc comment for when this
-	// is actually reachable in practice.
+	// pgForeignKeyViolation (T10.4, extended T17.2) is a REFERENCES
+	// constraint firing on this adapter's writes — see the block comment
+	// above for which tables/columns and translateMatchErr/
+	// translateRegistrationErr/translateGameErr's own doc comments for when
+	// each is actually reachable in practice.
 	pgForeignKeyViolation = "23503"
 )
 
@@ -127,7 +152,33 @@ func (r *GameRepository) ListGames(ctx context.Context, filter port.GameListingF
 	return out, nil
 }
 
+// translateGameErr maps infrastructure failures onto domain errors (CLAUDE.md
+// rule 5). The 23503 arm (T17.2, part of #195) is games.venue_facility_id's
+// REFERENCES facilities (id) constraint firing: VenueFacilityID names a
+// Facility that does not exist at INSERT time. games has exactly one
+// database-level FK column — CourtIDs is a uuid[] with no FK, referential
+// integrity against courts is enforced at the application boundary instead
+// (see 0005_socialplay.sql's own doc comment on why) — so a 23503 from
+// GameRepository.Create is unambiguous: it can only be this constraint.
+//
+// app.Service.ScheduleGame already calls
+// facilities.FacilityExists(ctx, game.VenueFacilityID) before this insert, so
+// in the non-racing case that read's own domain.ErrFacilityNotFound wins and
+// this arm goes unreached. It exists for #195's narrower window: the
+// Facility deleted between that read and this insert, which only the FK can
+// still catch. Before this ticket that 23503 fell through to the wrapped
+// default below and answered codes.Internal via toStatus's default case — a
+// 500 for what is, at the moment it happens, a legitimate client-visible
+// race. Reuses domain.ErrFacilityNotFound rather than a new sentinel: the
+// caller-visible fact is identical to the non-racing case, and it is this
+// context's own existing sentinel for exactly this condition
+// (internal/socialplay/adapter/facilities.Lookup.FacilityExists already
+// returns it) — CLAUDE.md rule 7, one concept, one name.
 func translateGameErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+		return domain.ErrFacilityNotFound
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrGameNotFound
 	}
@@ -267,6 +318,21 @@ func (r *RegistrationRepository) CancelAllActiveForGame(ctx context.Context, gam
 // one error type regardless of which layer caught the capacity conflict
 // (mirrors translateErr's ErrCourtDoubleBooked handling in
 // internal/booking/adapter/postgres/repository.go).
+//
+// The 23503 case (T17.2, part of #195) is registrations.game_id's
+// REFERENCES games (id) constraint firing: GameID names a Game that does not
+// exist at INSERT time. app.Service.RegisterForGame already calls
+// s.games.GetByID(in.GameID) before this insert, so in the non-racing case
+// that read's own domain.ErrGameNotFound wins and this arm goes unreached. It
+// exists for #195's narrower window: the Game deleted between that read and
+// this insert, which only the FK can still catch. Before this ticket that
+// 23503 fell through to the wrapped default below and answered
+// codes.Internal via toStatus's default case — a 500 for what is, at the
+// moment it happens, a legitimate client-visible race. Reuses
+// domain.ErrGameNotFound rather than a new sentinel — the caller-visible
+// fact is identical to the non-racing case (CLAUDE.md rule 7), and it
+// mirrors translateMatchErr's identical 23503 -> ErrGameNotFound mapping on
+// matches.game_id (T10.4) below.
 func translateRegistrationErr(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -275,6 +341,8 @@ func translateRegistrationErr(err error) error {
 			return domain.ErrAlreadyRegistered
 		case pgCapacityExceeded:
 			return domain.ErrGameFull
+		case pgForeignKeyViolation:
+			return domain.ErrGameNotFound
 		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {
