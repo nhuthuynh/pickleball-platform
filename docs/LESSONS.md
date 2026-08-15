@@ -1448,3 +1448,55 @@ re-decided here. `HANDOFF.md`'s T17 row is left untouched by this retro, per
 the ordinary convention (T16's retro's own self-correction was an
 explicitly-argued one-off, not a new standing practice) — T18's Ceremony 1
 corrects it.
+
+## T18 sprint retro
+
+Held as `docs/process/t18-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17 set and CLAUDE.md's **Docs index &
+naming convention**.
+
+Four findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #209–#210, issue #167), with every claim re-derived at
+the retro rather than taken from the PR's own prose — including three
+independent mutation checks re-performed against the actual merged tree
+(removing the already-paid guard, the idempotency-claim short-circuit, and
+reverting `PublicMethods()` to `nil`), each reproducing exactly the failure
+both the PR and its independent reviewer had already claimed. **Sprint
+outcome: the sprint's one ticket (8 points) merged as PR #210 in a normal
+3-minute review window; issue #167 closed 5 seconds after merge, citing the
+PR; the merged-fix sweep reconciles exactly (`9 − 1 + 0 = 8`), a fourth
+consecutive clean sweep.**
+
+**Finding 1** is the merged-fix sweep, clean and reconciled, #167's close
+independently re-verified against the merged code (`PublicMethods()` now
+carries the RPC; `HandleStripeWebhookEvent` is wired end-to-end through
+`cmd/server`). **Finding 2** is the sprint's one real, narrow miss: the PR's
+own summary states `ConfirmOnlinePayment` is "unchanged, byte-for-byte,"
+but the merged diff shows its body was refactored (extracted into a shared
+`captureAndMarkPaid`) — exactly as the ticket's own instruction 6 required.
+Every property the claim was meant to protect does hold (the authorization
+gate, the doc comment, and the RPC handler are all genuinely untouched, line
+for line), so this is an overstatement of an otherwise-true functional
+guarantee, not a defect — caught here, zero shipped consequence, and
+argued in full against DoD item (b), which used the same "byte-for-byte"
+wording the ticket's own instructions made impossible to satisfy literally.
+**Finding 3** independently reproduces three of the PR's six claimed
+mutation checks (the same three the reviewing session's own review comment
+already re-checked), all three matching exactly at every layer, and states
+plainly which three were and were not independently re-verified rather than
+letting the convergence read as broader than it is. **Finding 4** confirms
+D1's footprint held steady (no T18 ticket touches Booking) and D2 had its
+fourth consecutive sprint with nothing to score — the exact outcome T18's
+own Ceremony 1 predicted, now confirmed rather than merely repeated.
+
+Five recommendations bind T19's Ceremony 1 and 2: state a DoD item's
+narrower, achievable form up front when a ticket's own instructions make the
+strongest form of that claim impossible; re-run the merged-fix sweep in full
+regardless of this retro's clean result; a retro re-performing only some of
+a review's claimed mutation checks should say exactly which ones; D1/D2 stay
+with the user, not re-decided here; and a future review should flag a PR's
+own summary prose overstating a claim its own commit message states more
+narrowly and accurately, the same "verify the PR's own claim against its own
+diff" discipline already applied to code. `HANDOFF.md`'s T18 row is left
+untouched by this retro, per the ordinary convention — T19's Ceremony 1
+corrects it.
