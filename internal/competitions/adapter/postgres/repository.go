@@ -33,6 +33,13 @@ import (
 // that actually closes the race domain.Enter's in-process pre-check cannot
 // (two requests both reading a pre-insert snapshot both believe they fit).
 // See the migration's doc comment for the full analysis.
+//
+// pgForeignKeyViolation ("23503") is declared once, in
+// competition_admin_repository.go — this file's translateErr/
+// translateEntryErr (T17.3, part of issue #195) are its second and third
+// users, not its first: competition_admins.competition_id's FK was already
+// translated defensively in T15.3, before #195 was ever filed. Referenced
+// here rather than redeclared.
 const (
 	pgUniqueViolation  = "23505"
 	pgCapacityExceeded = "P0001"
@@ -364,7 +371,40 @@ func (r *Repository) ListCompetitions(ctx context.Context, filter port.Competiti
 
 // translateErr maps Competition-level infrastructure failures onto domain
 // errors (CLAUDE.md rule 5).
+//
+// 23503 (pgForeignKeyViolation) is competitions.venue_facility_id's
+// REFERENCES facilities (id) (db/migrations/0014_competitions.sql:36)
+// firing. app.Service.ScheduleCompetition calls port.FacilityLookup.
+// FacilityExists first (T9.4), so under non-racing operation this INSERT
+// never sees an unknown Facility — this arm is reachable only if the
+// Facility named by a FacilityExists check that already passed is deleted in
+// the narrow window between that check and this INSERT (T17.3, part of
+// issue #195 — the Competitions mirror of #185/T15.6's identical class on
+// bookings.court_id, on a narrower window because a read already guards this
+// one). Confirmed via the live schema (db/migrations/0014_competitions.sql),
+// not assumed from a naming convention.
+//
+// Reuses domain.ErrFacilityNotFound rather than a new sentinel: the
+// caller-visible fact — "this venue_facility_id does not name a real
+// Facility" — is identical to the non-racing case FacilityExists itself
+// returns, and #195's own reasoning is that a race case should read
+// identically to its non-racing twin.
+//
+// This is the only FK reachable through this function's callers. Create's
+// OTHER insert in the same transaction — CreateCompetitionSession,
+// competition_sessions.competition_id REFERENCES competitions (id) ON
+// DELETE CASCADE — cannot race: it references the Competition row that same
+// transaction just inserted, uncommitted, and no concurrent session can see
+// (let alone delete) an uncommitted row. So a bare Code match, with no
+// ConstraintName check, is unambiguous here.
 func translateErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) {
+		switch pgErr.Code {
+		case pgForeignKeyViolation:
+			return domain.ErrFacilityNotFound
+		}
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrCompetitionNotFound
 	}
@@ -390,6 +430,33 @@ func translateErr(err error) error {
 // insert or a :many query, neither of which can produce pgx.ErrNoRows), so
 // there was no wrong-sentinel bug to inherit; this is that branch's first
 // real caller and the entry-scoped sentinel it now returns.
+//
+// 23503 (pgForeignKeyViolation) is competition_entries.competition_id's
+// REFERENCES competitions (id) ON DELETE CASCADE
+// (db/migrations/0014_competitions.sql:150) firing, and becomes
+// domain.ErrCompetitionNotFound — the SAME sentinel app.Service.
+// EnterCompetition's own GetByID guard already returns for a Competition
+// that never existed (T17.3, part of issue #195 — the mirror of #185/T15.6
+// for this table). Reachable only via the narrow window between that guard
+// and this INSERT: GetByID passed, then the Competition was deleted before
+// CreateEntry ran.
+//
+// The ACTUAL raise site deserves a note, checked against the live migration
+// rather than assumed: it is very often NOT the named FK constraint at all.
+// enforce_competition_capacity() (same migration) is a BEFORE INSERT
+// trigger that locks the parent row with `SELECT ... FOR UPDATE` — needed
+// regardless, to serialize the weighted capacity check — and if that lock
+// finds no row, it raises ITS OWN 23503 (`USING ERRCODE =
+// 'foreign_key_violation'`) before Postgres's own implicit FK-check trigger
+// (which fires AFTER the row would be inserted) ever gets a chance to run.
+// CreateCompetitionEntry always writes status 'entered', never 'cancelled'
+// (domain.Enter never constructs a cancelled entry), so the trigger's
+// early-return for an already-cancelled row is never taken on this path,
+// and its existence check runs every time. A manually-raised exception
+// carries no ConstraintName — it isn't a real constraint firing — so
+// matching on Code alone, and never on ConstraintName, is what makes this
+// arm correct for both the trigger's raise and the (practically
+// unreachable, given the above) named constraint alike.
 func translateEntryErr(err error) error {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {
@@ -398,6 +465,8 @@ func translateEntryErr(err error) error {
 			return domain.ErrAlreadyEntered
 		case pgCapacityExceeded:
 			return domain.ErrCompetitionFull
+		case pgForeignKeyViolation:
+			return domain.ErrCompetitionNotFound
 		}
 	}
 	if errors.Is(err, pgx.ErrNoRows) {

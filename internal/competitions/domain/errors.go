@@ -91,6 +91,16 @@ var (
 	// ErrCompetitionNotFound is port.Repository's not-found answer for a
 	// Competition ID that doesn't resolve. Mirrors
 	// socialplay.ErrGameNotFound / booking.ErrBookingNotFound.
+	//
+	// Also produced directly by internal/competitions/adapter/postgres's
+	// translateEntryErr, from a 23503 on competition_entries.competition_id
+	// (T17.3, part of issue #195 — the Competitions mirror of #185/T15.6):
+	// app.Service.EnterCompetition's own GetByID guard already checks the
+	// Competition exists, so this second raise site is reachable only in the
+	// narrow window between that check and CreateEntry's INSERT, where the
+	// Competition was deleted concurrently. Reused rather than a new
+	// sentinel — the caller-visible fact is identical to the non-racing
+	// case above.
 	ErrCompetitionNotFound = errors.New("competitions: competition not found")
 
 	// ErrCourtUnavailable is this context's local translation of the
@@ -132,6 +142,15 @@ var (
 	// app.Service.ScheduleCompetition when a non-empty VenueFacilityID
 	// doesn't refer to a real Facility; T9.4 maps it to a 404-shaped
 	// status.
+	//
+	// Also produced directly by internal/competitions/adapter/postgres's
+	// translateErr, from a 23503 on competitions.venue_facility_id (T17.3,
+	// part of issue #195 — the Competitions mirror of #185/T15.6): the
+	// FacilityExists check above already runs first, so this second raise
+	// site is reachable only in the narrow window between that check and
+	// Repository.Create's INSERT, where the Facility was deleted
+	// concurrently. Reused rather than a new sentinel for the same reason
+	// ErrCompetitionNotFound's twin note gives.
 	ErrFacilityNotFound = errors.New("competitions: facility not found")
 
 	// ErrCompetitionEntryNotFound is port.Repository's not-found answer for

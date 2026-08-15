@@ -417,6 +417,16 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrNotCompetitionHostOrAdmin):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrCompetitionNotFound),
+		// ErrFacilityNotFound is now produced by TWO raise sites (T17.3,
+		// part of issue #195): app.Service.ScheduleCompetition's own
+		// FacilityExists guard, and — since this ticket —
+		// adapter/postgres.translateErr's 23503 arm for the narrow
+		// concurrent-delete race between that guard and the INSERT.
+		// Verified genuinely, not assumed covered: both raise sites produce
+		// the SAME sentinel VALUE, so this one case arm maps both without
+		// change. ErrCompetitionNotFound carries the identical two-raise-site
+		// shape for competition_entries.competition_id / EnterCompetition's
+		// GetByID guard.
 		errors.Is(err, domain.ErrFacilityNotFound),
 		// T15.6 (closes #185): ScheduleCompetition naming a court that does
 		// not exist. Joins the not-found group — the same "this request
