@@ -308,6 +308,50 @@ to local development; closing it needs a dev keypair, a JWKS fixture and a
 token-minting helper, which is its own piece of work and is tracked as **#160**
 rather than being folded into a hardening ticket.
 
+### Amendment (T15.7, 2026-08-15): gap 3 closed — a remote `KeySource` exists
+
+`rs256.RemoteKeys` fetches the provider's JWKS over HTTPS
+(`AUTH_JWKS_URL`), caches it on a TTL, and refreshes early — under a rate
+limit — when a token names a `kid` the cached set does not hold. §3's
+prediction held: it dropped in behind `KeySource` without one line of the
+verification logic changing, and `StaticKeys`/`AUTH_JWKS_FILE` is untouched,
+still serving the local-dev fixture T14.9 built.
+
+The interesting decisions, recorded because they are the ones a future reader
+will want the reasoning for rather than the code:
+
+- **Both `AUTH_JWKS_FILE` and `AUTH_JWKS_URL` set is a startup error**, not a
+  precedence rule. A silent winner means a deployment can believe it follows
+  its live provider while trusting a stale file baked into an image — the
+  "configured-looking and inert" state this ADR already refuses at every other
+  configuration boundary.
+- **The URL must be `https`.** A JWKS fetched over plaintext is
+  attacker-writable, and a verifier trusting an attacker-supplied key set is
+  worse than no verifier, for the reason §3 gives about checks that look real
+  in review and in logs.
+- **Startup fetches once and refuses to start if it fails.** Extends T13.5's
+  reasoning one layer down: a process that cannot reach its provider will deny
+  every authenticated RPC anyway, so the only question is whether it says so at
+  startup or disguises an outage as a fleet of expired-looking credentials.
+- **Fail-closed, with one bounded exception, stated rather than buried.** No
+  cached set and a failed fetch → deny. Unknown `kid`, before or after a
+  refresh → deny. Malformed/oversized/non-200 document → deny, cache
+  untouched. The exception: while the provider is unreachable, a cached set is
+  served past its TTL for a bounded grace window (default 15 min + 1 h), after
+  which every token is denied. Those keys were fetched from the provider over
+  TLS and nothing new is admitted, so this is staleness, not fail-open — but it
+  does mean a key revoked *during* an outage keeps verifying until the window
+  closes, which is precisely why the window has a ceiling.
+- **The unknown-`kid` refresh is rate-limited** (default: at most one fetch
+  attempt per minute, anchored on the last attempt whether it succeeded or
+  not). `kid` is chosen by an unauthenticated caller at the moment it is read,
+  so an unbounded refresh makes this backend an amplifier for a DoS aimed at
+  the identity provider. The stated cost: a rotation whose new `kid` appears
+  inside that window is picked up at the end of it.
+
+Gap 4 (#138) was closed by T13.4's `make test-platform`. All four gaps this
+ADR disclosed are now closed.
+
 ## Consequences
 
 - Six contexts gain a trustworthy identity to migrate to, without any of them

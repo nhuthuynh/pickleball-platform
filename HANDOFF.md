@@ -292,8 +292,11 @@ above.
    Then `TOKEN=$(make -s dev-token)` mints a token those settings accept —
    see `README.md`'s "Authenticated endpoints" and `dev/auth/README.md`. The
    fixture is public, worthless key material for local development only; a
-   deployment points the same three variables at a real identity provider and
-   still fails closed without them.
+   deployment points the same variables at a real identity provider — with
+   `AUTH_JWKS_URL` (its `/.well-known/jwks.json`) in place of
+   `AUTH_JWKS_FILE`, since T15.7 — and still fails closed without them.
+   Setting both `AUTH_JWKS_FILE` and `AUTH_JWKS_URL` is a startup error, not
+   a precedence rule.
 5. Only then start the backlog below.
 
 ## Task backlog (ordered, TDD-first)
