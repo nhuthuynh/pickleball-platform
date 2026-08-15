@@ -20,10 +20,10 @@ func TestGetFacility_ReturnsCourtsAddedViaAddCourt(t *testing.T) {
 	// with a bare context — which also keeps this test honest about the
 	// browse path remaining callable without a token.
 	ctx := context.Background()
-	ownerCtx := ctxAs("owner-1")
+	ownerCtx := ctxAs(ownerSubject)
 	h, _ := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
 	addResp1, err := h.AddCourt(ownerCtx, &facilitiesv1.AddCourtRequest{
 		FacilityId: facility.GetId(),
@@ -66,7 +66,7 @@ func TestGetFacility_ReturnsEmptyCourtsForFacilityWithNone(t *testing.T) {
 	ctx := context.Background()
 	h, _ := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
 	getResp, err := h.GetFacility(ctx, &facilitiesv1.GetFacilityRequest{FacilityId: facility.GetId()})
 	if err != nil {

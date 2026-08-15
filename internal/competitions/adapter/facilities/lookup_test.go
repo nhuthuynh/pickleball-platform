@@ -105,6 +105,20 @@ type stubIDs struct{}
 
 func (stubIDs) NewID() string { return "unused" }
 
+// stubIdentityLookup satisfies facilitiesapp.NewService's port.IdentityLookup,
+// which Facilities acquired in T13.3 (ADR-0014's subject -> User.ID seam).
+//
+// Nothing in this file resolves an actor: this adapter exercises Facilities'
+// *read* side only, which sits below the seam and is handed no subject. The
+// stub therefore resolves nothing, so a future change that made one of these
+// reads depend on actor resolution would fail here rather than pass against
+// an accommodating fake.
+type stubIdentityLookup struct{}
+
+func (stubIdentityLookup) UserIDBySubject(_ context.Context, _ string) (string, error) {
+	return "", facilitiesdomain.ErrUserNotFound
+}
+
 // newLookup builds the adapter over a REAL facilitiesapp.Service, seeded with
 // one Facility, and returns the repo fake so a test can fail the upstream.
 func newLookup(t *testing.T) (*competitionsfacilities.Lookup, *inMemoryRepo) {
@@ -117,7 +131,7 @@ func newLookup(t *testing.T) (*competitionsfacilities.Lookup, *inMemoryRepo) {
 	}
 	repo.facilities[f.ID] = f
 
-	return competitionsfacilities.NewLookup(facilitiesapp.NewService(repo, stubIDs{})), repo
+	return competitionsfacilities.NewLookup(facilitiesapp.NewService(repo, stubIdentityLookup{}, stubIDs{})), repo
 }
 
 // TestFacilityExists covers the adapter's whole surface: the yes answer, and

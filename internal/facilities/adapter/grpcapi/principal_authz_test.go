@@ -260,6 +260,15 @@ func TestEnforcedRPCs_WireActorClaimingOwnershipIsIgnored(t *testing.T) {
 // attacker would have minted a Facility owned by someone else — the
 // identity-squatting shape T12.9 closes for identity_users, one table over.
 // The Facility must come back owned by the verified caller.
+//
+// T13.3 changed what "owned by the verified caller" is spelled as, and the
+// change is the point rather than incidental. This assertion used to expect
+// attackerSubject — the raw `sub` claim — which is a value
+// facilities.owner_id (`uuid NOT NULL`) cannot hold; that it passed is
+// precisely how #154 stayed invisible. It now expects attackerUserID, the
+// resolved identity_users.id, because ADR-0014 translates the subject at the
+// actor() funnel. The property under test is unchanged: the *caller* owns the
+// Facility, and the wire field is ignored.
 func TestCreateFacility_OwnerComesFromPrincipalNotWire(t *testing.T) {
 	h, _ := newTestHandler()
 
@@ -272,7 +281,11 @@ func TestCreateFacility_OwnerComesFromPrincipalNotWire(t *testing.T) {
 		t.Fatalf("CreateFacility with a valid principal should succeed: %v", err)
 	}
 
-	if got := resp.GetFacility().GetOwnerId(); got != attackerSubject {
-		t.Errorf("Facility.OwnerId = %q, want %q — owner_id was taken from the wire, so a caller can create a Facility owned by someone else", got, attackerSubject)
+	got := resp.GetFacility().GetOwnerId()
+	if got == ownerSubject || got == ownerUserID {
+		t.Fatalf("Facility.OwnerId = %q — owner_id was taken from the wire, so a caller can create a Facility owned by someone else", got)
+	}
+	if got != attackerUserID {
+		t.Errorf("Facility.OwnerId = %q, want %q (the verified caller's resolved User.ID)", got, attackerUserID)
 	}
 }

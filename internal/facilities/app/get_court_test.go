@@ -25,7 +25,7 @@ func TestGetCourt(t *testing.T) {
 
 	ctx := context.Background()
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
 	owner := seqUUID(900)
 	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{
