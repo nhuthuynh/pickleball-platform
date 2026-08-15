@@ -84,6 +84,29 @@ message Payment {
 // caller can no longer claim to *be* the Host, but can still assert who the
 // Host is. Tracked as a GitHub issue by T12.8 rather than left in prose.
 //
+// T15.5 finding, NOT a fix (fields below are deliberately NOT marked
+// [deprecated = true] — they are still the only mechanism that authorizes an
+// assigned Game/Competition Admin on this RPC, so marking them "ignored"
+// would be false): T15.5 built both admin stores' durable *existence* into a
+// consumable read-side port (internal/payments/port.{GameAdminReader,
+// CompetitionAdminReader}, adapters in internal/payments/adapter/
+// {socialplay,competitions}, both tested against the real Social Play /
+// Competitions app.Service), but could not wire either into
+// authorizeOfflineRecording: ListGameAdmins/ListCompetitionAdmins need a
+// gameID/competitionID, and neither this request nor
+// app.RecordOfflinePaymentInput carries one for a
+// PAYABLE_TYPE_REGISTRATION/PAYABLE_TYPE_NO_SHOW_FEE/
+// PAYABLE_TYPE_COMPETITION_ENTRY payable — only payable_id (the
+// Registration's or CompetitionEntry's own id). Resolving "the Game/
+// Competition this payable belongs to" is a read neither Social Play nor
+// Competitions exports today (see internal/payments/port.GameAdminReader's
+// doc comment for the full reasoning, and issue #149's "what closing it
+// looks like" section, which already names this exact resolution step as
+// the harder, still-open half of this gap — independent of whether an
+// admin store exists). Until a follow-up ticket adds that resolution read,
+// assigned_game_admin_user_ids / assigned_competition_admin_user_ids below
+// remain exactly as caller-supplied and forgeable as before this PR.
+//
 // booking_host_id / game_host_id / assigned_game_admin_user_ids are the
 // caller-supplied ownership/assignment facts app.RecordOfflinePaymentInput
 // needs — internal/payments has no live join to Booking's or Social
@@ -139,6 +162,14 @@ message RecordOfflinePaymentResponse {
 // require no actor at all, exactly as before T10.6 (see
 // app.CreateOnlinePaymentInput's doc comment for why extending this to
 // those pre-existing types is out of this ticket's scope).
+//
+// T15.5 sibling-sweep finding (§A15): assigned_competition_admin_user_ids
+// here is the same caller-supplied-entitlement-list pattern
+// RecordOfflinePaymentRequest's two admin fields are, reachable through
+// authorizeOnlineCreation rather than authorizeOfflineRecording, and it is
+// blocked on the identical unresolved gap (see
+// RecordOfflinePaymentRequest's T15.5 finding above) — not fixed here,
+// named because T15.5's instructions require reporting siblings either way.
 message CreateOnlinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
@@ -194,7 +225,9 @@ message ConfirmOnlinePaymentResponse {
 // facts RecordOfflinePaymentRequest carries, reused unchanged — a refund
 // is the same Host/Game-Admin action as recording an offline payment, and
 // T12.3 deliberately does not introduce a second authorization concept
-// for it.
+// for it. This request's assigned_game_admin_user_ids carries the identical
+// T15.5 finding RecordOfflinePaymentRequest's own comment records above —
+// not [deprecated = true], for the same reason.
 //
 // Scope: `booking` and `registration` payables only. A
 // PAYABLE_TYPE_COMPETITION_ENTRY Payment is rejected — Competitions

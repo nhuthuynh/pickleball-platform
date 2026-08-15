@@ -291,6 +291,23 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 // directly, rather than this package querying another context's
 // repository:
 //
+// T15.5 finding, NOT a fix (kept here rather than only on the proto, since
+// this struct — not the wire request — is what a future edit would actually
+// touch): both durable admin stores now exist and are readable
+// (internal/payments/port.GameAdminReader / CompetitionAdminReader, built
+// and tested this ticket against the real Social Play / Competitions
+// app.Service), but neither can be consulted from here yet. Both take a
+// gameID/competitionID, and this struct never carries one for the payable
+// types that would need it — only PayableID (the Registration's or
+// CompetitionEntry's own id, not its parent's). Resolving that parent id is
+// a read neither context exports today (see GameAdminReader's doc comment
+// for the full reasoning, and issue #149, which already names this
+// resolution step, independent of the admin stores' existence, as the
+// harder half of this gap). AssignedGameAdminUserIDs and
+// AssignedCompetitionAdminUserIDs below are therefore left exactly as they
+// were before this ticket — still caller-supplied, still forgeable — rather
+// than replaced with a check this package cannot yet perform correctly.
+//
 //   - BookingHostID is the user id of the Host who owns the Booking's
 //     Game/Competition, required for a PayableTypeBooking payable. A
 //     Booking with no Host at all (a direct court hire —
@@ -597,6 +614,11 @@ func (s *Service) reconcileCompetitionEntryPaymentStatus(ctx context.Context, p 
 // can't be expressed as a method on domain.Payment the way Cancel is a
 // method on Registration.
 //
+// STILL compares against the caller-supplied AssignedGameAdminUserIDs /
+// AssignedCompetitionAdminUserIDs fields, not against
+// port.GameAdminReader/CompetitionAdminReader, despite both now existing —
+// see RecordOfflinePaymentInput's T15.5 finding above for why.
+//
 //   - PayableTypeBooking: legal only when ActorUserID matches
 //     BookingHostID, and BookingHostID must be non-empty (a Host-less
 //     Booking is out of scope for T6.3, see RecordOfflinePaymentInput's
@@ -700,6 +722,13 @@ func authorizeOnlineConfirmation(p domain.Payment, actorUserID string) error {
 // branch exactly — the entrant, or an assigned Competition Admin — since
 // both are the same underlying rule applied to the two different points a
 // Payment can be created at (online-intent-creation vs. offline-recording).
+//
+// T15.5 sibling-sweep finding (§A15): AssignedCompetitionAdminUserIDs below
+// is the same caller-supplied-entitlement-list pattern
+// authorizeOfflineRecording's admin branches are, and is blocked on the
+// identical unresolved gap (RecordOfflinePaymentInput's T15.5 finding) —
+// not fixed by this ticket, named because the sweep is required to report
+// every instance found.
 func authorizeOnlineCreation(in CreateOnlinePaymentInput) error {
 	if in.PayableType != domain.PayableTypeCompetitionEntry {
 		return nil
