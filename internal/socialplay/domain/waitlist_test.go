@@ -147,6 +147,43 @@ func TestJoinWaitlist_AlreadyOnWaitlist(t *testing.T) {
 	}
 }
 
+// TestJoinWaitlist_RejectsCancelledGame is T19.1's core proof (closes #212):
+// a Player can no longer join the waitlist of a Game that is already
+// cancelled, reusing the identical domain.ErrGameCancelled sentinel
+// domain.Register's own cancelled-Game rejection uses.
+func TestJoinWaitlist_RejectsCancelledGame(t *testing.T) {
+	t.Parallel()
+
+	g := fixtureGame(t, 4)
+	g.Status = domain.StatusCancelled
+
+	_, err := domain.JoinWaitlist(g, nil, nil, "player-1")
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrGameCancelled)
+	}
+}
+
+// TestJoinWaitlist_CancelledGameCheckedBeforeOtherChecks proves the
+// cancelled-Game check runs first, ahead of JoinWaitlist's own
+// not-full/already-registered/already-on-waitlist checks — same ordering
+// rationale as Register's identical proof. The scenario below (capacity 1,
+// one active registration) is JoinWaitlist's own happy-path setup and would
+// otherwise succeed; the cancelled-game rejection must win instead.
+func TestJoinWaitlist_CancelledGameCheckedBeforeOtherChecks(t *testing.T) {
+	t.Parallel()
+
+	g := fixtureGame(t, 1)
+	g.Status = domain.StatusCancelled
+	existingRegs := []domain.Registration{
+		{ID: "r1", GameID: "g1", PlayerID: "player-1", Status: domain.RegistrationStatusRegistered},
+	}
+
+	_, err := domain.JoinWaitlist(g, existingRegs, nil, "player-2")
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want %v (cancelled-game check must run before the not-full/already-registered/already-on-waitlist checks)", err, domain.ErrGameCancelled)
+	}
+}
+
 // TestJoinWaitlist_PositionCountsNonCancelledEntries proves Position is
 // len(existing non-cancelled entries) + 1 — expired/promoted entries still
 // count (per the doc comment: Position is queue-join order/history, not a

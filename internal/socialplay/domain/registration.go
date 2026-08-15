@@ -80,6 +80,16 @@ type Registration struct {
 // the invariants that only need the Game and its other registrations (not
 // infrastructure) to check:
 //
+//   - cancelled Game: a Game whose Status is StatusCancelled returns
+//     ErrGameCancelled (T19.1, closing #212), checked FIRST, before every
+//     other check below — a Game that is no longer in a bookable state at
+//     all is the more fundamental fact, the same "more specific/more
+//     fundamental wins" ordering rationale this function's other checks
+//     already follow (see the double-registration bullet below). Reuses the
+//     existing ErrGameCancelled sentinel (already used by
+//     Game.EnsureNotCancelled / RecordMatchResult's precondition, already
+//     mapped to codes.FailedPrecondition at the gRPC boundary) rather than a
+//     new error concept.
 //   - guest allowance: guestCount must be >= 0 and <= game.GuestAllowance
 //     (ErrGuestAllowanceExceeded otherwise). Checked before the capacity
 //     check below, since a caller who asked for more guests than this Game
@@ -109,6 +119,9 @@ type Registration struct {
 // an id parameter (see T5.2's ticket-specified signature) — assigning a
 // durable ID is the app/adapter layer's job at persistence time.
 func Register(game Game, existing []Registration, playerID string, guestCount int) (Registration, error) {
+	if game.Status == StatusCancelled {
+		return Registration{}, ErrGameCancelled
+	}
 	if playerID == "" {
 		return Registration{}, ErrEmptyPlayerID
 	}

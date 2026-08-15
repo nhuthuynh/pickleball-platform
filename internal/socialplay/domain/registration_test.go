@@ -375,6 +375,61 @@ func TestRegister_WeightedCapacity_ExactFitAccepted(t *testing.T) {
 	}
 }
 
+// TestRegister_RejectsCancelledGame is T19.1's core proof (closes #212): a
+// Player can no longer register for a Game that is already cancelled.
+// domain.ErrGameCancelled is reused rather than a new sentinel — it already
+// exists (RecordMatchResult's precondition) and is already mapped to
+// codes.FailedPrecondition at the gRPC boundary (adapter/grpcapi.toStatus).
+func TestRegister_RejectsCancelledGame(t *testing.T) {
+	t.Parallel()
+
+	g := fixtureGame(t, 4)
+	g.Status = domain.StatusCancelled
+
+	_, err := domain.Register(g, nil, "player-1", 0)
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrGameCancelled)
+	}
+}
+
+// TestRegister_CancelledGameCheckedBeforeCapacityAndDoubleRegistration proves
+// the cancelled-Game check runs first, ahead of the double-registration and
+// capacity checks (ticket instruction 1's stated ordering rationale: "the
+// game not being in a bookable state at all is the more fundamental fact").
+// The scenario below would otherwise trip ErrAlreadyRegistered (this player
+// already holds the game's one slot) — the cancelled-game rejection must win
+// instead.
+func TestRegister_CancelledGameCheckedBeforeCapacityAndDoubleRegistration(t *testing.T) {
+	t.Parallel()
+
+	g := fixtureGame(t, 1)
+	g.Status = domain.StatusCancelled
+	existing := []domain.Registration{
+		{ID: "r1", GameID: "g1", PlayerID: "player-1", Status: domain.RegistrationStatusRegistered},
+	}
+
+	_, err := domain.Register(g, existing, "player-1", 0)
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want %v (cancelled-game check must run before double-registration/capacity)", err, domain.ErrGameCancelled)
+	}
+}
+
+// TestRegister_CancelledGameCheckedBeforeGuestAllowance is the same ordering
+// proof against the guest-allowance check: guestCount here (5) exceeds the
+// Game's GuestAllowance (0), which would otherwise trip
+// ErrGuestAllowanceExceeded — the cancelled-game rejection must still win.
+func TestRegister_CancelledGameCheckedBeforeGuestAllowance(t *testing.T) {
+	t.Parallel()
+
+	g := fixtureGameWithGuests(t, 4, 0)
+	g.Status = domain.StatusCancelled
+
+	_, err := domain.Register(g, nil, "player-1", 5)
+	if !errors.Is(err, domain.ErrGameCancelled) {
+		t.Fatalf("got err %v, want %v (cancelled-game check must run before guest-allowance)", err, domain.ErrGameCancelled)
+	}
+}
+
 // TestRegister_GuestAllowance is the required table-driven boundary
 // coverage (T8.6): GuestAllowance == 0 rejects any guest, GuestCount
 // exactly at the allowance boundary is allowed, one over is rejected, and a
