@@ -274,6 +274,26 @@ func (r *fakeRegistrationRepository) UpdatePaymentStatus(_ context.Context, id s
 	return reg, nil
 }
 
+// CancelAllActiveForGame mirrors the real Postgres adapter's contract
+// (T16.3): bulk-cancels every non-cancelled registration scoped to gameID
+// and returns the count actually transitioned. An already-cancelled
+// registration is left untouched and not counted, mirroring the real
+// query's `WHERE ... AND status <> 'cancelled'` clause — this fake would
+// otherwise silently disagree with the production adapter about what
+// "actually transitioned" means.
+func (r *fakeRegistrationRepository) CancelAllActiveForGame(_ context.Context, gameID string) (int, error) {
+	n := 0
+	for id, reg := range r.registrations {
+		if reg.GameID != gameID || reg.Status == domain.RegistrationStatusCancelled {
+			continue
+		}
+		reg.Status = domain.RegistrationStatusCancelled
+		r.registrations[id] = reg
+		n++
+	}
+	return n, nil
+}
+
 // fakeWaitlistRepository is a minimal in-memory port.WaitlistRepository
 // fake, mirroring fakeRegistrationRepository's shape. PromoteNext and
 // ExpirePromotion are implemented as straightforward in-memory
@@ -2255,5 +2275,196 @@ func TestCancelGame_AuthorizationPrecedesStatusCheck(t *testing.T) {
 	}
 	if _, err := svc.CancelGame(ctx, g.ID, "not-the-host"); !errors.Is(err, domain.ErrNotGameHost) {
 		t.Fatalf("got err %v, want ErrNotGameHost (authorization must be checked before status)", err)
+	}
+}
+
+// --- T16.3: cancelling a Game cascades to its active Registrations -------
+// (partial fix for #124; the Competitions mirror lives in
+// internal/competitions/app/service_test.go's identically-purposed tests)
+
+// TestCancelGame_CancelsActiveRegistrations is T16.3's core proof:
+// cancelling a Game must cascade to its active Registrations, not just
+// flip the Game's own status and leave every registered player looking
+// "registered" for something that no longer exists.
+func TestCancelGame_CancelsActiveRegistrations(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
+	})
+	ctx := context.Background()
+
+	fixtureIn := validInput(courtID(1))
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+
+	first, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-1"})
+	if err != nil {
+		t.Fatalf("fixture registration 1 failed: %v", err)
+	}
+	second, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-2"})
+	if err != nil {
+		t.Fatalf("fixture registration 2 failed: %v", err)
+	}
+
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+		t.Fatalf("CancelGame failed: %v", err)
+	}
+
+	if got := registrations.registrations[first.ID].Status; got != domain.RegistrationStatusCancelled {
+		t.Fatalf("registration 1 Status = %q after CancelGame, want cancelled", got)
+	}
+	if got := registrations.registrations[second.ID].Status; got != domain.RegistrationStatusCancelled {
+		t.Fatalf("registration 2 Status = %q after CancelGame, want cancelled", got)
+	}
+}
+
+// TestCancelGame_LeavesRegistrationPaymentStatusAlone proves the cascade
+// only touches Status, never PaymentStatus (T16.3 instruction 4: this
+// ticket does not call RefundPayment or decide the refund question) — a
+// paid registration stays marked paid even once its Status flips to
+// cancelled, so a support/admin view can still tell "this player paid,
+// then the game was cancelled" from "this player never paid".
+func TestCancelGame_LeavesRegistrationPaymentStatusAlone(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
+	})
+	ctx := context.Background()
+
+	fixtureIn := validInput(courtID(1))
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+
+	reg, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-1"})
+	if err != nil {
+		t.Fatalf("fixture registration failed: %v", err)
+	}
+	if err := svc.MarkRegistrationPaymentStatus(ctx, reg.ID, domain.PaymentStatusPaid); err != nil {
+		t.Fatalf("fixture MarkRegistrationPaymentStatus failed: %v", err)
+	}
+
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+		t.Fatalf("CancelGame failed: %v", err)
+	}
+
+	got := registrations.registrations[reg.ID]
+	if got.Status != domain.RegistrationStatusCancelled {
+		t.Fatalf("Status = %q, want cancelled", got.Status)
+	}
+	if got.PaymentStatus != domain.PaymentStatusPaid {
+		t.Fatalf("PaymentStatus = %q, want paid (unchanged) — the cascade must not touch payment state", got.PaymentStatus)
+	}
+}
+
+// TestCancelGame_AlreadyCancelledRegistrationNotRecancelled proves a
+// registration a player cancelled before the Host cancelled the Game is
+// left alone by the cascade — CancelAllActiveForGame's WHERE clause is
+// `status <> 'cancelled'`, so this test would catch a fake or a query that
+// swept every registration indiscriminately (and would over-count the
+// affected-rows total the real query returns).
+func TestCancelGame_AlreadyCancelledRegistrationNotRecancelled(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
+	})
+	ctx := context.Background()
+
+	fixtureIn := validInput(courtID(1))
+	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
+	g, err := svc.ScheduleGame(ctx, fixtureIn, newFakeReservation(), newFakeFacilityLookup())
+	if err != nil {
+		t.Fatalf("fixture game should schedule, got %v", err)
+	}
+
+	reg, err := svc.RegisterForGame(ctx, app.RegisterForGameInput{GameID: g.ID, PlayerID: "player-1"})
+	if err != nil {
+		t.Fatalf("fixture registration failed: %v", err)
+	}
+	if _, err := svc.CancelRegistration(ctx, reg.ID, "player-1"); err != nil {
+		t.Fatalf("fixture pre-cancel failed: %v", err)
+	}
+
+	n, err := registrations.CancelAllActiveForGame(ctx, g.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("CancelAllActiveForGame transitioned %d rows, want 0 (the only registration was already cancelled)", n)
+	}
+}
+
+// TestCancelGame_DoesNotPromoteWaitlist is T16.3 instruction 5's required
+// proof, not merely an assertion: cancelling a full Game with a waiting
+// entry must NOT promote that entry. CancelGame never calls
+// promoteNextWaiting (contrast CancelRegistration, which does, because
+// that Game is still live and the freed slot is real) — this test checks
+// that behaviour against the actual code rather than trusting the doc
+// comment.
+func TestCancelGame_DoesNotPromoteWaitlist(t *testing.T) {
+	t.Parallel()
+
+	games := newFakeGameRepository()
+	registrations := newFakeRegistrationRepository()
+	waitlist := newFakeWaitlistRepository()
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
+	})
+	ctx := context.Background()
+
+	g := fixtureFullGame(t, ctx, svc, 1)
+
+	entry, err := svc.JoinWaitlist(ctx, app.JoinWaitlistInput{GameID: g.ID, PlayerID: "player-waiting"})
+	if err != nil {
+		t.Fatalf("fixture waitlist join failed: %v", err)
+	}
+	if entry.Status != domain.WaitlistStatusWaiting {
+		t.Fatalf("fixture precondition: entry.Status = %q, want waiting", entry.Status)
+	}
+
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+		t.Fatalf("CancelGame failed: %v", err)
+	}
+
+	stored, err := waitlist.GetByID(ctx, entry.ID)
+	if err != nil {
+		t.Fatalf("re-fetching the waitlist entry failed: %v", err)
+	}
+	if stored.Status != domain.WaitlistStatusWaiting {
+		t.Fatalf("waitlist entry Status = %q after cancelling its Game, want waiting (unchanged) — a cancelled Game must not promote anyone", stored.Status)
 	}
 }

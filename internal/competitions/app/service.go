@@ -570,20 +570,35 @@ func (s *Service) MarkCompetitionEntryPaymentStatus(ctx context.Context, entryID
 // identity: real authentication remains HANDOFF.md's open Auth item and
 // this check must not be read as closing it.
 //
-// KNOWN GAP, inherited from domain.Competition.Cancel and restated here
-// because this is the layer that could close it: cancelling does NOT
-// release the Competition's court reservations or cancel its entries. The
-// Bookings its sessions hold stay held. Releasing them is mechanically
-// straightforward through the CourtReservation port already wired to this
-// Service, but it needs the Competition's booking IDs, which nothing
-// currently persists — port.Repository.Create stores the Competition and
-// its sessions, not the Booking IDs the reservation loop received back.
-// Wiring that is a schema question (T9.4 owns the tables) plus a decision
-// about what a cancelled Competition's paid entries mean, so it is left
-// visibly undone rather than half-implemented here. Entering a cancelled
-// Competition is already blocked (domain.Enter), so the gap is "courts stay
-// reserved and existing entries keep their status", not "a cancelled
-// Competition still takes entries".
+// T16.3 CASCADE (closes the mirrored Competitions gap found this
+// ceremony — Social Play's identical CancelGame gap is #124's namesake and
+// this ticket's other half): once the Competition's own status write
+// persists, this method bulk-cancels every active CompetitionEntry through
+// s.competitions.CancelAllActiveForCompetition — ONE atomic statement, run
+// AFTER the parent's status write succeeds, for the identical reason
+// socialplay's app.Service.CancelGame documents: cancelling the parent
+// before cascading to its children means a failure partway through never
+// leaves an ACTIVE Competition with cancelled entries. The reverse order
+// would create exactly that inconsistency. A cascade failure is surfaced
+// as an error from this call rather than swallowed.
+//
+// STILL A KNOWN GAP, narrower than before: cancelling a Competition does
+// NOT release the court Bookings its sessions reserved (the other half of
+// this ticket's namesake issue, #124, for Social Play — Competitions never
+// had its own issue, since the gap was only found this ceremony). The
+// Bookings its sessions hold stay held. Releasing them would call
+// booking's app.Service.CancelBooking, whose signature ADR-0015's still-open
+// D1 may yet change (adding an actor parameter is one of D1's four
+// options); building against a signature under active escalation means
+// either guessing D1 or shipping code that may need rewriting. Entering a
+// cancelled Competition is already blocked (domain.Enter), so the
+// remaining gap is "courts stay reserved", not "a cancelled Competition
+// still takes entries" — the entries themselves are now cancelled too.
+//
+// Also DELIBERATELY UNTOUCHED: refunds. This method cancels the
+// CompetitionEntry only; it never calls RefundPayment and does not answer
+// whether a future ticket should (mirrors CancelGame's identical scoping
+// note).
 func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUserID string) (domain.Competition, error) {
 	// Same T10.7 guard as EnterCompetition above, for the same reason: this
 	// method calls GetByID(competitionID) first, before EnsureHost even
@@ -607,7 +622,19 @@ func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUse
 		return domain.Competition{}, err
 	}
 
-	return s.competitions.UpdateStatus(ctx, competition.ID, competition.Status)
+	cancelled, err := s.competitions.UpdateStatus(ctx, competition.ID, competition.Status)
+	if err != nil {
+		return domain.Competition{}, err
+	}
+
+	// T16.3 cascade: the parent's status write above has already
+	// committed, so this bulk-cancel runs strictly after it — see the doc
+	// comment above for the ordering rationale.
+	if _, err := s.competitions.CancelAllActiveForCompetition(ctx, cancelled.ID); err != nil {
+		return cancelled, fmt.Errorf("competitions: cancelling active entries for competition %s: %w", cancelled.ID, err)
+	}
+
+	return cancelled, nil
 }
 
 // AssignCompetitionAdminInput is the use-case input for assigning a

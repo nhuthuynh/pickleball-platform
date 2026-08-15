@@ -77,6 +77,14 @@ func (f *fakeRepository) UpdateEntryPaymentStatus(_ context.Context, id string, 
 	return e, nil
 }
 
+// CancelAllActiveForCompetition (T16.3) is unexercised here — this file's
+// MarkCompetitionEntryPaymentStatus test never cancels a Competition — so
+// it returns a zero value, matching the never-exercised-dependency stubs
+// below.
+func (f *fakeRepository) CancelAllActiveForCompetition(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 // --- other never-exercised ServiceOptions dependencies -------------------
 //
 // MarkCompetitionEntryPaymentStatus never touches any of these, but

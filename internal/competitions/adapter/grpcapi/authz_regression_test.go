@@ -174,6 +174,23 @@ func (r *fakeRepo) UpdateEntryPaymentStatus(_ context.Context, id string, status
 	return e, nil
 }
 
+// CancelAllActiveForCompetition mirrors the real Postgres adapter's
+// contract (T16.3): bulk-cancels every non-cancelled entry scoped to
+// competitionID.
+func (r *fakeRepo) CancelAllActiveForCompetition(_ context.Context, competitionID string) (int, error) {
+	n := 0
+	for _, id := range r.entryOrder {
+		e := r.entries[id]
+		if e.CompetitionID != competitionID || e.Status == domain.EntryStatusCancelled {
+			continue
+		}
+		e.Status = domain.EntryStatusCancelled
+		r.entries[id] = e
+		n++
+	}
+	return n, nil
+}
+
 // ListCompetitions mirrors the real Postgres adapter's contract: scheduled
 // Competitions only, each paired with its WEIGHTED SpotsLeft. It delegates
 // that computation to domain.SpotsLeft — the same rule the production SQL

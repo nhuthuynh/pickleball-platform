@@ -121,6 +121,13 @@ func (f *fakeRegistrations) UpdatePaymentStatus(_ context.Context, id string, st
 	return r, nil
 }
 
+// CancelAllActiveForGame (T16.3) is unexercised by this test — the
+// Payments-context updater this file tests never cancels a Game — so,
+// like the stub methods below, it returns a zero value.
+func (f *fakeRegistrations) CancelAllActiveForGame(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 // fakeWaitlist is a minimal, empty-always port.WaitlistRepository stub,
 // mirroring internal/socialplay/adapter/grpcapi/authz_regression_test.go's
 // fakeWaitlistRepo: MarkRegistrationPaymentStatus (this package's own

@@ -290,6 +290,24 @@ func (r *Repository) UpdateEntryPaymentStatus(ctx context.Context, id string, st
 	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus), nil
 }
 
+// CancelAllActiveForCompetition implements
+// port.Repository.CancelAllActiveForCompetition (T16.3, closes the
+// mirrored Competitions gap found this ceremony): the bulk cascade
+// app.Service.CancelCompetition fires after the Competition's own status
+// write persists. One statement
+// (db/queries/competitions.sql's CancelAllActiveEntriesForCompetition),
+// scoped to status <> 'cancelled', so an entry a player already withdrew
+// before the Host cancelled is left untouched. :execrows hands back the
+// number of rows actually transitioned, which this method surfaces as an
+// int — the count app.Service reports back to its own caller.
+func (r *Repository) CancelAllActiveForCompetition(ctx context.Context, competitionID string) (int, error) {
+	n, err := r.q.CancelAllActiveEntriesForCompetition(ctx, mustUUID(competitionID))
+	if err != nil {
+		return 0, translateEntryErr(err)
+	}
+	return int(n), nil
+}
+
 // ListCompetitions is the browse/list read path. SpotsLeft is computed by
 // the query itself, using the weighted formula (see
 // db/queries/competitions.sql's ListCompetitions and domain.SpotsLeft), so

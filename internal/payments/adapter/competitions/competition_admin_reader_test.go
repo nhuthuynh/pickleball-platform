@@ -68,6 +68,13 @@ func (f *adminFakeRepository) UpdateEntryPaymentStatus(context.Context, string, 
 	return competitionsdomain.CompetitionEntry{}, competitionsdomain.ErrCompetitionEntryNotFound
 }
 
+// CancelAllActiveForCompetition (T16.3) is unexercised by this test — the
+// Payments-context reader this file tests never cancels a Competition —
+// so, like every other stub above, it returns a zero value.
+func (f *adminFakeRepository) CancelAllActiveForCompetition(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 // adminFakeCompetitionAdmins is a minimal but FUNCTIONAL port.
 // CompetitionAdminRepository — the in-memory store this test actually
 // exercises Assign/Revoke/ListCompetitionAdmins against. Mirrors
