@@ -144,35 +144,61 @@ func TestNewGame_EmptyVenueFacilityIDAccepted(t *testing.T) {
 // --- T10.4: EnsureHostOrGameAdmin / EnsureNotCancelled ---------------------
 
 // TestGame_EnsureHostOrGameAdmin is the required table-driven boundary
-// coverage for RecordMatchResult's object-level (BOLA) authorization check:
-// the Host is always allowed, an assigned Game Admin is allowed, and every
-// other actor -- including an empty one, even against a Game with an empty
-// HostID -- is rejected with the single, flat ErrNotGameHostOrAdmin
-// sentinel (mirrors competitions.Competition.EnsureHost's table shape).
+// coverage for the object-level (BOLA) authorization check RecordMatchResult
+// (T10.4) and the roster read (T14.5) share: the Host is always allowed, an
+// assigned Game Admin is allowed, and every other actor -- including an empty
+// one, even against a Game with an empty HostID -- is rejected with the single,
+// flat ErrNotGameHostOrAdmin sentinel (mirrors
+// competitions.Competition.EnsureHost's table shape).
+//
+// T14.5 changed the second parameter from []string to []GameAdmin. The rows
+// below therefore hold *resolved store rows* rather than a caller's assertion,
+// and the cross-Game row is new: a GameAdmin carries the GameID its authority
+// is scoped to, which a bare string never could.
 func TestGame_EnsureHostOrGameAdmin(t *testing.T) {
 	t.Parallel()
 
+	const thisGame = "game-under-test"
+	admin := func(userID string) domain.GameAdmin {
+		return domain.GameAdmin{GameID: thisGame, UserID: userID, AssignedBy: "host-1"}
+	}
+
 	tests := []struct {
-		name           string
-		hostID         string
-		actorUserID    string
-		assignedAdmins []string
-		wantErr        error
+		name        string
+		hostID      string
+		actorUserID string
+		assigned    []domain.GameAdmin
+		wantErr     error
 	}{
 		{"host is allowed", "host-1", "host-1", nil, nil},
-		{"assigned game admin is allowed", "host-1", "admin-2", []string{"admin-1", "admin-2"}, nil},
-		{"mismatched actor is rejected", "host-1", "random-player", []string{"admin-1"}, domain.ErrNotGameHostOrAdmin},
-		{"empty actor is rejected", "host-1", "", []string{"admin-1"}, domain.ErrNotGameHostOrAdmin},
+		{"assigned game admin is allowed", "host-1", "admin-2", []domain.GameAdmin{admin("admin-1"), admin("admin-2")}, nil},
+		{"host is allowed even with no admins assigned", "host-1", "host-1", []domain.GameAdmin{}, nil},
+		{"mismatched actor is rejected", "host-1", "random-player", []domain.GameAdmin{admin("admin-1")}, domain.ErrNotGameHostOrAdmin},
+		{"empty actor is rejected", "host-1", "", []domain.GameAdmin{admin("admin-1")}, domain.ErrNotGameHostOrAdmin},
 		{"empty actor against an empty host is still rejected", "", "", nil, domain.ErrNotGameHostOrAdmin},
-		{"a blank entry in the admin list never matches", "host-1", "", []string{""}, domain.ErrNotGameHostOrAdmin},
+		// A blank stored UserID must not match a blank actor. AssignGameAdmin
+		// refuses to create such a row, but a rule that relies on the other end
+		// having been enforced breaks the first time a row arrives from
+		// somewhere else (a backfill, a manual insert).
+		{"a blank stored admin row never matches", "host-1", "", []domain.GameAdmin{admin("")}, domain.ErrNotGameHostOrAdmin},
+		// Authority is per-Game. The caller of this method is responsible for
+		// passing the set scoped to *this* Game (app.Service does, by querying
+		// with the Game's own id); this row states what the method itself does
+		// with a row whose UserID matches — it matches. That is deliberate: the
+		// scoping lives in the query, and duplicating it here as a GameID
+		// filter would create two places for it to be wrong. See
+		// TestListRegistrationsForGame_UnentitledActorsAreStillRefused's
+		// "an admin of a different Game" row for the end-to-end proof that the
+		// scoping actually holds.
+		{"a row for another Game still matches on user id alone", "host-1", "admin-9",
+			[]domain.GameAdmin{{GameID: "some-other-game", UserID: "admin-9"}}, nil},
 	}
 
 	for _, tt := range tests {
-		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			g := domain.Game{HostID: tt.hostID}
-			err := g.EnsureHostOrGameAdmin(tt.actorUserID, tt.assignedAdmins)
+			g := domain.Game{ID: thisGame, HostID: tt.hostID}
+			err := g.EnsureHostOrGameAdmin(tt.actorUserID, tt.assigned)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("got err %v, want %v", err, tt.wantErr)
 			}
@@ -236,17 +262,22 @@ func TestGame_EnsureHost(t *testing.T) {
 
 // TestGame_EnsureHost_GameAdminIsRejected pins the distinction that makes
 // ErrNotGameHost a separate sentinel rather than a reuse of
-// ErrNotGameHostOrAdmin: the same actor that EnsureHostOrGameAdmin admits
-// as an assigned Game Admin (and therefore may record a match result) is
-// NOT permitted to cancel the Game. A future "simplification" that unified
-// the two checks would fail here.
+// ErrNotGameHostOrAdmin: the same actor that EnsureHostOrGameAdmin admits as an
+// assigned Game Admin (and who may therefore record a match result and read the
+// roster) is NOT permitted to cancel the Game, nor to assign or revoke another
+// admin. A future "simplification" that unified the two checks would fail here.
+//
+// T14.5 makes this test more load-bearing, not less: now that the admin set is
+// a durable, trustworthy fact rather than a caller's assertion, the temptation
+// to route the remaining Host-only rules through it is real, and this is what
+// stands in the way.
 func TestGame_EnsureHost_GameAdminIsRejected(t *testing.T) {
 	t.Parallel()
 
 	g := domain.Game{HostID: "host-1"}
 	const gameAdmin = "admin-1"
 
-	if err := g.EnsureHostOrGameAdmin(gameAdmin, []string{gameAdmin}); err != nil {
+	if err := g.EnsureHostOrGameAdmin(gameAdmin, []domain.GameAdmin{{GameID: g.ID, UserID: gameAdmin}}); err != nil {
 		t.Fatalf("fixture precondition: an assigned game admin must pass EnsureHostOrGameAdmin, got %v", err)
 	}
 	if err := g.EnsureHost(gameAdmin); !errors.Is(err, domain.ErrNotGameHost) {

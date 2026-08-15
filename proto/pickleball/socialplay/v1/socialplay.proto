@@ -345,11 +345,11 @@ message Match {
 // identity it compares against is the verified bearer token's principal
 // rather than a caller-supplied string.
 //
-// assigned_game_admin_user_ids is a caller-supplied fact, not a persisted
-// one — this codebase has never built a durable Game-Admin-assignment
-// mechanism (mirrors pickleball.payments.v1.RecordOfflinePaymentRequest's
-// identical assigned_game_admin_user_ids field and its own doc comment for
-// the same gap, T6.3).
+// T14.5 closed the second gap this comment used to describe. Who counts as an
+// assigned Game Admin is now a fact the server stores (AssignGameAdmin /
+// RevokeGameAdmin above, T14.4), resolved from the game_admins table on every
+// call — so assigned_game_admin_user_ids joined actor_user_id in the
+// deprecated-and-ignored set rather than remaining the caller's assertion.
 message RecordMatchResultRequest {
   string game_id = 1;
   repeated string players = 2;
@@ -361,7 +361,24 @@ message RecordMatchResultRequest {
   // names for one (see T12.8's PR body). Retained, not deleted, for the
   // wire-compatibility reason the other deprecated fields state.
   string actor_user_id = 4 [deprecated = true];
-  repeated string assigned_game_admin_user_ids = 5;
+  // DEPRECATED (T14.5): ignored by the server. Populating it grants nothing —
+  // a caller listing their own id here is refused exactly as a caller who
+  // sent an empty list is. Game-Admin authority comes from AssignGameAdmin,
+  // which only the Game's Host may call, and the server resolves the set from
+  // its own store on every request.
+  //
+  // This field was the concrete thing #168 was about: a repeated string the
+  // CALLER supplied, asserting who the admins were, which any authorization
+  // rule honouring it could be satisfied by. It is retained rather than
+  // deleted for the same wire-compatibility reason the other deprecated
+  // fields state — an existing client that still sends it keeps working, it
+  // simply gets no authority from it.
+  //
+  // pickleball.payments.v1.RecordOfflinePaymentRequest's identically-named
+  // field is NOT deprecated and is still honoured: that is #149, the
+  // Payments-side twin of #168, for which no store was built. Do not read
+  // this deprecation as covering it.
+  repeated string assigned_game_admin_user_ids = 5 [deprecated = true];
 }
 
 message RecordMatchResultResponse {

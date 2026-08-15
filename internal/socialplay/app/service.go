@@ -561,40 +561,56 @@ func (s *Service) ListGames(ctx context.Context, filter port.GameListingFilter) 
 // for an analogous missing-list-RPC gap — no schema change, no new domain
 // type.
 //
-// # T13.6: Host-only (partial fix for #147)
+// # T13.6: no longer a public read (partial fix for #147)
 //
 // This method shipped with the same object-level-read openness ListGames has
 // — any caller could list any Game's registrations. That was wrong and is now
 // fixed: #147 recorded that it returned every registrant's player_id,
 // payment_status and guest_count to anyone holding a game_id, and game_id is
 // readable straight off the *public* ListGames response, so the leak was
-// enumerable. actorUserID must be the Game's Host or the read is refused with
-// domain.ErrNotGameHost (PermissionDenied at the handler, never Internal).
+// enumerable.
 //
-// **Host-only is narrower than #147's entitled set, deliberately.** An
-// assigned Game Admin should be able to read a roster too, but
-// assigned_game_admin_user_ids is caller-supplied and persisted nowhere
-// (#168; #149 has the Payments-side twin) — honouring a caller-supplied admin
-// list here would let any caller name themselves an admin and read the roster
-// anyway, i.e. authorization
-// theatre strictly worse than the Host check. That is why this method takes
-// no AssignedGameAdminUserIDs argument and uses Game.EnsureHost rather than
-// EnsureHostOrGameAdmin: the difference is a stated rule, not an accident of
-// the caller's arguments. Whether a *registrant* should see the roster of a
-// Game they are in is an open product question #147 deliberately does not
-// pre-answer; until it is answered, they may not.
+// # T14.5: Host **or** assigned Game Admin (the rest of #147's Social Play half)
+//
+// T13.6 shipped the check Host-only, narrower than the entitled set #147
+// describes, and recorded exactly why: an assigned Game Admin should be able to
+// read a roster, but the only expression of "assigned Game Admin" this codebase
+// had was the caller-supplied assigned_game_admin_user_ids list (#168; #149 is
+// the Payments-side twin), and honouring a list the caller writes would have
+// admitted anyone willing to name themselves — authorization theatre strictly
+// worse than the Host check. Host-only was the honest answer *until a durable
+// store existed*.
+//
+// T14.4 built that store, so this method now resolves the Game's admin set from
+// port.GameAdminRepository and hands it to domain.Game.EnsureHostOrGameAdmin,
+// which tests membership via domain.HasGameAdmin. Nothing off the wire
+// participates: this method's only actor input is actorUserID, which is the
+// verified principal (T12.8), and the entitled set is a server fact. A caller
+// naming themselves an admin gets domain.ErrNotGameHostOrAdmin exactly as a
+// stranger does.
+//
+// Two consequences worth stating because they are load-bearing rather than
+// incidental:
+//
+//   - **The set is resolved per call, never cached**, so a revoked admin loses
+//     the read on their next call rather than at some later invalidation.
+//   - **Authority is per-Game**: ListGameAdmins is scoped to this gameID, so an
+//     admin of a different Game is refused here. That is CLAUDE.md's locked
+//     "per-game Game Admins" decision, enforced by the query rather than by a
+//     filter that could be dropped.
+//
+// Still refused: a *registrant* reading the roster of a Game they are in. #147
+// deliberately leaves that open as a product question, so until it is answered
+// they may not — unchanged from T13.6, and asserted rather than assumed.
 //
 // **No identifier resolution happens here, on purpose** (ADR-0014 §5a).
-// Game.HostID is `text` holding the subject CreateGame minted from the
-// verified principal, and actorUserID is the value actor(ctx) returns — the
-// same subject space on both sides. ADR-0014 rules explicitly that T13.6
-// compares the two unchanged and does NOT add an Identity port to this
+// Game.HostID and GameAdmin.UserID are `text` holding the subject minted from
+// the verified principal, and actorUserID is the value actor(ctx) returns — the
+// same subject space on all sides. ADR-0014 rules explicitly that this
+// comparison stays unchanged and that no Identity port is added to this
 // context: doing so would put a uuid on one side of a comparison whose other
 // side is a subject, turning a working check into one that silently denies
 // everybody.
-//
-// The authorization needs only facts this Service already holds (s.games),
-// so it adds no constructor dependency — a constraint T13.8 is planned on.
 func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUserID string) ([]domain.Registration, error) {
 	// A malformed gameID is answered exactly like an unknown one. This read is
 	// list-shaped — an unknown Game yields an empty roster rather than an
@@ -607,7 +623,10 @@ func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUse
 	// being compared against. Note the not-found answer stays an empty roster
 	// rather than becoming ErrGameNotFound — the "malformed is
 	// indistinguishable from unknown" invariant above is unchanged by this
-	// ticket, and a Game that does not exist has no roster to withhold.
+	// ticket, and a Game that does not exist has no roster to withhold. It also
+	// has to come before the admin read below: a Game that does not exist has
+	// no admins either, and answering from the assignment store alone would
+	// make "unknown Game" reachable through a second, differently-shaped path.
 	game, err := s.games.GetByID(ctx, gameID)
 	if err != nil {
 		if errors.Is(err, domain.ErrGameNotFound) {
@@ -616,7 +635,17 @@ func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUse
 		return nil, err
 	}
 
-	if err := game.EnsureHost(actorUserID); err != nil {
+	admins, err := s.gameAdmins.ListGameAdmins(ctx, gameID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Deliberately NOT short-circuited with an EnsureHost fast path for the
+	// Host's own read. Skipping the admin query when the actor is already the
+	// Host would put half the authorization rule here, in the app layer, where
+	// CLAUDE.md rule 2 says it does not belong — and the saving is one indexed
+	// read of a table a single human populates one row at a time.
+	if err := game.EnsureHostOrGameAdmin(actorUserID, admins); err != nil {
 		return nil, err
 	}
 
@@ -654,20 +683,27 @@ type RecordMatchResultInput struct {
 	Players []string
 	Score   map[string]int
 
-	// ActorUserID is the claimed identity attempting to record this result
-	// — same known-gap caveat as every other actor-scoped check in this
-	// codebase (RegistrationRequest.actor_player_id, RecordOfflinePayment's
-	// ActorUserID, ...): a request-supplied field, not a verified identity.
+	// ActorUserID is the identity attempting to record this result. As of
+	// T12.8 the handler fills it from the verified bearer token's principal,
+	// never from a request field.
 	ActorUserID string
 
-	// AssignedGameAdminUserIDs is the caller-supplied set of user ids
-	// currently assigned as a Game Admin for GameID's Game — see
-	// domain.Game.EnsureHostOrGameAdmin's doc comment for why this is a
-	// caller-supplied fact rather than a persisted one (this codebase has
-	// never built a durable Game-Admin-assignment mechanism; T6.3's
-	// RecordOfflinePaymentInput.AssignedGameAdminUserIDs is the identical
-	// precedent).
-	AssignedGameAdminUserIDs []string
+	// There is deliberately NO AssignedGameAdminUserIDs field here any more.
+	//
+	// It existed from T10.4 to T14.5 and held a list the *caller* supplied,
+	// because no durable Game-Admin store existed. RecordMatchResult now
+	// resolves the entitled set from port.GameAdminRepository (T14.4) instead,
+	// and the field was removed rather than left unread so the compiler — not a
+	// reviewer's memory — is what stops a future call site from reintroducing
+	// the forgeable path. The wire field
+	// RecordMatchResultRequest.assigned_game_admin_user_ids remains, marked
+	// deprecated and ignored by the handler, for the same wire-compatibility
+	// reason T12.8's deprecated actor_* fields remain.
+	//
+	// internal/payments' RecordOfflinePaymentInput still carries its own
+	// caller-supplied admin lists: that is #149, the Payments-side twin of
+	// #168, which T14 did not build a store for. Do not read this removal as
+	// having fixed it.
 }
 
 // RecordMatchResult validates and persists a Match result against an
@@ -682,20 +718,31 @@ type RecordMatchResultInput struct {
 //     repository's own domain.ErrGameNotFound, the same answer a malformed
 //     one already gets from step 1 (T10.7's own "no worse than an
 //     unknown-but-well-formed id" requirement).
-//  3. game.EnsureHostOrGameAdmin(ActorUserID, AssignedGameAdminUserIDs): the
-//     object-level (BOLA) authorization check, run before either the
-//     cancelled-game precondition or domain.RecordMatch's own field
-//     validation — mirrors authorizeOfflineRecording's ordering
+//  3. s.gameAdmins.ListGameAdmins: the Game's assigned admins, resolved from
+//     the durable store (T14.4). **T14.5 changed where this set comes from**
+//     — it used to be in.AssignedGameAdminUserIDs, a list the caller wrote,
+//     so the authorization check below could be satisfied by any caller
+//     willing to name themselves. It is now a server fact, and the input
+//     struct no longer has a field to forge.
+//  4. game.EnsureHostOrGameAdmin(ActorUserID, admins): the object-level
+//     (BOLA) authorization check, run before either the cancelled-game
+//     precondition or domain.RecordMatch's own field validation — mirrors
+//     authorizeOfflineRecording's ordering
 //     (internal/payments/app/service.go: "checked first... so an
 //     unauthorized actor never learns anything about why the input would
 //     otherwise be invalid"), extended here to also cover the Game's own
 //     state: an unauthorized caller learns nothing about whether the Game
 //     happens to be cancelled either.
-//  4. game.EnsureNotCancelled: FailedPrecondition per this ticket's
+//  5. game.EnsureNotCancelled: FailedPrecondition per this ticket's
 //     error-handling table — a cancelled Game can no longer have results
 //     recorded against it.
-//  5. domain.RecordMatch: GameID/Players/Score field validation (T10.3,
+//  6. domain.RecordMatch: GameID/Players/Score field validation (T10.3,
 //     T10.4's ErrEmptyScore addition) — InvalidArgument.
+//
+// Step 3 sits after step 2 rather than before it so an unknown Game is still
+// answered by GetByID's own domain.ErrGameNotFound: ListGameAdmins returns an
+// empty slice for a Game that does not exist (see its port doc comment), which
+// would otherwise surface as a PermissionDenied for a NotFound condition.
 //
 // The returned Match's ID is assigned here (s.ids.NewID()), mirroring
 // RegisterForGame/JoinWaitlist's identical "domain constructor doesn't take
@@ -710,7 +757,12 @@ func (s *Service) RecordMatchResult(ctx context.Context, in RecordMatchResultInp
 		return domain.Match{}, err
 	}
 
-	if err := game.EnsureHostOrGameAdmin(in.ActorUserID, in.AssignedGameAdminUserIDs); err != nil {
+	admins, err := s.gameAdmins.ListGameAdmins(ctx, in.GameID)
+	if err != nil {
+		return domain.Match{}, err
+	}
+
+	if err := game.EnsureHostOrGameAdmin(in.ActorUserID, admins); err != nil {
 		return domain.Match{}, err
 	}
 

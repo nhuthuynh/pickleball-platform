@@ -1801,20 +1801,42 @@ func TestRecordMatchResult_HostSucceeds(t *testing.T) {
 	}
 }
 
+// assignMatchAdmin grants adminUserID Game-Admin authority over gameID through
+// the real Host-only write path (T14.5).
+//
+// Before T14.5 these tests expressed "is an admin" by putting a string in
+// RecordMatchResultInput.AssignedGameAdminUserIDs — which is precisely the
+// forgeable shape #168 was about, and which the input struct no longer has a
+// field for. Going through Service.AssignGameAdmin means the fixture is
+// established by the same rule production uses, so a test can no longer assert
+// a permission the real system would not grant.
+func assignMatchAdmin(t *testing.T, svc *app.Service, gameID, adminUserID string) {
+	t.Helper()
+
+	if _, err := svc.AssignGameAdmin(context.Background(), app.AssignGameAdminInput{
+		GameID:      gameID,
+		ActorUserID: "host-1", // validInput's HostID — the fixture Game's Host
+		AdminUserID: adminUserID,
+	}); err != nil {
+		t.Fatalf("the Host assigning %q as a Game Admin: %v", adminUserID, err)
+	}
+}
+
 // TestRecordMatchResult_AssignedGameAdminSucceeds is the symmetric
 // positive-path case for the "or an assigned Game Admin" half of the
-// authorization check.
+// authorization check. As of T14.5 the admin is a stored assignment rather than
+// a name the caller supplied.
 func TestRecordMatchResult_AssignedGameAdminSucceeds(t *testing.T) {
 	t.Parallel()
 
 	svc, g, _, _ := newMatchTestService(t)
+	assignMatchAdmin(t, svc, g.ID, "admin-2")
 
 	_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
-		GameID:                   g.ID,
-		Players:                  validMatchPlayers(),
-		Score:                    validMatchScore(),
-		ActorUserID:              "admin-2",
-		AssignedGameAdminUserIDs: []string{"admin-1", "admin-2"},
+		GameID:      g.ID,
+		Players:     validMatchPlayers(),
+		Score:       validMatchScore(),
+		ActorUserID: "admin-2",
 	})
 	if err != nil {
 		t.Fatalf("an assigned game admin should be allowed to record a match, got: %v", err)
@@ -1832,13 +1854,13 @@ func TestRecordMatchResult_RejectsNonHostNonAdmin(t *testing.T) {
 	t.Parallel()
 
 	svc, g, _, matches := newMatchTestService(t)
+	assignMatchAdmin(t, svc, g.ID, "admin-1")
 
 	_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
-		GameID:                   g.ID,
-		Players:                  validMatchPlayers(),
-		Score:                    validMatchScore(),
-		ActorUserID:              "random-player",
-		AssignedGameAdminUserIDs: []string{"admin-1"},
+		GameID:      g.ID,
+		Players:     validMatchPlayers(),
+		Score:       validMatchScore(),
+		ActorUserID: "random-player",
 	})
 	if !errors.Is(err, domain.ErrNotGameHostOrAdmin) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotGameHostOrAdmin)
@@ -1895,6 +1917,7 @@ func TestRecordMatchResult_AuthorizationCheckedBeforeCancelledPrecondition(t *te
 	t.Parallel()
 
 	svc, g, games, matches := newMatchTestService(t)
+	assignMatchAdmin(t, svc, g.ID, "admin-1")
 
 	cancelled := g
 	if err := cancelled.Cancel(); err != nil {
@@ -1903,11 +1926,10 @@ func TestRecordMatchResult_AuthorizationCheckedBeforeCancelledPrecondition(t *te
 	games.games[cancelled.ID] = cancelled
 
 	_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
-		GameID:                   cancelled.ID,
-		Players:                  validMatchPlayers(),
-		Score:                    validMatchScore(),
-		ActorUserID:              "random-player",
-		AssignedGameAdminUserIDs: []string{"admin-1"},
+		GameID:      cancelled.ID,
+		Players:     validMatchPlayers(),
+		Score:       validMatchScore(),
+		ActorUserID: "random-player",
 	})
 	if !errors.Is(err, domain.ErrNotGameHostOrAdmin) {
 		t.Fatalf("got err %v, want %v (an unauthorized actor must be rejected before the cancelled-Game precondition ever runs, so it never learns whether the Game is cancelled)", err, domain.ErrNotGameHostOrAdmin)
@@ -2103,9 +2125,13 @@ func TestCancelGame_NonHostRejected(t *testing.T) {
 // TestCancelGame_AssignedGameAdminRejected is the app-layer half of the
 // ErrNotGameHost/ErrNotGameHostOrAdmin distinction: the very same actor that
 // RecordMatchResult accepts as an assigned Game Admin must not be able to
-// cancel the Game. CancelGame deliberately takes no
-// AssignedGameAdminUserIDs argument at all — this test pins that the
-// admin identity buys nothing here.
+// cancel the Game.
+//
+// T14.5 strengthens this from a statement about arguments into a statement
+// about authority. The admin is now a real stored assignment, and the fixture
+// precondition below proves it is genuinely honoured elsewhere before asserting
+// it buys nothing here — so a reader cannot dismiss the rejection as "CancelGame
+// simply wasn't told about the admins".
 func TestCancelGame_AssignedGameAdminRejected(t *testing.T) {
 	t.Parallel()
 
@@ -2113,12 +2139,13 @@ func TestCancelGame_AssignedGameAdminRejected(t *testing.T) {
 	ctx := context.Background()
 	const gameAdmin = "admin-2"
 
+	assignMatchAdmin(t, svc, g.ID, gameAdmin)
+
 	if _, err := svc.RecordMatchResult(ctx, app.RecordMatchResultInput{
-		GameID:                   g.ID,
-		Players:                  validMatchPlayers(),
-		Score:                    validMatchScore(),
-		ActorUserID:              gameAdmin,
-		AssignedGameAdminUserIDs: []string{gameAdmin},
+		GameID:      g.ID,
+		Players:     validMatchPlayers(),
+		Score:       validMatchScore(),
+		ActorUserID: gameAdmin,
 	}); err != nil {
 		t.Fatalf("fixture precondition: %q must be a legitimate game admin, got %v", gameAdmin, err)
 	}

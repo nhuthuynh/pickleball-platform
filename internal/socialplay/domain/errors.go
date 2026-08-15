@@ -185,11 +185,18 @@ var (
 	//     check (see RecordMatch's updated doc comment) without going back
 	//     on T10.3's "doesn't have to cover every player" decision.
 	//   - ErrNotGameHostOrAdmin: Game.EnsureHostOrGameAdmin's rejection —
-	//     the actor recording a Match result is neither the Game's Host
-	//     nor one of its caller-supplied assigned Game Admins. Mirrors
+	//     the actor is neither the Game's Host nor one of its assigned
+	//     Game Admins. Mirrors
 	//     competitions.ErrNotCompetitionHost/facilities.ErrNotFacilityOwner's
 	//     flat, single-sentinel shape (a caller does not get to distinguish
 	//     "wrong actor" from "not an admin either" from this error alone).
+	//     T14.5 widened its message from "may record a match result" to the
+	//     general form, exactly as T13.6 did to ErrNotGameHost below and for
+	//     the same reason: RecordMatchResult is no longer its only caller
+	//     now that the roster read admits admins too. The sentinel and its
+	//     PermissionDenied mapping are unchanged; "assigned" also stopped
+	//     meaning "caller-supplied" in T14.5 — the set is resolved from the
+	//     game_admins store (T14.4).
 	//   - ErrGameCancelled: app.Service.RecordMatchResult's precondition
 	//     check — a cancelled Game can no longer have match results
 	//     recorded against it. Named distinctly from
@@ -199,7 +206,7 @@ var (
 	//     competitions.ErrCompetitionCancelled has with Competition's own
 	//     status field (internal/competitions/domain/entry.go's Enter).
 	ErrEmptyScore         = errors.New("socialplay: match score is required")
-	ErrNotGameHostOrAdmin = errors.New("socialplay: only the game's host or an assigned game admin may record a match result")
+	ErrNotGameHostOrAdmin = errors.New("socialplay: only the game's host or an assigned game admin may perform this action on this game")
 	ErrGameCancelled      = errors.New("socialplay: game is cancelled")
 
 	// ErrNotGameHost is Game.EnsureHost's rejection (T12.4): the actor
@@ -208,38 +215,44 @@ var (
 	// flat, single-sentinel shape.
 	//
 	// T13.6 widened the message from "may cancel the game" to the general
-	// form, because CancelGame is no longer the only Host-only rule: the
-	// roster read (ListRegistrationsForGame, partial fix for #147) is the
-	// second, and it is a *read* rather than a destructive write. The
-	// sentinel and its PermissionDenied mapping are unchanged — only the
-	// human-readable text, which had narrowed to its first caller. Both
-	// callers use Game.EnsureHost, so the permitted-actor set they encode is
-	// identical and one sentinel is correct for both.
+	// form, because CancelGame was no longer the only Host-only rule. Its
+	// second caller then was the roster read; T14.5 has since moved that one
+	// onto ErrNotGameHostOrAdmin (see below), and AssignGameAdmin/
+	// RevokeGameAdmin (T14.4) took its place here. The general wording is
+	// still right for the same reason: every caller of this sentinel uses
+	// Game.EnsureHost, so the permitted-actor set they encode is identical
+	// and one sentinel is correct for all of them.
 	//
 	// DO NOT UNIFY THIS WITH ErrNotGameHostOrAdmin ABOVE. The two sentinels
 	// look near-identical and gate near-identical-looking checks, but they
 	// encode two genuinely different authorization rules on the same
 	// aggregate, and collapsing them would silently widen one of them:
 	//
-	//   - ErrNotGameHostOrAdmin gates RecordMatchResult (T10.4), which the
-	//     Host *or* any assigned Game Admin may perform. Recording a score
-	//     is routine scorekeeping — CLAUDE.md's locked decision that
-	//     "per-game Game Admins can record offline payments" is the same
-	//     delegation shape.
-	//   - ErrNotGameHost gates CancelGame (T12.4) and the roster read
-	//     (T13.6), both of which are **Host-only**. Cancelling is destructive
-	//     and irreversible (Game.Cancel permits no transition back out of
-	//     cancelled), so it is deliberately NOT delegated to Game Admins. A
-	//     Game Admin who may legitimately record a match result must still be
-	//     refused here — see domain.TestGame_EnsureHost_GameAdminIsRejected,
-	//     which exists precisely to fail if the two are ever merged. The
-	//     roster read lands on this stricter sentinel for a different reason:
-	//     a Game Admin arguably *should* be entitled to read a roster, but
-	//     the assigned-admin list is caller-supplied and persisted nowhere
-	//     (#168), so honouring it would let any caller name themselves an
-	//     admin. Host-only is the narrower, honest answer until that store
-	//     exists — recorded here because it is a product limitation, not a
-	//     domain-modelling preference.
+	//   - ErrNotGameHostOrAdmin gates RecordMatchResult (T10.4) and the
+	//     roster read ListRegistrationsForGame (T14.5), which the Host *or*
+	//     any assigned Game Admin may perform. Recording a score and reading
+	//     the roster are both the routine work a Game Admin exists to do —
+	//     CLAUDE.md's locked decision that "per-game Game Admins can record
+	//     offline payments" is the same delegation shape, and reconciling
+	//     cash payments is unperformable without the roster.
+	//   - ErrNotGameHost gates CancelGame (T12.4) and the Game-Admin
+	//     assignment writes AssignGameAdmin/RevokeGameAdmin (T14.4), all of
+	//     which are **Host-only**. Cancelling is destructive and irreversible
+	//     (Game.Cancel permits no transition back out of cancelled), so it is
+	//     deliberately NOT delegated to Game Admins; delegating the power to
+	//     delegate would make the distinction worthless (#168). A Game Admin
+	//     who may legitimately record a match result and read the roster must
+	//     still be refused here — see
+	//     domain.TestGame_EnsureHost_GameAdminIsRejected, which exists
+	//     precisely to fail if the two are ever merged.
+	//
+	// T13.6 had the roster read on the stricter ErrNotGameHost, and said why:
+	// a Game Admin arguably *should* be entitled to read a roster, but the
+	// admin list was caller-supplied and persisted nowhere (#168), so
+	// honouring it would have let any caller name themselves an admin.
+	// Host-only was the narrower, honest answer *until that store existed*.
+	// T14.4 built it and T14.5 moved the read, which is the resolution of a
+	// stated product limitation rather than a widening of a domain rule.
 	//
 	// Both map to codes.PermissionDenied at the gRPC boundary; that shared
 	// mapping is not a reason to share a sentinel, since the callers'

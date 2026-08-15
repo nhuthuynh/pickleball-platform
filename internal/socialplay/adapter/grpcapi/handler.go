@@ -230,10 +230,17 @@ func (h *Handler) ListGames(ctx context.Context, req *socialplayv1.ListGamesRequ
 // per-person data — every registrant's player_id, payment_status and
 // guest_count — and it used to hand that to any caller who knew a game_id,
 // which the public ListGames response supplies. The actor is the verified
-// principal, so a missing one is codes.Unauthenticated here and a non-Host
-// one becomes domain.ErrNotGameHost -> codes.PermissionDenied in toStatus,
-// never Internal. The RPC moved from PublicMethods() to
-// AuthenticatedMethods() in authenticated.go to match.
+// principal, so a missing one is codes.Unauthenticated here. The RPC moved
+// from PublicMethods() to AuthenticatedMethods() in authenticated.go to match.
+//
+// T14.5 widened the entitled set from Host-only to the Host **or** an assigned
+// Game Admin, resolved from T14.4's durable store — see
+// app.Service.ListRegistrationsForGame for why that could not happen before the
+// store existed. Nothing changes at this boundary: the request still carries no
+// admin list (there is no field on ListRegistrationsForGameRequest and none was
+// added), the actor is still the principal, and an unentitled caller now gets
+// domain.ErrNotGameHostOrAdmin rather than domain.ErrNotGameHost — both of
+// which toStatus maps to codes.PermissionDenied, never Internal.
 func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv1.ListRegistrationsForGameRequest) (*socialplayv1.ListRegistrationsForGameResponse, error) {
 	actorUserID, err := actor(ctx)
 	if err != nil {
@@ -258,10 +265,18 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 // domain.RecordMatch takes map[string]int, so this converts key-for-key —
 // see toProtoMatch's inverse comment for the return direction.
 // T12.8: ActorUserID is the verified principal's subject rather than
-// req.GetActorUserId(). assigned_game_admin_user_ids remains a caller-supplied
-// fact — this codebase has never persisted Game-Admin assignments, and
-// building that store is a domain change A11 Ruling 3 puts out of this
-// ticket's scope. Disclosed in the PR body with a tracked issue, per A5.
+// req.GetActorUserId().
+//
+// T14.5: **req.GetAssignedGameAdminUserIds() is not read here, deliberately.**
+// The field remains on the wire (marked deprecated in the proto, retained for
+// the same compatibility reason T12.8's actor_* fields were) but the server
+// ignores it: the entitled admin set is resolved from T14.4's durable store
+// inside app.Service.RecordMatchResult, and app.RecordMatchResultInput no
+// longer has a field to put it in. That last part is the enforcement — a
+// future edit that "helpfully" re-plumbed the wire list would not compile,
+// rather than silently restoring a check any caller could satisfy by naming
+// themselves. Mutation-checked, exactly as T12.8 checked its own deprecated
+// fields; see match_admin_store_test.go.
 func (h *Handler) RecordMatchResult(ctx context.Context, req *socialplayv1.RecordMatchResultRequest) (*socialplayv1.RecordMatchResultResponse, error) {
 	actorUserID, err := actor(ctx)
 	if err != nil {
@@ -269,11 +284,10 @@ func (h *Handler) RecordMatchResult(ctx context.Context, req *socialplayv1.Recor
 	}
 
 	m, err := h.svc.RecordMatchResult(ctx, app.RecordMatchResultInput{
-		GameID:                   req.GetGameId(),
-		Players:                  req.GetPlayers(),
-		Score:                    fromProtoScore(req.GetScore()),
-		ActorUserID:              actorUserID,
-		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
+		GameID:      req.GetGameId(),
+		Players:     req.GetPlayers(),
+		Score:       fromProtoScore(req.GetScore()),
+		ActorUserID: actorUserID,
 	})
 	if err != nil {
 		return nil, toStatus(err)

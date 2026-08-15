@@ -1,4 +1,15 @@
-// T13.6 — the roster read is Host-only (partial fix for #147).
+// T13.6 — the roster read stopped being public (partial fix for #147).
+//
+// **Superseded in part by T14.5**, which widened the entitled set from
+// Host-only to Host-or-assigned-Game-Admin once T14.4's durable store made
+// "assigned Game Admin" a server fact. The cases below are unchanged and still
+// hold — the Host reads, a stranger and a registrant are refused, an anonymous
+// caller is Unauthenticated, an unknown Game is an empty roster. What is no
+// longer true is this file's original claim that the *admin* is refused too;
+// roster_admin_authz_test.go carries that half now. The two files are kept
+// separate rather than merged so the T13.6 proof stays legible as the thing it
+// was: the fix for the leak itself, which is independent of who the entitled
+// set eventually grew to include.
 //
 // Before this ticket ListRegistrationsForGame had no authorization check of
 // any kind: it was in PublicMethods(), took no actor, and returned every
@@ -25,13 +36,16 @@
 // TestListRegistrationsForGame_NonHostPrincipalIsPermissionDenied covers a
 // player who is *in* the Game and is still refused. #147 explicitly leaves
 // "should a registrant see the roster of a Game they are in?" open as a
-// product question, and T13.6 (sprint plan A17) resolves this ticket to
-// Host-only. That is narrower than the entitled set the issue describes
-// (Host + assigned Game Admins), because assigned_game_admin_user_ids is
-// caller-supplied and persisted nowhere (#168) — honouring it here would let
-// any caller name themselves an admin and read the roster anyway, which is
-// worse than Host-only. Asserted here rather than left untested so the
-// narrowness is a checked fact, not an accident.
+// product question, and no ticket since has answered it — T14.5 widened the
+// entitled set to assigned Game Admins and deliberately did not touch the
+// registrant case, because that would be a product decision smuggled in as an
+// authorization change. Asserted here rather than left untested so the
+// remaining narrowness is a checked fact, not an accident.
+//
+// The T13.6-era reasoning for why *admins* were refused here — the assigned
+// list was caller-supplied and persisted nowhere (#168), so honouring it would
+// have let any caller name themselves — is now history rather than policy. See
+// roster_admin_authz_test.go.
 package grpcapi_test
 
 import (
