@@ -23,21 +23,48 @@ import (
 	"github.com/nhuthuynh/white-label/internal/platform/auth"
 )
 
-// actor resolves the acting user for an authenticated RPC (T12.7).
+// actor resolves the acting user for an authenticated RPC (T12.7), and since
+// T13.2 it is also ADR-0014's translation seam for this context.
 //
-// This one function is the whole of A11 Ruling 3 for this context: the
-// Principal is translated into the plain actor string app.Service already
-// takes, here at the grpcapi boundary, so internal/booking/{domain,app} keep
-// their existing signatures and never import internal/platform/auth.
+// This one method is the whole of A11 Ruling 3 for Booking: the Principal is
+// translated into the plain actor string app.Service already takes, here at
+// the grpcapi boundary, so internal/booking/{domain,app} keep their existing
+// signatures and never import internal/platform/auth.
 //
-// It takes only a context, deliberately. The request's actor_user_id field is
-// not passed in and cannot be consulted, so no handler can fall back to the
-// caller's claim when there is no principal - the failure the T12.7 ticket
-// calls out as "a handler that falls back to the claimed value has changed
-// nothing". Missing principal is codes.Unauthenticated ("I do not know who you
-// are"), never PermissionDenied (ADR-0013 section 5).
-func actor(ctx context.Context) (string, error) {
-	return auth.RequireSubject(ctx)
+// **It returns a User.ID (uuid), not the subject.** That is ADR-0014's ruling
+// and the fix for issues #146 and #152. Two steps, in this order:
+//
+//  1. auth.RequireSubject — who is calling? A missing or unverified principal
+//     is codes.Unauthenticated ("I do not know who you are"), never
+//     PermissionDenied (ADR-0013 §5).
+//  2. app.Service.ResolveActorUserID — which User is that? A subject
+//     registered to no User is codes.PermissionDenied, never NotFound
+//     (ADR-0014 §6: the caller is known and simply may not act, and NotFound
+//     would make this an enumeration oracle).
+//
+// **Being the single funnel is the point, not an implementation detail.**
+// Every actor-taking RPC on this service calls it — six call sites — so the
+// translation happens once and cannot be half-applied. A handler has no other
+// way to obtain an actor: the request's actor_user_id field is deprecated and
+// never read, so nothing can fall back to the caller's claim, which is the
+// failure T12.7 calls out as "a handler that falls back to the claimed value
+// has changed nothing". Resolving inside each app method instead would have
+// to be remembered once per method, which is the shape that produced #146.
+//
+// It is a method rather than a package function only because it needs the
+// service to reach port.IdentityLookup. NewHandler's signature is unchanged:
+// the service already held that port, so this adds no dependency to wire.
+func (h *Handler) actor(ctx context.Context) (string, error) {
+	subject, err := auth.RequireSubject(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	actorUserID, err := h.svc.ResolveActorUserID(ctx, subject)
+	if err != nil {
+		return "", toStatus(err)
+	}
+	return actorUserID, nil
 }
 
 type Handler struct {
@@ -138,7 +165,7 @@ func (h *Handler) CreateDiscountRule(ctx context.Context, req *bookingv1.CreateD
 	// field at all (T11.2's creation-RPC checklist item 1); app.Service mints
 	// it from the IDGenerator port. Nor is the actor read off the request any
 	// more (T12.7): req.ActorUserId is deprecated and ignored.
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -227,7 +254,7 @@ func (h *Handler) RequestRecurringHire(ctx context.Context, req *bookingv1.Reque
 		return nil, toStatus(err)
 	}
 
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -249,7 +276,7 @@ func (h *Handler) RequestRecurringHire(ctx context.Context, req *bookingv1.Reque
 }
 
 func (h *Handler) ApproveRecurringHire(ctx context.Context, req *bookingv1.ApproveRecurringHireRequest) (*bookingv1.ApproveRecurringHireResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -277,7 +304,7 @@ func (h *Handler) ApproveRecurringHire(ctx context.Context, req *bookingv1.Appro
 }
 
 func (h *Handler) RejectRecurringHire(ctx context.Context, req *bookingv1.RejectRecurringHireRequest) (*bookingv1.RejectRecurringHireResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +317,7 @@ func (h *Handler) RejectRecurringHire(ctx context.Context, req *bookingv1.Reject
 }
 
 func (h *Handler) ListRecurringHireTemplatesForFacility(ctx context.Context, req *bookingv1.ListRecurringHireTemplatesForFacilityRequest) (*bookingv1.ListRecurringHireTemplatesForFacilityResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -313,7 +340,7 @@ func (h *Handler) ListRecurringHireTemplatesForFacility(ctx context.Context, req
 // request is still open. See the app method for the authorization reasoning
 // (the actor's identity is the scope; deliberately no role check).
 func (h *Handler) ListRecurringHireTemplatesForActor(ctx context.Context, req *bookingv1.ListRecurringHireTemplatesForActorRequest) (*bookingv1.ListRecurringHireTemplatesForActorResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}

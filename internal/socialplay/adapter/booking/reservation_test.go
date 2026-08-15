@@ -184,6 +184,15 @@ type stubIdentity struct{}
 
 func (stubIdentity) EnsureClubRole(context.Context, string) error { return nil }
 
+// UserIDBySubject joined booking's port.IdentityLookup in T13.2 (ADR-0014).
+// Social Play reserves courts through app.Service.CreateBooking, which takes
+// no actor at all, so no test here reaches it — hence the fail-closed
+// sentinel rather than a plausible-looking id, which would let a future
+// wiring mistake pass unnoticed.
+func (stubIdentity) UserIDBySubject(context.Context, string) (string, error) {
+	return "", bookingdomain.ErrUserNotFound
+}
+
 // fixedIDs mints the uuid-shaped id every Booking created here receives.
 type fixedIDs struct{}
 

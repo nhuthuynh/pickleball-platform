@@ -64,6 +64,38 @@ func NewService(
 	}
 }
 
+// ResolveActorUserID translates a verified IdP subject into the caller's
+// User.ID (uuid) — ADR-0014's resolution seam, and the fix for issues #146
+// and #152.
+//
+// **This is the only method in internal/booking/app whose parameter is a
+// subject, and the name says so deliberately.** ADR-0014's invariant is that
+// below the grpcapi boundary an actor value is always a User.ID; this method
+// is the one place that invariant is established rather than assumed. Every
+// other actor-taking method here — RequestRecurringHire, CreateDiscountRule,
+// ApproveRecurringHire, RejectRecurringHire, both list reads — takes the
+// resolved uuid, which is what makes their uuidShape guards honest
+// malformed-input checks again rather than the every-caller-rejecting checks
+// #152 found.
+//
+// It is called from the grpcapi handler's actor() funnel, once per
+// authenticated RPC, so a subject never reaches the two places that would
+// mishandle it: a uuid column (the Postgres adapter's mustUUID panics) and a
+// uuid-keyed comparison (an owner check that can never match).
+//
+// It takes a plain string rather than an auth.Principal on purpose: this
+// package still imports nothing from internal/platform/auth (A11 Ruling 3),
+// so the app layer keeps no opinion about how the caller was authenticated —
+// only that somebody upstream did.
+//
+// An unregistered subject is domain.ErrUserNotFound, which grpcapi maps to
+// PermissionDenied rather than NotFound (ADR-0014 §6): the caller is known,
+// they simply may not act, and answering NotFound would turn every
+// actor-taking endpoint into a user-enumeration oracle.
+func (s *Service) ResolveActorUserID(ctx context.Context, subject string) (string, error) {
+	return s.identity.UserIDBySubject(ctx, subject)
+}
+
 // CreateBookingInput is the use-case input for creating any of the four
 // Booking sources (D3b) — the same use case serves a direct court booking, a
 // Game reserving its courts, a Competition reserving its courts, and a Club
@@ -280,10 +312,16 @@ func (s *Service) resolveDiscount(ctx context.Context, in GetQuoteInput) (domain
 //     owner. Recorded as a checked negative finding.
 type CreateDiscountRuleInput struct {
 	FacilityID string
-	// ActorUserID is a caller-supplied claim, not a verified identity — see
-	// domain.ErrNotFacilityOwner and HANDOFF.md's Auth cross-cutting item.
-	// The object-level (BOLA) check it feeds is real regardless: it is
-	// resolved against the Facility's actual OwnerID.
+	// ActorUserID is the VERIFIED caller's User.ID (uuid) — resolved from
+	// auth.Principal.Subject by the grpcapi handler's actor() funnel, per
+	// ADR-0014. It is neither a caller-supplied claim (T12.7 removed the
+	// request field) nor a subject (ADR-0014 keeps subjects above the
+	// boundary).
+	//
+	// The object-level (BOLA) check it feeds compares it against the
+	// Facility's actual OwnerID — a uuid column — which is why it must be
+	// the resolved id and not the subject: the comparison could otherwise
+	// never match, silently denying every real owner.
 	ActorUserID  string
 	DiscountType domain.DiscountType
 	Amount       domain.DiscountAmount
