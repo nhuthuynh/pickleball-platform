@@ -1,10 +1,34 @@
-.PHONY: test-domain test-tools generate generate-client tidy test vet-integration up down lint lint-web test-web test-web-ci \
-        build-web security security-go security-npm loadtest ci ci-integration tools-check
+.PHONY: test-domain test-platform test-tools generate generate-client tidy test vet-integration up down lint lint-web test-web test-web-ci \
+        build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
 # This is the T0 resume gate (HANDOFF.md): if this isn't green, nothing else matters.
 test-domain:
 	go test ./internal/.../domain/... ./internal/.../app/... -race -count=1
+
+# The cross-cutting platform packages — the auth spine above all. Until T13.4
+# these ran in NO gate at all (#138): test-domain's pattern is
+# `./internal/.../domain/... ./internal/.../app/...`, which matches nothing
+# under internal/platform/, and no other `ci` step reached them either. The
+# single most security-critical package in the repo was the least verified.
+#
+# Deliberately a SEPARATE target rather than widening test-domain's glob:
+# test-domain is defined (above, and in HANDOFF.md) as the product's pure
+# domain+app resume gate, and internal/platform is neither domain nor app.
+# test-tools already set the precedent for "real tests that aren't the pure
+# core get their own target".
+#
+# One flat pattern covers all five packages with NO exclusions, which was
+# checked rather than assumed — `go list -deps ./internal/platform/...`
+# resolves nothing under internal/gen, so this needs no codegen, and
+# internal/platform/pg only builds a pgxpool config (it opens no connection
+# at test time, and ships no test files), so it needs no database. That makes
+# this the same Docker-free, codegen-free gate class as test-domain, which is
+# why it can sit next to it in `ci` rather than behind `generate`.
+#   auth, auth/rs256, grpcrecovery  - real tests (stdlib + grpc + jwt only)
+#   idgen, pg                       - no test files; compiled, not run
+test-platform:
+	go test ./internal/platform/... -race -count=1
 
 # Build/CI tooling that carries real logic and therefore real tests
 # (currently the vulngate security gate). Not part of test-domain, which is
@@ -138,12 +162,39 @@ loadtest:
 #
 # `make ci` runs exactly the checks the Jenkins pipeline's gating stages
 # run, in the same order, so "works on my machine" and "green in CI" mean
-# the same thing. It deliberately EXCLUDES *running* the Docker-dependent
+# the same thing. As of T13.4 that is true BY CONSTRUCTION rather than by
+# discipline: the pipeline calls `make ci-checks` as a single step, so a
+# check added here reaches CI with no Jenkinsfile edit. It had NOT been true
+# by discipline — see ci-checks below for the step CI was silently missing.
+#
+# Both targets deliberately EXCLUDE *running* the Docker-dependent
 # integration tests — but `vet-integration` still type-checks them here, so a
 # broken integration-tagged file fails this gate. See `make ci-integration`
 # below, and the Jenkinsfile, which skips that stage on the same condition.
-ci: generate tidy lint test-domain vet-integration test-tools generate-client lint-web test-web build-web
+
+# Every gating check EXCEPT the vulnerability scan. Split out of `ci` in
+# T13.4 so the Jenkinsfile can invoke this gate as ONE command instead of
+# re-listing its steps stage by stage — that re-listing is what #129 records,
+# and it had already drifted: `vet-integration` has been in `make ci` since
+# T12.1 and appeared nowhere in the pipeline, so the check that closes the
+# integration-tag hole never actually reached CI.
+#
+# Why the scan is NOT in here: the Jenkinsfile's Security stage is strictly
+# stronger than the `security` target below. It records govulncheck's exit
+# code to build/govulncheck.exit and gates on THAT, whereas this Makefile
+# gates on the report file merely existing — and a scan that dies partway
+# (unreachable vuln.go.dev on an egress-restricted agent) still leaves a
+# well-formed, non-empty, zero-finding JSON file behind. PR #95's review
+# caught exactly that. Folding the scan into the command Jenkins calls would
+# have downgraded CI's gate to the weaker check and hard-failed the whole
+# build on any agent that cannot reach vuln.go.dev, which ADR-0011 section 3
+# forbids ("findings UNKNOWN, never no findings"). So: Jenkins runs
+# ci-checks, then its own scan. Local `make ci` still runs both, unchanged.
+ci-checks: generate tidy lint test-domain test-platform vet-integration test-tools generate-client lint-web test-web build-web
 	go build ./...
+
+# The full local gate: every check CI runs, plus the vulnerability scan.
+ci: ci-checks
 	$(MAKE) security
 	@echo
 	@echo "make ci: OK — lint, unit tests, codegen, build, and the security gate all passed."

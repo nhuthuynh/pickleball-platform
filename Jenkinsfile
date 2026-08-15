@@ -150,80 +150,68 @@ pipeline {
             }
         }
 
-        // MUST run before Lint and Build. internal/gen (Go) and
-        // web/src/api/generated (TypeScript) are both gitignored, and the
-        // postgres/grpcapi adapters, cmd/server, and most of the Vue app do
-        // not compile — and therefore cannot be linted or type-checked —
-        // until they exist. The T0 placeholder linted first and would have
-        // failed on a clean checkout for that reason.
-        stage('Generate') {
+        // node_modules must exist before the CI gate runs: `make ci-checks`
+        // reaches generate-client, whose own guard would otherwise npm-ci for
+        // us. Doing it explicitly here keeps it a clean, deterministic install
+        // and keeps the dependency step visible in the stage view.
+        stage('Web dependencies') {
             steps {
-                sh 'make generate'
-                sh 'make tidy'
-                sh 'git --no-pager diff --stat -- go.mod go.sum'
                 sh 'npm --prefix web ci'
-                sh 'make generate-client'
             }
         }
 
-        stage('Lint') {
-            parallel {
-                stage('Go') {
-                    steps {
-                        sh 'make lint'
-                    }
-                }
-                stage('Web') {
-                    // vue-tsc. web/package.json has no eslint setup, so there
-                    // is no `npm run lint` to call — see the Makefile's
-                    // lint-web comment.
-                    steps {
-                        sh 'make lint-web'
-                    }
-                }
+        // #129: this stage used to be four stages — Generate, Lint, Unit
+        // tests, Build — each re-listing, by hand, a step that `make ci`
+        // already listed. Two copies of one gate is one copy too many, and it
+        // had already drifted: `make vet-integration` went into `make ci` in
+        // T12.1 and was never added here, so the check that stops a broken
+        // //go:build integration file from hiding was in the local gate and
+        // NOT in CI. T13.4's `make test-platform` would have been the second
+        // such step on the same day it was written.
+        //
+        // So the pipeline now calls the gate instead of reimplementing it.
+        // `make ci-checks` is `make ci` minus the vulnerability scan (which
+        // the Security stage below does better — see the Makefile comment),
+        // and it covers, in this order: generate, tidy, lint, test-domain,
+        // test-platform, vet-integration, test-tools, generate-client,
+        // lint-web, test-web, build-web, go build ./...
+        //
+        // The old Build stage's bare `go vet ./...` is not lost: vet-integration
+        // is `go vet -tags=integration ./...`, which vets every package plain
+        // vet does and the integration-tagged files besides.
+        //
+        // Ordering is unchanged from ADR-0011 section 2 and still matters for
+        // the same reason: internal/gen and web/src/api/generated are
+        // gitignored, so generate MUST precede lint and build. That order now
+        // lives in one place (the Makefile) rather than two.
+        //
+        // TRADE-OFF, stated because it is a real loss: the Lint/Unit/Build
+        // stages ran their Go and Web halves in `parallel`, and one `sh` step
+        // cannot. Wall-clock goes up, and a failure surfaces as "make ci-checks
+        // failed" plus the failing target in the log rather than as a red box
+        // in the stage view. Accepted: a pipeline that provably runs the same
+        // checks as the local gate is worth more than a faster one that
+        // silently runs fewer, which is precisely what #129 recorded.
+        stage('CI gate') {
+            steps {
+                sh 'make ci-checks'
+                sh 'git --no-pager diff --stat -- go.mod go.sum'
             }
         }
 
-        stage('Unit tests') {
-            parallel {
-                stage('Go domain + app') {
-                    steps {
-                        // Fast, dependency-free gate — no DB, no Docker.
-                        sh 'make test-domain'
-                    }
-                }
-                stage('Go build tooling') {
-                    steps {
-                        sh 'make test-tools'
-                    }
-                }
-                stage('Web') {
-                    steps {
-                        sh 'make test-web-ci'
-                    }
-                    post {
-                        always {
-                            junit allowEmptyResults: true, testResults: 'build/web-junit.xml'
-                        }
-                    }
-                }
+        // The web unit tests already ran inside the CI gate (`make test-web`).
+        // This re-runs them through the JUnit reporter so Jenkins can publish
+        // per-test results; `test:ci` is `vitest run` plus reporters, so it is
+        // the same suite, not an additional one. Kept OUT of `make ci` on
+        // purpose: writing a CI report file is not something a local gate
+        // should do.
+        stage('Web test report') {
+            steps {
+                sh 'make test-web-ci'
             }
-        }
-
-        stage('Build') {
-            parallel {
-                stage('Go') {
-                    steps {
-                        sh 'go build ./...'
-                        sh 'go vet ./...'
-                    }
-                }
-                stage('Web') {
-                    // npm ci already ran in Generate (generate-client needs
-                    // node_modules), so this is just the bundle + type-check.
-                    steps {
-                        sh 'make build-web'
-                    }
+            post {
+                always {
+                    junit allowEmptyResults: true, testResults: 'build/web-junit.xml'
                 }
             }
         }
