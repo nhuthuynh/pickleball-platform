@@ -1,4 +1,4 @@
-.PHONY: test-domain test-platform test-tools generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
+.PHONY: test-domain test-platform test-tools dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
         build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
@@ -35,6 +35,24 @@ test-platform:
 # deliberately scoped to the product's pure core.
 test-tools:
 	go test ./tools/... -race -count=1
+
+# Mints a local-development bearer token against the committed dev key
+# fixture in dev/auth/ (T14.9, issue #160), so an authenticated endpoint can
+# actually be called locally:
+#
+#   TOKEN=$$(make -s dev-token)
+#   curl -H "Authorization: Bearer $$TOKEN" localhost:8080/v1/recurring-hire-templates
+#
+# `@` and the banner-on-stderr split inside cmd/devtoken are what make that
+# capture work: stdout carries the token and nothing else.
+#
+# This is NOT an auth bypass and does not weaken the deployed path. It signs
+# with a keypair committed to this repository — public, therefore worthless —
+# and cmd/server only ever trusts the JWKS that AUTH_JWKS_FILE names, which
+# in a deployment is a real provider's. `make up` mounts the fixture; nothing
+# else does. See dev/auth/README.md.
+dev-token:
+	@go run ./cmd/devtoken
 
 # buf (proto -> gRPC/gateway/OpenAPI) + sqlc (SQL -> typed Go) into internal/gen
 # (gitignored, regenerate locally — see CLAUDE.md).

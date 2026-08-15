@@ -165,6 +165,59 @@ All of the above was verified live against a real Postgres 16 instance
 during development (not just unit-tested) — see
 `docs/reviews/04-t4-concurrency-invariant.md`.
 
+### Authenticated endpoints
+
+Every `curl` above hits a **public** RPC, which is why none of them carries a
+token. 24 RPCs across the six contexts are not public: they require a verified
+bearer token, and since T13.5 the server refuses to start at all unless it has
+been given something to verify tokens with (`AUTH_ISSUER`, `AUTH_AUDIENCE`,
+`AUTH_JWKS_FILE`).
+
+`make up` supplies all three from a **development key fixture committed to
+this repository** under `dev/auth/` — public key material, therefore worthless,
+and deliberately so. Mint a token against it and call an authenticated
+endpoint:
+
+```bash
+TOKEN=$(make -s dev-token)
+
+# 1. Register the token's own subject as a User. CreateUser is itself an
+#    authenticated RPC and takes the owner from the verified token, never
+#    from the body (T12.9) — so this is the first call any new caller makes.
+curl -s -X POST localhost:8080/v1/users \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"display_name":"Local Dev","roles":["ROLE_PLAYER"],"self_reported_starting_level":3}'
+# → 200, {"user":{"id":"<server-minted uuid>", ...}}
+#   Run it twice and the second returns "identity: user already exists" —
+#   the row is keyed on the token's `sub`, which is the point.
+
+# 2. Read an actor-scoped endpoint. The token's `sub` IS the scope here, so
+#    this is where authentication is visibly doing real work.
+curl -s -H "Authorization: Bearer $TOKEN" \
+  localhost:8080/v1/recurring-hire-templates
+# → 200, {"templates":[]}
+
+# 3. The same call without the header.
+curl -i localhost:8080/v1/recurring-hire-templates
+# → HTTP/1.1 401 Unauthorized
+#   {"code":16,"message":"this endpoint requires an authenticated caller"}
+```
+
+An expired token (`make dev-token` takes `-ttl`) and one minted for another
+audience (`-audience`) are both 401 too, which is the fixture proving it is a
+real credential rather than a doorstop.
+
+That 200/401 contrast is the whole point of the fixture: enforcement is real,
+runs the same verification code a deployment runs, and is now observable
+locally. `make dev-token` takes flags for the subject, scope and lifetime —
+`go run ./cmd/devtoken -h`.
+
+**Never point a deployment at `dev/auth/`.** A real environment sets those
+three variables at a real identity provider; the Docker image contains no copy
+of the fixture (compose bind-mounts it at run time), and a server started
+without them still fails closed exactly as it did before. See
+`dev/auth/README.md` and issue #160.
+
 ## Repository layout
 
 ```
