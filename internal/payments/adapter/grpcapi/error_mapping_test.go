@@ -75,18 +75,26 @@ func newMappingHandler(ids ...string) (*grpcapi.Handler, *fakeRepository, *strip
 }
 
 // seedOnline puts an online Payment in the repository in the given status,
-// carrying the given intent reference verbatim.
-func seedOnline(t *testing.T, repo *fakeRepository, paymentID string, payableType domain.PayableType, payableID, intentRef string, st domain.Status) {
+// carrying the given intent reference verbatim and recorded as belonging to
+// recordedBy.
+//
+// recordedBy is an explicit parameter rather than a constant baked in (T13.7):
+// it is the fact ConfirmOnlinePayment authorizes against, so which value a
+// seeded Payment carries decides whether a capture is allowed at all, and an
+// empty one models a row written before that ticket. Passing it at the call
+// site keeps that visible where it matters instead of hiding it in a helper.
+func seedOnline(t *testing.T, repo *fakeRepository, paymentID string, payableType domain.PayableType, payableID, intentRef string, st domain.Status, recordedBy string) {
 	t.Helper()
 
 	if _, err := repo.Create(context.Background(), domain.Payment{
-		ID:              paymentID,
-		PayableType:     payableType,
-		PayableID:       payableID,
-		Amount:          domain.Money{Cents: 3000, Currency: "USD"},
-		Method:          domain.MethodOnline,
-		Status:          st,
-		StripeReference: intentRef,
+		ID:               paymentID,
+		PayableType:      payableType,
+		PayableID:        payableID,
+		Amount:           domain.Money{Cents: 3000, Currency: "USD"},
+		Method:           domain.MethodOnline,
+		Status:           st,
+		StripeReference:  intentRef,
+		RecordedByUserID: recordedBy,
 	}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -134,6 +142,26 @@ func errorMappingCases() []errorMappingCase {
 				_, err := h.RefundPayment(ctxAs(refundOtherPlayerID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
 					BookingHostId: refundBookingHostID,
+				})
+				return err
+			},
+		},
+		{
+			name:     "actor is not the payment's own recorded owner",
+			sentinel: "ErrNotPaymentOwner",
+			wantCode: codes.PermissionDenied,
+			why: "T13.7 (#148): a verified principal who is not the actor the Payment records as its own. " +
+				"Same code as ErrNotPaymentRecorder and for the same reason — the token verified, so this is " +
+				"not Unauthenticated, and NotFound would make the RPC a payment-id enumeration oracle",
+			invoke: func(t *testing.T) error {
+				h, repo, proc := newMappingHandler()
+				ref, err := proc.CreateIntent(context.Background(), domain.Money{Cents: 3000, Currency: "USD"}, fixtureBookingID)
+				if err != nil {
+					t.Fatalf("seed: CreateIntent: %v", err)
+				}
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, ref, domain.StatusUnpaid, seededPaymentOwnerID)
+				_, err = h.ConfirmOnlinePayment(ctxAs(refundOtherPlayerID), &paymentsv1.ConfirmOnlinePaymentRequest{
+					PaymentId: mapPaymentID,
 				})
 				return err
 			},
@@ -229,9 +257,9 @@ func errorMappingCases() []errorMappingCase {
 				if err != nil {
 					t.Fatalf("seed: CreateIntent: %v", err)
 				}
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeRegistration, fixtureRegistrationID, ref, domain.StatusUnpaid)
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeRegistration, fixtureRegistrationID, ref, domain.StatusUnpaid, seededPaymentOwnerID)
 
-				_, err = h.ConfirmOnlinePayment(ctxAs(refundGameHostID), &paymentsv1.ConfirmOnlinePaymentRequest{
+				_, err = h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
 				})
 				return err
@@ -247,7 +275,7 @@ func errorMappingCases() []errorMappingCase {
 			invoke: func(t *testing.T) error {
 				h, repo, proc := newMappingHandler()
 				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID)
-				_, err := h.ConfirmOnlinePayment(ctxAs(refundBookingHostID), &paymentsv1.ConfirmOnlinePaymentRequest{
+				_, err := h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
 				})
 				return err
@@ -262,7 +290,7 @@ func errorMappingCases() []errorMappingCase {
 				"in *our* system, which a third party's outage is not",
 			invoke: func(t *testing.T) error {
 				h, repo, _ := newMappingHandler()
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusPaid)
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusPaid, seededPaymentOwnerID)
 				_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
 					BookingHostId: refundBookingHostID,
@@ -325,7 +353,7 @@ func TestPaymentsService_SameSentinelSameCodeAcrossRPCs(t *testing.T) {
 			viaConfirm: func(t *testing.T) error {
 				h, repo, proc := newMappingHandler()
 				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID)
-				_, err := h.ConfirmOnlinePayment(ctxAs(refundBookingHostID), &paymentsv1.ConfirmOnlinePaymentRequest{
+				_, err := h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
 				})
 				return err
@@ -334,7 +362,7 @@ func TestPaymentsService_SameSentinelSameCodeAcrossRPCs(t *testing.T) {
 				h, repo, _ := newMappingHandler()
 				// Already refunded — refunding again is the same
 				// state-machine violation from the other direction.
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusRefunded)
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusRefunded, seededPaymentOwnerID)
 				_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
 					BookingHostId: refundBookingHostID,
@@ -347,15 +375,15 @@ func TestPaymentsService_SameSentinelSameCodeAcrossRPCs(t *testing.T) {
 			sentinel: "ErrPaymentProcessorUnavailable",
 			viaConfirm: func(t *testing.T) error {
 				h, repo, _ := newMappingHandler()
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusUnpaid)
-				_, err := h.ConfirmOnlinePayment(ctxAs(refundBookingHostID), &paymentsv1.ConfirmOnlinePaymentRequest{
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusUnpaid, seededPaymentOwnerID)
+				_, err := h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
 				})
 				return err
 			},
 			viaRefund: func(t *testing.T) error {
 				h, repo, _ := newMappingHandler()
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusPaid)
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusPaid, seededPaymentOwnerID)
 				_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
 					BookingHostId: refundBookingHostID,

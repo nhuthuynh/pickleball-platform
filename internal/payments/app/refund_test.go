@@ -50,6 +50,7 @@ func seedPaidOnlinePayment(t *testing.T, svc *app.Service, paymentID string, pay
 		PayableType: payableType,
 		PayableID:   payableID,
 		Amount:      domain.Money{Cents: 3000, Currency: fixtureRefundCurrency},
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("seed: CreateOnlinePayment: %v", err)
@@ -58,7 +59,7 @@ func seedPaidOnlinePayment(t *testing.T, svc *app.Service, paymentID string, pay
 		t.Fatalf("seed: payment id = %q, want %q (check the seeded fixedIDs)", created.ID, paymentID)
 	}
 
-	paid, err := svc.ConfirmOnlinePayment(context.Background(), created)
+	paid, err := svc.ConfirmOnlinePayment(context.Background(), created, fixtureOnlinePayerID)
 	if err != nil {
 		t.Fatalf("seed: ConfirmOnlinePayment: %v", err)
 	}
@@ -314,6 +315,7 @@ func TestRefundPayment_NeverPaidRejectedByDomain(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	}); err != nil {
 		t.Fatalf("seed: CreateOnlinePayment: %v", err)
 	}

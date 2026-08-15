@@ -74,9 +74,18 @@ const (
 // (docs/agent-operating-handbook.md A2's Payment definition). StripeReference
 // is empty for an offline Payment (there is no Stripe involvement) and is
 // populated once an online Payment has an intent/charge reference.
-// RecordedByUserID is empty for an online, Stripe-driven Payment (nobody
-// "recorded" it — Stripe's webhook/confirmation did) and is populated with
-// the acting Host/Game Admin's user id for an offline recording (T6.3).
+// RecordedByUserID is the verified actor a Payment belongs to: the acting
+// Host/Game Admin who recorded it for an offline Payment (T6.3), and — as of
+// T13.7, closing issue #148 — the actor who created the intent for an online
+// one. It used to be deliberately empty on the online path ("nobody recorded
+// it — Stripe's confirmation did"), which left ConfirmOnlinePayment with no
+// ownership fact to check and made holding a payment_id the same thing as
+// holding the money. It is a subject, not a User uuid, on both paths
+// (ADR-0014 §5a); the column behind it is `payments.recorded_by_user_id`.
+//
+// It can still be empty on a Payment read back from storage — every online row
+// written before T13.7 has no owner — which app.authorizeOnlineConfirmation
+// treats as "nobody may confirm this", never as "anybody may".
 type Payment struct {
 	ID               string
 	PayableType      PayableType

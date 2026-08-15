@@ -60,6 +60,13 @@ func TestAuthenticatedMethods_CoverEveryActorBearingRPC(t *testing.T) {
 		paymentsv1.PaymentsService_RecordOfflinePayment_FullMethodName,
 		paymentsv1.PaymentsService_CreateOnlinePayment_FullMethodName,
 		paymentsv1.PaymentsService_RefundPayment_FullMethodName,
+		// T13.7 (closes #148): ConfirmOnlinePayment reads an actor too, as of
+		// this ticket. It is listed here rather than left implicit because
+		// this list is what stops it drifting back out of
+		// AuthenticatedMethods() — moving it would then pass the
+		// exhaustiveness test above (PublicMethods() is a legal home for any
+		// RPC) and silently restore issue #148.
+		paymentsv1.PaymentsService_ConfirmOnlinePayment_FullMethodName,
 	} {
 		if !authenticated[m] {
 			t.Errorf("%s reads an actor for an authorization branch but is not in AuthenticatedMethods() — "+
