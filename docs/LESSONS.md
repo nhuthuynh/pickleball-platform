@@ -1105,3 +1105,178 @@ disagreement, correctly **not yet scoreable**, with PdE's premise verified
 T15's outcome decides it. **ADR-0012's Q1/Q2 and ADR-0015's D1 remain
 blocked on the user**, both re-verified untouched in code, for the sixth
 and second consecutive sprint respectively.
+
+## T15 (2026-08-15) — a dependency check verified the producer's capability existed and never checked whether the consumer could reach it
+
+Incident postmortem for the mechanism behind `docs/process/t15-retro.md`
+finding 1.
+
+- **Mistake:** T15's Ceremony 1 dependency-completeness check (§A12, GAP B)
+  verified that T15.5 (Payments consuming Social Play's new Game-Admin store)
+  needed no edit to `internal/socialplay`, because
+  `internal/socialplay/app/service.go:1009` already exports
+  `ListGameAdmins(ctx context.Context, gameID string) ([]domain.GameAdmin, error)`.
+  That is true, and the check correctly concluded T15.5 needed no producer-side
+  work. What it never asked is whether **T15.5's own inputs contained a
+  `gameID` to pass to that function.** They do not:
+  `RecordOfflinePaymentInput` and `RefundPaymentInput`
+  (`internal/payments/app/service.go`) carry only `PayableID` — a
+  Registration's or CompetitionEntry's own id, never its parent Game's or
+  Competition's — and neither `socialplay.app.Service` nor
+  `competitions.app.Service` exports a read that resolves one back to the
+  other. T15.5 discovered this after being dispatched, built the read-side
+  ports and adapters anyway (real, tested, reusable infrastructure), and
+  correctly stopped short of wiring them in rather than inventing a new
+  caller-supplied `game_id` field that would have relocated the same
+  forgery one level up. #168 — the sprint's headline authorization goal —
+  stayed open as a direct result.
+- **Why this is a distinct mistake from the prior "capability completeness"
+  entries, not a restatement of them.** T12's entry (two above) is about a
+  capability that **no ticket built at all** — three consumers each
+  independently discovering the gap and two of them building duplicate
+  primitives. This entry is the opposite shape: the capability **was**
+  built, correctly, exactly where the plan said it would be, and the
+  dependency check correctly confirmed its existence. The miss is one hop
+  further down the same chain: **a capability existing and being callable by
+  its own signature is not the same as the specific ticket that needs it
+  having, on hand, the value its signature requires.** GAP B's own text —
+  *"T15.5 therefore needs no edit to `internal/socialplay` at all"* — is
+  true and was the wrong question to have stopped at.
+- **Why this was cheaply avoidable, not merely hindsight.** The check that
+  would have caught it is not an implementation attempt; it is reading
+  `RecordOfflinePaymentInput`'s own field list and asking "does this struct
+  already hold a `gameID`?" — one grep, performed by T15.5's own review in
+  about one paragraph, entirely after the fact. Nothing about this required
+  building anything to discover.
+- **Fix / lesson.** When a dependency-completeness check confirms a producer
+  capability exists for a downstream ticket to consume, add the symmetric
+  question before clearing the dependency: **does the consuming ticket's own
+  inputs already contain every argument that capability's signature
+  requires?** A capability check that stops at "the function exists and is
+  exported" is verifying reachability of the wrong endpoint — the walk needs
+  to run from the consumer's actual call site back to the producer, not from
+  the producer's export list forward. Threaded into
+  `docs/process/sprint-process.md`'s dependency-completeness check as one
+  added clause (T15 retro recommendation 1), not a new ceremony step or a
+  mechanical tool — this is the first occurrence of exactly this shape, and
+  this project's own standing preference is one sweep or one sentence before
+  a mechanism, not pre-emptive tooling.
+
+## T15 (2026-08-15) — two PRs said "closes #N," in the same sprint that rewrote the closure rule around exactly that failure, and neither call was made until the retro
+
+Incident postmortem for the mechanism behind `docs/process/t15-retro.md`
+finding 2. This is the third sprint in a row this project's issue-closure
+bookkeeping has failed in a new shape — T13: the per-PR step scored 0/9 with
+every wording rule followed perfectly; T14: the per-PR step scored 0/6, and
+the merging session self-swept its own work in an eleven-second batch at
+sprint end, correctly but with no independent check; T15: the same sprint
+that rewrote the rule to make the sweep primary and the per-PR step optional
+produced two PRs whose own titles claimed a close that never happened, and
+nobody — not the reviewer, not a self-sweep — caught it before the retro did.
+
+- **Mistake:** PR #191 (T15.6, "closes #185") and PR #189 (T15.7, "closes
+  #137") were both merged with fully correct, independently mutation-verified
+  fixes for the issues they named. Neither PR's review ever called the
+  GitHub issue-close API, and neither PR's review even mentions the target
+  issue's live state — contrast PR #192 (T15.4)'s review, which states
+  *"will close #147 per instruction 5"* and then does. #185 and #137 both
+  sat open, `updated_at` unchanged since their own creation, until this
+  retro closed them — verifying each PR's fix independently first, then
+  closing with a comment citing the resolving PR, exactly as
+  `sprint-process.md`'s sweep mechanics specify.
+- **Why this is worse in one specific way than either prior sprint's
+  failure, and better in another.** Worse: T14 at least self-swept — the
+  merging session made an attempt, however late and however unverified by
+  anyone else, to catch its own misses. T15 made **zero** attempt on 2 of
+  its 3 "closes" claims; the only reason the codebase's issue tracker is
+  accurate today is that a ceremony happened to run before the next
+  sprint's Ceremony 1 would have. Better: this is the first time in this
+  project's history that the merged-fix sweep — moment 1, "the retro runs
+  it and reports it" — actually ran and actually found something, rather
+  than reporting a clean-by-coincidence result. The mechanism worked exactly
+  as designed; the discipline it exists to backstop did not improve.
+- **The correlation worth generalizing:** every T15 review that explicitly
+  cited an issue's state as read from the API (T15.1's own new clause, in
+  force for this exact sprint) also got the closure right; every review
+  that skipped that citation also skipped the close. Two data points is not
+  proof, but it names a mechanism cheap enough to lean on: a review that is
+  actually looking at the tracker is the review that remembers to update it.
+- **Fix / lesson.** A PR titled "closes #N" is a stronger claim than a PR
+  titled "partial fix for #N," and treating both under one *optional* early
+  close (as T15.1's own same-sprint amendment did) conflates them. The
+  former should be a mandatory close-or-explain at review time, not an
+  optional convenience — a title that already asserts the fact is false the
+  moment the PR merges without the corresponding API call, regardless of
+  whether a later sweep eventually catches it. Threaded into
+  `docs/process/sprint-process.md` as T15 retro recommendation 2. Separately:
+  a prior ceremony's comment on an issue can itself go stale when the
+  sprint's actual outcome contradicts it (#149's mid-sprint prediction that
+  T15.5 would resolve two of its five facts, corrected by this retro after
+  T15.5 resolved zero) — the same shape as T14's #97 misattribution,
+  recurring a third time. Neither the closure sweep nor the "read state from
+  the API" clause currently obliges anyone to correct content, only to check
+  state before closing or leaving open; recommendation 4 closes that gap
+  with one added sentence rather than a fourth restatement.
+
+## T15 sprint retro
+
+Held as `docs/process/t15-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14 set and CLAUDE.md's **Docs index & naming
+convention**.
+
+Seven findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #186–#193, issues #124–#185), with every claim
+re-derived at the retro rather than taken from any PR's or the plan's own
+prose — including three live corrections to the issue tracker performed
+during the ceremony itself (closing #185 and #137, both fully resolved in
+code but never closed on GitHub despite their own PRs' titles; correcting
+#149's stale mid-sprint prediction). **Sprint outcome: all 7 tickets (34
+points) merged in one unbroken 1h09m10s work block, no session interruption,
+no reviewer-authored gap-fix anywhere in the commit record (ADR-0016's
+interim rule held for its first full sprint), wave sequencing exact.**
+
+**Finding 1 is the sprint's central result, argued rather than
+both-sided.** T15.5 built real, tested read-side infrastructure onto both
+admin stores and then discovered — independently re-verified by this retro
+via its own grep of both cross-context `app.Service`s — that Payments has no
+way to obtain the `gameID`/`competitionID` its new readers need for the
+payable types that require one. #168, the sprint's headline authorization
+target, stayed open. This was a genuine, well-verified engineering finding,
+not a shortcut, but it was also a real, narrow, cheaply-avoidable planning
+miss: the dependency-completeness check that cleared T15.5 for dispatch
+verified that the producer capability existed and never checked that the
+consumer's own inputs could reach it — full mechanism in the incident entry
+above.
+
+**Finding 2 is the second incident above** — two PRs claimed a close their
+own reviews never performed, caught only by this retro's sweep, one ceremony
+earlier than the amended rule's own stated failure condition would have
+caught it. **Finding 3** names the mechanism: every review that cited an
+issue's live state from the API also closed correctly; every review that
+skipped that citation also skipped the close. **Finding 4** is a second,
+unrelated instance of a disclosed-but-unfiled residual (T15.6's FK-race
+class, nine other write paths on the same unmapped-`23503` shape #185 was
+just fixed for) — the identical shape that produced #185 in the first place,
+recurring inside the very PR that closed it, and carried to T16's Ceremony 1
+per the board-of-record rule rather than lost a second time. **Finding 5**
+is the #149 stale-prediction correction, the same shape as T14's #97
+misattribution recurring a third time. **Finding 6** states plainly that D1
+and D2 both remain unanswered by the user — third and first deferral
+respectively — and that ADR-0016 being authored and merged this sprint is
+not progress on the question it asks. **Finding 7** verifies ADR-0016's
+interim rule held for its first full sprint: zero reviewer-authored
+gap-fixes across six PRs, with one merge-conflict resolution (PR #191,
+against a moving base branch) correctly distinguished from the class the ADR
+governs, per established T14.1/T14.9 precedent.
+
+Seven recommendations bind T16's Ceremony 1 and 2, most concretely: add one
+clause to the dependency-completeness check (walk from the consumer's actual
+call site back to the producer, not just confirm the producer's export
+exists); make "closes #N" a mandatory close-or-explain at review time rather
+than folding it into the same optional-early-close treatment as "partial fix
+for #N"; file T15.6's FK-race residual as an issue; and add one sentence
+requiring a correction, not just a state-check, when a later fact
+supersedes an earlier issue comment. `HANDOFF.md` is deliberately not
+touched by the retro PR, per the standing convention that a retro cannot
+correctly write the Docs-index row that cites its own merge number — T16's
+Ceremony 1 corrects it, as it has every prior sprint.
