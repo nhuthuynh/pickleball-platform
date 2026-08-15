@@ -96,10 +96,30 @@ func (r *fakeRecurringHireRepo) ListForRequester(_ context.Context, requestedByU
 // answer the real adapter derives from identityapp.Service.GetUser's Roles —
 // the point being that the role is a server-side fact, never a field the
 // caller sends.
+//
+// It also models ADR-0014's subject space via `subjects`, keyed separately
+// from `known`/`clubs`: UserIDBySubject maps a verified IdP subject to the
+// User.ID uuid, and EnsureClubRole keys on that uuid. Keeping the two maps
+// distinct is deliberate — a fake that answered both spaces from one map
+// could not tell a correct implementation from the one that shipped #146.
 type fakeIdentityLookup struct {
-	clubs  map[string]bool
-	known  map[string]bool
-	checks int
+	clubs    map[string]bool
+	known    map[string]bool
+	subjects map[string]string
+	checks   int
+	resolves int
+}
+
+// UserIDBySubject is ADR-0014's resolution seam, faked. A subject registered
+// to no User is domain.ErrUserNotFound — the same sentinel EnsureClubRole
+// gives an unknown id, and the one the handler maps to PermissionDenied.
+func (l *fakeIdentityLookup) UserIDBySubject(_ context.Context, subject string) (string, error) {
+	l.resolves++
+	id, ok := l.subjects[subject]
+	if !ok {
+		return "", domain.ErrUserNotFound
+	}
+	return id, nil
 }
 
 func (l *fakeIdentityLookup) EnsureClubRole(_ context.Context, actorUserID string) error {
@@ -176,6 +196,12 @@ func newRecurringSvc() *recurringFixture {
 			userID(playerUser):  true,
 			userID(ownerUser):   true,
 			userID(strangerUsr): true,
+		},
+		subjects: map[string]string{
+			subjectOf(clubUser):    userID(clubUser),
+			subjectOf(playerUser):  userID(playerUser),
+			subjectOf(ownerUser):   userID(ownerUser),
+			subjectOf(strangerUsr): userID(strangerUsr),
 		},
 	}
 	facilities := &fakeFacilityLookup{

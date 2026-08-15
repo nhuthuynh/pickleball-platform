@@ -115,16 +115,108 @@ func mustUser(t *testing.T, id, subject string, roles []identitydomain.Role) ide
 	return u
 }
 
-// TestEnsureClubRole_ResolvesBySubject is the issue #146 regression test.
+// TestUserIDBySubject_TranslatesTheVerifiedSubject is the issue #146
+// regression test, moved to the method that now owns the subject space
+// (ADR-0014). The first case is the one that fails against the pre-#151
+// adapter: a real club User exists, the caller presents the very subject that
+// User is registered under, and the translation must produce that User's uuid.
 //
-// The first case is the one that fails against the pre-fix adapter: a real
-// club User exists, the caller presents the very subject that User is
-// registered under, and EnsureClubRole must succeed. Before the fix the
-// adapter called GetUser, whose uuidShape guard rejected "auth0|abc123"
-// before it ever reached the repository, so this returned
-// bookingdomain.ErrUserNotFound and RequestRecurringHire answered NotFound to
-// every caller alive.
-func TestEnsureClubRole_ResolvesBySubject(t *testing.T) {
+// **The returned id is asserted, not just the absence of an error.** A
+// translation that "succeeded" while returning the subject unchanged would
+// satisfy an error-only assertion and then panic the Postgres adapter's
+// mustUUID one layer down — the exact outcome #152 names as worse than the
+// bug it reports.
+func TestUserIDBySubject_TranslatesTheVerifiedSubject(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		seed    identitydomain.User
+		subject string
+		wantID  string
+		wantErr error
+	}{
+		{
+			name:    "non-uuid IdP subject resolves to the server-minted uuid",
+			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
+			subject: fixtureSubject,
+			wantID:  fixtureUserID,
+		},
+		{
+			// Resolution answers "who are you", never "what may you do": a
+			// Player resolves exactly as readily as a Club. The role check is
+			// a separate question, asked separately by EnsureClubRole.
+			name:    "resolution is independent of the User's roles",
+			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RolePlayer}),
+			subject: fixtureSubject,
+			wantID:  fixtureUserID,
+		},
+		{
+			name:    "unregistered subject",
+			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
+			subject: "auth0|nobody",
+			wantErr: bookingdomain.ErrUserNotFound,
+		},
+		{
+			// identityapp.Service.UserBySubject short-circuits the empty
+			// subject rather than querying for it, and answers it exactly
+			// like an unregistered one.
+			name:    "empty subject",
+			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
+			subject: "",
+			wantErr: bookingdomain.ErrUserNotFound,
+		},
+		{
+			// The User's uuid primary key must NOT resolve as a subject. The
+			// two identifier spaces are deliberately distinct since T12.9,
+			// and this case is what stops a future "just accept both" patch
+			// from quietly reintroducing the ambiguity that produced #146.
+			name:    "server-minted user id is not a subject",
+			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
+			subject: fixtureUserID,
+			wantErr: bookingdomain.ErrUserNotFound,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			lookup := newLookup(t, tt.seed)
+
+			got, err := lookup.UserIDBySubject(context.Background(), tt.subject)
+
+			if tt.wantErr != nil {
+				if !errors.Is(err, tt.wantErr) {
+					t.Fatalf("UserIDBySubject(%q) error = %v, want %v", tt.subject, err, tt.wantErr)
+				}
+				if got != "" {
+					t.Fatalf("UserIDBySubject(%q) = %q on the error path, want the zero value", tt.subject, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("UserIDBySubject(%q) = %v, want nil", tt.subject, err)
+			}
+			if got != tt.wantID {
+				t.Fatalf("UserIDBySubject(%q) = %q, want %q — a subject returned unchanged "+
+					"would panic the Postgres adapter's mustUUID (#152)", tt.subject, got, tt.wantID)
+			}
+		})
+	}
+}
+
+// TestEnsureClubRole_KeysOnUserIDNotSubject pins the OTHER half of ADR-0014's
+// identifier-space split, and is the test that stops the two methods on this
+// adapter from drifting back into ambiguity.
+//
+// EnsureClubRole is reached only after the handler's actor() funnel has
+// resolved the subject, so what it receives is a User.ID. The subject case
+// below is the important one: it asserts that a subject reaching this method
+// is REFUSED rather than resolved. That is what makes a bypass of the seam
+// fail closed and loudly, instead of silently authorizing whoever happens to
+// match.
+func TestEnsureClubRole_KeysOnUserIDNotSubject(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -134,44 +226,41 @@ func TestEnsureClubRole_ResolvesBySubject(t *testing.T) {
 		wantErr error
 	}{
 		{
-			name:    "club user resolved by non-uuid IdP subject",
-			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
-			actor:   fixtureSubject,
-			wantErr: nil,
+			name:  "club user resolved by their User.ID",
+			seed:  mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
+			actor: fixtureUserID,
 		},
 		{
-			name:    "club role among several roles",
-			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RolePlayer, identitydomain.RoleClub}),
-			actor:   fixtureSubject,
-			wantErr: nil,
+			name:  "club role among several roles",
+			seed:  mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RolePlayer, identitydomain.RoleClub}),
+			actor: fixtureUserID,
 		},
 		{
-			name:    "registered subject without the club role",
+			name:    "registered user without the club role",
 			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RolePlayer}),
-			actor:   fixtureSubject,
+			actor:   fixtureUserID,
 			wantErr: bookingdomain.ErrNotClub,
 		},
 		{
-			name:    "unregistered subject",
+			name:    "unknown User.ID",
 			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
-			actor:   "auth0|nobody",
+			actor:   "6ba7b810-9dad-11d1-80b4-00c04fd430ff",
 			wantErr: bookingdomain.ErrUserNotFound,
 		},
 		{
-			name:    "empty subject",
+			// The seam's contract, asserted from the other side: a subject is
+			// not an actor id below the grpcapi boundary, and this method
+			// must never resolve one. GetUser's uuidShape guard is what makes
+			// this fail closed.
+			name:    "a raw subject is refused, never resolved",
+			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
+			actor:   fixtureSubject,
+			wantErr: bookingdomain.ErrUserNotFound,
+		},
+		{
+			name:    "empty actor",
 			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
 			actor:   "",
-			wantErr: bookingdomain.ErrUserNotFound,
-		},
-		{
-			// The User's uuid primary key must NOT resolve: the actor
-			// crossing this boundary is a subject, and the two identifier
-			// spaces are deliberately distinct since T12.9. This case is what
-			// stops a future "just accept both" patch from quietly
-			// reintroducing the ambiguity.
-			name:    "server-minted user id is not an actor subject",
-			seed:    mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub}),
-			actor:   fixtureUserID,
 			wantErr: bookingdomain.ErrUserNotFound,
 		},
 	}
@@ -197,20 +286,39 @@ func TestEnsureClubRole_ResolvesBySubject(t *testing.T) {
 	}
 }
 
-// TestEnsureClubRole_NeverLeaksIdentitySentinels holds CLAUDE.md rule 5 at
-// this boundary: whatever Identity returns, a Booking-side caller must only
-// ever be able to errors.Is() against Booking's own sentinels.
-func TestEnsureClubRole_NeverLeaksIdentitySentinels(t *testing.T) {
+// TestLookup_NeverLeaksIdentitySentinels holds CLAUDE.md rule 5 at this
+// boundary, for BOTH methods: whatever Identity returns, a Booking-side caller
+// must only ever be able to errors.Is() against Booking's own sentinels.
+// Covering both matters because they take different routes into translate() —
+// UserBySubject and GetUser — and only one of them was covered before T13.2.
+func TestLookup_NeverLeaksIdentitySentinels(t *testing.T) {
 	t.Parallel()
 
 	lookup := newLookup(t, mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RolePlayer}))
 
-	err := lookup.EnsureClubRole(context.Background(), "auth0|nobody")
+	t.Run("EnsureClubRole", func(t *testing.T) {
+		t.Parallel()
 
-	if errors.Is(err, identitydomain.ErrUserNotFound) {
-		t.Fatalf("EnsureClubRole leaked the identity sentinel: %v", err)
-	}
-	if !errors.Is(err, bookingdomain.ErrUserNotFound) {
-		t.Fatalf("EnsureClubRole = %v, want bookingdomain.ErrUserNotFound", err)
-	}
+		err := lookup.EnsureClubRole(context.Background(), "6ba7b810-9dad-11d1-80b4-00c04fd430ff")
+
+		if errors.Is(err, identitydomain.ErrUserNotFound) {
+			t.Fatalf("EnsureClubRole leaked the identity sentinel: %v", err)
+		}
+		if !errors.Is(err, bookingdomain.ErrUserNotFound) {
+			t.Fatalf("EnsureClubRole = %v, want bookingdomain.ErrUserNotFound", err)
+		}
+	})
+
+	t.Run("UserIDBySubject", func(t *testing.T) {
+		t.Parallel()
+
+		_, err := lookup.UserIDBySubject(context.Background(), "auth0|nobody")
+
+		if errors.Is(err, identitydomain.ErrUserNotFound) {
+			t.Fatalf("UserIDBySubject leaked the identity sentinel: %v", err)
+		}
+		if !errors.Is(err, bookingdomain.ErrUserNotFound) {
+			t.Fatalf("UserIDBySubject = %v, want bookingdomain.ErrUserNotFound", err)
+		}
+	})
 }

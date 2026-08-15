@@ -41,12 +41,17 @@ import (
 // auth.ContextWithPrincipal rather than stuffing a context key directly, so
 // these tests break if that contract changes.
 //
-// The subjects here are the UUID-shaped fixture user IDs the rest of this
-// package already uses, because the fakes compare the actor against
-// userID(ownerUser) and friends. A real IdP subject is not a UUID
-// (`auth0|abc123`) — the identifier-space question that raises is Identity's
-// to answer (T12.9 adds identity_users.subject) and is disclosed in this
-// ticket's PR rather than papered over here.
+// **T13.2 closed the compromise this comment used to record.** Until ADR-0014
+// the subjects here were the UUID-shaped fixture user IDs, because the fakes
+// compared the actor against userID(ownerUser) and friends — with this comment
+// conceding that a real IdP subject is not a UUID (`auth0|abc123`) and
+// deferring the identifier-space question to Identity.
+//
+// That compromise is what hid issues #146 and #152: a harness whose principals
+// carry uuids cannot fail the way production fails. Callers now pass
+// subjectOf(n) — the non-uuid shape a real token carries — and the fakes
+// resolve it to userID(n) through fakeIdentityLookup.UserIDBySubject, exactly
+// as the handler's actor() funnel does against the real Identity service.
 func ctxAs(subject string) context.Context {
 	return auth.ContextWithPrincipal(context.Background(), auth.Principal{
 		Subject: subject,
@@ -63,7 +68,7 @@ func anonymous() context.Context { return context.Background() }
 // discount-rule fixtures in discount_regression_test.go — those tests are
 // about pricing rules and error mapping, and the owner is simply who performs
 // them now that the actor is not a request field.
-func ownerCtx() context.Context { return ctxAs(userID(ownerUser)) }
+func ownerCtx() context.Context { return ctxAs(subjectOf(ownerUser)) }
 
 // requestAs files a recurring-hire request as the club, returning the created
 // template. It is the fixture the approve/reject/list cases need.
@@ -81,14 +86,14 @@ func requestAs(t *testing.T, h *recurringHarness, subject string) *bookingv1.Rec
 func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 	t.Run("CreateDiscountRule as the facility owner", func(t *testing.T) {
 		h, _ := newTestHandler(t)
-		if _, err := h.CreateDiscountRule(ctxAs(userID(ownerUser)), validCreateRequest()); err != nil {
+		if _, err := h.CreateDiscountRule(ctxAs(subjectOf(ownerUser)), validCreateRequest()); err != nil {
 			t.Fatalf("the owner's principal should succeed: %v", err)
 		}
 	})
 
 	t.Run("RequestRecurringHire as a club", func(t *testing.T) {
 		h := newRecurringHandler()
-		if tpl := requestAs(t, h, userID(clubUser)); tpl.GetRequestedByUserId() != userID(clubUser) {
+		if tpl := requestAs(t, h, subjectOf(clubUser)); tpl.GetRequestedByUserId() != userID(clubUser) {
 			t.Errorf("RequestedByUserId = %q, want the principal's subject %q",
 				tpl.GetRequestedByUserId(), userID(clubUser))
 		}
@@ -96,8 +101,8 @@ func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 
 	t.Run("ApproveRecurringHire as the facility owner", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
-		if _, err := h.handler.ApproveRecurringHire(ctxAs(userID(ownerUser)),
+		tpl := requestAs(t, h, subjectOf(clubUser))
+		if _, err := h.handler.ApproveRecurringHire(ctxAs(subjectOf(ownerUser)),
 			&bookingv1.ApproveRecurringHireRequest{TemplateId: tpl.GetId()}); err != nil {
 			t.Fatalf("the owner's principal should succeed: %v", err)
 		}
@@ -105,8 +110,8 @@ func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 
 	t.Run("RejectRecurringHire as the facility owner", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
-		if _, err := h.handler.RejectRecurringHire(ctxAs(userID(ownerUser)),
+		tpl := requestAs(t, h, subjectOf(clubUser))
+		if _, err := h.handler.RejectRecurringHire(ctxAs(subjectOf(ownerUser)),
 			&bookingv1.RejectRecurringHireRequest{TemplateId: tpl.GetId()}); err != nil {
 			t.Fatalf("the owner's principal should succeed: %v", err)
 		}
@@ -114,8 +119,8 @@ func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 
 	t.Run("ListRecurringHireTemplatesForFacility as the facility owner", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
-		resp, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(userID(ownerUser)),
+		tpl := requestAs(t, h, subjectOf(clubUser))
+		resp, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(subjectOf(ownerUser)),
 			&bookingv1.ListRecurringHireTemplatesForFacilityRequest{FacilityId: facilityID(1)})
 		if err != nil {
 			t.Fatalf("the owner's principal should succeed: %v", err)
@@ -127,9 +132,9 @@ func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 
 	t.Run("ListRecurringHireTemplatesForActor scopes to the principal", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
+		tpl := requestAs(t, h, subjectOf(clubUser))
 
-		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(userID(clubUser)),
+		resp, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(subjectOf(clubUser)),
 			&bookingv1.ListRecurringHireTemplatesForActorRequest{})
 		if err != nil {
 			t.Fatalf("the club's own principal should succeed: %v", err)
@@ -140,7 +145,7 @@ func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 
 		// The scope really is the principal, not the request: another user's
 		// principal sees an empty list for the same (empty) request body.
-		other, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(userID(playerUser)),
+		other, err := h.handler.ListRecurringHireTemplatesForActor(ctxAs(subjectOf(playerUser)),
 			&bookingv1.ListRecurringHireTemplatesForActorRequest{})
 		if err != nil {
 			t.Fatalf("another user's principal should still get a clean empty read: %v", err)
@@ -156,7 +161,7 @@ func TestEnforcedRPCs_ValidPrincipalForTheRealActorSucceeds(t *testing.T) {
 func TestEnforcedRPCs_DifferentUsersPrincipalIsPermissionDenied(t *testing.T) {
 	t.Run("CreateDiscountRule", func(t *testing.T) {
 		h, discounts := newTestHandler(t)
-		_, err := h.CreateDiscountRule(ctxAs(userID(attackerUser)), validCreateRequest())
+		_, err := h.CreateDiscountRule(ctxAs(subjectOf(attackerUser)), validCreateRequest())
 		requireCode(t, err, codes.PermissionDenied)
 		if len(discounts.byFacility) != 0 {
 			t.Error("a rejected CreateDiscountRule wrote a rule anyway")
@@ -168,31 +173,31 @@ func TestEnforcedRPCs_DifferentUsersPrincipalIsPermissionDenied(t *testing.T) {
 		// role. Still PermissionDenied, not Unauthenticated — we know exactly
 		// who they are.
 		h := newRecurringHandler()
-		_, err := h.handler.RequestRecurringHire(ctxAs(userID(playerUser)), validRequest(4))
+		_, err := h.handler.RequestRecurringHire(ctxAs(subjectOf(playerUser)), validRequest(4))
 		requireCode(t, err, codes.PermissionDenied)
 	})
 
 	t.Run("ApproveRecurringHire", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
-		_, err := h.handler.ApproveRecurringHire(ctxAs(userID(attackerUser)),
+		tpl := requestAs(t, h, subjectOf(clubUser))
+		_, err := h.handler.ApproveRecurringHire(ctxAs(subjectOf(attackerUser)),
 			&bookingv1.ApproveRecurringHireRequest{TemplateId: tpl.GetId()})
 		requireCode(t, err, codes.PermissionDenied)
 	})
 
 	t.Run("RejectRecurringHire", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
-		_, err := h.handler.RejectRecurringHire(ctxAs(userID(attackerUser)),
+		tpl := requestAs(t, h, subjectOf(clubUser))
+		_, err := h.handler.RejectRecurringHire(ctxAs(subjectOf(attackerUser)),
 			&bookingv1.RejectRecurringHireRequest{TemplateId: tpl.GetId()})
 		requireCode(t, err, codes.PermissionDenied)
 	})
 
 	t.Run("ListRecurringHireTemplatesForFacility", func(t *testing.T) {
 		h := newRecurringHandler()
-		requestAs(t, h, userID(clubUser))
+		requestAs(t, h, subjectOf(clubUser))
 		h.templates.listCalls = 0
-		_, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(userID(attackerUser)),
+		_, err := h.handler.ListRecurringHireTemplatesForFacility(ctxAs(subjectOf(attackerUser)),
 			&bookingv1.ListRecurringHireTemplatesForFacilityRequest{FacilityId: facilityID(1)})
 		requireCode(t, err, codes.PermissionDenied)
 		if h.templates.listCalls != 0 {
@@ -232,7 +237,7 @@ func TestEnforcedRPCs_NoPrincipalIsUnauthenticated(t *testing.T) {
 
 	t.Run("ApproveRecurringHire", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
+		tpl := requestAs(t, h, subjectOf(clubUser))
 		_, err := h.handler.ApproveRecurringHire(ctx,
 			&bookingv1.ApproveRecurringHireRequest{TemplateId: tpl.GetId()})
 		requireCode(t, err, codes.Unauthenticated)
@@ -240,7 +245,7 @@ func TestEnforcedRPCs_NoPrincipalIsUnauthenticated(t *testing.T) {
 
 	t.Run("RejectRecurringHire", func(t *testing.T) {
 		h := newRecurringHandler()
-		tpl := requestAs(t, h, userID(clubUser))
+		tpl := requestAs(t, h, subjectOf(clubUser))
 		_, err := h.handler.RejectRecurringHire(ctx,
 			&bookingv1.RejectRecurringHireRequest{TemplateId: tpl.GetId()})
 		requireCode(t, err, codes.Unauthenticated)
@@ -283,7 +288,7 @@ func TestEnforcedRPCs_WireActorClaimingTheOwnerIsIgnored(t *testing.T) {
 			// The principal says attacker, the body says owner. The body must
 			// lose, and the answer is "you may not", not "who are you".
 			name: "non-owner principal, wire field claims the legitimate actor",
-			ctx:  func() context.Context { return ctxAs(userID(attackerUser)) },
+			ctx:  func() context.Context { return ctxAs(subjectOf(attackerUser)) },
 			want: codes.PermissionDenied,
 		},
 		{
@@ -327,7 +332,7 @@ func TestEnforcedRPCs_WireActorClaimingTheOwnerIsIgnored(t *testing.T) {
 
 			t.Run("ApproveRecurringHire", func(t *testing.T) {
 				h := newRecurringHandler()
-				tpl := requestAs(t, h, userID(clubUser))
+				tpl := requestAs(t, h, subjectOf(clubUser))
 				h.templates.updateCalls = 0
 				_, err := h.handler.ApproveRecurringHire(tc.ctx(), &bookingv1.ApproveRecurringHireRequest{
 					TemplateId:  tpl.GetId(),
@@ -341,7 +346,7 @@ func TestEnforcedRPCs_WireActorClaimingTheOwnerIsIgnored(t *testing.T) {
 
 			t.Run("RejectRecurringHire", func(t *testing.T) {
 				h := newRecurringHandler()
-				tpl := requestAs(t, h, userID(clubUser))
+				tpl := requestAs(t, h, subjectOf(clubUser))
 				h.templates.updateCalls = 0
 				_, err := h.handler.RejectRecurringHire(tc.ctx(), &bookingv1.RejectRecurringHireRequest{
 					TemplateId:  tpl.GetId(),
@@ -355,7 +360,7 @@ func TestEnforcedRPCs_WireActorClaimingTheOwnerIsIgnored(t *testing.T) {
 
 			t.Run("ListRecurringHireTemplatesForFacility", func(t *testing.T) {
 				h := newRecurringHandler()
-				requestAs(t, h, userID(clubUser))
+				requestAs(t, h, subjectOf(clubUser))
 				h.templates.listCalls = 0
 				_, err := h.handler.ListRecurringHireTemplatesForFacility(tc.ctx(),
 					&bookingv1.ListRecurringHireTemplatesForFacilityRequest{
@@ -373,7 +378,7 @@ func TestEnforcedRPCs_WireActorClaimingTheOwnerIsIgnored(t *testing.T) {
 				// scope, so honoring the wire field hands over another Club's
 				// entire request history.
 				h := newRecurringHandler()
-				requestAs(t, h, userID(clubUser))
+				requestAs(t, h, subjectOf(clubUser))
 				h.templates.listCalls = 0
 
 				resp, err := h.handler.ListRecurringHireTemplatesForActor(tc.ctx(),

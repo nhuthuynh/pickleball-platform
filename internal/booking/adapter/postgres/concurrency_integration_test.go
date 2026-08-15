@@ -250,3 +250,17 @@ type unusedIdentityLookup struct{}
 func (unusedIdentityLookup) EnsureClubRole(_ context.Context, _ string) error {
 	return domain.ErrUserNotFound
 }
+
+// UserIDBySubject joined port.IdentityLookup in T13.2 (ADR-0014). It fails
+// closed like every other method here — this test reaches no actor path at
+// all, and a stub that returned a plausible id would be a stub that could
+// hide a wiring mistake instead of exposing one.
+//
+// That this file needed touching at all is the point of `make
+// vet-integration`: the build tag hides it from `go test ./...` and
+// `go vet ./...`, so the port change compiled clean everywhere a machine
+// without Docker can look, and only the T12.1 gate caught it (see CLAUDE.md's
+// gotcha on the 11 integration-gated files).
+func (unusedIdentityLookup) UserIDBySubject(_ context.Context, _ string) (string, error) {
+	return "", domain.ErrUserNotFound
+}

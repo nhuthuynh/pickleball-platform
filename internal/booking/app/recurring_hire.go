@@ -40,9 +40,20 @@ const recurringHireHorizonYears = 1
 //     only actor-shaped field and it is a subject to look up, never a
 //     privilege to believe.
 type RequestRecurringHireInput struct {
-	// ActorUserID is a caller-supplied claim, not a verified identity — see
-	// HANDOFF.md's Auth cross-cutting item. The role check it feeds is real
-	// regardless: it is resolved against the User's actual Roles.
+	// ActorUserID is the VERIFIED caller's User.ID (uuid), resolved from
+	// auth.Principal.Subject by the grpcapi handler's actor() funnel via
+	// Service.ResolveActorUserID — ADR-0014's seam, and the fix for #146 and
+	// #152.
+	//
+	// It is a uuid, never a subject. That is load-bearing twice over: it is
+	// persisted as recurring_hire_templates.requested_by_user_id
+	// (`uuid NOT NULL REFERENCES identity_users (id)`, written through the
+	// Postgres adapter's panicking mustUUID), and it is what
+	// port.IdentityLookup.EnsureClubRole keys its role lookup on.
+	//
+	// The role check it feeds is resolved against the User's actual Roles —
+	// there is deliberately no field on this input by which a caller could
+	// assert one.
 	ActorUserID  string
 	CourtID      string
 	Weekday      time.Weekday
@@ -111,6 +122,17 @@ func (s *Service) RequestRecurringHire(ctx context.Context, in RequestRecurringH
 	// same T10.7/PR #89 Layer 2 guard CreateDiscountRule applies to its own
 	// FacilityID — and it fires before the lookup, so a non-UUID never
 	// reaches identity_users.id, a `uuid` column.
+	//
+	// **This guard was #152's symptom and is deliberately kept.** Between
+	// T12.7 and T13.2 the caller's verified subject arrived here unresolved,
+	// so this line rejected every real caller before port.IdentityLookup was
+	// consulted at all. Deleting it would have been strictly worse than the
+	// bug (a subject reaching mustUUID panics the server and violates the FK
+	// — see ADR-0014 §4). ADR-0014 fixed the input instead: the handler's
+	// actor() funnel resolves subject -> User.ID, so what arrives here is a
+	// uuid and this guard is once again what it was written to be — a check
+	// against a malformed id, which is now genuinely a programming error
+	// rather than the normal case.
 	if !uuidShape.MatchString(in.ActorUserID) {
 		return domain.RecurringHireTemplate{}, domain.ErrUserNotFound
 	}
@@ -335,23 +357,27 @@ func (s *Service) ListRecurringHireTemplatesForFacility(ctx context.Context, fac
 // identity port is never consulted on this path, so the absence of the check
 // is pinned rather than incidental.
 //
-// **The standing caveat, unchanged and not papered over:** ActorUserID is a
-// caller-supplied claim, not a verified identity (HANDOFF.md's Auth
-// cross-cutting item), so until a session layer exists any caller can pass any
-// user id here. That is the same repo-wide gap every other actor-scoped
-// endpoint carries, but it bites differently here: for the Facility read the
-// object-level owner check still constrains a forged actor to Facilities that
-// actor owns, whereas here the actor id is the entire scope, so a forged one
-// yields that user's list. Adding a role check would not fix this — the forger
-// would simply forge a club user's id. What fixes it is authenticating the
-// actor, and this endpoint becomes correctly scoped the moment that lands,
-// with no change to this method.
+// **The standing caveat this method used to carry is now CLOSED, and the
+// closure is worth recording because the method itself did not change.** Until
+// T12.7 this doc comment warned that actorUserID was a caller-supplied claim,
+// so any caller could pass any user id and read that user's list — and it
+// predicted the endpoint "becomes correctly scoped the moment [authentication]
+// lands, with no change to this method". Both halves happened. T12.7 made the
+// actor the verified principal, and ADR-0014 (T13.2) made it the resolved
+// User.ID, so the scope is now a fact about the caller rather than an
+// assertion by them. The method body is byte-for-byte what it was.
 //
 // A malformed actorUserID is answered exactly like an unknown one (the T10.7
 // guard) — which for this read means an empty list, not an error, because an
 // unknown actor's answer is also an empty list. The guard still has to run:
 // the Postgres adapter's mustUUID panics on anything pgtype.UUID.Scan cannot
 // parse, and recurring_hire_templates.requested_by_user_id is a `uuid` column.
+//
+// Post-ADR-0014, a caller whose subject resolves to no User no longer reaches
+// this method at all: the handler's actor() funnel refuses them with
+// PermissionDenied. So the empty-list-for-unknown-actor branch above is now
+// reachable only by a programming error, not by an unregistered caller — a
+// deliberate, observable behaviour change recorded in ADR-0014 §6.
 func (s *Service) ListRecurringHireTemplatesForActor(ctx context.Context, actorUserID string) ([]domain.RecurringHireTemplate, error) {
 	if !uuidShape.MatchString(actorUserID) {
 		return []domain.RecurringHireTemplate{}, nil

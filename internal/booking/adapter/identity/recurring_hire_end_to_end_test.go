@@ -1,11 +1,21 @@
-// End-to-end coverage for the actor path issue #146 exposed: a verified IdP
-// subject leaving the grpcapi boundary, crossing Booking's app layer, and
-// reaching the REAL Identity context — no faked port.IdentityLookup anywhere.
+// End-to-end coverage for the actor path issues #146 and #152 exposed: a
+// verified IdP subject crossing into the REAL Identity context and being
+// translated to a User.ID, then that User.ID crossing Booking's app layer —
+// no faked port.IdentityLookup anywhere.
 //
 // This file lives under adapter/ rather than beside the app-layer tests
 // because wiring the real Identity service means importing an adapter, which
 // internal/booking/app's own tests must never do (CLAUDE.md rule 3: the
 // dependency rule points inward). Here it is legal: this IS the adapter.
+//
+// **Scope, after T13.2.** ADR-0014 put the translation in the grpcapi
+// handler's actor() funnel, so the full production path now starts one layer
+// above this package. What these tests drive is everything from
+// app.Service.ResolveActorUserID down, over the real Identity chain — which
+// is the half that lives here. The handler-inclusive path (real
+// auth.Principal -> real Handler -> this seam) is covered by
+// internal/booking/adapter/grpcapi/subject_actor_seam_test.go. Neither file
+// mocks port.IdentityLookup; between them the seam has no unexercised layer.
 package identity_test
 
 import (
@@ -97,7 +107,14 @@ func newServiceWithRealIdentity(t *testing.T, seed identitydomain.User) (*bookin
 	return svc, recurringRepo
 }
 
-func subjectActorInput(t *testing.T, actor string) bookingapp.RequestRecurringHireInput {
+// actorInput builds a valid RequestRecurringHireInput for the given actor.
+//
+// The parameter is named `actor` rather than `subject` deliberately: post
+// ADR-0014 the value app.Service expects here is a User.ID, and the tests
+// below pass a *subject* only in the one case that asserts such a value is
+// refused. Naming it `subject` (as this helper was named through PR #151)
+// would state the opposite of the contract it now feeds.
+func actorInput(t *testing.T, actor string) bookingapp.RequestRecurringHireInput {
 	t.Helper()
 
 	start, err := bookingdomain.NewClockTime(9, 0)
@@ -123,71 +140,106 @@ func subjectActorInput(t *testing.T, actor string) bookingapp.RequestRecurringHi
 	}
 }
 
-// TestRequestRecurringHire_SubjectActorStillBlockedByAppLayerUUIDGuard pins
-// the SECOND half of issue #146, which the issue's own diagnosis does not
-// mention and which this adapter fix does not close.
+// TestRequestRecurringHire_SubjectActorResolvedAtTheSeamThenSucceeds is the
+// FLIPPED form of the test this file shipped with in PR #151, which was named
+// ...SubjectActorStillBlockedByAppLayerUUIDGuard and asserted the defect on
+// purpose. Its own comment specified how to flip it once the follow-up landed:
+// "the wantErr expectation becomes a successful template creation, asserting
+// createCalls == 1 and the persisted RequestedByUserID being the User's uuid
+// rather than the subject". That is what this asserts. T13.2 is that
+// follow-up, and #152 is closed.
 //
-// app.Service.RequestRecurringHire opens with
-// `uuidShape.MatchString(in.ActorUserID)` (internal/booking/app/
-// recurring_hire.go) and returns ErrUserNotFound when it fails. Since T12.7
-// the handler supplies auth.RequireSubject(ctx) — a subject, never a uuid —
-// so that guard rejects every real caller BEFORE port.IdentityLookup is
-// consulted at all. Fixing the adapter to resolve subjects (the change this
-// file ships alongside) is necessary but not sufficient: the RPC is still
-// broken end-to-end, it just no longer fails for the reason issue #146 named.
+// **The flip has one honest amendment to what PR #151 predicted, and it is
+// the substance of ADR-0014.** #151 could not know where the translation
+// would land. It landed at the grpcapi boundary, not inside app.Service — so
+// the flipped test does not simply pass fixtureSubject to
+// RequestRecurringHire and expect success. It calls the seam first, exactly
+// as the handler's actor() funnel does, and then the use case. Both halves
+// are the real implementations over the real Identity service; nothing here
+// is mocked but the repositories.
 //
-// This test asserts the defect rather than the desired behaviour on purpose.
-// The remaining fix is not a one-liner and is not this change's to make: the
-// actor value is persisted as recurring_hire_templates.requested_by_user_id,
-// declared `uuid NOT NULL REFERENCES identity_users (id)`, and written via
-// the postgres adapter's mustUUID(), which PANICS on a non-uuid. So simply
-// deleting the guard would convert a clean NotFound into a server panic and
-// an FK violation. Closing this properly means translating subject -> User.ID
-// at the boundary and carrying the uuid inward, which changes
-// port.IdentityLookup's contract (it deliberately exposes no method that
-// returns a User) and touches all six of the handler's actor call sites.
-// That is a design decision, escalated in the PR rather than guessed at here.
-//
-// When that follow-up lands, this test should FLIP: the wantErr expectation
-// becomes a successful template creation, asserting createCalls == 1 and the
-// persisted RequestedByUserID being the User's uuid rather than the subject.
-func TestRequestRecurringHire_SubjectActorStillBlockedByAppLayerUUIDGuard(t *testing.T) {
+// The companion assertion that the app layer still REFUSES a raw subject
+// lives below, in TestRequestRecurringHire_RawSubjectIsRefusedByTheAppLayer.
+// Together they say what ADR-0014 rules: subjects stop at the boundary.
+func TestRequestRecurringHire_SubjectActorResolvedAtTheSeamThenSucceeds(t *testing.T) {
 	t.Parallel()
 
 	seed := mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub})
 	svc, recurringRepo := newServiceWithRealIdentity(t, seed)
 
-	_, err := svc.RequestRecurringHire(context.Background(), subjectActorInput(t, fixtureSubject))
+	// The seam, called exactly as grpcapi.Handler.actor does.
+	actorUserID, err := svc.ResolveActorUserID(context.Background(), fixtureSubject)
+	if err != nil {
+		t.Fatalf("ResolveActorUserID(%q) = %v, want the caller's User.ID — this is #146/#152",
+			fixtureSubject, err)
+	}
+	if actorUserID != fixtureUserID {
+		t.Fatalf("ResolveActorUserID(%q) = %q, want %q", fixtureSubject, actorUserID, fixtureUserID)
+	}
+
+	template, err := svc.RequestRecurringHire(context.Background(), actorInput(t, actorUserID))
+	if err != nil {
+		t.Fatalf("RequestRecurringHire(resolved actor) = %v, want success", err)
+	}
+
+	if recurringRepo.createCalls != 1 {
+		t.Fatalf("createCalls = %d, want 1", recurringRepo.createCalls)
+	}
+	if template.RequestedByUserID != fixtureUserID {
+		t.Fatalf("RequestedByUserID = %q, want the User's uuid %q, not the subject %q",
+			template.RequestedByUserID, fixtureUserID, fixtureSubject)
+	}
+	if got := recurringRepo.created[0].RequestedByUserID; got != fixtureUserID {
+		t.Fatalf("persisted RequestedByUserID = %q, want %q — the value that reaches the "+
+			"repository is the one recurring_hire_templates.requested_by_user_id "+
+			"(uuid NOT NULL REFERENCES identity_users) actually receives", got, fixtureUserID)
+	}
+}
+
+// TestRequestRecurringHire_RawSubjectIsRefusedByTheAppLayer is the preserved
+// intent of the pre-flip test: a raw subject handed to app.Service is refused.
+//
+// What CHANGED is why that is the right answer. Before T13.2 it was the bug —
+// the handler had no other value to pass, so this rejected every real caller
+// (#152). After ADR-0014 it is the contract: the boundary resolves subjects,
+// so a subject arriving here means the seam was bypassed, and failing closed
+// is what keeps that bypass loud instead of silently authorizing the wrong
+// person. The assertion is unchanged; only its meaning is, which is precisely
+// why the test is kept rather than deleted.
+func TestRequestRecurringHire_RawSubjectIsRefusedByTheAppLayer(t *testing.T) {
+	t.Parallel()
+
+	seed := mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub})
+	svc, recurringRepo := newServiceWithRealIdentity(t, seed)
+
+	_, err := svc.RequestRecurringHire(context.Background(), actorInput(t, fixtureSubject))
 
 	if !errors.Is(err, bookingdomain.ErrUserNotFound) {
-		t.Fatalf("RequestRecurringHire(subject actor) = %v, want %v (app-layer uuid guard); "+
-			"if this now succeeds, the subject->uuid follow-up has landed and this test must be flipped",
-			err, bookingdomain.ErrUserNotFound)
+		t.Fatalf("RequestRecurringHire(raw subject) = %v, want %v — below the grpcapi "+
+			"boundary an actor is always a User.ID (ADR-0014)", err, bookingdomain.ErrUserNotFound)
 	}
 	if recurringRepo.createCalls != 0 {
 		t.Fatalf("createCalls = %d, want 0 — a rejected request must never reach the repository", recurringRepo.createCalls)
 	}
 }
 
-// TestRequestRecurringHire_UUIDActorReachesRealIdentityAndIsRejected proves
-// the adapter fix is genuinely wired into the app service — that the real
-// Identity chain, not a fake, is answering.
-//
-// A uuid-shaped actor clears the app-layer guard and reaches the real
-// EnsureClubRole, which (correctly, post-fix) refuses to resolve a uuid as a
-// subject. The distinction from the test above matters: that one fails
-// BEFORE the lookup, this one fails INSIDE it, so together they show the
-// guard and the lookup are two separate blockers rather than one.
-func TestRequestRecurringHire_UUIDActorReachesRealIdentityAndIsRejected(t *testing.T) {
+// TestResolveActorUserID_UnregisteredSubjectIsUserNotFound proves the seam
+// fails closed against the REAL Identity service, not just a fake: a verified
+// caller who has never registered resolves to nothing, and gets the sentinel
+// grpcapi maps to PermissionDenied (ADR-0014 §6).
+func TestResolveActorUserID_UnregisteredSubjectIsUserNotFound(t *testing.T) {
 	t.Parallel()
 
 	seed := mustUser(t, fixtureUserID, fixtureSubject, []identitydomain.Role{identitydomain.RoleClub})
 	svc, recurringRepo := newServiceWithRealIdentity(t, seed)
 
-	_, err := svc.RequestRecurringHire(context.Background(), subjectActorInput(t, fixtureUserID))
+	got, err := svc.ResolveActorUserID(context.Background(), "auth0|never-registered")
 
 	if !errors.Is(err, bookingdomain.ErrUserNotFound) {
-		t.Fatalf("RequestRecurringHire(uuid actor) = %v, want %v", err, bookingdomain.ErrUserNotFound)
+		t.Fatalf("ResolveActorUserID(unregistered) = %v, want %v", err, bookingdomain.ErrUserNotFound)
+	}
+	if got != "" {
+		t.Fatalf("ResolveActorUserID(unregistered) = %q, want the zero value", got)
 	}
 	if recurringRepo.createCalls != 0 {
 		t.Fatalf("createCalls = %d, want 0", recurringRepo.createCalls)

@@ -222,7 +222,7 @@ func TestCreateDiscountRule_NonOwnerIsPermissionDenied(t *testing.T) {
 	// T12.7: the non-owner is now a *verified* non-owner. Before this ticket
 	// this line was req.ActorUserId = userID(attackerUser) — a claim the
 	// handler took at face value.
-	_, err := h.CreateDiscountRule(ctxAs(userID(attackerUser)), req)
+	_, err := h.CreateDiscountRule(ctxAs(subjectOf(attackerUser)), req)
 	requireCode(t, err, codes.PermissionDenied)
 	if discounts.createCalls != 0 {
 		t.Fatalf("a non-owner's rule reached the repository (%d calls) — the ownership check must run before anything is persisted", discounts.createCalls)
