@@ -87,6 +87,23 @@ func (f *entryLookupFakeRepository) UpdateEntryPaymentStatus(_ context.Context, 
 	return e, nil
 }
 
+// CancelAllActiveForCompetition (T16.3) is unexercised by this file's tests
+// — entry_lookup_test.go/authorization_boundary_test.go never cancel a
+// Competition — so it returns a zero value, matching the identical
+// never-exercised-dependency stub entry_updater_test.go's fakeRepository and
+// competition_admin_reader_test.go's adminFakeRepository already carry for
+// the same reason. Found by T16.4's mandated full verification toolchain
+// run (go vet ./... / make test-adapters): T16.3 added this method to
+// competitions/port.Repository and updated those other two package-local
+// fakes but missed this third one, leaving `go vet ./...` and
+// `make test-adapters` broken on the shared branch since T16.3 merged — a
+// pre-existing, unrelated build break, fixed here mechanically (matching an
+// established pattern already used twice in this same package) only
+// because it otherwise blocks this ticket's own required toolchain run.
+func (f *entryLookupFakeRepository) CancelAllActiveForCompetition(context.Context, string) (int, error) {
+	return 0, nil
+}
+
 func newEntryLookupTestService(repo *entryLookupFakeRepository) *competitionsapp.Service {
 	return competitionsapp.NewService(competitionsapp.ServiceOptions{
 		Competitions:      repo,

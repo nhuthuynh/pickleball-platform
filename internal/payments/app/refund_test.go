@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	competitionsdomain "github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
 	"github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
@@ -736,20 +737,22 @@ func TestRefundPayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) {
 
 // --- scope boundary -------------------------------------------------------
 
-// TestRefundPayment_OutOfScopePayableTypesRejected pins T12.3's stated
-// scope as a test rather than a paragraph: this ticket refunds
-// `registration`- and `booking`-payable Payments only.
+// TestRefundPayment_OutOfScopePayableTypesRejected pins the remaining scope
+// boundary as a test rather than a paragraph: `no_show_fee` is out of scope
+// — named in neither half of T12.3's original scope sentence, and unlike
+// `competition_entry` (below) it carries a genuinely open product question
+// (issue #130), so it stays out rather than silently included.
 //
-//   - competition_entry: Competitions remains cash-only for refund purposes
-//     (issue #125 tracks its PayableType gap). Deliberately not routed
-//     through competitionsport.CompetitionEntryPaymentUpdater here.
-//   - no_show_fee: named in neither half of the ticket's scope sentence, so
-//     it is treated as out of scope rather than silently included — issue
-//     #130 tracks it.
+// `competition_entry` moved OUT of this table at T16.4 (closes the
+// corrected #125) — see
+// TestRefundPayment_OfflineCompetitionEntryPayable_EntrantSucceeds below for
+// its accepted-case counterpart. Moved, not deleted: a case that simply
+// vanished here would prove nothing had been checked, per this ticket's own
+// instruction 5.
 //
-// Both answer with the existing ErrInvalidPayableType sentinel (no new
-// domain error invented for a scope boundary), and neither reaches the
-// authorization check or the domain transition.
+// The remaining case answers with the existing ErrInvalidPayableType
+// sentinel (no new domain error invented for a scope boundary), and never
+// reaches the authorization check or the domain transition.
 func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 	t.Parallel()
 
@@ -760,17 +763,6 @@ func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 		payableID   string
 		in          app.RecordOfflinePaymentInput
 	}{
-		{
-			name:        "competition_entry is out of scope (issue #125)",
-			paymentID:   fixtureCompetitionEntryPaymentID,
-			payableType: domain.PayableTypeCompetitionEntry,
-			payableID:   fixtureCompetitionEntryID,
-			in: app.RecordOfflinePaymentInput{
-				PayableType: domain.PayableTypeCompetitionEntry,
-				PayableID:   fixtureCompetitionEntryID,
-				ActorUserID: fixtureEntrantPlayer,
-			},
-		},
 		{
 			name:        "no_show_fee is out of scope (issue #130)",
 			paymentID:   fixtureNoShowFeePaymentID,
@@ -823,5 +815,270 @@ func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 				t.Fatalf("persisted Status = %v, want paid — an out-of-scope refund must have no side effect", stored.Status)
 			}
 		})
+	}
+}
+
+// --- competition_entry (T16.4, closes the corrected #125) -----------------
+
+// TestRefundPayment_OfflineCompetitionEntryPayable_EntrantSucceeds is
+// competition_entry's accepted-case counterpart to the now-removed
+// "competition_entry is out of scope (issue #125)" case in
+// TestRefundPayment_OutOfScopePayableTypesRejected above — the same payable
+// type, now expected to succeed rather than ErrInvalidPayableType, mirroring
+// TestRefundPayment_OfflineRegistrationPayable_GameHostSucceeds's shape: the
+// resolved entrant refunds their own offline entry-fee Payment, with no
+// processor involvement (the money moved as cash).
+func TestRefundPayment_OfflineCompetitionEntryPayable_EntrantSucceeds(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{fixtureCompetitionEntryPaymentID}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureEntrantPlayer,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+
+	refunded, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureCompetitionEntryPaymentID,
+		ActorUserID: fixtureEntrantPlayer,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if refunded.Status != domain.StatusRefunded {
+		t.Fatalf("Status = %v, want refunded", refunded.Status)
+	}
+
+	stored, err := repo.GetByID(context.Background(), fixtureCompetitionEntryPaymentID)
+	if err != nil {
+		t.Fatalf("expected the Payment to still exist: %v", err)
+	}
+	if stored.Status != domain.StatusRefunded {
+		t.Fatalf("persisted Status = %v, want refunded — the transition must be persisted, not just returned", stored.Status)
+	}
+}
+
+// TestRefundPayment_CompetitionEntryPayable_AssignedCompetitionAdminSucceeds
+// mirrors TestRefundPayment_RegistrationPayable_AssignedGameAdminSucceeds:
+// the refund reuses authorizeCompetitionEntryRecording's existing
+// authorized-actor set unchanged (entrant OR assigned Competition Admin),
+// not a narrower entrant-only refund rule invented for this ticket.
+func TestRefundPayment_CompetitionEntryPayable_AssignedCompetitionAdminSucceeds(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer, fixtureCompAdminUser)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{fixtureCompetitionEntryPaymentID}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureEntrantPlayer,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+
+	refunded, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureCompetitionEntryPaymentID,
+		ActorUserID: fixtureCompAdminUser,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if refunded.Status != domain.StatusRefunded {
+		t.Fatalf("Status = %v, want refunded", refunded.Status)
+	}
+}
+
+// TestRefundPayment_CompetitionEntryPayable_WrongActorRejected is the
+// competition_entry mirror of TestRefundPayment_WrongActorRejected: an
+// actor who is neither the resolved entrant nor an assigned Competition
+// Admin cannot refund someone else's entry Payment, and the existing
+// ErrNotPaymentRecorder sentinel is reused (no refund-specific one).
+func TestRefundPayment_CompetitionEntryPayable_WrongActorRejected(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{fixtureCompetitionEntryPaymentID}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureEntrantPlayer,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+
+	_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureCompetitionEntryPaymentID,
+		ActorUserID: fixtureOutsidePlayer,
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+
+	stored, getErr := repo.GetByID(context.Background(), fixtureCompetitionEntryPaymentID)
+	if getErr != nil {
+		t.Fatalf("unexpected err: %v", getErr)
+	}
+	if stored.Status != domain.StatusPaid {
+		t.Fatalf("persisted Status = %v, want paid — a rejected actor must have no side effect", stored.Status)
+	}
+}
+
+// --- Competitions projection ----------------------------------------------
+
+// TestRefundPayment_CompetitionEntryPayable_PushesRefundedToCompetitions is
+// T16.4's instruction 2: on success, PaymentStatusRefunded goes out through
+// the *existing* competitionsport.CompetitionEntryPaymentUpdater — the port
+// wired since T10.6 — mirroring
+// TestRefundPayment_RegistrationPayable_PushesRefundedToSocialPlay exactly.
+// No second updater path.
+func TestRefundPayment_CompetitionEntryPayable_PushesRefundedToCompetitions(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	updater := &fakeCompetitionEntryUpdater{}
+	entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:                repo,
+		IDs:                     &fixedIDs{ids: []string{fixtureCompetitionEntryPaymentID}},
+		CompetitionEntryUpdater: updater,
+		EntryLookup:             entries,
+		CompetitionAdminReader:  compAdmins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureEntrantPlayer,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+	// The recording itself pushes `paid` (T10.6's existing behaviour).
+	if len(updater.calls) != 1 || updater.calls[0].status != competitionsdomain.PaymentStatusPaid {
+		t.Fatalf("seed: competition entry updater calls = %+v, want one paid call", updater.calls)
+	}
+
+	if _, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureCompetitionEntryPaymentID,
+		ActorUserID: fixtureEntrantPlayer,
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(updater.calls) != 2 {
+		t.Fatalf("competition entry updater calls = %d, want 2 (the seed's paid, then this refund)", len(updater.calls))
+	}
+	got := updater.calls[1]
+	if got.status != competitionsdomain.PaymentStatusRefunded {
+		t.Fatalf("pushed status = %v, want %v", got.status, competitionsdomain.PaymentStatusRefunded)
+	}
+	if got.entryID != fixtureCompetitionEntryID {
+		t.Fatalf("pushed entry id = %q, want %q", got.entryID, fixtureCompetitionEntryID)
+	}
+}
+
+// TestRefundPayment_RegistrationPayable_DoesNotUpdateCompetitionEntry is the
+// negative half: a registration-payable refund must never write into
+// Competitions' CompetitionEntry table, mirroring
+// TestRefundPayment_BookingPayable_DoesNotUpdateRegistration's guarantee for
+// the other cross-context port.
+func TestRefundPayment_RegistrationPayable_DoesNotUpdateCompetitionEntry(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	entryUpdater := &fakeCompetitionEntryUpdater{}
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:                repo,
+		IDs:                     &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		CompetitionEntryUpdater: entryUpdater,
+		RegistrationLookup:      regs,
+		GameLookup:              games,
+		GameAdminReader:         admins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureGameHostID,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+	entryUpdater.calls = nil
+
+	if _, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureRegistrationPaymentID,
+		ActorUserID: fixtureGameHostID,
+	}); err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(entryUpdater.calls) != 0 {
+		t.Fatalf("competition entry updater calls = %+v, want none for a registration payable", entryUpdater.calls)
+	}
+}
+
+// TestRefundPayment_NilCompetitionEntryUpdater_DoesNotPanic mirrors
+// TestRefundPayment_NilRegistrationUpdater_DoesNotPanic: the updater is
+// optional (ServiceOptions' doc comment), so a Service wired without one
+// skips the projection rather than panicking on a nil interface call.
+func TestRefundPayment_NilCompetitionEntryUpdater_DoesNotPanic(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{fixtureCompetitionEntryPaymentID}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureEntrantPlayer,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+
+	refunded, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureCompetitionEntryPaymentID,
+		ActorUserID: fixtureEntrantPlayer,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if refunded.Status != domain.StatusRefunded {
+		t.Fatalf("Status = %v, want refunded", refunded.Status)
 	}
 }
