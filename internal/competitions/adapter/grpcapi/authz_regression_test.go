@@ -300,7 +300,7 @@ func seedCompetition(t *testing.T, h *grpcapi.Handler, hostID string, capacity, 
 	// keeps passing the same hostID unchanged.
 	resp, err := h.CreateCompetition(ctxAs(hostID), &competitionsv1.CreateCompetitionRequest{
 		Name:           "Spring Doubles Open",
-		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
+		Sessions:       []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1))},
 		Capacity:       capacity,
 		GuestAllowance: guestAllowance,
 		PaymentMethod:  competitionsv1.PaymentMethod_PAYMENT_METHOD_EITHER,
@@ -567,7 +567,7 @@ func TestErrorMapping_FacilityNotFound(t *testing.T) {
 	_, err := h.CreateCompetition(ctxAs("host-1"), &competitionsv1.CreateCompetitionRequest{
 		Name:            "Bad Venue Open",
 		VenueFacilityId: "no-such-facility",
-		Sessions:        []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
+		Sessions:        []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1))},
 		Capacity:        16,
 		PaymentMethod:   competitionsv1.PaymentMethod_PAYMENT_METHOD_EITHER,
 		Format:          competitionsv1.CompetitionFormat_COMPETITION_FORMAT_DOUBLES,
@@ -728,7 +728,7 @@ func TestShareToken_NotLeakedByReadPaths(t *testing.T) {
 
 	createResp, err := h.CreateCompetition(ctxAs("host-1"), &competitionsv1.CreateCompetitionRequest{
 		Name:          "Private Open",
-		Sessions:      []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")},
+		Sessions:      []*competitionsv1.CompetitionSession{protoSession("2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1))},
 		Capacity:      8,
 		PaymentMethod: competitionsv1.PaymentMethod_PAYMENT_METHOD_EITHER,
 		Format:        competitionsv1.CompetitionFormat_COMPETITION_FORMAT_SINGLES,

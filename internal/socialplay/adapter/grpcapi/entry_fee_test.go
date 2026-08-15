@@ -42,7 +42,7 @@ func createGameReq(fee *socialplayv1.Money) *socialplayv1.CreateGameRequest {
 	return &socialplayv1.CreateGameRequest{
 		HostId:        "host-1",
 		FacilityId:    "facility-1",
-		CourtIds:      []string{"court-1"},
+		CourtIds:      []string{courtID(1)},
 		StartsAt:      timestamppb.New(start),
 		EndsAt:        timestamppb.New(start.Add(time.Hour)),
 		Capacity:      4,

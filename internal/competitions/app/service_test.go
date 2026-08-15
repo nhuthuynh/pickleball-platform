@@ -321,7 +321,7 @@ func session(t *testing.T, start, end string, courtIDs ...string) domain.Session
 func validInput(t *testing.T, sessions ...domain.Session) app.ScheduleCompetitionInput {
 	t.Helper()
 	if len(sessions) == 0 {
-		sessions = []domain.Session{session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1")}
+		sessions = []domain.Session{session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1))}
 	}
 	return app.ScheduleCompetitionInput{
 		HostID:         "host-1",
@@ -365,8 +365,8 @@ func TestScheduleCompetition_ReservesEveryCourtInEverySession(t *testing.T) {
 	svc := newTestService(repo, reservation, newFakeFacilityLookup(), &fakeShareTokens{})
 
 	in := validInput(t,
-		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1", "court-2"),
-		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", "court-1", "court-2"),
+		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1), courtID(2)),
+		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", courtID(1), courtID(2)),
 	)
 
 	c, err := svc.ScheduleCompetition(context.Background(), in)
@@ -398,12 +398,12 @@ func TestScheduleCompetition_RollsBackEverySessionWhenLaterCourtUnavailable(t *t
 	t.Parallel()
 
 	repo := newFakeRepository()
-	reservation := newFakeReservation("court-2")
+	reservation := newFakeReservation(courtID(2))
 	svc := newTestService(repo, reservation, newFakeFacilityLookup(), &fakeShareTokens{})
 
 	in := validInput(t,
-		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1"),
-		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", "court-2"),
+		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1)),
+		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", courtID(2)),
 	)
 
 	_, err := svc.ScheduleCompetition(context.Background(), in)
@@ -430,7 +430,7 @@ func TestScheduleCompetition_RollsBackInReverseOrder(t *testing.T) {
 	// The recorder wraps the ordinary fake, noting the order ReleaseCourt is
 	// called in without changing its state semantics.
 	var releaseOrder []string
-	recorder := &orderRecordingReservation{inner: newFakeReservation("court-3"), order: &releaseOrder}
+	recorder := &orderRecordingReservation{inner: newFakeReservation(courtID(3)), order: &releaseOrder}
 	svc := app.NewService(app.ServiceOptions{
 		Competitions: newFakeRepository(),
 		IDs:          &sequentialIDs{},
@@ -440,8 +440,8 @@ func TestScheduleCompetition_RollsBackInReverseOrder(t *testing.T) {
 	})
 
 	in := validInput(t,
-		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1", "court-2"),
-		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", "court-3"),
+		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1), courtID(2)),
+		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", courtID(3)),
 	)
 
 	if _, err := svc.ScheduleCompetition(context.Background(), in); !errors.Is(err, domain.ErrCourtUnavailable) {
@@ -480,13 +480,13 @@ func (r *orderRecordingReservation) ReleaseCourt(ctx context.Context, bookingID 
 func TestScheduleCompetition_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 	t.Parallel()
 
-	reservation := newFakeReservation("court-2")
+	reservation := newFakeReservation(courtID(2))
 	reservation.releaseErr = errors.New("release: boom")
 	svc := newTestService(newFakeRepository(), reservation, newFakeFacilityLookup(), &fakeShareTokens{})
 
 	in := validInput(t,
-		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1"),
-		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", "court-2"),
+		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1)),
+		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", courtID(2)),
 	)
 
 	_, err := svc.ScheduleCompetition(context.Background(), in)
@@ -683,8 +683,8 @@ func TestScheduleCompetition_RollsBackReservationsWhenPersistFails(t *testing.T)
 	svc := newTestService(repo, reservation, newFakeFacilityLookup(), &fakeShareTokens{})
 
 	in := validInput(t,
-		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", "court-1", "court-2"),
-		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", "court-1"),
+		session(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z", courtID(1), courtID(2)),
+		session(t, "2026-09-02T09:00:00Z", "2026-09-02T12:00:00Z", courtID(1)),
 	)
 
 	if _, err := svc.ScheduleCompetition(context.Background(), in); err == nil {

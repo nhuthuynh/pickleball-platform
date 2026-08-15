@@ -340,6 +340,9 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidCapacity),
 		errors.Is(err, domain.ErrEmptySessions),
 		errors.Is(err, domain.ErrEmptyCourtIDs),
+		// T14.8 (issue #156) — see the twin arm in
+		// internal/socialplay/adapter/grpcapi.toStatus.
+		errors.Is(err, domain.ErrMalformedCourtID),
 		errors.Is(err, domain.ErrEmptyPlayerID),
 		errors.Is(err, domain.ErrInvalidPaymentMethod),
 		errors.Is(err, domain.ErrInvalidFormat),
