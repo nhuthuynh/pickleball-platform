@@ -76,6 +76,16 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // authorizeCompetitionEntryRecording's own nil guards): an operator who
 // forgets to wire one gets "nobody can record this payable type", never
 // "anybody can".
+//
+// T17.1 (closes #198) does not add a field: it adds a second CALLER for two
+// of the five above. authorizeOnlineCreation (CreateOnlinePayment's own
+// check, below) now reuses EntryLookup/CompetitionAdminReader — the same two
+// fields authorizeCompetitionEntryRecording already used for
+// RecordOfflinePayment/RefundPayment — rather than trusting
+// CreateOnlinePaymentInput's own now-deleted EntrantPlayerID/
+// AssignedCompetitionAdminUserIDs fields. See authorizeOnlineCreation's own
+// doc comment for why no second resolver call shape was needed: it delegates
+// to authorizeCompetitionEntryRecording unchanged.
 type Service struct {
 	payments                port.Repository
 	ids                     port.IDGenerator
@@ -176,26 +186,32 @@ func (s *Service) GetPayment(ctx context.Context, id string) (domain.Payment, er
 // CreateOnlinePaymentInput is the use-case input for starting an online
 // Payment.
 //
-// ActorUserID/EntrantPlayerID/AssignedCompetitionAdminUserIDs (T10.6, closes
-// #96) are new, competition_entry-scoped fields — the online-path analogue
-// of RecordOfflinePaymentInput's own caller-supplied authorization facts
-// (internal/payments has no live join to Competitions' database, mirroring
-// the reasoning that section's doc comment already gives for Booking/Social
-// Play). They are validated ONLY when PayableType is
+// ActorUserID (T10.6, closes #96) is a competition_entry-scoped
+// authorization input, validated ONLY when PayableType is
 // PayableTypeCompetitionEntry (see authorizeOnlineCreation): every other
 // payable type accepted by this method today (booking, registration,
 // no_show_fee) is unaffected and continues to require no actor at all,
 // exactly as before T10.6 — extending that same authorization posture to
 // those pre-existing types is explicitly out of this ticket's scope.
+//
+// EntrantPlayerID/AssignedCompetitionAdminUserIDs used to live here too
+// (T10.6) as caller-supplied claims about who the entrant/admins were.
+// T17.1 (closes #198) DELETES them, not merely stops reading them: the
+// CompetitionEntry's own PlayerID and the owning Competition's admin set are
+// now RESOLVED by authorizeOnlineCreation from the real Competitions store
+// via port.EntryLookup/CompetitionAdminReader — the identical resolution
+// T16.2 already built and wired for RecordOfflinePayment/RefundPayment's own
+// PayableTypeCompetitionEntry branch, reused unchanged here rather than
+// re-derived (see authorizeOnlineCreation's own doc comment). Deleted, not
+// left unread, so a future re-plumb of the wire list fails to *compile*
+// rather than silently restoring a forgeable check — the T14.5/T15.5/T16.2
+// pattern, per this ticket's own instructions.
 type CreateOnlinePaymentInput struct {
 	PayableType domain.PayableType
 	PayableID   string
 	Amount      domain.Money
 
 	ActorUserID string
-
-	EntrantPlayerID                 string
-	AssignedCompetitionAdminUserIDs []string
 }
 
 // CreateOnlinePayment builds an unpaid, online Payment (domain.NewPayment),
@@ -207,11 +223,12 @@ type CreateOnlinePaymentInput struct {
 //
 // authorizeOnlineCreation runs first (T10.6): for a PayableTypeCompetitionEntry
 // payable it requires the actor to be the entrant or an assigned Competition
-// Admin, mirroring RecordOfflinePayment's authorization-before-construction
-// ordering so an unauthorized actor never learns anything about why the
-// input would otherwise be invalid. Every other payable type is unaffected
-// (the check is a no-op for them, see authorizeOnlineCreation's doc
-// comment).
+// Admin — as of T17.1 (closes #198), both RESOLVED from the real
+// Competitions store rather than accepted from the caller — mirroring
+// RecordOfflinePayment's authorization-before-construction ordering so an
+// unauthorized actor never learns anything about why the input would
+// otherwise be invalid. Every other payable type is unaffected (the check is
+// a no-op for them, see authorizeOnlineCreation's doc comment).
 //
 // The Postgres adapter's UNIQUE (payable_type, payable_id) constraint is
 // the authoritative guard against recording two Payments for the same
@@ -222,7 +239,7 @@ func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymen
 	// — same ordering RecordOfflinePayment already uses, so an unauthorized
 	// actor never learns anything about whether the rest of the input would
 	// otherwise be valid, malformed PayableID included.
-	if err := authorizeOnlineCreation(in); err != nil {
+	if err := s.authorizeOnlineCreation(ctx, in); err != nil {
 		return domain.Payment{}, err
 	}
 
@@ -820,6 +837,14 @@ func (s *Service) authorizeGameRecording(ctx context.Context, in RecordOfflinePa
 // authorized, not a distinct error" way authorizeGameRecording does — see
 // that method's doc comment for the full reasoning, which applies here
 // unchanged.
+//
+// Second caller as of T17.1 (closes #198): authorizeOnlineCreation
+// (CreateOnlinePayment's own check, below) now calls this method too, given
+// a RecordOfflinePaymentInput built from CreateOnlinePaymentInput's
+// PayableID/ActorUserID — the only two fields this method reads. Reused
+// outright, unchanged: PayableType/BookingHostID are simply left zero on
+// that constructed value, which this method never inspects, so no signature
+// change or second implementation was needed.
 func (s *Service) authorizeCompetitionEntryRecording(ctx context.Context, in RecordOfflinePaymentInput) error {
 	if s.entryLookup == nil || s.competitionAdminReader == nil {
 		return domain.ErrNotPaymentRecorder
@@ -850,22 +875,18 @@ func (s *Service) authorizeCompetitionEntryRecording(ctx context.Context, in Rec
 // capture it.
 //
 // This is the one authorization check in this package that consults no
-// caller-supplied fact whatsoever, and — as of T16.2 — it has company:
-// authorizeGameRecording/authorizeCompetitionEntryRecording (called from
-// authorizeOfflineRecording) now resolve their facts from the real Social
-// Play/Competitions stores instead of accepting them on the request.
-// authorizeOfflineRecording's PayableTypeBooking branch, and
-// authorizeOnlineCreation below, are the two REMAINING exceptions: Payments
-// still has no read path into Booking's database (BookingHostID — issue
-// #149, blocked on ADR-0015's still-open D1) or a wired resolution for
-// CreateOnlinePayment's competition_entry branch specifically (EntrantPlayerID/
-// AssignedCompetitionAdminUserIDs — issue #198, opened by this ticket's own
-// sibling sweep; mechanically answerable by the identical
-// EntryLookup/CompetitionAdminReader ports this ticket built, just not wired
-// into this RPC). This check needs none of that: p.RecordedByUserID is a fact
-// this context recorded itself, from a verified principal, at
-// CreateOnlinePayment time. That is exactly why #148 was closable inside the
-// Payments context and #149/#198 are not, by this ticket.
+// caller-supplied fact whatsoever, and — as of T16.2, joined by T17.1 (closes
+// #198) — it has company: authorizeGameRecording/
+// authorizeCompetitionEntryRecording (called from authorizeOfflineRecording,
+// and now also from authorizeOnlineCreation below) resolve their facts from
+// the real Social Play/Competitions stores instead of accepting them on the
+// request. authorizeOfflineRecording's PayableTypeBooking branch is the ONE
+// REMAINING exception: Payments still has no read path into Booking's
+// database (BookingHostID — issue #149, blocked on ADR-0015's still-open D1).
+// This check needs none of that: p.RecordedByUserID is a fact this context
+// recorded itself, from a verified principal, at CreateOnlinePayment time.
+// That is exactly why #148 was closable inside the Payments context and #149
+// still is not.
 //
 // Both sides of the comparison are subjects — actorUserID is whatever
 // grpcapi's actor(ctx) returned, and p.RecordedByUserID is whatever an earlier
@@ -906,18 +927,28 @@ func authorizeOnlineConfirmation(p domain.Payment, actorUserID string) error {
 //
 // T15.5 sibling-sweep finding (§A15), RE-VERIFIED AND STILL TRUE by T16.2's
 // own required sibling sweep (instruction 10) — the T16 sprint plan's own
-// inspection missed it, so this was checked against the code directly rather
-// than trusted: EntrantPlayerID/AssignedCompetitionAdminUserIDs below are the
-// same caller-supplied-entitlement pattern authorizeOfflineRecording's
+// inspection missed it, so it was checked against the code directly rather
+// than trusted, and reported as issue #198 rather than fixed silently inside
+// that ticket (T16.2's own instructions scoped its wiring to
+// authorizeOfflineRecording only): EntrantPlayerID/
+// AssignedCompetitionAdminUserIDs used to be the same
+// caller-supplied-entitlement pattern authorizeOfflineRecording's
 // PayableTypeCompetitionEntry branch had before T16.2 resolved it via
-// port.EntryLookup/CompetitionAdminReader. Those exact two ports would answer
-// this branch identically (CreateOnlinePaymentInput.PayableID is the same
-// CompetitionEntry id RecordOfflinePaymentInput.PayableID is) — this is NOT
-// blocked on a missing read the way #149's BookingHostID is. Not fixed here
-// because T16.2's own instructions scope the wiring to authorizeOfflineRecording
-// only; tracked as its own issue, #198, rather than folded into this ticket
-// silently.
-func authorizeOnlineCreation(in CreateOnlinePaymentInput) error {
+// port.EntryLookup/CompetitionAdminReader.
+//
+// T17.1 (closes #198) closes it: this method is now a Service method (it
+// needs s.entryLookup/s.competitionAdminReader, so it can no longer be a
+// free function of in alone) and, for PayableTypeCompetitionEntry, delegates
+// to authorizeCompetitionEntryRecording UNCHANGED — the exact method
+// authorizeOfflineRecording already uses for the identical rule — rather
+// than writing a second implementation. No real signature mismatch forced a
+// second method: authorizeCompetitionEntryRecording reads only
+// RecordOfflinePaymentInput.PayableID/ActorUserID (see its own doc comment),
+// both of which CreateOnlinePaymentInput also carries, so this method builds
+// one inline from those two fields and calls straight through.
+// CreateOnlinePaymentInput.PayableID is the same CompetitionEntry id
+// RecordOfflinePaymentInput.PayableID is, exactly as #198 predicted.
+func (s *Service) authorizeOnlineCreation(ctx context.Context, in CreateOnlinePaymentInput) error {
 	if in.PayableType != domain.PayableTypeCompetitionEntry {
 		return nil
 	}
@@ -925,13 +956,9 @@ func authorizeOnlineCreation(in CreateOnlinePaymentInput) error {
 	if in.ActorUserID == "" {
 		return domain.ErrNotPaymentRecorder
 	}
-	if in.EntrantPlayerID != "" && in.ActorUserID == in.EntrantPlayerID {
-		return nil
-	}
-	for _, adminID := range in.AssignedCompetitionAdminUserIDs {
-		if adminID != "" && adminID == in.ActorUserID {
-			return nil
-		}
-	}
-	return domain.ErrNotPaymentRecorder
+
+	return s.authorizeCompetitionEntryRecording(ctx, RecordOfflinePaymentInput{
+		PayableID:   in.PayableID,
+		ActorUserID: in.ActorUserID,
+	})
 }

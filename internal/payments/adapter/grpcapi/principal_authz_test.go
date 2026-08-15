@@ -144,13 +144,41 @@ func newPrincipalAuthzHandlerWithProcessor(hostID string, seedIDs ...string) (*g
 	return grpcapi.NewHandler(svc), repo
 }
 
+// newPrincipalAuthzOnlineHandler mirrors newPrincipalAuthzHandler, but for
+// CreateOnlinePayment's own PayableTypeCompetitionEntry authorization branch
+// (T17.1, closes #198): the resolver fakes are configured so
+// fixtureCompetitionEntryID's entrant is playerID — parameterized, like
+// newPrincipalAuthzHandler's hostID, because this file's tests need the
+// *principal*, not the (now-ignored) wire entrant_player_id, to be what
+// port.EntryLookup reports. Needs its own Processor, unlike
+// newPrincipalAuthzHandler's offline-only callers, since CreateOnlinePayment
+// reaches port.PaymentProcessor.CreateIntent on the authorized path.
+func newPrincipalAuthzOnlineHandler(playerID string, seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
+	repo := newFakeRepository()
+	entries, compAdmins := newEntryAuthzResolverFixtures(playerID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: seedIDs},
+		Processor:              stripestub.NewProcessor(),
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
+	})
+	return grpcapi.NewHandler(svc), repo
+}
+
+// onlineReq sets entrant_player_id, but T17.1 (closes #198) means that field
+// no longer decides anything: the entrant paying for their own entry is the
+// allowed case, and it is a caller's principal — resolved server-side via
+// port.EntryLookup against whichever handler built this request's Service —
+// that decides whether the caller *is* that entrant, not this wire value.
+// Retained set, deprecated, purely so tests below can show it has no effect
+// (mirroring offlineReq's identical game_host_id comment above).
 func onlineReq() *paymentsv1.CreateOnlinePaymentRequest {
 	return &paymentsv1.CreateOnlinePaymentRequest{
 		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
 		PayableId:   fixtureCompetitionEntryID,
 		Amount:      offlineFixtureAmount(),
-		// The entrant paying for their own entry is the allowed case; the
-		// principal is what decides whether the caller *is* that entrant.
+		// nolint:staticcheck // SA1019: setting the deprecated field IS the point — see the doc comment above.
 		EntrantPlayerId: hostSubject,
 	}
 }
@@ -167,7 +195,7 @@ func TestEnforcedRPCs_OwnerPrincipalSucceeds(t *testing.T) {
 		t.Errorf("repo has %d Payments, want 1 after the Host's successful call", len(repo.byID))
 	}
 
-	h2, _ := newTestHandlerWithProcessor("pay-2")
+	h2, _ := newPrincipalAuthzOnlineHandler(hostSubject, "pay-2")
 	if _, err := h2.CreateOnlinePayment(ctxAs(hostSubject), onlineReq()); err != nil {
 		t.Errorf("CreateOnlinePayment as the entrant's own principal should succeed, got: %v", err)
 	}

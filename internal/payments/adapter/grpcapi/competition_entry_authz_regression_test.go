@@ -155,6 +155,16 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsAssignedCompetitionA
 // path has ever had, scoped to PAYABLE_TYPE_COMPETITION_ENTRY only (see
 // app.CreateOnlinePaymentInput's doc comment for why the pre-existing
 // payable types are deliberately left as they were).
+//
+// entrant_player_id/assigned_competition_admin_user_ids on the requests
+// below are now [deprecated = true] and ignored by the server (T17.1, closes
+// #198) — newTestHandlerWithProcessor's real entrant/admin set ("player-1"/
+// "admin-1"/"admin-2", per newEntryAuthzResolverFixtures) is what actually
+// decides these tests now, not these wire values. Left set anyway in the
+// positive-path cases below purely to prove they have no effect (an
+// un-migrated client sending them must not behave differently) — see
+// TestCreateOnlinePayment_Handler_ForgedEntrantPlayerIdIgnored below for the
+// case where they'd matter if honored.
 
 // TestCreateOnlinePayment_CompetitionEntryPayable_RejectsMismatchedActor is
 // this ticket's required test for the online path: a Player who is
@@ -166,10 +176,12 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_RejectsMismatchedActor(t *t
 	h, repo := newTestHandlerWithProcessor("pay-1")
 
 	_, err := h.CreateOnlinePayment(ctxAs("random-player"), &paymentsv1.CreateOnlinePaymentRequest{
-		PayableType:                     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:                       fixtureCompetitionEntryID,
-		Amount:                          competitionEntryFixtureAmount(),
-		EntrantPlayerId:                 "player-1",
+		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
+		PayableId:   fixtureCompetitionEntryID,
+		Amount:      competitionEntryFixtureAmount(),
+		// nolint:staticcheck // SA1019: deprecated (T17.1) — set here to prove it has no effect.
+		EntrantPlayerId: "player-1",
+		// nolint:staticcheck // SA1019: deprecated (T17.1) — set here to prove it has no effect.
 		AssignedCompetitionAdminUserIds: []string{"admin-1"},
 	})
 	if err == nil {
@@ -199,9 +211,10 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T)
 	h, repo := newTestHandlerWithProcessor("pay-1")
 
 	resp, err := h.CreateOnlinePayment(ctxAs("player-1"), &paymentsv1.CreateOnlinePaymentRequest{
-		PayableType:     paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
-		PayableId:       fixtureCompetitionEntryID,
-		Amount:          competitionEntryFixtureAmount(),
+		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
+		PayableId:   fixtureCompetitionEntryID,
+		Amount:      competitionEntryFixtureAmount(),
+		// nolint:staticcheck // SA1019: deprecated (T17.1) — set here to prove it has no effect.
 		EntrantPlayerId: "player-1",
 	})
 	if err != nil {
@@ -212,6 +225,50 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_AllowsEntrant(t *testing.T)
 	}
 	if len(repo.byID) != 1 {
 		t.Errorf("repo has %d Payments, want 1 after the entrant's successful CreateOnlinePayment", len(repo.byID))
+	}
+}
+
+// TestCreateOnlinePayment_Handler_ForgedEntrantPlayerIdIgnored is T17.1's
+// headline forgery mutation check at the wire boundary (closes #198,
+// instruction 5), the CreateOnlinePayment mirror of
+// TestRefundPayment_Handler_ForgedGameHostIdIgnored (refund_test.go): a
+// caller naming themselves via the deprecated, now-ignored
+// entrant_player_id field is refused — the request below is byte-for-byte
+// what would have SUCCEEDED before this ticket (an attacker who is neither
+// the real entrant ("player-1") nor an assigned Competition Admin
+// ("admin-1"/"admin-2", per newTestHandlerWithProcessor's resolver wiring)
+// simply claiming entrant_player_id = their own subject), and must now fail
+// exactly like TestCreateOnlinePayment_CompetitionEntryPayable_RejectsMismatchedActor's
+// unrelated-actor case, because there is no live path left from this field
+// to the authorization decision.
+func TestCreateOnlinePayment_Handler_ForgedEntrantPlayerIdIgnored(t *testing.T) {
+	h, repo := newTestHandlerWithProcessor("pay-1")
+
+	const attacker = "attacker-forging-entrant-player-id"
+	_, err := h.CreateOnlinePayment(ctxAs(attacker), &paymentsv1.CreateOnlinePaymentRequest{
+		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_COMPETITION_ENTRY,
+		PayableId:   fixtureCompetitionEntryID,
+		Amount:      competitionEntryFixtureAmount(),
+		// nolint:staticcheck // SA1019: setting the deprecated field IS the test.
+		EntrantPlayerId: attacker, // the forgery: claiming to be the entry's own entrant
+	})
+	if err == nil {
+		t.Fatal("CreateOnlinePayment(attacker forging entrant_player_id) succeeded silently — the deprecated field still decided authorization (T17.1 regression)")
+	}
+
+	st, ok := status.FromError(err)
+	if !ok {
+		t.Fatalf("CreateOnlinePayment(attacker) returned a non-gRPC-status error: %v (a client can't map this to a clean HTTP status)", err)
+	}
+	if st.Code() == codes.Internal {
+		t.Fatalf("CreateOnlinePayment(attacker) mapped to Internal (500-shaped) — want PermissionDenied (403-shaped): %v", err)
+	}
+	if st.Code() != codes.PermissionDenied {
+		t.Fatalf("CreateOnlinePayment(attacker) status code = %v, want PermissionDenied (403-shaped)", st.Code())
+	}
+
+	if len(repo.byID) != 0 {
+		t.Errorf("repo has %d Payments after a forged CreateOnlinePayment, want 0 — a forged attempt must have no side effect", len(repo.byID))
 	}
 }
 

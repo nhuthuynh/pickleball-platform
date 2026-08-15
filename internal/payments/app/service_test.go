@@ -869,25 +869,29 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_ForgedDeprecatedFieldIgnor
 }
 
 // TestCreateOnlinePayment_CompetitionEntryPayable_EntrantSucceeds proves the
-// online-checkout half of the same authorization rule: the entrant supplies
-// actor_user_id claiming to be themself and CreateOnlinePayment succeeds.
+// online-checkout half of the same authorization rule: the entrant, resolved
+// via EntryLookup (T17.1, closes #198 — there is no EntrantPlayerID field
+// left on the input to claim it through), starts an online Payment for
+// their own CompetitionEntry.
 func TestCreateOnlinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing.T) {
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
 	repo := newFakeRepository()
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  repo,
-		IDs:       &fixedIDs{ids: []string{"pay-1"}},
-		Processor: proc,
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		Processor:              proc,
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          fixtureAmount(),
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -899,24 +903,25 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing.
 
 // TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected
 // proves an empty actor_user_id is rejected outright for a competition_entry
-// payable — a caller must claim to be someone before the online path will
+// payable — a caller must be identified before the online path will
 // authorize a Payment against another Player's entry.
 func TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected(t *testing.T) {
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  newFakeRepository(),
-		IDs:       &fixedIDs{ids: []string{"pay-1"}},
-		Processor: proc,
+		Payments:               newFakeRepository(),
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		Processor:              proc,
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          fixtureAmount(),
-		EntrantPlayerID: "player-1",
-		ActorUserID:     fixtureOnlinePayerID,
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -927,25 +932,69 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected(t *tes
 // proves an actor who is neither the entrant nor an assigned Competition
 // Admin cannot start an online payment against another Player's
 // CompetitionEntry — the ticket's required BOLA regression for the online
-// path.
+// path, now resolved (T17.1, closes #198) rather than compared against a
+// caller-supplied claim: real entrant is "player-1", real admins are
+// "admin-1"/"admin-2" (per newEntryAuthzFixtures), and "random-player" is
+// neither.
 func TestCreateOnlinePayment_CompetitionEntryPayable_UnauthorizedActorRejected(t *testing.T) {
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
 	repo := newFakeRepository()
+	entries, admins := newEntryAuthzFixtures("player-1", "admin-1", "admin-2")
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  repo,
-		IDs:       &fixedIDs{ids: []string{"pay-1"}},
-		Processor: proc,
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		Processor:              proc,
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
-		PayableType:                     domain.PayableTypeCompetitionEntry,
-		PayableID:                       fixtureCompetitionEntryID,
-		Amount:                          fixtureAmount(),
-		ActorUserID:                     "random-player",
-		EntrantPlayerID:                 "player-1",
-		AssignedCompetitionAdminUserIDs: []string{"admin-1"},
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
+		ActorUserID: "random-player",
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+	if _, err := repo.GetByID(context.Background(), "pay-1"); !errors.Is(err, domain.ErrPaymentNotFound) {
+		t.Fatalf("expected nothing persisted on a rejected authorization attempt, got err %v", err)
+	}
+}
+
+// TestCreateOnlinePayment_CompetitionEntryPayable_ForgedDeprecatedFieldIgnored
+// is this ticket's headline mutation check (instruction 5), the online-path
+// mirror of TestRecordOfflinePayment_CompetitionEntryPayable_ForgedDeprecatedFieldIgnored:
+// a caller naming themselves via the now-deleted-from-input, still-on-the-wire
+// deprecated entrant_player_id/assigned_competition_admin_user_ids fields
+// (see payments.proto) has no effect at the app layer, because
+// CreateOnlinePaymentInput no longer has fields to receive them into at all
+// — there is no (forged) field left on this struct to set; that itself is
+// the proof, enforced at compile time. "attacker" is genuinely unrelated to
+// the resolved entrant ("player-1") and admin set ("admin-1"), so before
+// this ticket a caller could simply have claimed EntrantPlayerID="attacker"
+// and succeeded; now they cannot.
+func TestCreateOnlinePayment_CompetitionEntryPayable_ForgedDeprecatedFieldIgnored(t *testing.T) {
+	t.Parallel()
+
+	proc := stripestub.NewProcessor()
+	repo := newFakeRepository()
+	entries, admins := newEntryAuthzFixtures("player-1", "admin-1")
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		Processor:              proc,
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
+	})
+
+	_, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
+		ActorUserID: "attacker",
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -1291,19 +1340,21 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 	proc := stripestub.NewProcessor()
 	repo := newFakeRepository()
 	updater := &fakeCompetitionEntryUpdater{}
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
 		Payments:                repo,
 		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
 		Processor:               proc,
 		CompetitionEntryUpdater: updater,
+		EntryLookup:             entries,
+		CompetitionAdminReader:  admins,
 	})
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          fixtureAmount(),
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
@@ -1371,20 +1422,22 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_DoesNotUpdateRegistration(
 	repo := newFakeRepository()
 	regUpdater := &fakeRegistrationUpdater{}
 	entryUpdater := &fakeCompetitionEntryUpdater{}
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
 		Payments:                repo,
 		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
 		Processor:               proc,
 		RegistrationUpdater:     regUpdater,
 		CompetitionEntryUpdater: entryUpdater,
+		EntryLookup:             entries,
+		CompetitionAdminReader:  admins,
 	})
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          fixtureAmount(),
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
@@ -1452,18 +1505,20 @@ func TestConfirmOnlinePayment_NilCompetitionEntryUpdater_DoesNotPanic(t *testing
 	t.Parallel()
 
 	proc := stripestub.NewProcessor()
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  newFakeRepository(),
-		IDs:       &fixedIDs{ids: []string{"pay-1"}},
-		Processor: proc,
+		Payments:               newFakeRepository(),
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		Processor:              proc,
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          fixtureAmount(),
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      fixtureAmount(),
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)

@@ -39,26 +39,32 @@ import (
 // never PermissionDenied (ADR-0013 §5).
 //
 // Note what is NOT migrated here, deliberately, and what changed since
-// (T12.8 vs. T16.2, kept both dated so this comment stays accurate rather
-// than rewritten into a single blended claim): as of T12.8, booking_host_id,
-// game_host_id, entrant_player_id and the two assigned-admin lists all
-// remained caller-supplied ownership *facts*, because Payments had no port
-// into Booking, Social Play or Competitions to resolve them against — a
-// real, pre-existing gap that ticket narrowed but did not close. T16.2
-// (closes #168) closes it for four of those five: game_host_id,
+// (T12.8 vs. T16.2 vs. T17.1, kept all three dated so this comment stays
+// accurate rather than rewritten into a single blended claim): as of T12.8,
+// booking_host_id, game_host_id, entrant_player_id and the two
+// assigned-admin lists all remained caller-supplied ownership *facts*,
+// because Payments had no port into Booking, Social Play or Competitions to
+// resolve them against — a real, pre-existing gap that ticket narrowed but
+// did not close. T16.2 (closes #168) closes it for
+// RecordOfflinePayment/RefundPayment's four fields: game_host_id,
 // entrant_player_id, assigned_game_admin_user_ids and
 // assigned_competition_admin_user_ids are no longer read off the wire at
-// all (see RecordOfflinePayment/RefundPayment below) — app.Service now
-// RESOLVES the equivalent facts itself via
+// all for those two RPCs (see RecordOfflinePayment/RefundPayment below) —
+// app.Service now RESOLVES the equivalent facts itself via
 // port.RegistrationLookup/GameLookup/GameAdminReader/EntryLookup/
 // CompetitionAdminReader against the real Social Play/Competitions stores,
 // so a caller can no longer assert who a Game's Host or a Competition's
-// admins are. booking_host_id is the one fact that STAYS caller-supplied:
+// admins are. T17.1 (closes #198) closes the identical gap on
+// CreateOnlinePayment's own separate entrant_player_id/
+// assigned_competition_admin_user_ids fields (see that method below) — T16.2
+// built the resolver ports but scoped their wiring to
+// RecordOfflinePayment/RefundPayment only, leaving CreateOnlinePayment's own
+// authorization check trusting the caller one RPC longer. booking_host_id is
+// the one fact that STAYS caller-supplied, on every RPC that accepts it:
 // Payments still has no live join to Booking's database (ADR-0015's
 // still-open D1 blocks the identical resolution built here for the other
 // two contexts), so a caller can still assert who a Booking's Host is.
-// Tracked as issue #149, narrowed by this ticket to that one remaining
-// fact — see this ticket's PR body.
+// Tracked as issue #149.
 func actor(ctx context.Context) (string, error) {
 	return auth.RequireSubject(ctx)
 }
@@ -117,6 +123,16 @@ func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.Reco
 
 // CreateOnlinePayment creates a payment intent on behalf of the verified
 // caller (T12.8). The actor is the principal, never req.GetActorUserId().
+//
+// T17.1 (closes #198): req.GetEntrantPlayerId() and
+// req.GetAssignedCompetitionAdminUserIds() are deliberately NOT read here
+// anymore — those two wire fields are now [deprecated = true] on the proto
+// (see payments.proto) and app.CreateOnlinePaymentInput no longer even has
+// fields to receive them into (deleted, not left unread — see that struct's
+// doc comment). A caller still sending them (an un-migrated client) has
+// those values silently ignored, exactly as RecordOfflinePayment's own four
+// deprecated fields already are as of T16.2: app.Service resolves the
+// equivalent facts itself from PayableID via the real Competitions store.
 func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.CreateOnlinePaymentRequest) (*paymentsv1.CreateOnlinePaymentResponse, error) {
 	actorUserID, err := actor(ctx)
 	if err != nil {
@@ -129,12 +145,10 @@ func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.Creat
 	}
 
 	p, err := h.svc.CreateOnlinePayment(ctx, app.CreateOnlinePaymentInput{
-		PayableType:                     payableType,
-		PayableID:                       req.GetPayableId(),
-		Amount:                          fromProtoMoney(req.GetAmount()),
-		ActorUserID:                     actorUserID,
-		EntrantPlayerID:                 req.GetEntrantPlayerId(),
-		AssignedCompetitionAdminUserIDs: req.GetAssignedCompetitionAdminUserIds(),
+		PayableType: payableType,
+		PayableID:   req.GetPayableId(),
+		Amount:      fromProtoMoney(req.GetAmount()),
+		ActorUserID: actorUserID,
 	})
 	if err != nil {
 		return nil, toStatus(err)
