@@ -188,6 +188,83 @@ func errorMappingCases() []errorMappingCase {
 			},
 		},
 		{
+			name:     "assigning a competition admin who already holds an assignment",
+			sentinel: "ErrAlreadyCompetitionAdmin",
+			err:      domain.ErrAlreadyCompetitionAdmin,
+			wantCode: codes.AlreadyExists,
+			why: "T15.3 (#168): the request names a state that already exists, the group ErrAlreadyEntered occupies. " +
+				"The domain pre-check and competition_admins' composite primary key produce the same sentinel by " +
+				"design (CLAUDE.md rules 4 and 5), so this code covers both",
+			invoke: func(t *testing.T) error {
+				h, _ := newTestHandler()
+				c := seedCompetition(t, h, mapHostID, 16, 2)
+				req := &competitionsv1.AssignCompetitionAdminRequest{CompetitionId: c.GetId(), UserId: mapPlayerID}
+				if _, err := h.AssignCompetitionAdmin(ctxAs(mapHostID), req); err != nil {
+					t.Fatalf("seed AssignCompetitionAdmin: %v", err)
+				}
+				_, err := h.AssignCompetitionAdmin(ctxAs(mapHostID), req)
+				return err
+			},
+		},
+		{
+			name:     "revoking a competition admin assignment that does not exist",
+			sentinel: "ErrCompetitionAdminNotFound",
+			err:      domain.ErrCompetitionAdminNotFound,
+			wantCode: codes.NotFound,
+			why: "T15.3 (#168): the Competition is real, the assignment is not — the same distinction " +
+				"ErrCompetitionEntryNotFound draws against its own parent Competition. NOT a silent success: a revoke " +
+				"that removed nothing must not confirm a Host's belief about who holds authority",
+			invoke: func(t *testing.T) error {
+				h, _ := newTestHandler()
+				c := seedCompetition(t, h, mapHostID, 16, 2)
+				_, err := h.RevokeCompetitionAdmin(ctxAs(mapHostID), &competitionsv1.RevokeCompetitionAdminRequest{
+					CompetitionId: c.GetId(),
+					UserId:        "map-never-assigned",
+				})
+				return err
+			},
+		},
+		{
+			name:     "assigning a blank competition admin user id",
+			sentinel: "ErrEmptyCompetitionAdminUserID",
+			err:      domain.ErrEmptyCompetitionAdminUserID,
+			wantCode: codes.InvalidArgument,
+			why: "T15.3 (#168): a blank user id names nobody regardless of system state — the textbook " +
+				"InvalidArgument, and the sibling of ErrEmptyPlayerID",
+			invoke: func(t *testing.T) error {
+				h, _ := newTestHandler()
+				c := seedCompetition(t, h, mapHostID, 16, 2)
+				_, err := h.AssignCompetitionAdmin(ctxAs(mapHostID), &competitionsv1.AssignCompetitionAdminRequest{
+					CompetitionId: c.GetId(),
+					UserId:        "",
+				})
+				return err
+			},
+		},
+		{
+			name:     "assigning the host as their own competition admin",
+			sentinel: "ErrHostCannotBeCompetitionAdmin",
+			err:      domain.ErrHostCannotBeCompetitionAdmin,
+			wantCode: codes.InvalidArgument,
+			why: "T15.3 (#168), and the row here whose code is a judgement call rather than a lookup. It is " +
+				"state-dependent in the literal sense — the same user_id is valid against a Competition they do not " +
+				"host — so T14.7's own ErrIllegalStatusTransition argument appears to point at FailedPrecondition. It " +
+				"does not: the distinction this context already draws is ErrGuestAllowanceExceeded's, where a limit " +
+				"that is fixed, knowable and caller-visible (a Competition's host_id is on the Competition message the " +
+				"caller read to get the competition_id) makes a violating request a client-input defect. " +
+				"FailedPrecondition's sentinels here are about a *lifecycle* that changes under the caller's feet; a " +
+				"Competition's Host does not. Matches Social Play's identical placement of ErrHostCannotBeGameAdmin",
+			invoke: func(t *testing.T) error {
+				h, _ := newTestHandler()
+				c := seedCompetition(t, h, mapHostID, 16, 2)
+				_, err := h.AssignCompetitionAdmin(ctxAs(mapHostID), &competitionsv1.AssignCompetitionAdminRequest{
+					CompetitionId: c.GetId(),
+					UserId:        mapHostID,
+				})
+				return err
+			},
+		},
+		{
 			name:     "unknown venue facility id",
 			sentinel: "ErrFacilityNotFound",
 			err:      domain.ErrFacilityNotFound,

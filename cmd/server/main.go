@@ -227,12 +227,19 @@ func run(logger *slog.Logger) error {
 	// instance already constructed, the same reordering constraint
 	// RegistrationUpdater already imposed on Social Play above.
 	competitionsRepo := competitionspg.NewRepository(pool)
+	// The durable Competition-Admin store (T15.3, partial fix for #168) — its
+	// own narrow repository over competition_admins, mirroring the Game-Admin
+	// store wired for Social Play above. See
+	// competitionsport.CompetitionAdminRepository for why it is a separate
+	// interface rather than three more methods on the Competitions repository.
+	competitionAdminRepo := competitionspg.NewCompetitionAdminRepository(pool)
 	competitionsSvc := competitionsapp.NewService(competitionsapp.ServiceOptions{
-		Competitions: competitionsRepo,
-		IDs:          idgen.UUID{},
-		Reservation:  competitionsbooking.NewReservation(bookingSvc),
-		Facilities:   competitionsfacilities.NewLookup(facilitiesSvc),
-		ShareTokens:  sharetoken.Generator{},
+		Competitions:      competitionsRepo,
+		IDs:               idgen.UUID{},
+		Reservation:       competitionsbooking.NewReservation(bookingSvc),
+		Facilities:        competitionsfacilities.NewLookup(facilitiesSvc),
+		ShareTokens:       sharetoken.Generator{},
+		CompetitionAdmins: competitionAdminRepo,
 	})
 	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
 

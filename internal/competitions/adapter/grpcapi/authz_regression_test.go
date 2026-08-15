@@ -268,14 +268,21 @@ func (f *fakeShareTokens) NewShareToken() (string, error) {
 
 // newTestHandler wires the REAL app.Service and the REAL grpcapi.Handler —
 // exactly what cmd/server wires in production — against the fakes above.
+// The signature is deliberately unchanged by T15.3, which wires the
+// Competition-Admin store (#168) in as a sixth dependency: the fake is
+// reachable through the handler's own AssignCompetitionAdmin /
+// RevokeCompetitionAdmin RPCs, which is how every test that cares about it
+// drives it, so returning it as a third value would have churned 40-odd call
+// sites to hand almost all of them a value they discard.
 func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
 	repo := newFakeRepo()
 	svc := app.NewService(app.ServiceOptions{
-		Competitions: repo,
-		IDs:          &fakeIDs{},
-		Reservation:  &fakeReservation{},
-		Facilities:   fakeFacilities{},
-		ShareTokens:  &fakeShareTokens{},
+		Competitions:      repo,
+		IDs:               &fakeIDs{},
+		Reservation:       &fakeReservation{},
+		Facilities:        fakeFacilities{},
+		ShareTokens:       &fakeShareTokens{},
+		CompetitionAdmins: newFakeCompetitionAdminRepo(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
