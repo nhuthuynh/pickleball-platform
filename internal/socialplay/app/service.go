@@ -317,6 +317,44 @@ func releaseAll(ctx context.Context, reservation port.CourtReservation, bookingI
 	}
 }
 
+// GetGame returns a single Game by ID, or domain.ErrGameNotFound.
+//
+// T16.2, closing part of #168: Social Play has never exposed a
+// single-Game read at the app layer before this method — every existing
+// read either lists (ListGames' browse/filter path) or is scoped to a
+// gameID for a different purpose (ListRegistrationsForGame,
+// ListMatchesForGame, ListGameAdmins), never "give me this one Game back".
+// That is a real, pre-existing gap this ticket closes as a side effect of
+// needing Game.HostID resolvable from a gameID — not something quietly
+// worked around: internal/payments/adapter/socialplay.GameLookup (T16.2)
+// is the first caller, resolving a Registration's Game's HostID for
+// authorizeOfflineRecording, but this method is a general-purpose public
+// read, not a Payments-specific one.
+//
+// A deliberate thin pass-through to the repository with no orchestration
+// of its own — mirrors competitionsapp.Service.GetCompetition's identical
+// shape (T9.4) and its own doc comment's reasoning: there is no rule to
+// apply on reading a Game, and adding a use-case method that only forwards
+// is still worth it so a caller depends on app.Service alone rather than
+// reaching past it into port.GameRepository (CLAUDE.md rule 3).
+//
+// **No ownership check, deliberately**, for the same reason GetCompetition
+// has none: reading a Game is not an act *on* it. Anyone who can see the
+// Discover & Join listing can already read the Game it names via
+// ListGames — this method discloses the same domain.Game shape, just by
+// id instead of by filter.
+func (s *Service) GetGame(ctx context.Context, gameID string) (domain.Game, error) {
+	// A malformed ID is answered exactly like an unknown one, for the reason
+	// GetCompetition's identical guard gives: this is a public read, so
+	// "that isn't even a valid ID" would be a distinguishable reply and
+	// therefore an oracle. It is also what stops the Postgres adapter's
+	// mustUUID from panicking the process on an unauthenticated request.
+	if !uuidShape.MatchString(gameID) {
+		return domain.Game{}, domain.ErrGameNotFound
+	}
+	return s.games.GetByID(ctx, gameID)
+}
+
 // RegisterForGameInput is the use-case input for registering a player into
 // a Game.
 type RegisterForGameInput struct {
@@ -386,6 +424,48 @@ func (s *Service) RegisterForGame(ctx context.Context, in RegisterForGameInput) 
 	reg.ID = s.ids.NewID()
 
 	return s.registrations.Create(ctx, reg)
+}
+
+// GetRegistrationByID returns a single Registration by ID, or
+// domain.ErrRegistrationNotFound — exposing the already-implemented
+// port.RegistrationRepository.GetByID (T16.2, closing part of #168).
+//
+// **No ownership check, deliberately**, mirroring competitionsapp.Service.
+// GetCompetition's public-read shape exactly (that method's own doc comment
+// gives the general argument: reading an aggregate by its own opaque id is
+// not an act *on* it).
+//
+// Enumeration-oracle claim, verified against the real read paths rather than
+// assumed (per this ticket's own instruction, using T15.6 instruction 5's
+// method): compared field-for-field, a domain.Registration this method
+// returns carries exactly the same fields ListRegistrationsForGame already
+// returns for every registration in a roster a Host/Game-Admin can list —
+// ID, GameID, PlayerID, Source, Status, PaymentStatus, GuestCount. No new
+// field is disclosed. **But the audience is not the same, and that
+// difference is not vacuous:** ListRegistrationsForGame gates its answer on
+// game.EnsureHostOrGameAdmin, while this method gates on nothing. Today that
+// gap has no live exploit because this method is a plain Go call with no
+// RPC in front of it — grepped across proto/pickleball/socialplay/v1 and
+// internal/socialplay/adapter/grpcapi/handler.go, confirmed neither defines
+// a GetRegistration-shaped RPC, so the only caller this ticket adds is
+// internal/payments/adapter/socialplay.RegistrationLookup, an in-process
+// call from another trusted context, not a wire endpoint an end user can
+// reach with an arbitrary id. That is a fact about *today's* call graph, not
+// a property of this method itself: if a future ticket ever puts an RPC
+// directly in front of GetRegistrationByID, the ownership question this
+// paragraph answers "no live exploit" to today must be re-asked, because at
+// that point it would let any caller read any Registration's PlayerID and
+// PaymentStatus by guessing or otherwise obtaining an id, which
+// ListRegistrationsForGame's own Host-or-admin gate exists specifically to
+// prevent. Flagged here so that re-ask has something to find.
+func (s *Service) GetRegistrationByID(ctx context.Context, registrationID string) (domain.Registration, error) {
+	// Same T10.7-shaped boundary guard every other get-shaped read in this
+	// package applies: a malformed id is answered exactly like an unknown
+	// one, and never reaches the Postgres adapter's mustUUID.
+	if !uuidShape.MatchString(registrationID) {
+		return domain.Registration{}, domain.ErrRegistrationNotFound
+	}
+	return s.registrations.GetByID(ctx, registrationID)
 }
 
 // CancelRegistration transitions a registration to cancelled, but only when

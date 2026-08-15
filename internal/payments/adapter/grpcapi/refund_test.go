@@ -54,13 +54,25 @@ const (
 // against an in-memory repository and the deterministic stub processor —
 // the same production code cmd/server wires, with only the persistence and
 // processor boundaries faked.
+//
+// T16.2 (closes #168): also wires RegistrationLookup/GameLookup/
+// GameAdminReader, with refundGameHostID pre-wired as fixtureRegistrationID's
+// Game's resolved Host (mirroring newAuthzResolverFixtures'
+// authz_regression_test.go pattern) — game_host_id on the wire is now
+// ignored, so this is what makes TestRefundPayment_Handler_NonRecorderActorPermissionDenied
+// below a genuine "the real Host would succeed, this actor doesn't match"
+// negative test rather than a fail-closed-because-nothing-is-wired one.
 func newRefundTestHandler() (*grpcapi.Handler, *fakeRepository, *stripestub.Processor) {
 	repo := newFakeRepository()
 	proc := stripestub.NewProcessor()
+	regs, games, admins := newAuthzResolverFixtures(refundGameHostID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  repo,
-		IDs:       &fixedIDs{},
-		Processor: proc,
+		Payments:           repo,
+		IDs:                &fixedIDs{},
+		Processor:          proc,
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 	return grpcapi.NewHandler(svc), repo, proc
 }
@@ -153,6 +165,65 @@ func TestRefundPayment_Handler_NonRecorderActorPermissionDenied(t *testing.T) {
 	}
 	if stored.Status != domain.StatusPaid {
 		t.Fatalf("persisted status = %v, want paid — a denied refund must have no side effect", stored.Status)
+	}
+}
+
+// TestRefundPayment_Handler_RegistrationPayable_GameHostSucceeds is T16.2's
+// headline positive control at the handler boundary (instruction 9,
+// mirroring TestRefundPayment_Handler_NonRecorderActorPermissionDenied's
+// negative case above): the real, resolver-established Host of
+// fixtureRegistrationID's Game (refundGameHostID, per newRefundTestHandler)
+// succeeds — proving the two tests together distinguish "the check correctly
+// rejects a mismatched actor" from "RefundPayment is broken and rejects
+// everyone", the same pairing authz_regression_test.go's Allows/Rejects
+// tests already establish for RecordOfflinePayment.
+func TestRefundPayment_Handler_RegistrationPayable_GameHostSucceeds(t *testing.T) {
+	t.Parallel()
+
+	h, repo, proc := newRefundTestHandler()
+	seedPaidOnline(t, repo, proc, refundRegistrationPayentID, domain.PayableTypeRegistration, fixtureRegistrationID)
+
+	resp, err := h.RefundPayment(ctxAs(refundGameHostID), &paymentsv1.RefundPaymentRequest{
+		PaymentId: refundRegistrationPayentID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := resp.GetPayment().GetStatus(); got != paymentsv1.PaymentStatus_PAYMENT_STATUS_REFUNDED {
+		t.Fatalf("status = %v, want PAYMENT_STATUS_REFUNDED", got)
+	}
+}
+
+// TestRefundPayment_Handler_ForgedGameHostIdIgnored is T16.2's headline
+// forgery mutation check at the wire boundary (instruction 9): a caller
+// naming themselves via the deprecated, now-ignored game_host_id field is
+// refused — the request below is byte-for-byte what would have SUCCEEDED
+// before this ticket (an attacker who is neither the real Host nor an
+// assigned Game Admin simply claiming game_host_id = their own subject), and
+// must now fail exactly like
+// TestRefundPayment_Handler_NonRecorderActorPermissionDenied's unrelated-actor
+// case, because there is no live path left from this field to the
+// authorization decision.
+func TestRefundPayment_Handler_ForgedGameHostIdIgnored(t *testing.T) {
+	t.Parallel()
+
+	h, repo, proc := newRefundTestHandler()
+	seedPaidOnline(t, repo, proc, refundRegistrationPayentID, domain.PayableTypeRegistration, fixtureRegistrationID)
+
+	const attacker = "attacker-forging-game-host-id"
+	_, err := h.RefundPayment(ctxAs(attacker), &paymentsv1.RefundPaymentRequest{
+		PaymentId: refundRegistrationPayentID,
+		// nolint:staticcheck // SA1019: setting the deprecated field IS the test.
+		GameHostId: attacker, // the forgery: claiming to be the Game's own Host
+	})
+	wantCode(t, err, codes.PermissionDenied)
+
+	stored, getErr := repo.GetByID(context.Background(), refundRegistrationPayentID)
+	if getErr != nil {
+		t.Fatalf("unexpected err: %v", getErr)
+	}
+	if stored.Status != domain.StatusPaid {
+		t.Fatalf("persisted status = %v, want paid — a forged refund must have no side effect", stored.Status)
 	}
 }
 

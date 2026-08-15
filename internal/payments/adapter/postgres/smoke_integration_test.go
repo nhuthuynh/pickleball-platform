@@ -79,13 +79,26 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 
 	amount := domain.Money{Cents: 2500, Currency: "USD"}
 
-	// AC 1: offline payment for a Registration succeeds ("returns 200").
+	// PayableTypeBooking, not PayableTypeRegistration (T16.2, closes #168):
+	// this package's scope is the Postgres Repository — the DB-level unique
+	// constraint under test below — not cross-context resolution, so it
+	// deliberately does not import internal/socialplay to wire
+	// RegistrationLookup/GameLookup/GameAdminReader (those ports, and the
+	// real end-to-end resolution they enable, are proved by
+	// internal/payments/adapter/socialplay/cross_context_integration_test.go
+	// instead). BookingHostID remains caller-supplied and unaffected by this
+	// ticket (see app.RecordOfflinePaymentInput's doc comment), so it is the
+	// one payable type this smoke test can still exercise without that
+	// dependency — same three ACs (success/duplicate/actor-mismatch), same
+	// DB-level guard under test, one payable type over.
+
+	// AC 1: offline payment for a Booking succeeds ("returns 200").
 	p, err := svc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
-		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "22222222-2222-2222-2222-222222222222",
-		Amount:      amount,
-		ActorUserID: "host-1",
-		GameHostID:  "host-1",
+		PayableType:   domain.PayableTypeBooking,
+		PayableID:     "22222222-2222-2222-2222-222222222222",
+		Amount:        amount,
+		ActorUserID:   "host-1",
+		BookingHostID: "host-1",
 	})
 	if err != nil {
 		t.Fatalf("first recording: unexpected err: %v", err)
@@ -98,11 +111,11 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 	// ErrPaymentAlreadyRecorded (-> 409 via grpcapi.toStatus), enforced by
 	// payments_payable_unique_idx, not just the domain pre-check.
 	_, err = svc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
-		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "22222222-2222-2222-2222-222222222222",
-		Amount:      amount,
-		ActorUserID: "host-1",
-		GameHostID:  "host-1",
+		PayableType:   domain.PayableTypeBooking,
+		PayableID:     "22222222-2222-2222-2222-222222222222",
+		Amount:        amount,
+		ActorUserID:   "host-1",
+		BookingHostID: "host-1",
 	})
 	if !errors.Is(err, domain.ErrPaymentAlreadyRecorded) {
 		t.Fatalf("duplicate recording: got err %v, want %v", err, domain.ErrPaymentAlreadyRecorded)
@@ -114,11 +127,11 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 	// construction / repo call), so it must not consume the
 	// (payable_type, payable_id) slot the first recording above claimed.
 	_, err = svc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
-		PayableType: domain.PayableTypeRegistration,
-		PayableID:   "33333333-3333-3333-3333-333333333333",
-		Amount:      amount,
-		ActorUserID: "random-player",
-		GameHostID:  "host-1",
+		PayableType:   domain.PayableTypeBooking,
+		PayableID:     "33333333-3333-3333-3333-333333333333",
+		Amount:        amount,
+		ActorUserID:   "random-player",
+		BookingHostID: "host-1",
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("actor mismatch: got err %v, want %v", err, domain.ErrNotPaymentRecorder)

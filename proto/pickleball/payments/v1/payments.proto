@@ -73,53 +73,40 @@ message Payment {
 //
 // The object-level check is unchanged (only the Booking's Host, or the
 // Registration's Game's Host/an assigned Game Admin, may record a payment for
-// that payable action); what changed is that the acting identity it compares
-// against is now the verified bearer token's principal rather than a string
-// the caller supplied about themselves.
+// that payable action); what changed at T12.8 is that the acting identity it
+// compares against is the verified bearer token's principal rather than a
+// string the caller supplied about themselves.
 //
-// STILL A KNOWN GAP, narrowed rather than closed by T12.8: the ownership
-// *facts* below (booking_host_id / game_host_id / entrant_player_id and the
-// two assigned-admin lists) remain caller-supplied, because Payments has no
-// port into Booking, Social Play or Competitions to resolve them against. A
-// caller can no longer claim to *be* the Host, but can still assert who the
-// Host is. Tracked as a GitHub issue by T12.8 rather than left in prose.
+// T16.2 (closes #168) closes the ownership-*fact* gap T12.8 narrowed but left
+// open, for every payable type except booking: game_host_id,
+// assigned_game_admin_user_ids, entrant_player_id and
+// assigned_competition_admin_user_ids below are now [deprecated = true] and
+// IGNORED BY THE SERVER — internal/payments/app.Service resolves the
+// equivalent facts itself, from payable_id alone, against the real Social
+// Play/Competitions stores (port.RegistrationLookup/GameLookup/
+// GameAdminReader/EntryLookup/CompetitionAdminReader — see
+// internal/payments/app/service.go's doc comment for the full mechanism).
+// This is what T15.5's own note on these fields anticipated: "T15.5 built
+// both admin stores' durable *existence* into a consumable read-side port...
+// but could not wire either into authorizeOfflineRecording" because neither
+// this request nor app.RecordOfflinePaymentInput carried a gameID/
+// competitionID for the payable types that needed one — only payable_id. This
+// ticket built exactly that missing resolution read
+// (socialplayapp.Service.GetRegistrationByID/GetGame,
+// competitionsapp.Service.GetEntryByID) and wired it in, which is what makes
+// marking these four fields deprecated now honest where it would have been
+// false at T15.5 time (the comment these fields carried then said so
+// explicitly).
 //
-// T15.5 finding, NOT a fix (fields below are deliberately NOT marked
-// [deprecated = true] — they are still the only mechanism that authorizes an
-// assigned Game/Competition Admin on this RPC, so marking them "ignored"
-// would be false): T15.5 built both admin stores' durable *existence* into a
-// consumable read-side port (internal/payments/port.{GameAdminReader,
-// CompetitionAdminReader}, adapters in internal/payments/adapter/
-// {socialplay,competitions}, both tested against the real Social Play /
-// Competitions app.Service), but could not wire either into
-// authorizeOfflineRecording: ListGameAdmins/ListCompetitionAdmins need a
-// gameID/competitionID, and neither this request nor
-// app.RecordOfflinePaymentInput carries one for a
-// PAYABLE_TYPE_REGISTRATION/PAYABLE_TYPE_NO_SHOW_FEE/
-// PAYABLE_TYPE_COMPETITION_ENTRY payable — only payable_id (the
-// Registration's or CompetitionEntry's own id). Resolving "the Game/
-// Competition this payable belongs to" is a read neither Social Play nor
-// Competitions exports today (see internal/payments/port.GameAdminReader's
-// doc comment for the full reasoning, and issue #149's "what closing it
-// looks like" section, which already names this exact resolution step as
-// the harder, still-open half of this gap — independent of whether an
-// admin store exists). Until a follow-up ticket adds that resolution read,
-// assigned_game_admin_user_ids / assigned_competition_admin_user_ids below
-// remain exactly as caller-supplied and forgeable as before this PR.
-//
-// booking_host_id / game_host_id / assigned_game_admin_user_ids are the
-// caller-supplied ownership/assignment facts app.RecordOfflinePaymentInput
-// needs — internal/payments has no live join to Booking's or Social
-// Play's database yet (T6.5 wires the Social Play projection), see
-// internal/payments/app/service.go's doc comment for the full reasoning.
-//
-// entrant_player_id / assigned_competition_admin_user_ids (T10.6, closes
-// #96) are the equivalent caller-supplied facts for
-// PAYABLE_TYPE_COMPETITION_ENTRY — the authorized actor for a competition
-// entry is the entrant themself OR an assigned Competition Admin, unlike
-// game_host_id above which never names the paying Player (see
-// app.RecordOfflinePaymentInput's doc comment for why that asymmetry is
-// deliberate).
+// booking_host_id is NOT deprecated and stays load-bearing: Payments still
+// has no live join to Booking's database (ADR-0015's still-open D1 blocks
+// the identical resolution this ticket just built for the other two
+// contexts), so a PAYABLE_TYPE_BOOKING payable is authorized against this
+// caller-supplied field exactly as before. Tracked as issue #149, narrowed
+// by this ticket to this one remaining fact — "#168 closed" does not mean
+// "every ownership fact this RPC accepts is now verified", and this comment
+// exists so a reader of the wire contract sees that distinction directly,
+// not only in a PR description.
 message RecordOfflinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
@@ -132,13 +119,31 @@ message RecordOfflinePaymentRequest {
   // change and web/ still sends it until its own follow-up.
   string actor_user_id = 4 [deprecated = true];
 
+  // NOT deprecated: still load-bearing for PAYABLE_TYPE_BOOKING, and still
+  // caller-supplied/forgeable — see this message's own doc comment and issue
+  // #149.
   string booking_host_id = 5;
 
-  string game_host_id = 6;
-  repeated string assigned_game_admin_user_ids = 7;
+  // DEPRECATED (T16.2, closes #168): ignored by the server. The Registration's
+  // Game's Host is now resolved server-side from payable_id via
+  // port.RegistrationLookup/GameLookup, not accepted from the caller.
+  // Retained, not deleted, for the same wire-compatibility reason
+  // actor_user_id above gives.
+  string game_host_id = 6 [deprecated = true];
+  // DEPRECATED (T16.2, closes #168): ignored by the server. The Registration's
+  // Game's current admin set is now resolved server-side from payable_id via
+  // port.RegistrationLookup/GameAdminReader, not accepted from the caller.
+  repeated string assigned_game_admin_user_ids = 7 [deprecated = true];
 
-  string entrant_player_id = 8;
-  repeated string assigned_competition_admin_user_ids = 9;
+  // DEPRECATED (T16.2, closes #168): ignored by the server. The
+  // CompetitionEntry's own PlayerID is now resolved server-side from
+  // payable_id via port.EntryLookup, not accepted from the caller.
+  string entrant_player_id = 8 [deprecated = true];
+  // DEPRECATED (T16.2, closes #168): ignored by the server. The
+  // CompetitionEntry's Competition's current admin set is now resolved
+  // server-side from payable_id via port.EntryLookup/CompetitionAdminReader,
+  // not accepted from the caller.
+  repeated string assigned_competition_admin_user_ids = 9 [deprecated = true];
 }
 
 message RecordOfflinePaymentResponse {
@@ -163,13 +168,21 @@ message RecordOfflinePaymentResponse {
 // app.CreateOnlinePaymentInput's doc comment for why extending this to
 // those pre-existing types is out of this ticket's scope).
 //
-// T15.5 sibling-sweep finding (§A15): assigned_competition_admin_user_ids
-// here is the same caller-supplied-entitlement-list pattern
-// RecordOfflinePaymentRequest's two admin fields are, reachable through
-// authorizeOnlineCreation rather than authorizeOfflineRecording, and it is
-// blocked on the identical unresolved gap (see
-// RecordOfflinePaymentRequest's T15.5 finding above) — not fixed here,
-// named because T15.5's instructions require reporting siblings either way.
+// T15.5 sibling-sweep finding (§A15), RE-VERIFIED AND STILL TRUE AS OF T16.2
+// (this ticket's own required sibling sweep, instruction 10): entrant_player_id
+// / assigned_competition_admin_user_ids here are the same
+// caller-supplied-entitlement fields RecordOfflinePaymentRequest's four fields
+// were before this ticket, reachable through authorizeOnlineCreation rather
+// than authorizeOfflineRecording — a genuinely different authorization branch,
+// on a genuinely different RPC (CreateOnlinePayment, not RecordOfflinePayment/
+// RefundPayment). T16.2 wires its five new resolver ports into
+// authorizeOfflineRecording ONLY, per its own instructions — authorizeOnlineCreation
+// is untouched, so these two fields are NOT deprecated and stay exactly as
+// caller-supplied and forgeable as before. This is a real, named gap, not an
+// oversight: closing it is mechanically identical to what this ticket just did
+// for authorizeOfflineRecording (the same port.EntryLookup/CompetitionAdminReader
+// would answer it), and is tracked as issue #198 rather than folded in here
+// silently.
 message CreateOnlinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
@@ -220,19 +233,25 @@ message ConfirmOnlinePaymentResponse {
 // actor_user_id is now taken from the verified principal (T12.8) and the wire
 // field is ignored — this is the RPC that moves real money back out, so the
 // care taken above to read the payable type from the *stored* Payment is only
-// as good as the actor the chosen branch compares. booking_host_id / game_host_id /
-// assigned_game_admin_user_ids are the same caller-supplied ownership
-// facts RecordOfflinePaymentRequest carries, reused unchanged — a refund
-// is the same Host/Game-Admin action as recording an offline payment, and
-// T12.3 deliberately does not introduce a second authorization concept
-// for it. This request's assigned_game_admin_user_ids carries the identical
-// T15.5 finding RecordOfflinePaymentRequest's own comment records above —
-// not [deprecated = true], for the same reason.
+// as good as the actor the chosen branch compares.
+//
+// T16.2 (closes #168): game_host_id / assigned_game_admin_user_ids are now
+// [deprecated = true] and IGNORED BY THE SERVER, for the identical reason and
+// via the identical mechanism RecordOfflinePaymentRequest's own comment
+// records — a refund reuses authorizeOfflineRecording unchanged (T12.3's own
+// rule, still true), so the same resolution this ticket built for recording
+// applies here with no second implementation. booking_host_id is NOT
+// deprecated, for the identical reason and issue (#149) RecordOfflinePaymentRequest's
+// booking_host_id field states.
 //
 // Scope: `booking` and `registration` payables only. A
 // PAYABLE_TYPE_COMPETITION_ENTRY Payment is rejected — Competitions
 // remains cash-only for refund purposes (issue #125) — as is
-// PAYABLE_TYPE_NO_SHOW_FEE (issue #130).
+// PAYABLE_TYPE_NO_SHOW_FEE (issue #130). (Scope note, unaffected by this
+// ticket: since RefundPayment never reaches
+// authorizeCompetitionEntryRecording, EntryLookup/CompetitionAdminReader are
+// wired into app.Service for RecordOfflinePayment's benefit only, not
+// because RefundPayment needs them.)
 message RefundPaymentRequest {
   string payment_id = 1;
   // DEPRECATED (T12.8): ignored by the server. The acting user is taken from
@@ -240,10 +259,18 @@ message RefundPaymentRequest {
   // wire-compatibility reason RecordOfflinePaymentRequest's field states.
   string actor_user_id = 2 [deprecated = true];
 
+  // NOT deprecated: still load-bearing for PAYABLE_TYPE_BOOKING, and still
+  // caller-supplied/forgeable — see this message's own doc comment and issue
+  // #149.
   string booking_host_id = 3;
 
-  string game_host_id = 4;
-  repeated string assigned_game_admin_user_ids = 5;
+  // DEPRECATED (T16.2, closes #168): ignored by the server. See
+  // RecordOfflinePaymentRequest.game_host_id's identical comment.
+  string game_host_id = 4 [deprecated = true];
+  // DEPRECATED (T16.2, closes #168): ignored by the server. See
+  // RecordOfflinePaymentRequest.assigned_game_admin_user_ids's identical
+  // comment.
+  repeated string assigned_game_admin_user_ids = 5 [deprecated = true];
 }
 
 message RefundPaymentResponse {

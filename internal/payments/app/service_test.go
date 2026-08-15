@@ -24,10 +24,19 @@ import (
 // ones exercising a realistic value. Renamed here instead, mirroring how
 // internal/booking, internal/competitions, and internal/facilities app
 // tests already fixed the identical fixture infidelity on their own IDs.
+// fixtureGameID/fixtureCompetitionID (T16.2, closing #168) are the parent
+// ids fixtureRegistrationID/fixtureCompetitionEntryID resolve to through the
+// new resolver ports — see newGameAuthzFixtures/newEntryAuthzFixtures below.
+// UUID-shaped for the identical reason the ids above are (T10.7's fixture
+// fidelity requirement — these never reach a repository directly in these
+// tests, but keeping every id in this file the same recognizable shape
+// avoids a reader wondering why one differs).
 const (
 	fixtureBookingID          = "6ba7b810-0000-4000-8000-000000000001"
 	fixtureRegistrationID     = "6ba7b810-0000-4000-8000-000000000002"
 	fixtureCompetitionEntryID = "6ba7b810-0000-4000-8000-000000000003"
+	fixtureGameID             = "6ba7b810-0000-4000-8000-000000000004"
+	fixtureCompetitionID      = "6ba7b810-0000-4000-8000-000000000005"
 )
 
 func fixtureAmount() domain.Money {
@@ -527,9 +536,13 @@ func TestRecordOfflinePayment_BookingPayable_NoHostRejected(t *testing.T) {
 func TestRecordOfflinePayment_RegistrationPayable_GameHostSucceeds(t *testing.T) {
 	t.Parallel()
 
+	regs, games, admins := newGameAuthzFixtures("host-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -537,7 +550,6 @@ func TestRecordOfflinePayment_RegistrationPayable_GameHostSucceeds(t *testing.T)
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
-		GameHostID:  "host-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -555,18 +567,20 @@ func TestRecordOfflinePayment_RegistrationPayable_GameHostSucceeds(t *testing.T)
 func TestRecordOfflinePayment_RegistrationPayable_AssignedGameAdminSucceeds(t *testing.T) {
 	t.Parallel()
 
+	regs, games, admins := newGameAuthzFixtures("host-1", "admin-1", "admin-2")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:              domain.PayableTypeRegistration,
-		PayableID:                fixtureRegistrationID,
-		Amount:                   offlineFixtureAmount(),
-		ActorUserID:              "admin-2",
-		GameHostID:               "host-1",
-		AssignedGameAdminUserIDs: []string{"admin-1", "admin-2"},
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "admin-2",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -583,18 +597,62 @@ func TestRecordOfflinePayment_RegistrationPayable_AssignedGameAdminSucceeds(t *t
 func TestRecordOfflinePayment_RegistrationPayable_UnassignedActorRejected(t *testing.T) {
 	t.Parallel()
 
+	regs, games, admins := newGameAuthzFixtures("host-1", "admin-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:              domain.PayableTypeRegistration,
-		PayableID:                fixtureRegistrationID,
-		Amount:                   offlineFixtureAmount(),
-		ActorUserID:              "random-player",
-		GameHostID:               "host-1",
-		AssignedGameAdminUserIDs: []string{"admin-1"},
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "random-player",
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+}
+
+// TestRecordOfflinePayment_RegistrationPayable_ForgedDeprecatedFieldIgnored
+// is T16.2's own headline mutation check (instruction 9): a caller naming
+// themselves via the now-deleted-from-input, still-on-the-wire deprecated
+// fields (game_host_id / assigned_game_admin_user_ids on the proto — see
+// payments.proto) has no effect at the app layer, because
+// RecordOfflinePaymentInput no longer has fields to receive them into at
+// all. This proves the forgery case at the boundary this ticket closes: an
+// actor who is genuinely unrelated to fixtureGameID (real Host "host-1",
+// real admins none) is rejected, even though — before this ticket — the
+// caller could simply have claimed GameHostID/AssignedGameAdminUserIDs
+// naming themselves and succeeded. There is no (forged) field left on this
+// struct to set; that itself is the proof, enforced at compile time (a
+// future re-plumb of the wire list fails to compile, per instruction 6).
+func TestRecordOfflinePayment_RegistrationPayable_ForgedDeprecatedFieldIgnored(t *testing.T) {
+	t.Parallel()
+
+	regs, games, admins := newGameAuthzFixtures("host-1")
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+
+	// "attacker" is not the resolved Host and not in the resolved admin set
+	// — the only way this ticket-era RecordOfflinePaymentInput can name an
+	// authorized actor is ActorUserID itself, which is exactly the field an
+	// unforgeable, verified-principal-sourced actor(ctx) populates at the
+	// grpcapi boundary (see that package's handler.go), not a value this
+	// struct accepts as a separate claim.
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "attacker",
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -611,18 +669,20 @@ func TestRecordOfflinePayment_RegistrationPayable_UnassignedActorRejected(t *tes
 func TestRecordOfflinePayment_NoShowFee_GameAdmin_SameCodePath(t *testing.T) {
 	t.Parallel()
 
+	regs, games, admins := newGameAuthzFixtures("host-1", "admin-1", "admin-2")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:              domain.PayableTypeNoShowFee,
-		PayableID:                fixtureRegistrationID,
-		Amount:                   offlineFixtureAmount(),
-		ActorUserID:              "admin-2",
-		GameHostID:               "host-1",
-		AssignedGameAdminUserIDs: []string{"admin-1", "admin-2"},
+		PayableType: domain.PayableTypeNoShowFee,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "admin-2",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -702,17 +762,19 @@ func TestRecordOfflinePayment_AuthorizationCheckedBeforeDomainConstruction(t *te
 func TestRecordOfflinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing.T) {
 	t.Parallel()
 
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:               newFakeRepository(),
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          offlineFixtureAmount(),
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -729,18 +791,19 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_EntrantSucceeds(t *testing
 func TestRecordOfflinePayment_CompetitionEntryPayable_AssignedCompetitionAdminSucceeds(t *testing.T) {
 	t.Parallel()
 
+	entries, admins := newEntryAuthzFixtures("player-1", "admin-1", "admin-2")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:               newFakeRepository(),
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:                     domain.PayableTypeCompetitionEntry,
-		PayableID:                       fixtureCompetitionEntryID,
-		Amount:                          offlineFixtureAmount(),
-		ActorUserID:                     "admin-2",
-		EntrantPlayerID:                 "player-1",
-		AssignedCompetitionAdminUserIDs: []string{"admin-1", "admin-2"},
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "admin-2",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -759,18 +822,46 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AssignedCompetitionAdminSu
 func TestRecordOfflinePayment_CompetitionEntryPayable_UnauthorizedActorRejected(t *testing.T) {
 	t.Parallel()
 
+	entries, admins := newEntryAuthzFixtures("player-1", "admin-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: newFakeRepository(),
-		IDs:      &fixedIDs{ids: []string{"pay-1"}},
+		Payments:               newFakeRepository(),
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
 	})
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:                     domain.PayableTypeCompetitionEntry,
-		PayableID:                       fixtureCompetitionEntryID,
-		Amount:                          offlineFixtureAmount(),
-		ActorUserID:                     "random-player",
-		EntrantPlayerID:                 "player-1",
-		AssignedCompetitionAdminUserIDs: []string{"admin-1"},
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "random-player",
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+}
+
+// TestRecordOfflinePayment_CompetitionEntryPayable_ForgedDeprecatedFieldIgnored
+// mirrors TestRecordOfflinePayment_RegistrationPayable_ForgedDeprecatedFieldIgnored
+// for the CompetitionEntry branch — the entrant_player_id/
+// assigned_competition_admin_user_ids forgery case (headline mutation check,
+// instruction 9).
+func TestRecordOfflinePayment_CompetitionEntryPayable_ForgedDeprecatedFieldIgnored(t *testing.T) {
+	t.Parallel()
+
+	entries, admins := newEntryAuthzFixtures("player-1")
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               newFakeRepository(),
+		IDs:                    &fixedIDs{ids: []string{"pay-1"}},
+		EntryLookup:            entries,
+		CompetitionAdminReader: admins,
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "attacker",
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -901,9 +992,13 @@ func TestRecordOfflinePayment_DuplicateForSamePayableRejected(t *testing.T) {
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures("host-1")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{"pay-1", "pay-2"}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{"pay-1", "pay-2"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	in := app.RecordOfflinePaymentInput{
@@ -911,7 +1006,6 @@ func TestRecordOfflinePayment_DuplicateForSamePayableRejected(t *testing.T) {
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
-		GameHostID:  "host-1",
 	}
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), in); err != nil {
@@ -1053,10 +1147,14 @@ func TestRecordOfflinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 	t.Parallel()
 
 	updater := &fakeRegistrationUpdater{}
+	regs, games, admins := newGameAuthzFixtures("host-1")
 	svc := app.NewService(app.ServiceOptions{
 		Payments:            newFakeRepository(),
 		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
 		RegistrationUpdater: updater,
+		RegistrationLookup:  regs,
+		GameLookup:          games,
+		GameAdminReader:     admins,
 	})
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -1064,7 +1162,6 @@ func TestRecordOfflinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
-		GameHostID:  "host-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -1120,10 +1217,14 @@ func TestRecordOfflinePayment_NoShowFeePayable_DoesNotUpdateRegistration(t *test
 	t.Parallel()
 
 	updater := &fakeRegistrationUpdater{}
+	regs, games, admins := newGameAuthzFixtures("host-1")
 	svc := app.NewService(app.ServiceOptions{
 		Payments:            newFakeRepository(),
 		IDs:                 &fixedIDs{ids: []string{"pay-1"}},
 		RegistrationUpdater: updater,
+		RegistrationLookup:  regs,
+		GameLookup:          games,
+		GameAdminReader:     admins,
 	})
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -1131,7 +1232,6 @@ func TestRecordOfflinePayment_NoShowFeePayable_DoesNotUpdateRegistration(t *test
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: "host-1",
-		GameHostID:  "host-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -1313,18 +1413,20 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 	t.Parallel()
 
 	updater := &fakeCompetitionEntryUpdater{}
+	entries, admins := newEntryAuthzFixtures("player-1")
 	svc := app.NewService(app.ServiceOptions{
 		Payments:                newFakeRepository(),
 		IDs:                     &fixedIDs{ids: []string{"pay-1"}},
 		CompetitionEntryUpdater: updater,
+		EntryLookup:             entries,
+		CompetitionAdminReader:  admins,
 	})
 
 	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
-		PayableType:     domain.PayableTypeCompetitionEntry,
-		PayableID:       fixtureCompetitionEntryID,
-		Amount:          offlineFixtureAmount(),
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: domain.PayableTypeCompetitionEntry,
+		PayableID:   fixtureCompetitionEntryID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)

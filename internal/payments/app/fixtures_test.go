@@ -161,6 +161,115 @@ func (u *fakeCompetitionEntryUpdater) UpdatePaymentStatus(_ context.Context, ent
 	return u.err
 }
 
+// --- T16.2: authorization resolver port fakes (closes #168) ---------------
+//
+// These fake the five NEW ports (port.RegistrationLookup, GameLookup,
+// GameAdminReader, EntryLookup, CompetitionAdminReader) at the same level
+// fakeRegistrationUpdater/fakeCompetitionEntryUpdater above fake their own
+// ports — a plain in-memory double of internal/payments' own port
+// interface, not a fake of another context's app.Service. That is a
+// deliberate choice, not an oversight of T14.8/T15.5's cross-context-fake
+// warning: that warning is about testing an ADAPTER (whether
+// internal/payments/adapter/socialplay.RegistrationLookup correctly
+// translates a REAL socialplayapp.Service call) against a fake stand-in for
+// the other context, which would prove nothing about the real seam — see
+// internal/payments/adapter/socialplay/registration_lookup_test.go and
+// internal/payments/adapter/socialplay/authorization_boundary_test.go
+// (T16.2) for where that real-seam proof actually lives. This file tests
+// internal/payments/app.Service's own ORCHESTRATION logic (which branch
+// calls which port, in what order, with what fallback), which is properly
+// tested against a fake of Payments' OWN port contract, exactly as
+// RegistrationUpdater/CompetitionEntryUpdater already are above.
+type fakeRegistrationLookup struct {
+	gameByRegistration map[string]string
+	err                error
+}
+
+func (f *fakeRegistrationLookup) GameIDForRegistration(_ context.Context, registrationID string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.gameByRegistration[registrationID], nil
+}
+
+type fakeGameLookup struct {
+	hostByGame map[string]string
+	err        error
+}
+
+func (f *fakeGameLookup) HostIDForGame(_ context.Context, gameID string) (string, error) {
+	if f.err != nil {
+		return "", f.err
+	}
+	return f.hostByGame[gameID], nil
+}
+
+type fakeGameAdminReader struct {
+	adminsByGame map[string][]string
+	err          error
+}
+
+func (f *fakeGameAdminReader) ListGameAdmins(_ context.Context, gameID string) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.adminsByGame[gameID], nil
+}
+
+type fakeEntryLookup struct {
+	competitionByEntry map[string]string
+	playerByEntry      map[string]string
+	err                error
+}
+
+func (f *fakeEntryLookup) CompetitionIDAndPlayerIDForEntry(_ context.Context, entryID string) (string, string, error) {
+	if f.err != nil {
+		return "", "", f.err
+	}
+	return f.competitionByEntry[entryID], f.playerByEntry[entryID], nil
+}
+
+type fakeCompetitionAdminReader struct {
+	adminsByCompetition map[string][]string
+	err                 error
+}
+
+func (f *fakeCompetitionAdminReader) ListCompetitionAdmins(_ context.Context, competitionID string) ([]string, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	return f.adminsByCompetition[competitionID], nil
+}
+
+// newGameAuthzFixtures builds the three resolver fakes
+// authorizeGameRecording (RecordOfflinePayment/RefundPayment's
+// PayableTypeRegistration/PayableTypeNoShowFee branch) needs, pre-wired so
+// fixtureRegistrationID resolves to fixtureGameID, hostID is that Game's
+// Host, and admins is its current Game-Admin set — replacing what a test
+// used to set directly via the now-deleted GameHostID/
+// AssignedGameAdminUserIDs input fields.
+func newGameAuthzFixtures(hostID string, admins ...string) (*fakeRegistrationLookup, *fakeGameLookup, *fakeGameAdminReader) {
+	regs := &fakeRegistrationLookup{gameByRegistration: map[string]string{fixtureRegistrationID: fixtureGameID}}
+	games := &fakeGameLookup{hostByGame: map[string]string{fixtureGameID: hostID}}
+	gameAdmins := &fakeGameAdminReader{adminsByGame: map[string][]string{fixtureGameID: admins}}
+	return regs, games, gameAdmins
+}
+
+// newEntryAuthzFixtures is newGameAuthzFixtures' Competitions mirror:
+// pre-wires fixtureCompetitionEntryID to resolve to fixtureCompetitionID and
+// playerID in one call, and admins as that Competition's current
+// Competition-Admin set — replacing what a test used to set directly via
+// the now-deleted EntrantPlayerID/AssignedCompetitionAdminUserIDs input
+// fields.
+func newEntryAuthzFixtures(playerID string, admins ...string) (*fakeEntryLookup, *fakeCompetitionAdminReader) {
+	entries := &fakeEntryLookup{
+		competitionByEntry: map[string]string{fixtureCompetitionEntryID: fixtureCompetitionID},
+		playerByEntry:      map[string]string{fixtureCompetitionEntryID: playerID},
+	}
+	competitionAdmins := &fakeCompetitionAdminReader{adminsByCompetition: map[string][]string{fixtureCompetitionID: admins}}
+	return entries, competitionAdmins
+}
+
 // fixtureOnlinePayerID is the verified actor the online-path tests create
 // intents as, and therefore the only actor entitled to confirm them (T13.7,
 // closes issue #148). Before that ticket CreateOnlinePayment stored no actor at

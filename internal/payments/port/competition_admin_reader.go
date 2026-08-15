@@ -9,7 +9,7 @@ import "context"
 // GAP C). internal/payments/adapter/competitions.CompetitionAdminReader
 // implements it against the real
 // competitionsapp.Service.ListCompetitionAdmins (exported at
-// service.go:760, T15.3, specifically so T15.4 and T15.5 could each consume
+// service.go:803, T15.3, specifically so T15.4 and T15.5 could each consume
 // it — see that method's own doc comment).
 //
 // Returns bare subject strings, not competitionsdomain.CompetitionAdmin
@@ -18,23 +18,26 @@ import "context"
 // competitionsdomain.HasCompetitionAdmin already answers on the Competitions
 // side, not AssignedBy/AssignedAt.
 //
-// # NOT wired into internal/payments/app.Service as of T15.5 — read
+// # Wired into internal/payments/app.Service as of T16.2 — read
 // GameAdminReader's doc comment first
 //
 // This port and internal/payments/adapter/competitions.CompetitionAdminReader
-// are built and tested against Competitions' real app.Service, but are
-// deliberately NOT wired into app.Service or authorizeOfflineRecording, for
-// the exact same structural reason GameAdminReader's doc comment documents at
-// length: ListCompetitionAdmins(ctx, competitionID) needs a competitionID,
-// and neither RecordOfflinePaymentInput nor RefundPaymentInput ever carries
-// one for a PayableTypeCompetitionEntry payable — only PayableID (the
+// were built and tested against Competitions' real app.Service in T15.5, but
+// were deliberately left unwired for the exact same structural reason
+// GameAdminReader's doc comment documents at length:
+// ListCompetitionAdmins(ctx, competitionID) needs a competitionID, and
+// neither RecordOfflinePaymentInput nor RefundPaymentInput ever carried one
+// for a PayableTypeCompetitionEntry payable — only PayableID (the
 // CompetitionEntry's own id) and the caller-supplied EntrantPlayerID.
-// competitionsapp.Service exposes no GetCompetitionEntry-shaped read that
-// would resolve a CompetitionEntry's owning Competition id, so this port
-// cannot correctly be invoked for that payable type today either. See
-// GameAdminReader's doc comment and the T15.5 PR description for the full
-// writeup — the finding is one gap, disclosed once, that happens to recur
-// identically in both contexts Payments depends on.
+//
+// T16.2 closes the gap: internal/payments/port.EntryLookup resolves a
+// CompetitionEntry's own id to both its CompetitionID and PlayerID in one
+// call (competitionsapp.Service.GetEntryByID), and this port then resolves
+// that CompetitionID to its current admin set. Both are now wired into
+// authorizeOfflineRecording's PayableTypeCompetitionEntry branch via
+// internal/payments/app.Service. See GameAdminReader's doc comment for the
+// remaining, deliberately out-of-scope gap this ticket leaves (#149,
+// BookingHostID only).
 type CompetitionAdminReader interface {
 	// ListCompetitionAdmins returns the user ids currently holding
 	// Competition-Admin authority over competitionID, oldest assignment

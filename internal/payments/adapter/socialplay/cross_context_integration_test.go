@@ -98,13 +98,23 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	// Real Payments stack (T6.4's Postgres adapter + app.Service), wired
 	// with the real RegistrationUpdater (T6.5) against the same
 	// socialplaySvc instance — not a fake, and not a second Social Play
-	// stack that happens to point at the same DB.
+	// stack that happens to point at the same DB. RegistrationLookup/
+	// GameLookup/GameAdminReader (T16.2, closes #168) are wired the
+	// identical way, against the same real socialplaySvc/real Postgres —
+	// this is what lets RecordOfflinePayment below authorize the Registration's
+	// real Host without a caller-supplied game_host_id.
 	paymentsRepo := paymentspg.NewRepository(pool)
 	registrationUpdater := paymentssocialplay.NewRegistrationUpdater(socialplaySvc)
+	registrationLookup := paymentssocialplay.NewRegistrationLookup(socialplaySvc)
+	gameLookup := paymentssocialplay.NewGameLookup(socialplaySvc)
+	gameAdminReader := paymentssocialplay.NewGameAdminReader(socialplaySvc)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments:            paymentsRepo,
 		IDs:                 idgen.UUID{},
 		RegistrationUpdater: registrationUpdater,
+		RegistrationLookup:  registrationLookup,
+		GameLookup:          gameLookup,
+		GameAdminReader:     gameAdminReader,
 	})
 
 	// Set up a live Game + Registration through the real Social Play stack
@@ -139,13 +149,15 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	}
 
 	// The T6.5 AC: recording an offline payment for the live Registration
-	// through the real Payments stack.
+	// through the real Payments stack. No game_host_id (T16.2, closes #168):
+	// "host-1" is authorized because it is genuinely game.HostID, resolved
+	// end to end through real Postgres via RegistrationLookup -> GameLookup,
+	// not because the caller claims it.
 	_, err = paymentsSvc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
 		PayableType: paymentsdomain.PayableTypeRegistration,
 		PayableID:   reg.ID,
 		Amount:      paymentsdomain.Money{Cents: 2500, Currency: "USD"},
 		ActorUserID: "host-1",
-		GameHostID:  "host-1",
 	})
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment: unexpected err: %v", err)

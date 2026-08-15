@@ -58,12 +58,36 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // allowed direction per the context map: Payments depends on Competitions,
 // never the reverse — internal/competitions/domain and internal/competitions/app
 // must never import anything under internal/payments.
+//
+// T16.2 (closes #168) adds five more fields — RegistrationLookup, GameLookup,
+// GameAdminReader, EntryLookup, CompetitionAdminReader — the resolver ports
+// authorizeOfflineRecording uses to verify a Registration's Game's
+// Host/admins and a CompetitionEntry's Competition's entrant/admins against
+// the real Social Play/Competitions stores, replacing the caller-supplied
+// GameHostID/AssignedGameAdminUserIDs/EntrantPlayerID/
+// AssignedCompetitionAdminUserIDs fields RecordOfflinePaymentInput and
+// RefundPaymentInput carried before this ticket (see those structs' own doc
+// comments, and port.GameAdminReader's doc comment for the full history of
+// why T15.5 built these ports but could not wire them in). Unlike
+// RegistrationUpdater/CompetitionEntryUpdater above, these five are not
+// "skip the side effect if unset" optional — they are consulted by
+// authorizeOfflineRecording itself, a security-critical path, so a nil
+// resolver fails CLOSED (see authorizeGameRecording/
+// authorizeCompetitionEntryRecording's own nil guards): an operator who
+// forgets to wire one gets "nobody can record this payable type", never
+// "anybody can".
 type Service struct {
 	payments                port.Repository
 	ids                     port.IDGenerator
 	processor               port.PaymentProcessor
 	registrationUpdater     socialplayport.RegistrationPaymentUpdater
 	competitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
+
+	registrationLookup     port.RegistrationLookup
+	gameLookup             port.GameLookup
+	gameAdminReader        port.GameAdminReader
+	entryLookup            port.EntryLookup
+	competitionAdminReader port.CompetitionAdminReader
 }
 
 // ServiceOptions is the dependency bundle for NewService (T6.4).
@@ -73,12 +97,27 @@ type Service struct {
 // context's reconciliation side effect — see
 // reconcileRegistrationPaymentStatus's and
 // reconcileCompetitionEntryPaymentStatus's nil guards.
+//
+// RegistrationLookup/GameLookup/GameAdminReader/EntryLookup/
+// CompetitionAdminReader (T16.2, closes #168) are, by contrast, load-bearing
+// for authorization correctness on the payable types they cover — see
+// Service's own doc comment for the fail-closed behaviour when one is left
+// nil. A test or deployment that only exercises PayableTypeBooking (the one
+// payable type these five ports do not touch, per instruction 6's scope cut)
+// may still leave all five nil, exactly as booking-only tests already leave
+// RegistrationUpdater/CompetitionEntryUpdater nil today.
 type ServiceOptions struct {
 	Payments                port.Repository
 	IDs                     port.IDGenerator
 	Processor               port.PaymentProcessor
 	RegistrationUpdater     socialplayport.RegistrationPaymentUpdater
 	CompetitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
+
+	RegistrationLookup     port.RegistrationLookup
+	GameLookup             port.GameLookup
+	GameAdminReader        port.GameAdminReader
+	EntryLookup            port.EntryLookup
+	CompetitionAdminReader port.CompetitionAdminReader
 }
 
 // NewService constructs a Service from opts. IDs is required by every use
@@ -95,6 +134,12 @@ func NewService(opts ServiceOptions) *Service {
 		processor:               opts.Processor,
 		registrationUpdater:     opts.RegistrationUpdater,
 		competitionEntryUpdater: opts.CompetitionEntryUpdater,
+
+		registrationLookup:     opts.RegistrationLookup,
+		gameLookup:             opts.GameLookup,
+		gameAdminReader:        opts.GameAdminReader,
+		entryLookup:            opts.EntryLookup,
+		competitionAdminReader: opts.CompetitionAdminReader,
 	}
 }
 
@@ -285,28 +330,12 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 // contradict). This proves an *object-level* check given a claimed actor,
 // not real authentication.
 //
-// internal/payments has no live join to Social Play's or Booking's
-// database (T6.5 wires the Social Play projection) — so the caller
-// supplies the ownership/assignment facts the authorization check needs
-// directly, rather than this package querying another context's
-// repository:
-//
-// T15.5 finding, NOT a fix (kept here rather than only on the proto, since
-// this struct — not the wire request — is what a future edit would actually
-// touch): both durable admin stores now exist and are readable
-// (internal/payments/port.GameAdminReader / CompetitionAdminReader, built
-// and tested this ticket against the real Social Play / Competitions
-// app.Service), but neither can be consulted from here yet. Both take a
-// gameID/competitionID, and this struct never carries one for the payable
-// types that would need it — only PayableID (the Registration's or
-// CompetitionEntry's own id, not its parent's). Resolving that parent id is
-// a read neither context exports today (see GameAdminReader's doc comment
-// for the full reasoning, and issue #149, which already names this
-// resolution step, independent of the admin stores' existence, as the
-// harder half of this gap). AssignedGameAdminUserIDs and
-// AssignedCompetitionAdminUserIDs below are therefore left exactly as they
-// were before this ticket — still caller-supplied, still forgeable — rather
-// than replaced with a check this package cannot yet perform correctly.
+// internal/payments has no live join to Booking's database (ADR-0015's
+// still-open D1 blocks resolving a Booking's Host the same way this ticket
+// now resolves a Game's/Competition's — see BookingHostID below) — so
+// BookingHostID alone remains a caller-supplied fact. Every other
+// ownership/assignment fact this check needs is resolved from the real
+// Social Play/Competitions stores as of T16.2 (closes #168):
 //
 //   - BookingHostID is the user id of the Host who owns the Booking's
 //     Game/Competition, required for a PayableTypeBooking payable. A
@@ -315,18 +344,24 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 //     offline recording in T6 (narrower-than-spec scope cut, see the PR
 //     description): leave BookingHostID empty and RecordOfflinePayment
 //     rejects with ErrNotPaymentRecorder rather than silently allowing it.
-//   - GameHostID and AssignedGameAdminUserIDs are, for a
-//     PayableTypeRegistration or PayableTypeNoShowFee payable, the
-//     Registration's Game's Host id and the set of user ids currently
-//     assigned as a Game Admin for that Game — the glossary's own
-//     definition of Game Admin's scope (agent-operating-handbook.md A2:
-//     "may record offline Payments... scoped to the specific
-//     Game/Competition they are assigned to"). The actor must be the Host
-//     or one of the assigned admins. T5 did not build a persisted
-//     Game-Admin-assignment mechanism, so this is the minimal version
-//     needed to test this ticket's authorization rule: a caller-supplied
-//     list, not a new socialplay feature (see the PR description's
-//     judgment-call note).
+//     STILL CALLER-SUPPLIED, STILL FORGEABLE: unlike every other fact this
+//     struct used to carry, BookingHostID is not resolved by this ticket —
+//     see Service's doc comment on why, and issue #149, which stays open
+//     for this one remaining fact.
+//   - For a PayableTypeRegistration or PayableTypeNoShowFee payable, the
+//     Registration's Game's Host id and its current Game-Admin set are now
+//     RESOLVED, not accepted from the caller: authorizeGameRecording
+//     (called from authorizeOfflineRecording) looks up PayableID's owning
+//     GameID via port.RegistrationLookup, then that Game's HostID via
+//     port.GameLookup and its admin set via port.GameAdminReader — the
+//     glossary's own definition of Game Admin's scope
+//     (agent-operating-handbook.md A2: "may record offline Payments...
+//     scoped to the specific Game/Competition they are assigned to"). The
+//     now-deleted GameHostID/AssignedGameAdminUserIDs fields that used to
+//     live on this struct (T6.3/T14.4-era caller-supplied facts) are gone,
+//     not merely unread — a future re-plumb of the wire list fails to
+//     *compile* rather than silently restoring a forgeable check (T14.5/
+//     T15.5's established pattern, per this ticket's own instructions).
 //
 // PayableTypeNoShowFee is authorized identically to PayableTypeRegistration
 // (Host-or-assigned-Game-Admin) — deliberately not a third branch, since a
@@ -334,17 +369,20 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 // payable action" against the same Registration/Game, and the required
 // test (P1 #8) is that recording one takes zero new code paths.
 //
-// EntrantPlayerID and AssignedCompetitionAdminUserIDs (T10.6, closes #96)
-// are the equivalent caller-supplied facts for a PayableTypeCompetitionEntry
-// payable — the Competitions analogue of GameHostID/AssignedGameAdminUserIDs
-// above, with one deliberate difference: the authorized actor set for a
-// competition entry is "the entrant OR an assigned Competition Admin", not
-// "the Host or an assigned Admin". A competition entry's payment is most
-// often recorded by the entrant paying for their own place (the issue's own
-// framing: "as a Player entering a Competition, I want to pay online"), so
-// EntrantPlayerID — the CompetitionEntry's own PlayerID — is itself an
-// authorized actor, unlike GameHostID/BookingHostID which never name the
-// paying Player.
+//   - For a PayableTypeCompetitionEntry payable (T10.6, closes #96), the
+//     CompetitionEntry's own CompetitionID and PlayerID are likewise now
+//     RESOLVED: authorizeCompetitionEntryRecording looks up both in one
+//     call via port.EntryLookup, then the Competition's admin set via
+//     port.CompetitionAdminReader. The now-deleted EntrantPlayerID/
+//     AssignedCompetitionAdminUserIDs fields are gone for the identical
+//     compile-time-forcing reason GameHostID/AssignedGameAdminUserIDs are.
+//     The authorized actor set keeps its one deliberate difference from the
+//     Game branch: "the entrant OR an assigned Competition Admin", not "the
+//     Host or an assigned Admin" — a competition entry's payment is most
+//     often recorded by the entrant paying for their own place (the
+//     issue's own framing: "as a Player entering a Competition, I want to
+//     pay online"), so the resolved PlayerID is itself an authorized actor,
+//     unlike GameHostID/BookingHostID which never name the paying Player.
 type RecordOfflinePaymentInput struct {
 	PayableType domain.PayableType
 	PayableID   string
@@ -352,12 +390,6 @@ type RecordOfflinePaymentInput struct {
 	ActorUserID string
 
 	BookingHostID string
-
-	GameHostID               string
-	AssignedGameAdminUserIDs []string
-
-	EntrantPlayerID                 string
-	AssignedCompetitionAdminUserIDs []string
 }
 
 // RecordOfflinePayment builds a Payment (domain.NewPayment, Method:
@@ -373,7 +405,7 @@ type RecordOfflinePaymentInput struct {
 // for the same payable action; Create translates a 23505 violation into
 // domain.ErrPaymentAlreadyRecorded.
 func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaymentInput) (domain.Payment, error) {
-	if err := authorizeOfflineRecording(in); err != nil {
+	if err := s.authorizeOfflineRecording(ctx, in); err != nil {
 		return domain.Payment{}, err
 	}
 
@@ -422,12 +454,22 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 // BookingHostID they supply themselves), which is the whole authorization
 // check defeated by its own input.
 //
-// The ownership/assignment fields are the same caller-supplied facts
-// RecordOfflinePaymentInput documents at length, and for the same reason:
-// internal/payments has no live join to Booking's or Social Play's
-// database. The same known-gap caveat applies unchanged — ActorUserID is a
-// claimed identity, not a verified one, until T12.8 wires real auth. This
-// proves an object-level check given a claimed actor.
+// BookingHostID is the same caller-supplied, still-forgeable fact
+// RecordOfflinePaymentInput's BookingHostID documents, for the same reason:
+// internal/payments has no live join to Booking's database (ADR-0015's
+// still-open D1). The same known-gap caveat applies unchanged — ActorUserID
+// is a claimed identity, not a verified one, until T12.8 wires real auth.
+// This proves an object-level check given a claimed actor.
+//
+// T16.2 (closes #168): the GameHostID/AssignedGameAdminUserIDs fields this
+// struct used to carry are deleted, not merely unread — RefundPayment now
+// reuses authorizeOfflineRecording unchanged (see that method's doc comment
+// below), which resolves a registration Payment's Game/Host/admin set
+// itself via the same port.RegistrationLookup/GameLookup/GameAdminReader
+// RecordOfflinePayment uses, rather than trusting a caller-supplied claim.
+// See RecordOfflinePaymentInput's doc comment for the full reasoning; a
+// future re-plumb of the wire list fails to *compile* rather than silently
+// restoring a forgeable check.
 //
 // PCI: no card-shaped field appears here, or on the proto message that
 // feeds it (CLAUDE.md rule 11) — a refund needs an identifier and an actor,
@@ -438,9 +480,6 @@ type RefundPaymentInput struct {
 	ActorUserID string
 
 	BookingHostID string
-
-	GameHostID               string
-	AssignedGameAdminUserIDs []string
 }
 
 // RefundPayment refunds an already-paid Payment: it resolves the Payment,
@@ -499,12 +538,21 @@ func (s *Service) RefundPayment(ctx context.Context, in RefundPaymentInput) (dom
 		return domain.Payment{}, domain.ErrInvalidPayableType
 	}
 
-	if err := authorizeOfflineRecording(RecordOfflinePaymentInput{
-		PayableType:              p.PayableType,
-		ActorUserID:              in.ActorUserID,
-		BookingHostID:            in.BookingHostID,
-		GameHostID:               in.GameHostID,
-		AssignedGameAdminUserIDs: in.AssignedGameAdminUserIDs,
+	// PayableID is now load-bearing for authorization (T16.2): the
+	// PayableType==Registration branch resolves the Game/Host/admin set
+	// from it via RegistrationLookup/GameLookup/GameAdminReader, so — unlike
+	// before this ticket, when the check only ever compared caller-supplied
+	// fields and never touched PayableID at all — it must be threaded
+	// through from the stored Payment, the same one GetPayment above just
+	// loaded, not the request (RefundPaymentInput carries no PayableID of
+	// its own; see that struct's doc comment for why the payable type and,
+	// as of this ticket, the payable id itself are both read from the store
+	// rather than accepted from the caller).
+	if err := s.authorizeOfflineRecording(ctx, RecordOfflinePaymentInput{
+		PayableType:   p.PayableType,
+		PayableID:     p.PayableID,
+		ActorUserID:   in.ActorUserID,
+		BookingHostID: in.BookingHostID,
 	}); err != nil {
 		return domain.Payment{}, err
 	}
@@ -609,29 +657,46 @@ func (s *Service) reconcileCompetitionEntryPaymentStatus(ctx context.Context, p 
 // authorizeOfflineRecording is the actor-scoped (BOLA-shaped) check T6.3
 // requires, mirroring socialplay.domain.Registration.Cancel's ownership
 // check but living in the app layer rather than the domain: unlike
-// Registration.Cancel, this check needs facts (Host id, Game Admin
-// assignments) that come from outside the Payment aggregate itself, so it
-// can't be expressed as a method on domain.Payment the way Cancel is a
-// method on Registration.
+// Registration.Cancel, this check needs facts (Host id, Game/Competition
+// Admin assignments) that come from outside the Payment aggregate itself,
+// so it can't be expressed as a method on domain.Payment the way Cancel is
+// a method on Registration.
 //
-// STILL compares against the caller-supplied AssignedGameAdminUserIDs /
-// AssignedCompetitionAdminUserIDs fields, not against
-// port.GameAdminReader/CompetitionAdminReader, despite both now existing —
-// see RecordOfflinePaymentInput's T15.5 finding above for why.
+// T16.2 (closes #168): for PayableTypeRegistration/PayableTypeNoShowFee and
+// PayableTypeCompetitionEntry, this now RESOLVES those facts from the real
+// Social Play/Competitions stores (authorizeGameRecording/
+// authorizeCompetitionEntryRecording below) instead of comparing against
+// caller-supplied AssignedGameAdminUserIDs/AssignedCompetitionAdminUserIDs
+// fields — see RecordOfflinePaymentInput's doc comment for the full history
+// of why T15.5 built port.GameAdminReader/CompetitionAdminReader but could
+// not wire them in, and what changed. PayableTypeBooking is UNCHANGED: it
+// still compares against caller-supplied BookingHostID, because Payments has
+// no live join to Booking's database — ADR-0015's still-open D1 blocks the
+// identical resolution this ticket just built for Social Play/Competitions.
+// See ctx's use below: this method now performs I/O (the two Booking-adjacent
+// helpers below do not need ctx passed further than the resolver calls they
+// make), which is why it takes one — every other branch of this codebase's
+// authorization checks is still a pure function of its input, and this is
+// the one exception, load-bearing rather than incidental.
 //
 //   - PayableTypeBooking: legal only when ActorUserID matches
 //     BookingHostID, and BookingHostID must be non-empty (a Host-less
 //     Booking is out of scope for T6.3, see RecordOfflinePaymentInput's
 //     doc comment).
-//   - Everything else (PayableTypeRegistration, PayableTypeNoShowFee):
-//     legal when ActorUserID matches GameHostID, or appears in
-//     AssignedGameAdminUserIDs.
+//   - PayableTypeRegistration/PayableTypeNoShowFee: delegated to
+//     authorizeGameRecording.
+//   - PayableTypeCompetitionEntry: delegated to
+//     authorizeCompetitionEntryRecording.
 //
 // A mismatched or missing actor always returns ErrNotPaymentRecorder, the
 // same sentinel regardless of which branch rejected it — a caller does not
 // get to distinguish "wrong payable type" from "wrong actor" from this
-// error alone, matching ErrNotRegistrationOwner's equally flat shape.
-func authorizeOfflineRecording(in RecordOfflinePaymentInput) error {
+// error alone, matching ErrNotRegistrationOwner's equally flat shape. A
+// resolver I/O failure (as opposed to a resolved-but-mismatched actor) is
+// returned as-is, not folded into ErrNotPaymentRecorder — see
+// authorizeGameRecording/authorizeCompetitionEntryRecording's own doc
+// comments for why that distinction matters.
+func (s *Service) authorizeOfflineRecording(ctx context.Context, in RecordOfflinePaymentInput) error {
 	if in.ActorUserID == "" {
 		return domain.ErrNotPaymentRecorder
 	}
@@ -643,27 +708,102 @@ func authorizeOfflineRecording(in RecordOfflinePaymentInput) error {
 		return nil
 	}
 
-	// PayableTypeCompetitionEntry (T10.6, closes #96): the authorized actor
-	// set is "the entrant OR an assigned Competition Admin" — see
-	// RecordOfflinePaymentInput's doc comment for why this differs from the
-	// Registration/no_show_fee branch below (which never treats the paying
-	// Player themself as authorized).
 	if in.PayableType == domain.PayableTypeCompetitionEntry {
-		if in.EntrantPlayerID != "" && in.ActorUserID == in.EntrantPlayerID {
-			return nil
-		}
-		for _, adminID := range in.AssignedCompetitionAdminUserIDs {
-			if adminID != "" && adminID == in.ActorUserID {
-				return nil
-			}
-		}
+		return s.authorizeCompetitionEntryRecording(ctx, in)
+	}
+
+	return s.authorizeGameRecording(ctx, in)
+}
+
+// authorizeGameRecording is authorizeOfflineRecording's
+// PayableTypeRegistration/PayableTypeNoShowFee branch (T16.2, closes #168):
+// legal when ActorUserID matches the Registration's Game's HostID, or
+// appears in that Game's current admin set — resolved from the real Social
+// Play store via RegistrationLookup -> GameLookup/GameAdminReader, rather
+// than compared against a caller-supplied claim.
+//
+// Fails CLOSED, not open, when a resolver dependency is missing (nil): see
+// Service's own doc comment for why these three ports are not optional the
+// way RegistrationUpdater is. A resolver returning ("", nil)/(nil, nil) for
+// an unresolvable Registration/Game (RegistrationLookup/GameLookup/
+// GameAdminReader's own documented convention for "no such id") flows
+// through to the same ErrNotPaymentRecorder a real mismatch produces,
+// without a distinct code path — an id that doesn't resolve is exactly as
+// unauthorized as one that resolves to someone else's Game, and the two
+// must not be distinguishable from the response alone (mirrors
+// authorizeOnlineConfirmation's "wrong payable type" vs "wrong actor"
+// non-distinction, one level up the same principle).
+//
+// A genuine I/O error from either resolver (not a not-found) is returned to
+// the caller as-is rather than folded into ErrNotPaymentRecorder: the
+// caller may be perfectly legitimate and the check simply couldn't
+// complete, which is a different, retriable condition from "you are not
+// authorized" and toStatus's default Internal mapping is the correct answer
+// for it, not a misleading PermissionDenied.
+func (s *Service) authorizeGameRecording(ctx context.Context, in RecordOfflinePaymentInput) error {
+	if s.registrationLookup == nil || s.gameLookup == nil || s.gameAdminReader == nil {
 		return domain.ErrNotPaymentRecorder
 	}
 
-	if in.GameHostID != "" && in.ActorUserID == in.GameHostID {
+	gameID, err := s.registrationLookup.GameIDForRegistration(ctx, in.PayableID)
+	if err != nil {
+		return err
+	}
+
+	hostID, err := s.gameLookup.HostIDForGame(ctx, gameID)
+	if err != nil {
+		return err
+	}
+	if hostID != "" && in.ActorUserID == hostID {
 		return nil
 	}
-	for _, adminID := range in.AssignedGameAdminUserIDs {
+
+	admins, err := s.gameAdminReader.ListGameAdmins(ctx, gameID)
+	if err != nil {
+		return err
+	}
+	for _, adminID := range admins {
+		if adminID != "" && adminID == in.ActorUserID {
+			return nil
+		}
+	}
+	return domain.ErrNotPaymentRecorder
+}
+
+// authorizeCompetitionEntryRecording is authorizeOfflineRecording's
+// PayableTypeCompetitionEntry branch (T16.2, closes #96/#168): legal when
+// ActorUserID matches the CompetitionEntry's own PlayerID (the entrant), or
+// appears in the owning Competition's current admin set — both resolved
+// from the real Competitions store via EntryLookup/CompetitionAdminReader,
+// rather than compared against a caller-supplied claim. Mirrors
+// authorizeGameRecording exactly, with the one deliberate difference
+// RecordOfflinePaymentInput's doc comment records: the resolved PlayerID
+// (the entrant) is itself an authorized actor here, unlike
+// authorizeGameRecording's HostID/admin-only set.
+//
+// Fails CLOSED when a resolver dependency is missing, and treats an
+// unresolvable CompetitionEntry/Competition the same "safely not
+// authorized, not a distinct error" way authorizeGameRecording does — see
+// that method's doc comment for the full reasoning, which applies here
+// unchanged.
+func (s *Service) authorizeCompetitionEntryRecording(ctx context.Context, in RecordOfflinePaymentInput) error {
+	if s.entryLookup == nil || s.competitionAdminReader == nil {
+		return domain.ErrNotPaymentRecorder
+	}
+
+	competitionID, playerID, err := s.entryLookup.CompetitionIDAndPlayerIDForEntry(ctx, in.PayableID)
+	if err != nil {
+		return err
+	}
+	if playerID != "" && in.ActorUserID == playerID {
+		return nil
+	}
+
+	admins, err := s.competitionAdminReader.ListCompetitionAdmins(ctx, competitionID)
+	if err != nil {
+		return err
+	}
+	for _, adminID := range admins {
 		if adminID != "" && adminID == in.ActorUserID {
 			return nil
 		}
@@ -676,15 +816,22 @@ func authorizeOfflineRecording(in RecordOfflinePaymentInput) error {
 // capture it.
 //
 // This is the one authorization check in this package that consults no
-// caller-supplied fact whatsoever. authorizeOfflineRecording and
-// authorizeOnlineCreation both compare the actor against ownership facts that
-// arrive on the request (a Booking's Host id, a Game's assigned admins),
-// because Payments has no read path into Booking, Social Play or Competitions
-// to resolve them — a real, pre-existing gap tracked as issue #149 and NOT
-// closed here. This check needs none of that: p.RecordedByUserID is a fact this
-// context recorded itself, from a verified principal, at CreateOnlinePayment
-// time. That is exactly why #148 was closable inside the Payments context and
-// #149 is not.
+// caller-supplied fact whatsoever, and — as of T16.2 — it has company:
+// authorizeGameRecording/authorizeCompetitionEntryRecording (called from
+// authorizeOfflineRecording) now resolve their facts from the real Social
+// Play/Competitions stores instead of accepting them on the request.
+// authorizeOfflineRecording's PayableTypeBooking branch, and
+// authorizeOnlineCreation below, are the two REMAINING exceptions: Payments
+// still has no read path into Booking's database (BookingHostID — issue
+// #149, blocked on ADR-0015's still-open D1) or a wired resolution for
+// CreateOnlinePayment's competition_entry branch specifically (EntrantPlayerID/
+// AssignedCompetitionAdminUserIDs — issue #198, opened by this ticket's own
+// sibling sweep; mechanically answerable by the identical
+// EntryLookup/CompetitionAdminReader ports this ticket built, just not wired
+// into this RPC). This check needs none of that: p.RecordedByUserID is a fact
+// this context recorded itself, from a verified principal, at
+// CreateOnlinePayment time. That is exactly why #148 was closable inside the
+// Payments context and #149/#198 are not, by this ticket.
 //
 // Both sides of the comparison are subjects — actorUserID is whatever
 // grpcapi's actor(ctx) returned, and p.RecordedByUserID is whatever an earlier
@@ -723,12 +870,19 @@ func authorizeOnlineConfirmation(p domain.Payment, actorUserID string) error {
 // both are the same underlying rule applied to the two different points a
 // Payment can be created at (online-intent-creation vs. offline-recording).
 //
-// T15.5 sibling-sweep finding (§A15): AssignedCompetitionAdminUserIDs below
-// is the same caller-supplied-entitlement-list pattern
-// authorizeOfflineRecording's admin branches are, and is blocked on the
-// identical unresolved gap (RecordOfflinePaymentInput's T15.5 finding) —
-// not fixed by this ticket, named because the sweep is required to report
-// every instance found.
+// T15.5 sibling-sweep finding (§A15), RE-VERIFIED AND STILL TRUE by T16.2's
+// own required sibling sweep (instruction 10) — the T16 sprint plan's own
+// inspection missed it, so this was checked against the code directly rather
+// than trusted: EntrantPlayerID/AssignedCompetitionAdminUserIDs below are the
+// same caller-supplied-entitlement pattern authorizeOfflineRecording's
+// PayableTypeCompetitionEntry branch had before T16.2 resolved it via
+// port.EntryLookup/CompetitionAdminReader. Those exact two ports would answer
+// this branch identically (CreateOnlinePaymentInput.PayableID is the same
+// CompetitionEntry id RecordOfflinePaymentInput.PayableID is) — this is NOT
+// blocked on a missing read the way #149's BookingHostID is. Not fixed here
+// because T16.2's own instructions scope the wiring to authorizeOfflineRecording
+// only; tracked as its own issue, #198, rather than folded into this ticket
+// silently.
 func authorizeOnlineCreation(in CreateOnlinePaymentInput) error {
 	if in.PayableType != domain.PayableTypeCompetitionEntry {
 		return nil
