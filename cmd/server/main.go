@@ -187,6 +187,15 @@ func run(logger *slog.Logger) error {
 	// authorization shape, not a new mechanism, so no new port beyond this
 	// one repository is wired here.
 	matchRepo := socialplaypg.NewMatchRepository(pool)
+	// gameAdminRepo (T14.4, partial fix for #168) is the durable Game-Admin
+	// store. Before it, "who is a Game Admin of this Game" existed only as a
+	// repeated string field on the requests that needed it, so every rule
+	// wanting to include admins had to trust a list the caller wrote. It is
+	// wired here as a plain fifth repository — no new cross-context
+	// dependency: the assignment is a Social Play fact about a Social Play
+	// aggregate, and its user ids are subjects in the same space
+	// games.host_id already holds (ADR-0014 §5a).
+	gameAdminRepo := socialplaypg.NewGameAdminRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
 	facilityLookup := socialplayfacilities.NewLookup(facilitiesSvc)
 	socialplaySvc := socialplayapp.NewService(socialplayapp.ServiceOptions{
@@ -195,6 +204,7 @@ func run(logger *slog.Logger) error {
 		Registrations: registrationRepo,
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
+		GameAdmins:    gameAdminRepo,
 	})
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
 

@@ -60,6 +60,7 @@ func TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic(t *testing.T) {
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			got, err := svc.ListRegistrationsForGame(context.Background(), id, "auth0|a-stranger")
@@ -92,6 +93,7 @@ func TestListRegistrationsForGame_WellFormedIDStillReads(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	const host = "auth0|host-1"
@@ -148,6 +150,7 @@ func TestRegisterForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *t
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{
@@ -184,6 +187,7 @@ func TestJoinWaitlist_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *test
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			_, err := svc.JoinWaitlist(context.Background(), app.JoinWaitlistInput{
@@ -223,6 +227,7 @@ func TestCancelRegistration_MalformedRegistrationIDIsNotFoundAndNeverReachesRepo
 				Registrations: registrations,
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			_, err := svc.CancelRegistration(context.Background(), id, "player-1")
@@ -255,6 +260,7 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 			Registrations: newFakeRegistrationRepository(),
 			Waitlist:      newFakeWaitlistRepository(),
 			Matches:       newFakeMatchRepository(),
+			GameAdmins:    newFakeGameAdminRepository(),
 		})
 
 		_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{GameID: unknown, PlayerID: "player-1"})
@@ -275,6 +281,7 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 			Registrations: newFakeRegistrationRepository(),
 			Waitlist:      newFakeWaitlistRepository(),
 			Matches:       newFakeMatchRepository(),
+			GameAdmins:    newFakeGameAdminRepository(),
 		})
 
 		_, err := svc.JoinWaitlist(context.Background(), app.JoinWaitlistInput{GameID: unknown, PlayerID: "player-1"})
@@ -295,6 +302,7 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 			Registrations: registrations,
 			Waitlist:      newFakeWaitlistRepository(),
 			Matches:       newFakeMatchRepository(),
+			GameAdmins:    newFakeGameAdminRepository(),
 		})
 
 		_, err := svc.CancelRegistration(context.Background(), unknown, "player-1")
@@ -343,6 +351,7 @@ func TestRecordMatchResult_MalformedGameIDIsNotFoundAndNeverReachesRepository(t 
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       matches,
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
@@ -388,6 +397,7 @@ func TestListMatchesForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			_, err := svc.ListMatchesForGame(context.Background(), id)
@@ -419,6 +429,7 @@ func TestRecordMatchResultAndListMatchesForGame_WellFormedUnknownIDsStillReachTh
 			Registrations: newFakeRegistrationRepository(),
 			Waitlist:      newFakeWaitlistRepository(),
 			Matches:       newFakeMatchRepository(),
+			GameAdmins:    newFakeGameAdminRepository(),
 		})
 
 		_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
@@ -444,6 +455,7 @@ func TestRecordMatchResultAndListMatchesForGame_WellFormedUnknownIDsStillReachTh
 			Registrations: newFakeRegistrationRepository(),
 			Waitlist:      newFakeWaitlistRepository(),
 			Matches:       newFakeMatchRepository(),
+			GameAdmins:    newFakeGameAdminRepository(),
 		})
 
 		_, err := svc.ListMatchesForGame(context.Background(), unknown)

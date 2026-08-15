@@ -1,0 +1,125 @@
+-- Social Play `game_admins` table (T14.4, docs/process/t14-sprint-plan.md
+-- T14.4 section; partial fix for issue #168): the Postgres home for
+-- internal/socialplay/domain.GameAdmin — a durable record that a Game's Host
+-- delegated Game-Admin authority over that Game to another user.
+--
+-- 0020 is the next free number: db/migrations ended at 0019
+-- (0019_identity_subject.sql, T12.9), confirmed by listing the directory
+-- before naming this file. The number was also pre-assigned to this ticket by
+-- the sprint plan's §A14 migration table, which names T14.4 as the sprint's
+-- ONLY schema change, so no in-sprint collision is possible; if one lands
+-- anyway, the PR that merges second renumbers on its own source branch rather
+-- than on the shared branch (CLAUDE.md rule 9, and 0015's own precedent).
+--
+-- Prototype-only migration tooling: applied via docker-compose initdb.d on a
+-- FRESH volume only (see CLAUDE.md gotchas) — after this lands, `make down`
+-- (which drops the volume) then `make up`. Adopt golang-migrate/goose before
+-- production.
+--
+-- # Why this table exists
+--
+-- Before it, Game-Admin assignment was persisted NOWHERE in this codebase: no
+-- table, no domain type, no port. The concept existed only as a
+-- caller-supplied repeated string field on the requests that needed it
+-- (socialplay's RecordMatchResultRequest.assigned_game_admin_user_ids,
+-- payments' RecordOfflinePaymentRequest equivalents). Any authorization rule
+-- wanting to include admins therefore had to either trust a list the caller
+-- wrote — letting the caller name themselves an admin and satisfy the check —
+-- or exclude admins entirely, which is what T13.6 did to the roster read. This
+-- table is the fact those rules were missing. CLAUDE.md carries "per-game Game
+-- Admins can record offline payments" as a LOCKED product decision, and it
+-- could not be implemented trustworthily until this existed.
+--
+-- # Identifier space: text holding SUBJECTS, not uuid (ADR-0014 §5a, #164)
+--
+-- user_id and assigned_by are `text`, deliberately, and hold the same values
+-- games.host_id holds: the verified subject returned by
+-- internal/platform/auth.RequireSubject (e.g. an IdP `sub` such as
+-- 'auth0|abc123'), which CreateGame mints Game.HostID from.
+--
+-- This is a stated decision, not an accident, and #168 demands it be stated:
+-- "a new table should not quietly pick a third convention." ADR-0014 §5a rules
+-- that Social Play's stored actor columns are text subjects — non-conformant
+-- with the uuid convention Facilities/Booking use, but SELF-CONSISTENT — and
+-- defers conformance to the backfill tracked in #164. Going uuid here would
+-- put a uuid on one side of an ownership comparison whose other side is a
+-- subject (assigned_by vs games.host_id; user_id vs the actor a check
+-- resolves), which is exactly the failure §5a legislates against: a check that
+-- silently denies everybody. When #164 backfills games.host_id and
+-- registrations.player_id, THIS TABLE'S user_id AND assigned_by MUST BE
+-- BACKFILLED IN THE SAME PASS — that sentence is here so the backfill finds
+-- it.
+--
+-- # Invariants, and which of them Postgres actually enforces (CLAUDE.md rule 4)
+--
+-- The one invariant with a real concurrency race to close is uniqueness: two
+-- simultaneous AssignGameAdmin calls for the same (game, user) must not both
+-- succeed. The composite PRIMARY KEY below is the authoritative guard, and
+-- domain.AssignGameAdmin's own already-assigned check is a fail-fast
+-- pre-check — the identical relationship domain.Register has with
+-- registrations_active_player_per_game_idx. The adapter translates 23505 into
+-- domain.ErrAlreadyGameAdmin so upper layers only ever see domain errors
+-- (CLAUDE.md rule 5).
+--
+-- The other two domain rules are NOT mirrored as constraints here, and that is
+-- a decision rather than an omission:
+--
+--   * "only the Host may assign or revoke" (domain.AssignGameAdmin /
+--     EnsureMayRevokeGameAdmin) is an authorization rule about the ACTOR, not
+--     a property of the stored row. Postgres never sees the actor — it sees
+--     the row the app decided to write — so there is nothing here to check.
+--     assigned_by records who granted it, which is auditable after the fact,
+--     but a row is not evidence that the writer was entitled to write it.
+--   * "the Host cannot be their own Game Admin"
+--     (domain.ErrHostCannotBeGameAdmin) IS expressible as a trigger reading
+--     games.host_id, but it is a validation with no cross-request race: unlike
+--     capacity, whose correct answer changes between two concurrent
+--     registrations, a Game's host_id does not change under the two concurrent
+--     assignments that could violate this. 0015_socialplay_matches.sql makes
+--     the same call for the same reason ("CLAUDE.md rule 4 applies where
+--     there's a real invariant to enforce ... there is no cross-request race
+--     to close"). Enforced in the domain, tested there, and left to the domain
+--     here rather than duplicating it as a trigger that could drift.
+--
+-- The CHECKs below cover what a constraint genuinely adds: a blank user id or
+-- assigner would be a row that matches a blank actor at read time — the
+-- accident domain.HasGameAdmin's and Game.EnsureHostOrGameAdmin's
+-- `!= ''` guards defend the read end against. Guarding both ends means a row
+-- arriving from anywhere (a hand-written INSERT, a future import) cannot
+-- create the hazard.
+
+CREATE TABLE game_admins (
+    -- game_id is a real FK into games, exactly as matches.game_id and
+    -- registrations.game_id are: a Game Admin assignment always references an
+    -- existing, same-context Game, so a real FK is both possible and correct.
+    -- ON DELETE is deliberately left at the default (NO ACTION): this codebase
+    -- never deletes Games, only cancels them (domain.Game.Cancel), and a
+    -- cascade here would quietly encode a deletion path that does not exist.
+    game_id     uuid NOT NULL REFERENCES games (id),
+    -- user_id: the subject holding Game-Admin authority. text, not uuid — see
+    -- the identifier-space note above before "fixing" this.
+    user_id     text NOT NULL CHECK (user_id <> ''),
+    -- assigned_by: the subject of the Host who granted the assignment. Stored
+    -- rather than inferred from games.host_id, which can only answer "who
+    -- hosts this Game now" — an audit of a delegated authority needs to record
+    -- who actually granted it at the time it was granted.
+    assigned_by text NOT NULL CHECK (assigned_by <> ''),
+    assigned_at timestamptz NOT NULL,
+    created_at  timestamptz NOT NULL DEFAULT now(),
+    -- The uniqueness guard T14.4 instruction 1 requires: the same user cannot
+    -- be assigned twice to one Game. A composite PRIMARY KEY rather than a
+    -- surrogate id plus a UNIQUE index, because (game_id, user_id) IS the
+    -- identity of an assignment — there is no meaningful second row for the
+    -- same pair, and nothing references an assignment by an id of its own.
+    -- The PK's index also serves the (game_id)-prefixed lookup ListGameAdmins
+    -- performs, so no separate index is needed for the read path.
+    PRIMARY KEY (game_id, user_id)
+);
+
+-- Reverse lookup: "which Games is this user an admin of". Not used by T14.4's
+-- own queries (all of which are game-scoped) and added anyway, because the
+-- payments half of #168 — the locked "Game Admins can record offline
+-- payments" decision — resolves in the other direction, and an index is the
+-- cheapest thing in this migration to get right now rather than in a later
+-- one against a populated table.
+CREATE INDEX game_admins_user_idx ON game_admins (user_id);

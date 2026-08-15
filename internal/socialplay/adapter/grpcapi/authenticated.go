@@ -15,7 +15,7 @@ import (
 // a hand-written name that drifted from the proto would silently stop matching
 // and silently stop enforcing. Using the constant makes that a compile error.
 //
-// # Why each of these seven requires a principal
+// # Why each of these nine requires a principal
 //
 //   - CreateGame: establishes Host-ship. Its host_id is no longer read off the
 //     wire — the Game is hosted by the verified caller. This is the same
@@ -59,6 +59,18 @@ import (
 //     Host-only (deliberately not delegated to Game Admins — see
 //     CancelGameRequest's proto doc comment), which makes a claimed actor here
 //     the sharpest of the six.
+//   - AssignGameAdmin / RevokeGameAdmin: added by T14.4 (partial fix for
+//     #168), and the pair whose presence here is load-bearing rather than
+//     merely correct. They are Host-only writes that decide **who else is
+//     entitled to act on this Game** — the store every other admin-aware rule
+//     will read. If either were callable without a principal, the durable
+//     store would be worse than the caller-supplied list it replaces: a
+//     forgeable claim at least dies with its request, whereas an anonymous
+//     write here would persist a forged entitlement for every later check to
+//     honour. The Host-only rule itself lives in the domain
+//     (domain.AssignGameAdmin / EnsureMayRevokeGameAdmin, via
+//     Game.EnsureHost); this list is what guarantees the actor it compares
+//     against is verified rather than typed.
 func AuthenticatedMethods() []string {
 	return []string{
 		socialplayv1.SocialPlayService_CreateGame_FullMethodName,
@@ -68,6 +80,8 @@ func AuthenticatedMethods() []string {
 		socialplayv1.SocialPlayService_RecordMatchResult_FullMethodName,
 		socialplayv1.SocialPlayService_ListRegistrationsForGame_FullMethodName,
 		socialplayv1.SocialPlayService_CancelGame_FullMethodName,
+		socialplayv1.SocialPlayService_AssignGameAdmin_FullMethodName,
+		socialplayv1.SocialPlayService_RevokeGameAdmin_FullMethodName,
 	}
 }
 

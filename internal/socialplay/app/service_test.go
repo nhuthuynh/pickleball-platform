@@ -387,6 +387,49 @@ func (r *fakeMatchRepository) ListForGame(_ context.Context, gameID string) ([]d
 	return out, nil
 }
 
+// fakeGameAdminRepository is a minimal in-memory port.GameAdminRepository fake
+// (T14.4), mirroring fakeMatchRepository's shape.
+//
+// It enforces the composite (game_id, user_id) uniqueness the real
+// game_admins primary key does, so the CLAUDE.md-rule-4 relationship between
+// domain.AssignGameAdmin's pre-check and the authoritative DB constraint is
+// represented here rather than only in Postgres — otherwise a test could pass
+// against a fake that silently accepted the duplicate the real store rejects.
+type fakeGameAdminRepository struct {
+	admins map[string][]domain.GameAdmin
+}
+
+func newFakeGameAdminRepository() *fakeGameAdminRepository {
+	return &fakeGameAdminRepository{admins: make(map[string][]domain.GameAdmin)}
+}
+
+func (r *fakeGameAdminRepository) Assign(_ context.Context, a domain.GameAdmin) (domain.GameAdmin, error) {
+	for _, existing := range r.admins[a.GameID] {
+		if existing.UserID == a.UserID {
+			return domain.GameAdmin{}, domain.ErrAlreadyGameAdmin
+		}
+	}
+	r.admins[a.GameID] = append(r.admins[a.GameID], a)
+	return a, nil
+}
+
+func (r *fakeGameAdminRepository) Revoke(_ context.Context, gameID, userID string) error {
+	for i, existing := range r.admins[gameID] {
+		if existing.UserID == userID {
+			r.admins[gameID] = append(r.admins[gameID][:i], r.admins[gameID][i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrGameAdminNotFound
+}
+
+func (r *fakeGameAdminRepository) ListGameAdmins(_ context.Context, gameID string) ([]domain.GameAdmin, error) {
+	out := make([]domain.GameAdmin, len(r.admins[gameID]))
+	copy(out, r.admins[gameID])
+	sort.Slice(out, func(i, j int) bool { return out[i].AssignedAt.Before(out[j].AssignedAt) })
+	return out, nil
+}
+
 func mustRange(t *testing.T, start, end string) domain.TimeRange {
 	t.Helper()
 	s, err := time.Parse(time.RFC3339, start)
@@ -433,6 +476,7 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -468,6 +512,7 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -494,6 +539,7 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -525,6 +571,7 @@ func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -552,6 +599,7 @@ func TestScheduleGame_InvalidInputRejectedBeforeTouchingPort(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -584,6 +632,7 @@ func TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts(t *testi
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -614,6 +663,7 @@ func TestScheduleGame_KnownVenueFacilityAccepted(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -644,6 +694,7 @@ func TestScheduleGame_EmptyVenueFacilitySkipsLookup(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -675,6 +726,7 @@ func TestScheduleGame_PersistsGame(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -709,6 +761,7 @@ func TestScheduleGame_RollsBackReservationsWhenPersistFails(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	in := validInput(courtID(1), courtID(2))
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -739,6 +792,7 @@ func TestRegisterForGame_Valid(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -783,6 +837,7 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -815,6 +870,7 @@ func TestRegisterForGame_GameNotFound(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{GameID: "no-such-game", PlayerID: "player-1"})
@@ -837,6 +893,7 @@ func TestCancelRegistration_OwnerSucceeds(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -884,6 +941,7 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -931,6 +989,7 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -973,6 +1032,7 @@ func TestMarkRegistrationPaymentStatus_NotFound(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	err := svc.MarkRegistrationPaymentStatus(context.Background(), "no-such-registration", domain.PaymentStatusPaid)
@@ -995,6 +1055,7 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1060,6 +1121,7 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      waitlist,
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1099,6 +1161,7 @@ func TestJoinWaitlist_GameNotFull(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1132,6 +1195,7 @@ func TestCancelRegistration_PromotesOldestWaiting(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      waitlist,
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1196,6 +1260,7 @@ func TestCancelRegistration_NoWaitlistIsNotAnError(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1233,6 +1298,7 @@ func TestRegisterForGame_UnexpiredPromotionReservesSlot(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      waitlist,
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1291,6 +1357,7 @@ func TestRegisterForGame_ExpiredPromotionDoesNotBlock(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      waitlist,
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1344,6 +1411,7 @@ func TestExpireWaitlistPromotion_CascadesToNext(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      waitlist,
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1410,6 +1478,7 @@ func TestExpireWaitlistPromotion_RejectsPremature(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      waitlist,
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1457,6 +1526,7 @@ func TestListGames_FiltersByVenueFacility(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1487,6 +1557,7 @@ func TestListGames_FiltersByDateRange(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1523,6 +1594,7 @@ func TestListGames_ExcludesCancelled(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1559,6 +1631,7 @@ func TestListGames_ComputesSpotsLeft(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1625,6 +1698,7 @@ func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 		Registrations: registrations,
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 	ctx := context.Background()
 
@@ -1688,6 +1762,7 @@ func newMatchTestService(t *testing.T) (*app.Service, domain.Game, *fakeGameRepo
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       matches,
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	fixtureIn := validInput(courtID(1))
@@ -1895,6 +1970,7 @@ func TestRecordMatchResult_UnknownGameRejected(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       matches,
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	unknown := gameID(9001)
@@ -1952,6 +2028,7 @@ func TestListMatchesForGame_UnknownGameRejected(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       matches,
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	unknown := gameID(9002)
@@ -2076,6 +2153,7 @@ func TestCancelGame_UnknownGameNotFound(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	if _, err := svc.CancelGame(context.Background(), gameID(9101), "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
@@ -2100,6 +2178,7 @@ func TestCancelGame_MalformedGameIDNotFound(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	if _, err := svc.CancelGame(context.Background(), "not-a-uuid", "host-1"); !errors.Is(err, domain.ErrGameNotFound) {

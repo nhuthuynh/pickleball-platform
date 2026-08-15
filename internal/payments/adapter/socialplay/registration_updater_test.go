@@ -42,6 +42,32 @@ func (fakeGames) UpdateStatus(context.Context, string, socialplaydomain.Status) 
 	return socialplaydomain.Game{}, socialplaydomain.ErrGameNotFound
 }
 
+// fakeGameAdmins is a minimal port.GameAdminRepository stub (T14.4):
+// MarkRegistrationPaymentStatus never touches the Game-Admin store, but
+// socialplayapp.NewService requires every ServiceOptions field, so this
+// package needs one to construct a Service at all. Same "stub, because the
+// constructor requires it" role fakeGames above has had since T8.9.
+//
+// Worth noting rather than dismissing, since this is the Payments adapter:
+// the OTHER half of #168 — the locked "per-game Game Admins can record
+// offline payments" decision — is the work that will make this stub a real
+// dependency. T14.4 built the Social Play half only.
+type fakeGameAdmins struct{}
+
+func newFakeGameAdminRepo() fakeGameAdmins { return fakeGameAdmins{} }
+
+func (fakeGameAdmins) Assign(context.Context, socialplaydomain.GameAdmin) (socialplaydomain.GameAdmin, error) {
+	return socialplaydomain.GameAdmin{}, socialplaydomain.ErrGameNotFound
+}
+
+func (fakeGameAdmins) Revoke(context.Context, string, string) error {
+	return socialplaydomain.ErrGameAdminNotFound
+}
+
+func (fakeGameAdmins) ListGameAdmins(context.Context, string) ([]socialplaydomain.GameAdmin, error) {
+	return nil, nil
+}
+
 // fakeRegistrations is a minimal in-memory port.RegistrationRepository —
 // just enough for RegistrationUpdater's own tests (this adapter's job is
 // the translation at the boundary, not re-testing app.Service's own
@@ -159,6 +185,7 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 		Registrations: regs,
 		Waitlist:      fakeWaitlist{},
 		Matches:       fakeMatches{},
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
@@ -188,6 +215,7 @@ func TestUpdatePaymentStatus_NotFound(t *testing.T) {
 		Registrations: newFakeRegistrations(),
 		Waitlist:      fakeWaitlist{},
 		Matches:       fakeMatches{},
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 

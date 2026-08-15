@@ -414,6 +414,73 @@ message CancelGameResponse {
   Game game = 1;
 }
 
+// GameAdmin is a durable record that a Game's Host granted Game-Admin
+// authority over that Game to another user (T14.4, partial fix for #168) —
+// the wire form of internal/socialplay/domain.GameAdmin.
+//
+// # Read user_id and assigned_by carefully before comparing them to anything
+//
+// Both hold the caller's verified **subject** (an IdP `sub` such as
+// "auth0|abc123"), the same identifier space Game.host_id holds, NOT a uuid
+// and NOT an identity_users.id. That is ADR-0014 §5a's ruling for this
+// context, with conformance to the platform's uuid convention deferred to
+// #164; db/migrations/0020_socialplay_game_admins.sql records the same note
+// on the columns themselves. A client comparing these against a User id from
+// the Identity service will match nothing.
+//
+// There is no `id` field: an assignment's identity IS (game_id, user_id) —
+// the table's composite primary key — and nothing references one by any other
+// handle.
+message GameAdmin {
+  // game_id is the Game this assignment is scoped to. Authority never spans
+  // Games: this is what CLAUDE.md's locked "per-game Game Admins" decision
+  // means.
+  string game_id = 1;
+  // user_id is the subject holding Game-Admin authority over game_id.
+  string user_id = 2;
+  // assigned_by is the subject of the Host who granted it. Recorded rather
+  // than inferred from the Game's current host_id, which can only answer who
+  // hosts the Game now.
+  string assigned_by = 3;
+  google.protobuf.Timestamp assigned_at = 4;
+}
+
+// AssignGameAdminRequest names the Game and the user to be granted Game-Admin
+// authority over it (T14.4).
+//
+// **No actor field, deliberately** — and this is the specific thing #168 is
+// about, so it is worth being explicit. The pre-T14.4 shape of this concept
+// was `RecordMatchResultRequest.assigned_game_admin_user_ids`: a repeated
+// string the CALLER supplied, asserting who the admins were. Any check
+// honouring it could be satisfied by a caller naming themselves. This request
+// carries no such assertion. The acting identity is resolved from the bearer
+// token, and who holds Game-Admin authority becomes a fact the server stores.
+message AssignGameAdminRequest {
+  string game_id = 1;
+  // user_id is the subject to grant authority to — a subject, not a uuid; see
+  // GameAdmin's doc comment. Must not be blank, and must not be the Game's own
+  // Host (INVALID_ARGUMENT either way).
+  string user_id = 2;
+}
+
+message AssignGameAdminResponse {
+  GameAdmin game_admin = 1;
+}
+
+// RevokeGameAdminRequest names the Game and the user whose assignment is being
+// withdrawn (T14.4). Both fields are path parameters on the REST mapping. Same
+// no-actor-field rule as AssignGameAdminRequest above.
+message RevokeGameAdminRequest {
+  string game_id = 1;
+  string user_id = 2;
+}
+
+// RevokeGameAdminResponse is deliberately empty: a successful revoke leaves
+// nothing to return, and echoing the removed assignment back would suggest the
+// row still means something. NOT_FOUND already distinguishes "there was
+// nothing to revoke" from "revoked", which is the only fact a caller needs.
+message RevokeGameAdminResponse {}
+
 // SocialPlayService is the API contract for the Social Play bounded
 // context, mirroring BookingService's style (proto/pickleball/booking/v1) —
 // buf generates gRPC, a grpc-gateway REST mapping, and OpenAPI from this
@@ -534,6 +601,54 @@ service SocialPlayService {
     option (google.api.http) = {
       post: "/v1/games/{game_id}:cancel"
       body: "*"
+    };
+  }
+
+  // AssignGameAdmin records that this Game's Host granted Game-Admin
+  // authority over it to another user (T14.4, partial fix for #168).
+  //
+  // **HOST-ONLY, and an assigned Game Admin may NOT use it.** #168 states
+  // the reason: an admin who can appoint admins makes the Host-only
+  // distinction unenforceable. A non-Host caller — including an assigned
+  // admin — is codes.PERMISSION_DENIED (HTTP 403); a missing/invalid bearer
+  // token is codes.UNAUTHENTICATED, never PERMISSION_DENIED (ADR-0013 §5).
+  // There is deliberately no actor field on the request: the acting identity
+  // comes from the token, never from the wire (T12.8).
+  //
+  // Other answers: an unknown or malformed game_id is codes.NOT_FOUND; a
+  // user_id already assigned to this Game is codes.ALREADY_EXISTS; a blank
+  // user_id, or the Host's own subject, is codes.INVALID_ARGUMENT (a Host is
+  // already entitled to everything an admin is, so the row would grant
+  // nothing while making a later revoke look like it stripped Host
+  // authority).
+  //
+  // A POST to a sub-collection rather than a verb-suffixed path, because
+  // this genuinely creates a new sub-resource — unlike CancelGame above,
+  // which transitions an existing one.
+  rpc AssignGameAdmin(AssignGameAdminRequest) returns (AssignGameAdminResponse) {
+    option (google.api.http) = {
+      post: "/v1/games/{game_id}/admins"
+      body: "*"
+    };
+  }
+
+  // RevokeGameAdmin withdraws a Game-Admin assignment (T14.4). Host-only for
+  // the same reason AssignGameAdmin is: granting and withdrawing a delegated
+  // authority are the same authority, so an assigned admin who could revoke
+  // their peers would defeat the rule from the other end.
+  //
+  // Revoking a user who holds no assignment for this Game is
+  // codes.NOT_FOUND, not a silent success: a Host revoking an admin is
+  // asserting a belief about who currently holds authority, and answering
+  // "done" would confirm a belief the store does not support. The
+  // authorization check runs first, so this distinction cannot be used to
+  // enumerate a Game's admins.
+  //
+  // A real DELETE, unlike CancelGame: an assignment has no lifecycle to
+  // transition through — it exists or it does not.
+  rpc RevokeGameAdmin(RevokeGameAdminRequest) returns (RevokeGameAdminResponse) {
+    option (google.api.http) = {
+      delete: "/v1/games/{game_id}/admins/{user_id}"
     };
   }
 }

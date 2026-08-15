@@ -190,6 +190,45 @@ func (f *fakeWaitlistRepo) ExpirePromotion(_ context.Context, id string, now tim
 	return domain.WaitlistEntry{}, domain.ErrWaitlistEntryNotFound
 }
 
+// fakeGameAdminRepo is an in-memory port.GameAdminRepository (T14.4),
+// mirroring fakeWaitlistRepo's shape. It enforces the same composite
+// (game_id, user_id) uniqueness game_admins' primary key does, so a test
+// cannot pass here against a fake that accepted a duplicate the real store
+// rejects.
+type fakeGameAdminRepo struct {
+	admins map[string][]domain.GameAdmin
+}
+
+func newFakeGameAdminRepo() *fakeGameAdminRepo {
+	return &fakeGameAdminRepo{admins: map[string][]domain.GameAdmin{}}
+}
+
+func (f *fakeGameAdminRepo) Assign(_ context.Context, a domain.GameAdmin) (domain.GameAdmin, error) {
+	for _, existing := range f.admins[a.GameID] {
+		if existing.UserID == a.UserID {
+			return domain.GameAdmin{}, domain.ErrAlreadyGameAdmin
+		}
+	}
+	f.admins[a.GameID] = append(f.admins[a.GameID], a)
+	return a, nil
+}
+
+func (f *fakeGameAdminRepo) Revoke(_ context.Context, gameID, userID string) error {
+	for i, existing := range f.admins[gameID] {
+		if existing.UserID == userID {
+			f.admins[gameID] = append(f.admins[gameID][:i], f.admins[gameID][i+1:]...)
+			return nil
+		}
+	}
+	return domain.ErrGameAdminNotFound
+}
+
+func (f *fakeGameAdminRepo) ListGameAdmins(_ context.Context, gameID string) ([]domain.GameAdmin, error) {
+	out := make([]domain.GameAdmin, len(f.admins[gameID]))
+	copy(out, f.admins[gameID])
+	return out, nil
+}
+
 // fakeIDs is a deterministic, dependency-free port.IDGenerator stand-in
 // (mirrors why internal/platform/idgen exists for production — tests get a
 // predictable sequence instead of random UUIDs).
@@ -226,6 +265,7 @@ func newTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 		Registrations: regRepo,
 		Waitlist:      newFakeWaitlistRepo(),
 		Matches:       newFakeMatchRepo(),
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	return grpcapi.NewHandler(svc, nil, nil), gameRepo, regRepo
 }
