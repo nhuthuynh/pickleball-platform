@@ -347,6 +347,79 @@ A ticket is only "done" when:
    review must record; it does not reopen the optional-early-close treatment
    for "partial fix for #N" titles, which is unchanged.
 
+### Same-wave shared-interface verification
+
+Adopted at T17's Ceremony 1, from `docs/process/t16-retro.md` finding 1 and
+recommendation 1 — the direct fix for the one real defect that has reached
+the shared branch's own tip in this project's history: T16.2 and T16.3, both
+correctly dispatched as Wave 1 with no functional dependency on each other,
+concurrently touched the blast radius of the same widened interface
+(`internal/competitions/port.Repository`) in disjoint files neither could
+see the other editing. T16.3 patched every implementer it could find; T16.2
+authored a third one, in a brand-new file, that T16.3's tree didn't contain.
+The combined tree failed `go vet` on the shared branch's own tip for
+15m21s — not because nothing could have caught it, but because the review
+that should have caught it asserted, in writing, a verification method it
+had not actually used.
+
+**When this applies.** Two same-wave tickets — dispatched with no
+functional dependency between them, correctly, per the wave design — both
+touch the blast radius of one shared interface: one widens it (adds or
+changes a method on the interface), the other authors a new implementer of
+it. Both branch from the same shared-branch commit before either has
+merged, and their edits land in disjoint files, so GitHub reports no
+textual conflict between them at any point either ticket is reviewed.
+
+**Why `mergeable_state: clean` does not cover this.** That flag certifies
+only the *absence of a textual merge conflict* — that the two diffs apply
+to the same tree without colliding on the same lines. It says nothing about
+whether the resulting combined tree still compiles or type-checks. A
+brand-new file implementing an interface and a widened method signature on
+that same interface never touch the same line, so they merge cleanly by
+definition and can still fail `go build`/`go vet` the moment both are on
+the same tree. Treating "`mergeable_state` is clean" as equivalent to
+"already tested against the merged tree" is exactly the false claim T16.2's
+review made, and it was checkably false from the commit graph alone: the
+reviewed commit's only parent was the pre-widening base, not the tip that
+already included the other ticket.
+
+**The rule.** Whichever of the two same-wave tickets merges **second** —
+the one whose review runs after the other has already landed on the shared
+branch — must verify its own PR against an **actually reconstructed
+post-merge tree** before its review may claim a green toolchain run against
+"the merged state." Concretely, one of:
+
+1. `git fetch` the shared branch, then merge it locally into the feature
+   branch (or a throwaway copy of it) before running the toolchain, or
+2. check out GitHub's `refs/pull/<n>/merge` ref directly and run the
+   toolchain against that.
+
+This is the same discipline T16.4's review already applied correctly (it
+checked out the bare shared-branch tip in an independent worktree and ran
+`go vet` directly against it, rather than inferring the tree's state from a
+flag) and T15.6's review already applied for a *textual* conflict (per
+T15's own finding 7) — this rule generalizes both to the semantic-conflict
+case a textual check cannot see. A review that asserts "base already
+included `<the other same-wave ticket>`" must be able to point at a `git
+merge-base` result or a `refs/pull/<n>/merge` run that backs that sentence,
+not an inference drawn from `mergeable_state`.
+
+**Scope, stated so this is not over-applied.** This does not require every
+review to reconstruct a merged tree — only the reviews of same-wave PRs
+whose ticket text flags a shared-interface blast-radius overlap in advance
+(per the next paragraph), or where the reviewer discovers such an overlap
+at review time regardless of whether the ticket text flagged it.
+
+**Ceremony 1's own obligation, going forward.** When the
+dependency-completeness check identifies two same-wave tickets that will
+touch a shared interface's blast radius from different files — one widening
+it, one authoring a new implementer — the ticket text for whichever is
+expected to merge second names the shared interface and the other ticket
+explicitly, so its reviewer knows this rule applies rather than defaulting
+to `mergeable_state: clean`. Silence in the ticket text does not excuse a
+reviewer who discovers the overlap anyway — this obligation is on top of,
+not instead of, ordinary review diligence.
+
 ### Recovering an interrupted session's work
 
 Implementer sessions can end mid-ticket without opening a PR — most commonly on
