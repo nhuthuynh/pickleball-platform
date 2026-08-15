@@ -1500,3 +1500,47 @@ narrowly and accurately, the same "verify the PR's own claim against its own
 diff" discipline already applied to code. `HANDOFF.md`'s T18 row is left
 untouched by this retro, per the ordinary convention — T19's Ceremony 1
 corrects it.
+
+## T19 sprint retro
+
+Held as `docs/process/t19-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17/T18 set and CLAUDE.md's **Docs index &
+naming convention**.
+
+Six findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #214–#216, issues #212–#213), with every claim
+re-derived at the retro rather than taken from any PR's own prose —
+including two independent mutation checks re-performed against the actual
+merged tree (removing `Register`'s and `JoinWaitlist`'s cancelled-Game
+guards, each reproducing exactly the failures already claimed) and, for the
+first time, an independently-authored throwaway reproduction of T19.2's
+20-way concurrency claim itself, against a real local Postgres instance with
+a genuine process cold start. **Sprint outcome: both tickets (8 points)
+merged as PR #216 and PR #215; #212 and #213 — both filed by this same
+sprint's own Ceremony 1 — closed correctly by the mandatory mechanism within
+the same sprint; the merged-fix sweep reconciles exactly (`8 − 2 + 2 = 8`),
+its arithmetic worked through explicitly for a shape (Ceremony-1-filed,
+same-sprint-closed) this project had not hit before.**
+
+**Finding 1** works the merged-fix sweep's arithmetic through for that new
+shape rather than reusing a prior sprint's formula unexamined, and confirms
+it reconciles exactly against the live count. **Finding 2** confirms T19.1
+closes #212 for real at both the domain and DB layers (mutation-tested by
+this retro itself) and is the first ticket to test T18 retro recommendation
+1 live — it claimed only "behaviourally additive only," and a direct diff of
+the pre-existing test files confirms that exact, narrower claim is true.
+**Finding 3** is the sprint's central finding: T19.2's concurrency invariant
+is proven by convergent independent manual reproduction — now a third
+separately-authored program, twelve runs total across two genuine process
+cold starts, zero flakes — but its own committed `-tags=integration` test
+has never once executed anywhere in this project's history, a precise,
+unusual epistemic status ("manually proven, CI-unexecuted") named exactly
+rather than rounded to "proven" or "unverified." **Finding 4** confirms the
+migration-header-ownership check was applied correctly. **Finding 5**
+re-checks, against the actual shipped diffs, whether filing two
+disclosed-but-unfiled gaps instead of manufacturing a ticket or scoping zero
+was the right call — both tickets landed with zero scope drift from
+Ceremony 1's own file-list predictions, confirming the call in hindsight.
+**Finding 6** confirms D1's footprint held steady and D2 had its fifth
+consecutive sprint with nothing to score, matching T19's own Ceremony 1
+prediction.
