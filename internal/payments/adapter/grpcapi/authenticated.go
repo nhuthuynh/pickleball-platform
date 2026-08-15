@@ -14,28 +14,39 @@ import (
 // hand-written strings, so a renamed RPC is a compile error instead of a
 // policy entry that silently stops matching and silently stops enforcing.
 //
-// # Why each of these three requires a principal
+// # Why each of these requires a principal
 //
-// All three carry an actor_user_id that an authorization branch reads. Money
-// is the sharpest case of the claimed-actor problem in this codebase: before
-// this ticket, "only the Game's Host or an assigned Game Admin may record this
-// payment" meant "only a caller willing to type the Host's user ID", and the
-// Host's ID is readable off Social Play's public ListGames response.
+// Each carries an actor an authorization branch reads. Money is the sharpest
+// case of the claimed-actor problem in this codebase: before T12.8, "only the
+// Game's Host or an assigned Game Admin may record this payment" meant "only a
+// caller willing to type the Host's user ID", and the Host's ID is readable off
+// Social Play's public ListGames response.
 //
 //   - RecordOfflinePayment: marks someone else's Registration or Competition
 //     entry paid without money changing hands. A claimed actor here is a free
 //     seat at any Game on the platform.
 //   - CreateOnlinePayment: creates a payment intent against a payable the
-//     caller must be entitled to pay for.
+//     caller must be entitled to pay for. Its principal is also what the
+//     Payment stores as RecordedByUserID (T13.7), which is what makes
+//     ConfirmOnlinePayment's check below possible at all.
 //   - RefundPayment: moves real money back out (T12.3). Its authorization
 //     branch is chosen from the *stored* payable type precisely so a caller
 //     cannot pick which check judges them — that care is wasted if the actor
 //     the chosen branch compares is itself caller-supplied.
+//   - ConfirmOnlinePayment: captures the funds (T13.7, closes issue #148).
+//     Added here once there was something to compare a principal *against* —
+//     see the note this replaced in PublicMethods(), which recorded the gap
+//     honestly while it was open. Requiring a token is not on its own the fix
+//     (that was the reason T12.8 rejected adding it then, and the reasoning
+//     still stands): what makes it enforcement rather than theatre is
+//     app.authorizeOnlineConfirmation comparing the principal against the
+//     Payment's own RecordedByUserID.
 func AuthenticatedMethods() []string {
 	return []string{
 		paymentsv1.PaymentsService_RecordOfflinePayment_FullMethodName,
 		paymentsv1.PaymentsService_CreateOnlinePayment_FullMethodName,
 		paymentsv1.PaymentsService_RefundPayment_FullMethodName,
+		paymentsv1.PaymentsService_ConfirmOnlinePayment_FullMethodName,
 	}
 }
 
@@ -48,30 +59,32 @@ func AuthenticatedMethods() []string {
 // RPC was added and nobody decided whether it needs auth" from a silent
 // default-to-public into a failing test.
 //
-// # Why this one stays public
+// # Why this list is empty
 //
-//   - ConfirmOnlinePayment: public **not because that is right, but because
-//     making it otherwise is out of this ticket's reach**, and leaving that
-//     unsaid would be worse than saying it. It is the only RPC on this service
-//     with no actor field at all: it takes a payment_id and captures the
-//     intent. There is no ownership fact recorded anywhere for it to check —
-//     a Payment stores its payable and its processor reference, not the human
-//     who is entitled to confirm it — so there is no claimed actor to migrate
-//     and no verified one to compare against. Giving it a check means adding
-//     an owner to the Payment aggregate, which is a domain change; A11 Ruling
-//     3 scopes this ticket to the handler boundary precisely so it does not
-//     make domain changes in passing.
+// It is empty as of T13.7 (closes issue #148), and empty is a decision here,
+// not an omission — that is exactly what authenticated_test.go's exhaustiveness
+// check exists to keep true. Every RPC on PaymentsService moves or records
+// money, and every one of them now has a verified actor and something to
+// compare it against.
 //
-//     Adding it to AuthenticatedMethods() instead was considered and
-//     rejected: requiring a bare token would look like authorization while
-//     granting every authenticated user on the platform exactly the capability
-//     an anonymous one has today — anyone holding a payment_id can capture
-//     that intent. That is worse than an honest public listing, because it
-//     reads as solved. Disclosed and tracked as a GitHub issue per the
-//     sprint's A5 standing rule, the same way T12.7 handled Booking's
-//     CreateBooking/CancelBooking.
+// The entry that used to live here was ConfirmOnlinePayment, listed public with
+// a long note saying so was wrong but out of T12.8's reach: it took a
+// payment_id, captured the intent, and had no ownership fact recorded anywhere
+// to check, because CreateOnlinePayment stored an empty RecordedByUserID. T12.8
+// also considered and rejected simply moving it into AuthenticatedMethods(),
+// on the grounds that requiring a bare token would grant every authenticated
+// user precisely the capability an anonymous one already had, while reading as
+// solved. T13.7 closes it the way that note said it would have to be closed —
+// by recording an owner at intent-creation time and comparing it at capture —
+// so the RPC moves into AuthenticatedMethods() with a real object-level check
+// behind it rather than a token requirement standing in for one.
+//
+// Keep this function rather than deleting it: authenticated_test.go's
+// exhaustiveness check reads it (deleting it would make every future RPC
+// unclassifiable except by adding it back), and a future public RPC — a Stripe
+// webhook receiver, say, which issue #148's closing note raises as the shape
+// that would make the client-driven capture question moot — needs somewhere to
+// be declared deliberately rather than by omission.
 func PublicMethods() []string {
-	return []string{
-		paymentsv1.PaymentsService_ConfirmOnlinePayment_FullMethodName,
-	}
+	return nil
 }

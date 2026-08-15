@@ -160,3 +160,11 @@ func (u *fakeCompetitionEntryUpdater) UpdatePaymentStatus(_ context.Context, ent
 	u.calls = append(u.calls, entryUpdateCall{entryID: entryID, status: status})
 	return u.err
 }
+
+// fixtureOnlinePayerID is the verified actor the online-path tests create
+// intents as, and therefore the only actor entitled to confirm them (T13.7,
+// closes issue #148). Before that ticket CreateOnlinePayment stored no actor at
+// all and ConfirmOnlinePayment checked none, so these fixtures could leave it
+// unset; now an online Payment without an owner is one nobody may capture,
+// which is the point.
+const fixtureOnlinePayerID = "payer-online-1"

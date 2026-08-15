@@ -53,6 +53,25 @@ var (
 	// (T5.2/T5.5) exactly.
 	ErrNotPaymentRecorder = errors.New("payments: actor is not authorized to record an offline payment for this payable action")
 
+	// ErrNotPaymentOwner is T13.7's object-level authorization sentinel for
+	// the capture path (closes issue #148): returned by
+	// app.Service.ConfirmOnlinePayment when the acting caller is not the
+	// Payment's own RecordedByUserID — the actor that created the intent
+	// through CreateOnlinePayment — or when the Payment records no owner at
+	// all (see authorizeOnlineConfirmation for why an ownerless Payment
+	// fails closed rather than being grandfathered).
+	//
+	// Distinct from ErrNotPaymentRecorder rather than folded into it,
+	// because the two answer different questions against different facts:
+	// ErrNotPaymentRecorder judges an actor against ownership facts the
+	// *caller supplies* (a Booking's Host, a Game's assigned admins), while
+	// this one judges an actor against a fact the Payments context itself
+	// recorded and stores. A caller cannot influence this comparison at
+	// all, which is precisely what makes it worth telling apart in a log.
+	// Both map to codes.PermissionDenied — the distinction is for us, not
+	// for the wire.
+	ErrNotPaymentOwner = errors.New("payments: actor is not authorized to confirm this payment")
+
 	// ErrPaymentNotFound is returned by port.Repository.GetByID (T6.4) when
 	// no Payment exists with the given id, mirroring
 	// booking.ErrBookingNotFound.

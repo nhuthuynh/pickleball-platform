@@ -138,13 +138,31 @@ func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.Creat
 // read already has, so a malformed payment_id answers with the same
 // domain.ErrPaymentNotFound an unknown one gets, instead of reaching the
 // Postgres adapter's mustUUID and panicking.
+//
+// T13.7 (closes issue #148): this RPC now requires a verified principal and
+// captures only on behalf of the actor the Payment records as its own. Until
+// this ticket it was the single entry in PublicMethods() — a payment_id was the
+// whole of the authorization, and a payment_id is not a secret (it is returned
+// by CreateOnlinePayment and travels through client logs and URLs).
+//
+// Note the ordering: the actor is resolved first, so a caller with no principal
+// is answered Unauthenticated before any lookup happens and cannot use this RPC
+// to probe which payment ids exist.
 func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.ConfirmOnlinePaymentRequest) (*paymentsv1.ConfirmOnlinePaymentResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	p, err := h.svc.GetPayment(ctx, req.GetPaymentId())
 	if err != nil {
 		return nil, toStatus(err)
 	}
 
-	confirmed, err := h.svc.ConfirmOnlinePayment(ctx, p)
+	// p is the *stored* Payment, and the actor is the *verified* principal —
+	// neither side of the ownership comparison comes from the request body,
+	// which carries only the payment_id.
+	confirmed, err := h.svc.ConfirmOnlinePayment(ctx, p, actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -232,7 +250,15 @@ func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrPaymentAlreadyRecorded):
 		return status.Error(codes.AlreadyExists, err.Error())
-	case errors.Is(err, domain.ErrNotPaymentRecorder):
+	case errors.Is(err, domain.ErrNotPaymentRecorder),
+		// T13.7 (#148): a verified principal who is not the Payment's own
+		// recorded actor. PermissionDenied for the same reason
+		// ErrNotPaymentRecorder gets it and ADR-0014 §6 restates: the token
+		// verified, so this is not Unauthenticated, and answering NotFound
+		// would turn the RPC into a payment-id enumeration oracle. Two
+		// sentinels, one code — deliberately, per the doc comment above:
+		// they mean different things to us and the same thing to a client.
+		errors.Is(err, domain.ErrNotPaymentOwner):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrPaymentNotFound):
 		return status.Error(codes.NotFound, err.Error())

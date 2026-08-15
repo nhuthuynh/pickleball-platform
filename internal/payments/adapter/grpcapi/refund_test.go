@@ -39,6 +39,15 @@ const (
 	refundBookingHostID = "host-booking-9"
 	refundGameHostID    = "host-game-9"
 	refundOtherPlayerID = "player-outsider-9"
+
+	// seededPaymentOwnerID is the actor the seed helpers below record as the
+	// Payment's own (RecordedByUserID) — the value CreateOnlinePayment would
+	// have written from the verified principal in production (T13.7).
+	// RefundPayment does not consult it (it authorizes against the
+	// caller-supplied Host/Game-Admin facts), but ConfirmOnlinePayment does,
+	// so a seeded Payment without one is a Payment nobody may capture — which
+	// would silently turn any confirm-driven test into a PermissionDenied test.
+	seededPaymentOwnerID = "payer-online-9"
 )
 
 // newRefundTestHandler wires the real app.Service and real grpcapi.Handler
@@ -73,13 +82,14 @@ func seedPaidOnline(t *testing.T, repo *fakeRepository, proc *stripestub.Process
 	}
 
 	if _, err := repo.Create(ctx, domain.Payment{
-		ID:              paymentID,
-		PayableType:     payableType,
-		PayableID:       payableID,
-		Amount:          amount,
-		Method:          domain.MethodOnline,
-		Status:          domain.StatusPaid,
-		StripeReference: ref,
+		ID:               paymentID,
+		PayableType:      payableType,
+		PayableID:        payableID,
+		Amount:           amount,
+		Method:           domain.MethodOnline,
+		Status:           domain.StatusPaid,
+		StripeReference:  ref,
+		RecordedByUserID: seededPaymentOwnerID,
 	}); err != nil {
 		t.Fatalf("seed: Create: %v", err)
 	}

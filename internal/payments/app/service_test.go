@@ -60,6 +60,7 @@ func TestCreateOnlinePayment_Succeeds(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -104,6 +105,7 @@ func TestCreateOnlinePayment_InvalidInputRejectedByDomain(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      domain.Money{Cents: 0, Currency: "USD"},
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if !errors.Is(err, domain.ErrInvalidAmount) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrInvalidAmount)
@@ -130,6 +132,7 @@ func TestCreateOnlinePayment_ProcessorUnavailable(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if !errors.Is(err, domain.ErrPaymentProcessorUnavailable) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentProcessorUnavailable)
@@ -157,12 +160,13 @@ func TestConfirmOnlinePayment_Succeeds(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	confirmed, err := svc.ConfirmOnlinePayment(context.Background(), p)
+	confirmed, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID)
 	if err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
@@ -203,6 +207,7 @@ func TestConfirmOnlinePayment_Declined(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
@@ -210,7 +215,7 @@ func TestConfirmOnlinePayment_Declined(t *testing.T) {
 
 	before := p
 
-	result, err := svc.ConfirmOnlinePayment(context.Background(), p)
+	result, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID)
 	if !errors.Is(err, domain.ErrPaymentDeclined) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentDeclined)
 	}
@@ -248,6 +253,7 @@ func TestConfirmOnlinePayment_ProcessorUnavailable(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
@@ -256,7 +262,7 @@ func TestConfirmOnlinePayment_ProcessorUnavailable(t *testing.T) {
 	// a processor-side failure distinct from a decline.
 	p.StripeReference = "pi_does_not_exist"
 
-	result, err := svc.ConfirmOnlinePayment(context.Background(), p)
+	result, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID)
 	if !errors.Is(err, domain.ErrPaymentProcessorUnavailable) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentProcessorUnavailable)
 	}
@@ -284,18 +290,138 @@ func TestConfirmOnlinePayment_AlreadyPaidIsIllegal(t *testing.T) {
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
-	paid, err := svc.ConfirmOnlinePayment(context.Background(), p)
+	paid, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID)
 	if err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
 
-	_, err = svc.ConfirmOnlinePayment(context.Background(), paid)
+	_, err = svc.ConfirmOnlinePayment(context.Background(), paid, fixtureOnlinePayerID)
 	if !errors.Is(err, domain.ErrIllegalStatusTransition) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrIllegalStatusTransition)
+	}
+}
+
+// --- T13.7: the capture path's object-level check (closes issue #148) ------
+
+// TestConfirmOnlinePayment_OnlyTheRecordedOwnerMayCapture is the app-layer
+// half of this ticket's proof (the handler-level half lives in
+// internal/payments/adapter/grpcapi/confirm_authz_test.go): capturing an
+// intent is legal only for the actor the Payment records as its own.
+//
+// The processor assertion in each row is what makes this more than a
+// status-code test. authorizeOnlineConfirmation runs *before*
+// port.PaymentProcessor.CapturePayment, so a refused caller must not have
+// moved any money — "denied, but the card was charged anyway" would satisfy a
+// test that only inspected the returned error.
+func TestConfirmOnlinePayment_OnlyTheRecordedOwnerMayCapture(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// recordedBy is the actor the stored Payment belongs to.
+		recordedBy string
+		// actor is the caller attempting the capture.
+		actor   string
+		wantErr error
+		why     string
+	}{
+		{
+			name:       "the recorded owner captures",
+			recordedBy: fixtureOnlinePayerID,
+			actor:      fixtureOnlinePayerID,
+			wantErr:    nil,
+			why:        "without this row the table cannot distinguish a working check from one that refuses everyone",
+		},
+		{
+			name:       "another user is refused",
+			recordedBy: fixtureOnlinePayerID,
+			actor:      fixtureOutsidePlayer,
+			wantErr:    domain.ErrNotPaymentOwner,
+			why:        "issue #148: holding a payment_id must not be the same thing as holding the money",
+		},
+		{
+			name:       "a Payment with no recorded owner refuses everyone",
+			recordedBy: "",
+			actor:      fixtureOnlinePayerID,
+			wantErr:    domain.ErrNotPaymentOwner,
+			why:        "every online row written before T13.7 is ownerless; grandfathering them would keep #148 open where it was reported",
+		},
+		{
+			name:       "an empty actor never matches an ownerless Payment",
+			recordedBy: "",
+			actor:      "",
+			wantErr:    domain.ErrNotPaymentOwner,
+			why:        "two empty strings are equal, and a check written as a bare == would let an actorless caller capture an ownerless Payment",
+		},
+		{
+			name:       "an empty actor is refused against an owned Payment",
+			recordedBy: fixtureOnlinePayerID,
+			actor:      "",
+			wantErr:    domain.ErrNotPaymentOwner,
+			why:        "the handler answers Unauthenticated first, but the app layer must not depend on that to be safe",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			proc := stripestub.NewProcessor()
+			repo := newFakeRepository()
+			svc := app.NewService(app.ServiceOptions{
+				Payments:  repo,
+				IDs:       &fixedIDs{ids: []string{"pay-1"}},
+				Processor: proc,
+			})
+
+			p, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
+				PayableType: domain.PayableTypeBooking,
+				PayableID:   fixtureBookingID,
+				Amount:      fixtureAmount(),
+				ActorUserID: tc.recordedBy,
+			})
+			if err != nil {
+				t.Fatalf("unexpected err creating: %v", err)
+			}
+			if p.RecordedByUserID != tc.recordedBy {
+				t.Fatalf("RecordedByUserID = %q, want %q — CreateOnlinePayment must store the acting user as the Payment's owner", p.RecordedByUserID, tc.recordedBy)
+			}
+
+			confirmed, err := svc.ConfirmOnlinePayment(context.Background(), p, tc.actor)
+
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("ConfirmOnlinePayment: %v — %s", err, tc.why)
+				}
+				if confirmed.Status != domain.StatusPaid {
+					t.Fatalf("Status = %v, want paid", confirmed.Status)
+				}
+				return
+			}
+
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("got err %v, want %v — %s", err, tc.wantErr, tc.why)
+			}
+
+			// The capture must never have been attempted: the stored Payment
+			// is untouched, and the processor still holds an uncaptured intent
+			// (proven by the owner's own capture still succeeding afterwards).
+			stored, err := repo.GetByID(context.Background(), "pay-1")
+			if err != nil {
+				t.Fatalf("unexpected err reloading: %v", err)
+			}
+			if stored.Status != domain.StatusUnpaid {
+				t.Fatalf("persisted Status = %v after a refused capture, want unpaid — the refused call captured anyway", stored.Status)
+			}
+			if err := proc.CapturePayment(context.Background(), p.StripeReference); err != nil {
+				t.Fatalf("the intent was no longer capturable after a refused ConfirmOnlinePayment (%v) — the refused call reached the processor", err)
+			}
+		})
 	}
 }
 
@@ -699,6 +825,7 @@ func TestCreateOnlinePayment_CompetitionEntryPayable_MissingActorRejected(t *tes
 		PayableID:       fixtureCompetitionEntryID,
 		Amount:          fixtureAmount(),
 		EntrantPlayerID: "player-1",
+		ActorUserID:     fixtureOnlinePayerID,
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -756,6 +883,7 @@ func TestCreateOnlinePayment_BookingPayable_NoActorFieldsRequired(t *testing.T) 
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	}); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -824,12 +952,13 @@ func TestConfirmOnlinePayment_RegistrationPayable_UpdatesRegistration(t *testing
 		PayableType: domain.PayableTypeRegistration,
 		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID); err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
 
@@ -864,12 +993,13 @@ func TestConfirmOnlinePayment_BookingPayable_DoesNotUpdateRegistration(t *testin
 		PayableType: domain.PayableTypeBooking,
 		PayableID:   fixtureBookingID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID); err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
 
@@ -900,12 +1030,13 @@ func TestConfirmOnlinePayment_Declined_DoesNotUpdateRegistration(t *testing.T) {
 		PayableType: domain.PayableTypeRegistration,
 		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); !errors.Is(err, domain.ErrPaymentDeclined) {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID); !errors.Is(err, domain.ErrPaymentDeclined) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentDeclined)
 	}
 
@@ -1030,12 +1161,13 @@ func TestConfirmOnlinePayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) 
 		PayableType: domain.PayableTypeRegistration,
 		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID); err != nil {
 		t.Fatalf("unexpected err confirming with a nil RegistrationUpdater: %v", err)
 	}
 }
@@ -1077,7 +1209,7 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_UpdatesEntry(t *testing.T)
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, "player-1"); err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
 
@@ -1112,12 +1244,13 @@ func TestConfirmOnlinePayment_RegistrationPayable_DoesNotUpdateCompetitionEntry(
 		PayableType: domain.PayableTypeRegistration,
 		PayableID:   fixtureRegistrationID,
 		Amount:      fixtureAmount(),
+		ActorUserID: fixtureOnlinePayerID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, fixtureOnlinePayerID); err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
 
@@ -1157,7 +1290,7 @@ func TestConfirmOnlinePayment_CompetitionEntryPayable_DoesNotUpdateRegistration(
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, "player-1"); err != nil {
 		t.Fatalf("unexpected err confirming: %v", err)
 	}
 
@@ -1234,7 +1367,7 @@ func TestConfirmOnlinePayment_NilCompetitionEntryUpdater_DoesNotPanic(t *testing
 		t.Fatalf("unexpected err creating: %v", err)
 	}
 
-	if _, err := svc.ConfirmOnlinePayment(context.Background(), p); err != nil {
+	if _, err := svc.ConfirmOnlinePayment(context.Background(), p, "player-1"); err != nil {
 		t.Fatalf("unexpected err confirming with a nil CompetitionEntryUpdater: %v", err)
 	}
 }

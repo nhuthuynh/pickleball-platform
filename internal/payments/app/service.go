@@ -196,7 +196,15 @@ func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymen
 		return domain.Payment{}, domain.ErrEmptyPayableID
 	}
 
-	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOnline, "")
+	// in.ActorUserID becomes the Payment's RecordedByUserID (T13.7, closes
+	// issue #148). It used to be "" here, on the reasoning that nobody
+	// "records" an online payment — but that left ConfirmOnlinePayment with no
+	// ownership fact to check, so anyone holding the payment_id could capture
+	// the intent. The value is safe to store precisely because
+	// CreateOnlinePayment is in grpcapi.AuthenticatedMethods(): the actor
+	// reaching here is a principal the auth interceptor verified, for every
+	// payable type, not a claim off the wire.
+	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOnline, in.ActorUserID)
 	if err != nil {
 		return domain.Payment{}, err
 	}
@@ -223,7 +231,20 @@ func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymen
 // returned unchanged (still whatever status it was passed in as,
 // typically unpaid) alongside the error, and nothing is persisted, rather
 // than mutating into or persisting some half-applied state.
-func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment) (domain.Payment, error) {
+//
+// actorUserID is the verified caller attempting the capture (T13.7, closes
+// issue #148). authorizeOnlineConfirmation runs before anything else — before
+// the processor is touched, so a refused caller cannot move money and learns
+// nothing about the Payment's state from the answer they get. It is a separate
+// parameter rather than a field read off p because p carries the *stored*
+// ownership fact and the actor must come from somewhere the caller does not
+// control; the grpcapi handler loads p through Service.GetPayment and takes the
+// actor from the request's verified principal, never from its body.
+func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, actorUserID string) (domain.Payment, error) {
+	if err := authorizeOnlineConfirmation(p, actorUserID); err != nil {
+		return domain.Payment{}, err
+	}
+
 	// Any processor-side failure (declined or otherwise unavailable) means
 	// no capture happened, so p is returned exactly as it was passed in —
 	// there is nothing to roll back because MarkPaid was never called, and
@@ -626,6 +647,46 @@ func authorizeOfflineRecording(in RecordOfflinePaymentInput) error {
 		}
 	}
 	return domain.ErrNotPaymentRecorder
+}
+
+// authorizeOnlineConfirmation is ConfirmOnlinePayment's object-level check
+// (T13.7, closes issue #148): only the actor a Payment records as its own may
+// capture it.
+//
+// This is the one authorization check in this package that consults no
+// caller-supplied fact whatsoever. authorizeOfflineRecording and
+// authorizeOnlineCreation both compare the actor against ownership facts that
+// arrive on the request (a Booking's Host id, a Game's assigned admins),
+// because Payments has no read path into Booking, Social Play or Competitions
+// to resolve them — a real, pre-existing gap tracked as issue #149 and NOT
+// closed here. This check needs none of that: p.RecordedByUserID is a fact this
+// context recorded itself, from a verified principal, at CreateOnlinePayment
+// time. That is exactly why #148 was closable inside the Payments context and
+// #149 is not.
+//
+// Both sides of the comparison are subjects — actorUserID is whatever
+// grpcapi's actor(ctx) returned, and p.RecordedByUserID is whatever an earlier
+// actor(ctx) wrote — so they are compared unchanged, with no resolution step,
+// per ADR-0014 §5a's explicit ruling for this ticket.
+//
+// An empty p.RecordedByUserID means nobody may confirm, never that anybody may:
+//
+//   - Every online Payment written before T13.7 has one, and grandfathering
+//     them would leave issue #148's "anyone holding a payment_id can capture
+//     the intent" true for exactly the rows it was reported against. The
+//     alternative the issue itself names — "reject confirmation on ownerless
+//     legacy rows, or grandfather them" — is answered here, deliberately, in
+//     the safe direction. Recovering such a row means recording it through the
+//     offline path or re-creating the intent, not weakening this check.
+//   - An empty actorUserID can never satisfy it either, so a caller who
+//     somehow reaches this code with no principal is refused rather than
+//     matched against an ownerless Payment. (The handler rejects that caller
+//     earlier, with Unauthenticated; this is the belt to that braces.)
+func authorizeOnlineConfirmation(p domain.Payment, actorUserID string) error {
+	if actorUserID == "" || p.RecordedByUserID == "" || actorUserID != p.RecordedByUserID {
+		return domain.ErrNotPaymentOwner
+	}
+	return nil
 }
 
 // authorizeOnlineCreation is CreateOnlinePayment's authorization check
