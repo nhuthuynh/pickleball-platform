@@ -149,15 +149,15 @@ func newHandlerWithRealIdentity(t *testing.T) *realIdentityHarness {
 	lookup := bookingidentity.NewLookup(identityapp.NewService(users, identityStubIDs{}))
 
 	templates := newFakeRecurringRepo()
-	svc := app.NewService(
-		newStoringBookingRepo(),
-		&fakePricingRepo{},
-		&fakeDiscountRepo{byFacility: map[string][]domain.DiscountRule{}},
-		templates,
-		fakeFacilityLookup{},
-		lookup,
-		&fakeIDs{},
-	)
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       newStoringBookingRepo(),
+		PricingRules:   &fakePricingRepo{},
+		DiscountRules:  &fakeDiscountRepo{byFacility: map[string][]domain.DiscountRule{}},
+		RecurringHires: templates,
+		Facilities:     fakeFacilityLookup{},
+		Identity:       lookup,
+		IDs:            &fakeIDs{},
+	})
 	return &realIdentityHarness{handler: grpcapi.NewHandler(svc), templates: templates, users: users}
 }
 
@@ -273,13 +273,15 @@ func TestActorSeam_RawSubjectNeverReachesTheAppLayer(t *testing.T) {
 	h := newHandlerWithRealIdentity(t)
 	seedUser(t, h.users, userID(clubUser), subjectOf(clubUser), []identitydomain.Role{identitydomain.RoleClub})
 
-	svc := app.NewService(
-		newStoringBookingRepo(), &fakePricingRepo{},
-		&fakeDiscountRepo{byFacility: map[string][]domain.DiscountRule{}},
-		h.templates, fakeFacilityLookup{},
-		bookingidentity.NewLookup(identityapp.NewService(h.users, identityStubIDs{})),
-		&fakeIDs{},
-	)
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       newStoringBookingRepo(),
+		PricingRules:   &fakePricingRepo{},
+		DiscountRules:  &fakeDiscountRepo{byFacility: map[string][]domain.DiscountRule{}},
+		RecurringHires: h.templates,
+		Facilities:     fakeFacilityLookup{},
+		Identity:       bookingidentity.NewLookup(identityapp.NewService(h.users, identityStubIDs{})),
+		IDs:            &fakeIDs{},
+	})
 
 	// The seam, called directly: subject in, User.ID out.
 	resolved, err := svc.ResolveActorUserID(context.Background(), subjectOf(clubUser))

@@ -82,9 +82,20 @@ func (stubBookingIDs) NewID() string { return fixtureTemplateID }
 
 // newServiceWithRealIdentity wires Booking's app.Service with the REAL
 // Identity chain behind port.IdentityLookup. The three repositories
-// RequestRecurringHire never reaches on this path are left nil deliberately:
-// if a future change makes this use case touch them, the resulting nil panic
-// is a louder and more honest signal than a fake quietly absorbing the call.
+// RequestRecurringHire never reaches on this path are supplied as unused*
+// stubs whose every method panics: if a future change makes this use case
+// touch them, that panic is a louder and more honest signal than a fake
+// quietly absorbing the call.
+//
+// **These were literal nils until T13.8**, for exactly that reason — a nil
+// deref was the loud signal. ServiceOptions now rejects a nil required
+// dependency at construction, so the nils could no longer stand; the unused*
+// types below preserve the intent and sharpen it, since they name the port
+// that was unexpectedly reached instead of reporting a bare nil-pointer
+// dereference. This mirrors the unusedRecurringHireRepository /
+// unusedFacilityLookup / unusedIdentityLookup stubs
+// internal/booking/adapter/postgres/concurrency_integration_test.go has used
+// for the same purpose since T4.
 func newServiceWithRealIdentity(t *testing.T, seed identitydomain.User) (*bookingapp.Service, *fakeRecurringRepo) {
 	t.Helper()
 
@@ -95,16 +106,56 @@ func newServiceWithRealIdentity(t *testing.T, seed identitydomain.User) (*bookin
 	lookup := bookingidentity.NewLookup(identityapp.NewService(repo, stubIDs{}))
 
 	recurringRepo := &fakeRecurringRepo{}
-	svc := bookingapp.NewService(
-		nil, // port.Repository        — unused by RequestRecurringHire
-		nil, // PricingRuleRepository  — unused
-		nil, // DiscountRuleRepository — unused
-		recurringRepo,
-		fakeFacilityLookup{},
-		lookup,
-		stubBookingIDs{},
-	)
+	svc := bookingapp.NewService(bookingapp.ServiceOptions{
+		Bookings:       unusedBookingRepository{},
+		PricingRules:   unusedPricingRuleRepository{},
+		DiscountRules:  unusedDiscountRuleRepository{},
+		RecurringHires: recurringRepo,
+		Facilities:     fakeFacilityLookup{},
+		Identity:       lookup,
+		IDs:            stubBookingIDs{},
+	})
 	return svc, recurringRepo
+}
+
+// --- ports RequestRecurringHire must never reach on this path -------------
+//
+// Every method panics rather than returning a zero value: a silent zero would
+// let a future regression change what this file proves while every assertion
+// below still passed.
+
+type unusedBookingRepository struct{}
+
+func (unusedBookingRepository) Create(_ context.Context, _ bookingdomain.Booking) (bookingdomain.Booking, error) {
+	panic("port.Repository.Create is not part of the RequestRecurringHire path")
+}
+
+func (unusedBookingRepository) ListActiveForCourt(_ context.Context, _ string, _ bookingdomain.TimeRange) ([]bookingdomain.Booking, error) {
+	panic("port.Repository.ListActiveForCourt is not part of the RequestRecurringHire path")
+}
+
+func (unusedBookingRepository) GetByID(_ context.Context, _ string) (bookingdomain.Booking, error) {
+	panic("port.Repository.GetByID is not part of the RequestRecurringHire path")
+}
+
+func (unusedBookingRepository) Update(_ context.Context, _ bookingdomain.Booking) (bookingdomain.Booking, error) {
+	panic("port.Repository.Update is not part of the RequestRecurringHire path")
+}
+
+type unusedPricingRuleRepository struct{}
+
+func (unusedPricingRuleRepository) ListForCourt(_ context.Context, _ string) ([]bookingdomain.PricingRule, error) {
+	panic("port.PricingRuleRepository.ListForCourt is not part of the RequestRecurringHire path")
+}
+
+type unusedDiscountRuleRepository struct{}
+
+func (unusedDiscountRuleRepository) Create(_ context.Context, _ bookingdomain.DiscountRule) (bookingdomain.DiscountRule, error) {
+	panic("port.DiscountRuleRepository.Create is not part of the RequestRecurringHire path")
+}
+
+func (unusedDiscountRuleRepository) ListForFacility(_ context.Context, _ string) ([]bookingdomain.DiscountRule, error) {
+	panic("port.DiscountRuleRepository.ListForFacility is not part of the RequestRecurringHire path")
 }
 
 // actorInput builds a valid RequestRecurringHireInput for the given actor.

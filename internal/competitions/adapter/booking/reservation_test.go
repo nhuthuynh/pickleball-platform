@@ -218,7 +218,15 @@ func newReservation(t *testing.T) (*competitionsbooking.Reservation, *inMemoryRe
 	t.Helper()
 
 	repo := newInMemoryRepo()
-	svc := bookingapp.NewService(repo, stubPricing{}, stubDiscounts{}, stubRecurring{}, stubFacilities{}, stubIdentity{}, fixedIDs{})
+	svc := bookingapp.NewService(bookingapp.ServiceOptions{
+		Bookings:       repo,
+		PricingRules:   stubPricing{},
+		DiscountRules:  stubDiscounts{},
+		RecurringHires: stubRecurring{},
+		Facilities:     stubFacilities{},
+		Identity:       stubIdentity{},
+		IDs:            fixedIDs{},
+	})
 	return competitionsbooking.NewReservation(svc), repo
 }
 

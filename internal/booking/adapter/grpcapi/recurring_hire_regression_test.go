@@ -215,8 +215,15 @@ func newRecurringHandler() *recurringHarness {
 	templates := newFakeRecurringRepo()
 	bookings := newStoringBookingRepo()
 	identity := newFakeIdentityLookup()
-	svc := app.NewService(bookings, &fakePricingRepo{}, &fakeDiscountRepo{byFacility: map[string][]domain.DiscountRule{}},
-		templates, fakeFacilityLookup{}, identity, &fakeIDs{})
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       bookings,
+		PricingRules:   &fakePricingRepo{},
+		DiscountRules:  &fakeDiscountRepo{byFacility: map[string][]domain.DiscountRule{}},
+		RecurringHires: templates,
+		Facilities:     fakeFacilityLookup{},
+		Identity:       identity,
+		IDs:            &fakeIDs{},
+	})
 	return &recurringHarness{
 		handler: grpcapi.NewHandler(svc), templates: templates,
 		bookings: bookings, identity: identity,

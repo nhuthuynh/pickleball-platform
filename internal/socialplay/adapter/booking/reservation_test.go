@@ -205,7 +205,15 @@ func newReservation(t *testing.T) (*socialplaybooking.Reservation, *inMemoryRepo
 	t.Helper()
 
 	repo := newInMemoryRepo()
-	svc := bookingapp.NewService(repo, stubPricing{}, stubDiscounts{}, stubRecurring{}, stubFacilities{}, stubIdentity{}, fixedIDs{})
+	svc := bookingapp.NewService(bookingapp.ServiceOptions{
+		Bookings:       repo,
+		PricingRules:   stubPricing{},
+		DiscountRules:  stubDiscounts{},
+		RecurringHires: stubRecurring{},
+		Facilities:     stubFacilities{},
+		Identity:       stubIdentity{},
+		IDs:            fixedIDs{},
+	})
 	return socialplaybooking.NewReservation(svc), repo
 }
 

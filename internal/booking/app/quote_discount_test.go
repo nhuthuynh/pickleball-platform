@@ -26,7 +26,15 @@ func quoteSvc(rules ...domain.DiscountRule) *app.Service {
 		// nullable courts.facility_id case (0010_facilities.sql) — so it is
 		// deliberately absent from this map.
 	}
-	return app.NewService(newInMemoryRepo(), pricing, discounts, newFakeRecurringHireRepo(), lookup, &fakeIdentityLookup{}, &sequentialIDs{})
+	return app.NewService(app.ServiceOptions{
+		Bookings:       newInMemoryRepo(),
+		PricingRules:   pricing,
+		DiscountRules:  discounts,
+		RecurringHires: newFakeRecurringHireRepo(),
+		Facilities:     lookup,
+		Identity:       &fakeIdentityLookup{},
+		IDs:            &sequentialIDs{},
+	})
 }
 
 func discountRule(t *testing.T, amount domain.DiscountAmount, dType domain.DiscountType, appliesTo []domain.Source) domain.DiscountRule {
@@ -153,7 +161,15 @@ func TestGetQuote_CourtWithNoFacilityStillQuotes(t *testing.T) {
 		ownerByFacility: map[string]string{facilityID(1): userID(1)},
 		facilityByCourt: map[string]string{},
 	}
-	svc := app.NewService(newInMemoryRepo(), pricing, discounts, newFakeRecurringHireRepo(), lookup, &fakeIdentityLookup{}, &sequentialIDs{})
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       newInMemoryRepo(),
+		PricingRules:   pricing,
+		DiscountRules:  discounts,
+		RecurringHires: newFakeRecurringHireRepo(),
+		Facilities:     lookup,
+		Identity:       &fakeIdentityLookup{},
+		IDs:            &sequentialIDs{},
+	})
 
 	quote, err := svc.GetQuote(context.Background(), app.GetQuoteInput{
 		CourtID: courtID(2),

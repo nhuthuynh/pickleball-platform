@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
@@ -33,21 +35,15 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // ScheduleGame — see that method's doc comment for why (T5.3's original
 // design, unchanged since).
 //
-// NewService is now at 5 positional constructor args (T10.4 adds matches).
-// docs/process/t6-sprint-plan.md's kickoff note flagged this exact
-// threshold at 4 args ("worth revisiting... if a 4th dependency lands") for
-// Payments' own Service and had it switch to an options struct from the
-// start; the T6.6 doc comment here left Social Play positional but flagged
-// "a candidate for the same options-struct treatment if a 5th dependency
-// ever lands" — this is that 5th dependency. Left positional again rather
-// than taking on the refactor now: T10.4's own instructions (and the
-// cmd/server/main.go conflict-avoidance note in this ticket's sprint plan,
-// A7) ask for a minimal, additive diff since T10.2 is landing in parallel
-// against the same file, and an options-struct refactor would touch every
-// existing call site's *shape*, not just append one argument, for no
-// behavioural gain. Flagged again in the PR description as a real
-// candidate for that refactor — deferring it a second time is a decision
-// worth someone revisiting, not an oversight.
+// NewService reached 5 positional constructor args in T10.4 (matches).
+// docs/process/t6-sprint-plan.md's kickoff note flagged the threshold at 4
+// args ("worth revisiting... if a 4th dependency lands") for Payments' own
+// Service and had it switch to an options struct from the start; the T6.6
+// doc comment here left Social Play positional but flagged "a candidate for
+// the same options-struct treatment if a 5th dependency ever lands", and
+// T10.4 deferred it a second time to keep its diff additive while T10.2 was
+// landing against the same file. T13.8 is the ticket that finally does it —
+// see ServiceOptions below.
 type Service struct {
 	ids           port.IDGenerator
 	games         port.GameRepository
@@ -56,8 +52,108 @@ type Service struct {
 	matches       port.MatchRepository
 }
 
-func NewService(ids port.IDGenerator, games port.GameRepository, registrations port.RegistrationRepository, waitlist port.WaitlistRepository, matches port.MatchRepository) *Service {
-	return &Service{ids: ids, games: games, registrations: registrations, waitlist: waitlist, matches: matches}
+// ServiceOptions is the dependency bundle for NewService (T13.8, closing
+// issue #123).
+//
+// Mirrors internal/booking/app.ServiceOptions, which carries the canonical
+// write-up; the shape of both follows paymentsapp.ServiceOptions (T6.4/T6.5),
+// the older of the two pre-existing examples and the one that has already
+// absorbed a cross-context dependency without touching a call site.
+//
+// **No field here is optional.** Every one is dereferenced unconditionally by
+// at least one use case and no method in this package nil-guards any of them,
+// which is why NewService validates rather than documenting which fields a
+// caller may skip: there are none.
+type ServiceOptions struct {
+	// IDs mints every Game, Registration, WaitlistEntry and Match ID.
+	IDs port.IDGenerator
+	// Games is the Game aggregate's persistence port.
+	Games port.GameRepository
+	// Registrations backs joining, cancelling and the roster reads.
+	Registrations port.RegistrationRepository
+	// Waitlist backs JoinWaitlist and the auto-promotion path (T6.6).
+	Waitlist port.WaitlistRepository
+	// Matches backs the match-recording use cases (T10.4).
+	Matches port.MatchRepository
+}
+
+// ErrMissingDependency reports that a ServiceOptions left at least one
+// required dependency unusable (unset, or holding a nil pointer).
+var ErrMissingDependency = errors.New("socialplay/app: ServiceOptions is missing a required dependency")
+
+// Validate reports every required dependency opts leaves unusable, or nil if
+// the bundle is complete.
+//
+// The positional constructor this replaced made omitting a dependency a
+// compile error; a struct makes it a silent nil. Validate moves that property
+// from the compiler to construction time rather than dropping it — see
+// internal/booking/app.ServiceOptions.Validate for the full argument, and
+// internal/platform/auth.EnsureVerifierConfigured (T13.5) for the precedent.
+// It reports the whole missing set at once so a mis-wiring is one fix rather
+// than one fix per boot.
+func (o ServiceOptions) Validate() error {
+	var missing []string
+	for _, dep := range []struct {
+		name  string
+		value any
+	}{
+		{"IDs", o.IDs},
+		{"Games", o.Games},
+		{"Registrations", o.Registrations},
+		{"Waitlist", o.Waitlist},
+		{"Matches", o.Matches},
+	} {
+		if isUnusable(dep.value) {
+			missing = append(missing, dep.name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrMissingDependency, strings.Join(missing, ", "))
+}
+
+// isUnusable reports whether a dependency is unset or holds a nil pointer.
+//
+// The typed-nil case is the one a plain `== nil` misses: an interface holding
+// a nil pointer is itself non-nil, so it walks past the easy check and panics
+// on its first method call anyway. Lifted from
+// internal/platform/auth.verifierIsNil (T13.5); duplicated per context rather
+// than shared, because no app package imports internal/platform — the same
+// convention uuidShape above already follows.
+func isUnusable(dep any) bool {
+	if dep == nil {
+		return true
+	}
+	switch v := reflect.ValueOf(dep); v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return v.IsNil()
+	default:
+		// A non-pointer implementation (internal/platform/idgen.UUID is a
+		// value type, as are several of this package's test fakes) cannot be
+		// nil.
+		return false
+	}
+}
+
+// NewService wires the Social Play context's application layer.
+//
+// It panics if opts is incomplete: a missing dependency is a wiring bug in
+// cmd/server or in a test, not a runtime condition, and construction is where
+// the mistake was made. See internal/booking/app.NewService for the full
+// rationale. Callers that want the error rather than the panic can call
+// opts.Validate() themselves.
+func NewService(opts ServiceOptions) *Service {
+	if err := opts.Validate(); err != nil {
+		panic(err.Error())
+	}
+	return &Service{
+		ids:           opts.IDs,
+		games:         opts.Games,
+		registrations: opts.Registrations,
+		waitlist:      opts.Waitlist,
+		matches:       opts.Matches,
+	}
 }
 
 // ScheduleGameInput is the use-case input for scheduling a Game.

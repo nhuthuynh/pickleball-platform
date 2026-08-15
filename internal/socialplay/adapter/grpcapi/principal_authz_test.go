@@ -65,7 +65,13 @@ func anonymous() context.Context { return context.Background() }
 func newPrincipalTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
-	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, newFakeWaitlistRepo(), newFakeMatchRepo())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &fakeIDs{},
+		Games:         gameRepo,
+		Registrations: regRepo,
+		Waitlist:      newFakeWaitlistRepo(),
+		Matches:       newFakeMatchRepo(),
+	})
 	return grpcapi.NewHandler(svc, &fakeReservation{}, nil), gameRepo, regRepo
 }
 

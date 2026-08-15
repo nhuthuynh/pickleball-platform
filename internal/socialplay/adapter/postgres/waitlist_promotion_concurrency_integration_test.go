@@ -93,7 +93,13 @@ func TestPromoteNextWaiting_ExactlyOnePromotionUnderConcurrency(t *testing.T) {
 	regRepo := socialplaypg.NewRegistrationRepository(pool)
 	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	matchRepo := socialplaypg.NewMatchRepository(pool)
-	svc := socialplayapp.NewService(idgen.UUID{}, gameRepo, regRepo, waitlistRepo, matchRepo)
+	svc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		IDs:           idgen.UUID{},
+		Games:         gameRepo,
+		Registrations: regRepo,
+		Waitlist:      waitlistRepo,
+		Matches:       matchRepo,
+	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 	game, err := domain.NewGame("33333333-3333-3333-3333-100000000001", "host-x", "facility-x", "", []string{seedCourtID}, r, 1, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})

@@ -83,7 +83,13 @@ func TestRegisterForGame_CapacityHoldsUnderConcurrency(t *testing.T) {
 	regRepo := socialplaypg.NewRegistrationRepository(pool)
 	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	matchRepo := socialplaypg.NewMatchRepository(pool)
-	svc := socialplayapp.NewService(idgen.UUID{}, gameRepo, regRepo, waitlistRepo, matchRepo)
+	svc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		IDs:           idgen.UUID{},
+		Games:         gameRepo,
+		Registrations: regRepo,
+		Waitlist:      waitlistRepo,
+		Matches:       matchRepo,
+	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 	game, err := domain.NewGame("22222222-2222-2222-2222-100000000001", "host-x", "facility-x", "", []string{seedCourtID}, r, gameCapacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})

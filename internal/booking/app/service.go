@@ -3,7 +3,10 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
+	"reflect"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
@@ -34,33 +37,148 @@ type Service struct {
 	ids           port.IDGenerator
 }
 
+// ServiceOptions is the dependency bundle for NewService (T13.8, closing
+// issue #123).
+//
+// The constructor was positional and reached seven parameters in T11.5, which
+// is where its own doc comment flagged the migration to the shape
+// internal/competitions/app and internal/payments/app already use. This is
+// that migration. The shape follows paymentsapp.ServiceOptions, the older of
+// the two, because it is the one that has already absorbed a cross-context
+// dependency (T6.5's RegistrationUpdater) without touching a single existing
+// call site — which is the whole property being bought here.
+//
+// **Unlike Payments' ServiceOptions, no field here is optional.** Payments has
+// genuinely optional reconciliation hooks with nil guards at their use sites;
+// Booking has none — every field below is dereferenced unconditionally by at
+// least one use case, and no method in this package guards any of them. That
+// is why NewService validates rather than documenting which fields a caller
+// may skip: there are none.
+type ServiceOptions struct {
+	// Bookings is the Booking aggregate's persistence port, used by every
+	// write use case and both list reads.
+	Bookings port.Repository
+	// PricingRules backs GetQuote.
+	PricingRules port.PricingRuleRepository
+	// DiscountRules backs CreateDiscountRule and GetQuote's discount pass.
+	DiscountRules port.DiscountRuleRepository
+	// RecurringHires backs the RequestRecurringHire / ApproveRecurringHire /
+	// RejectRecurringHire / ListRecurringHireTemplatesForFacility set (T11.5).
+	RecurringHires port.RecurringHireRepository
+	// Facilities resolves court→facility and answers facility-ownership
+	// questions for the authorization checks.
+	Facilities port.FacilityLookup
+	// Identity resolves a verified IdP subject to a User.ID and answers club
+	// role questions — ADR-0014's seam (T13.2).
+	Identity port.IdentityLookup
+	// IDs mints every Booking and RecurringHireTemplate ID.
+	IDs port.IDGenerator
+}
+
+// ErrMissingDependency reports that a ServiceOptions left at least one
+// required dependency unusable (unset, or holding a nil pointer).
+//
+// A sentinel so a caller that wants to react to this specific misconfiguration
+// — rather than to any error Validate might grow later — can do so without
+// matching on message text. Same reasoning as
+// internal/platform/auth.ErrVerifierRequired.
+var ErrMissingDependency = errors.New("booking/app: ServiceOptions is missing a required dependency")
+
+// Validate reports every required dependency opts leaves unusable, or nil if
+// the bundle is complete.
+//
+// # Why this exists at all
+//
+// The positional constructor this replaced made omitting a dependency a
+// compile error: seven parameters meant seven arguments. A struct gives that
+// up — a forgotten field is silently the zero value, and an interface's zero
+// value is nil. Left unguarded, this refactor would have traded a build
+// failure for a nil-pointer dereference on whichever request first reached the
+// missing dependency, with nothing in the panic naming which of the seven was
+// never wired. That is a strictly worse failure than the one being removed.
+// This function moves the property from the compiler to construction time
+// rather than dropping it, which is the same argument
+// internal/platform/auth.EnsureVerifierConfigured makes for a nil
+// TokenVerifier (T13.5, issue #136): the misconfiguration is made at wiring
+// time, so wiring time is where it should be reported.
+//
+// # Why it reports all of them
+//
+// Returning the first missing field would turn a seven-field mis-wiring into
+// seven edit-build-run cycles. The set is cheap to compute and the whole set
+// is what the caller needs.
+func (o ServiceOptions) Validate() error {
+	var missing []string
+	for _, dep := range []struct {
+		name  string
+		value any
+	}{
+		{"Bookings", o.Bookings},
+		{"PricingRules", o.PricingRules},
+		{"DiscountRules", o.DiscountRules},
+		{"RecurringHires", o.RecurringHires},
+		{"Facilities", o.Facilities},
+		{"Identity", o.Identity},
+		{"IDs", o.IDs},
+	} {
+		if isUnusable(dep.value) {
+			missing = append(missing, dep.name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%w: %s", ErrMissingDependency, strings.Join(missing, ", "))
+}
+
+// isUnusable reports whether a dependency is unset or holds a nil pointer.
+//
+// The second case is the one a plain `== nil` misses and the reason this is
+// not a one-liner: an interface holding a typed nil is itself non-nil, so it
+// walks past the easy check and panics on its first method call anyway — the
+// exact fail-late shape Validate exists to stop. Lifted from
+// internal/platform/auth.verifierIsNil (T13.5), which makes the same argument
+// for the same reason; duplicated rather than shared because no app package
+// imports internal/platform (the per-context duplication convention uuidShape
+// already follows in this file).
+func isUnusable(dep any) bool {
+	if dep == nil {
+		return true
+	}
+	switch v := reflect.ValueOf(dep); v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Map, reflect.Slice, reflect.Func, reflect.Chan:
+		return v.IsNil()
+	default:
+		// A non-pointer implementation (several of this package's test fakes
+		// are structs, and internal/platform/idgen.UUID is a value type)
+		// cannot be nil.
+		return false
+	}
+}
+
 // NewService wires the Booking context's application layer.
 //
-// The parameter list reached seven in T11.5. Every parameter is a distinct
-// interface type, so a mis-ordered call is a compile error rather than the
-// silent swap GetQuoteInput's own doc comment warns about for positional
-// *strings* — but this constructor is past the size where
-// internal/competitions/app.NewService(ServiceOptions) chose a struct instead.
-// Migrating to that shape is a mechanical, separable cleanup deliberately not
-// bundled into this ticket's diff; it is flagged in T11.5's PR rather than
-// left unsaid.
-func NewService(
-	repo port.Repository,
-	pricingRepo port.PricingRuleRepository,
-	discountRepo port.DiscountRuleRepository,
-	recurringRepo port.RecurringHireRepository,
-	facilities port.FacilityLookup,
-	identity port.IdentityLookup,
-	ids port.IDGenerator,
-) *Service {
+// It panics if opts is incomplete. A missing dependency is a wiring bug in
+// cmd/server or in a test, never a runtime condition a caller could recover
+// from, and returning an error would put an `if err != nil` at ~40 call sites
+// to report something none of them can do anything about but crash. Panicking
+// at construction keeps the failure at the moment and place the mistake was
+// made: cmd/server builds every Service before it serves its first request, so
+// this stops the process at boot rather than on the one endpoint that needed
+// the dependency. Callers that want the error rather than the panic can call
+// opts.Validate() themselves.
+func NewService(opts ServiceOptions) *Service {
+	if err := opts.Validate(); err != nil {
+		panic(err.Error())
+	}
 	return &Service{
-		repo:          repo,
-		pricingRepo:   pricingRepo,
-		discountRepo:  discountRepo,
-		recurringRepo: recurringRepo,
-		facilities:    facilities,
-		identity:      identity,
-		ids:           ids,
+		repo:          opts.Bookings,
+		pricingRepo:   opts.PricingRules,
+		discountRepo:  opts.DiscountRules,
+		recurringRepo: opts.RecurringHires,
+		facilities:    opts.Facilities,
+		identity:      opts.Identity,
+		ids:           opts.IDs,
 	}
 }
 

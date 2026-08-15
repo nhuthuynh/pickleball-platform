@@ -156,8 +156,15 @@ func newTestHandler(t *testing.T) (*grpcapi.Handler, *fakeDiscountRepo) {
 		Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000,
 	}}}
 	discounts := &fakeDiscountRepo{byFacility: make(map[string][]domain.DiscountRule)}
-	svc := app.NewService(fakeBookingRepo{}, pricing, discounts, newFakeRecurringRepo(),
-		fakeFacilityLookup{}, newFakeIdentityLookup(), &fakeIDs{})
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       fakeBookingRepo{},
+		PricingRules:   pricing,
+		DiscountRules:  discounts,
+		RecurringHires: newFakeRecurringRepo(),
+		Facilities:     fakeFacilityLookup{},
+		Identity:       newFakeIdentityLookup(),
+		IDs:            &fakeIDs{},
+	})
 	return grpcapi.NewHandler(svc), discounts
 }
 

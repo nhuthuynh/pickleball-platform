@@ -528,10 +528,24 @@ merge and be reviewed before Wave 2 dispatches, because its ADR has four
 first-time consumers. Not yet implemented as of this entry.
 
 ## Cross-cutting / later
-- `app.Service.NewService`'s constructor has grown to 3 positional args
+- ~~`app.Service.NewService`'s constructor has grown to 3 positional args
   (repo, pricingRepo, ids) after T1; Principal Engineer review flagged this
   as fine for now but worth revisiting (options struct or split services)
-  if a 4th dependency lands — likely in T5/T6.
+  if a 4th dependency lands — likely in T5/T6.~~ **RESOLVED in T13.8**
+  (closes #123). The 4th dependency landed in T6 and the count reached 7 in
+  T11.5 (Booking) and 5 in T10.4 (Social Play); both are now
+  `NewService(ServiceOptions)`, the shape `payments` (T6.4) and
+  `competitions` (T9.4) already used, so **all four contexts with more than
+  two dependencies construct the same way**. `facilities` (3) and `identity`
+  (2) stay positional deliberately — they are below the threshold the
+  original note named, and converting them would be churn, not cleanup.
+  One thing the conversion had to add rather than merely move: a positional
+  constructor makes omitting a dependency a *compile* error, and a struct
+  makes it a silent nil, so `ServiceOptions.Validate` (called from
+  `NewService`, which panics) re-establishes that property at construction
+  time. Same argument `auth.EnsureVerifierConfigured` makes for a nil
+  verifier (T13.5). Whoever adds Booking's 8th dependency now edits one
+  struct and one `cmd/server` literal, not ~40 call sites.
 - `GetQuote` currently lives on Booking's `app.Service` rather than a
   standalone Pricing bounded context, since Pricing has no aggregate/CRUD of
   its own yet. Reasonable for T1 (trivially extractable — it's a thin

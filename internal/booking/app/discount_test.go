@@ -120,7 +120,15 @@ func newDiscountSvc(owner string) (*app.Service, *fakeDiscountRepo, *fakeFacilit
 		ownerByFacility: map[string]string{facilityID(1): owner},
 		facilityByCourt: map[string]string{courtID(1): facilityID(1)},
 	}
-	svc := app.NewService(newInMemoryRepo(), &fakePricingRepo{}, discounts, newFakeRecurringHireRepo(), lookup, &fakeIdentityLookup{}, &sequentialIDs{})
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       newInMemoryRepo(),
+		PricingRules:   &fakePricingRepo{},
+		DiscountRules:  discounts,
+		RecurringHires: newFakeRecurringHireRepo(),
+		Facilities:     lookup,
+		Identity:       &fakeIdentityLookup{},
+		IDs:            &sequentialIDs{},
+	})
 	return svc, discounts, lookup
 }
 

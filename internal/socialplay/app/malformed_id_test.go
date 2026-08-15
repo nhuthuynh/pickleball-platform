@@ -54,7 +54,13 @@ func TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 
-			svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+			svc := app.NewService(app.ServiceOptions{
+				IDs:           &sequentialIDs{},
+				Games:         newFakeGameRepository(),
+				Registrations: newFakeRegistrationRepository(),
+				Waitlist:      newFakeWaitlistRepository(),
+				Matches:       newFakeMatchRepository(),
+			})
 
 			got, err := svc.ListRegistrationsForGame(context.Background(), id, "auth0|a-stranger")
 			if err != nil {
@@ -80,7 +86,13 @@ func TestListRegistrationsForGame_WellFormedIDStillReads(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 
 	const host = "auth0|host-1"
 	id := gameID(7)
@@ -130,7 +142,13 @@ func TestRegisterForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *t
 			t.Parallel()
 
 			games := newFakeGameRepository()
-			svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+			svc := app.NewService(app.ServiceOptions{
+				IDs:           &sequentialIDs{},
+				Games:         games,
+				Registrations: newFakeRegistrationRepository(),
+				Waitlist:      newFakeWaitlistRepository(),
+				Matches:       newFakeMatchRepository(),
+			})
 
 			_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{
 				GameID: id, PlayerID: "player-1",
@@ -160,7 +178,13 @@ func TestJoinWaitlist_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *test
 			t.Parallel()
 
 			games := newFakeGameRepository()
-			svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+			svc := app.NewService(app.ServiceOptions{
+				IDs:           &sequentialIDs{},
+				Games:         games,
+				Registrations: newFakeRegistrationRepository(),
+				Waitlist:      newFakeWaitlistRepository(),
+				Matches:       newFakeMatchRepository(),
+			})
 
 			_, err := svc.JoinWaitlist(context.Background(), app.JoinWaitlistInput{
 				GameID: id, PlayerID: "player-1",
@@ -193,7 +217,13 @@ func TestCancelRegistration_MalformedRegistrationIDIsNotFoundAndNeverReachesRepo
 			t.Parallel()
 
 			registrations := newFakeRegistrationRepository()
-			svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+			svc := app.NewService(app.ServiceOptions{
+				IDs:           &sequentialIDs{},
+				Games:         newFakeGameRepository(),
+				Registrations: registrations,
+				Waitlist:      newFakeWaitlistRepository(),
+				Matches:       newFakeMatchRepository(),
+			})
 
 			_, err := svc.CancelRegistration(context.Background(), id, "player-1")
 			if !errors.Is(err, domain.ErrRegistrationNotFound) {
@@ -219,7 +249,13 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 	t.Run("RegisterForGame", func(t *testing.T) {
 		t.Parallel()
 		games := newFakeGameRepository()
-		svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+		svc := app.NewService(app.ServiceOptions{
+			IDs:           &sequentialIDs{},
+			Games:         games,
+			Registrations: newFakeRegistrationRepository(),
+			Waitlist:      newFakeWaitlistRepository(),
+			Matches:       newFakeMatchRepository(),
+		})
 
 		_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{GameID: unknown, PlayerID: "player-1"})
 		if !errors.Is(err, domain.ErrGameNotFound) {
@@ -233,7 +269,13 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 	t.Run("JoinWaitlist", func(t *testing.T) {
 		t.Parallel()
 		games := newFakeGameRepository()
-		svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+		svc := app.NewService(app.ServiceOptions{
+			IDs:           &sequentialIDs{},
+			Games:         games,
+			Registrations: newFakeRegistrationRepository(),
+			Waitlist:      newFakeWaitlistRepository(),
+			Matches:       newFakeMatchRepository(),
+		})
 
 		_, err := svc.JoinWaitlist(context.Background(), app.JoinWaitlistInput{GameID: unknown, PlayerID: "player-1"})
 		if !errors.Is(err, domain.ErrGameNotFound) {
@@ -247,7 +289,13 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 	t.Run("CancelRegistration", func(t *testing.T) {
 		t.Parallel()
 		registrations := newFakeRegistrationRepository()
-		svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+		svc := app.NewService(app.ServiceOptions{
+			IDs:           &sequentialIDs{},
+			Games:         newFakeGameRepository(),
+			Registrations: registrations,
+			Waitlist:      newFakeWaitlistRepository(),
+			Matches:       newFakeMatchRepository(),
+		})
 
 		_, err := svc.CancelRegistration(context.Background(), unknown, "player-1")
 		if !errors.Is(err, domain.ErrRegistrationNotFound) {
@@ -289,7 +337,13 @@ func TestRecordMatchResult_MalformedGameIDIsNotFoundAndNeverReachesRepository(t 
 
 			games := newFakeGameRepository()
 			matches := newFakeMatchRepository()
-			svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), matches)
+			svc := app.NewService(app.ServiceOptions{
+				IDs:           &sequentialIDs{},
+				Games:         games,
+				Registrations: newFakeRegistrationRepository(),
+				Waitlist:      newFakeWaitlistRepository(),
+				Matches:       matches,
+			})
 
 			_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
 				GameID:      id,
@@ -328,7 +382,13 @@ func TestListMatchesForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t
 			t.Parallel()
 
 			games := newFakeGameRepository()
-			svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+			svc := app.NewService(app.ServiceOptions{
+				IDs:           &sequentialIDs{},
+				Games:         games,
+				Registrations: newFakeRegistrationRepository(),
+				Waitlist:      newFakeWaitlistRepository(),
+				Matches:       newFakeMatchRepository(),
+			})
 
 			_, err := svc.ListMatchesForGame(context.Background(), id)
 			if !errors.Is(err, domain.ErrGameNotFound) {
@@ -353,7 +413,13 @@ func TestRecordMatchResultAndListMatchesForGame_WellFormedUnknownIDsStillReachTh
 	t.Run("RecordMatchResult", func(t *testing.T) {
 		t.Parallel()
 		games := newFakeGameRepository()
-		svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+		svc := app.NewService(app.ServiceOptions{
+			IDs:           &sequentialIDs{},
+			Games:         games,
+			Registrations: newFakeRegistrationRepository(),
+			Waitlist:      newFakeWaitlistRepository(),
+			Matches:       newFakeMatchRepository(),
+		})
 
 		_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
 			GameID:      unknown,
@@ -372,7 +438,13 @@ func TestRecordMatchResultAndListMatchesForGame_WellFormedUnknownIDsStillReachTh
 	t.Run("ListMatchesForGame", func(t *testing.T) {
 		t.Parallel()
 		games := newFakeGameRepository()
-		svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+		svc := app.NewService(app.ServiceOptions{
+			IDs:           &sequentialIDs{},
+			Games:         games,
+			Registrations: newFakeRegistrationRepository(),
+			Waitlist:      newFakeWaitlistRepository(),
+			Matches:       newFakeMatchRepository(),
+		})
 
 		_, err := svc.ListMatchesForGame(context.Background(), unknown)
 		if !errors.Is(err, domain.ErrGameNotFound) {
