@@ -17,8 +17,8 @@ const (
 // multiple courts; T5.3 reserves one Booking per court via
 // port.CourtReservation.
 type Game struct {
-	ID         string
-	HostID     string
+	ID     string
+	HostID string
 	// FacilityID is the pre-Facilities-context opaque free-text venue
 	// identifier (db/migrations/0005_socialplay.sql). DEPRECATED (T8.3):
 	// Facilities didn't exist when Social Play was originally built, so
