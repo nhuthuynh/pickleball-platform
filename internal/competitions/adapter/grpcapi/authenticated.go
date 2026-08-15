@@ -49,12 +49,27 @@ import (
 //     entry here whose reason is a *read*: the other three need a principal
 //     because they write or act on an aggregate, this one because the response
 //     body is private data.
+//   - AssignCompetitionAdmin / RevokeCompetitionAdmin: added by T15.3 (partial
+//     fix for #168). Both delegate — or withdraw — authority over a
+//     Competition, so both are Host-only
+//     (domain.AssignCompetitionAdmin / EnsureMayRevokeCompetitionAdmin, via
+//     Competition.EnsureHost), and a Host-only rule is unenforceable without a
+//     verified principal to compare against Competition.HostID: the whole
+//     point of the store is that who holds admin authority stops being
+//     something a caller can assert. Note the asymmetry with the RPCs
+//     themselves — neither request has an actor field, so a caller cannot
+//     name themselves the assigner even in principle; this list is what makes
+//     the *absence* of that field safe rather than merely tidy, since without
+//     it the RPCs would run with no principal at all and actor(ctx) would
+//     answer Unauthenticated on every call.
 func AuthenticatedMethods() []string {
 	return []string{
 		competitionsv1.CompetitionsService_CreateCompetition_FullMethodName,
 		competitionsv1.CompetitionsService_EnterCompetition_FullMethodName,
 		competitionsv1.CompetitionsService_CancelCompetition_FullMethodName,
 		competitionsv1.CompetitionsService_ListEntriesForCompetition_FullMethodName,
+		competitionsv1.CompetitionsService_AssignCompetitionAdmin_FullMethodName,
+		competitionsv1.CompetitionsService_RevokeCompetitionAdmin_FullMethodName,
 	}
 }
 

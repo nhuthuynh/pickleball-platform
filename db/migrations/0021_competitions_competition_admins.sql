@@ -1,0 +1,140 @@
+-- Competitions `competition_admins` table (T15.3, docs/process/t15-sprint-plan.md
+-- T15.3 section; partial fix for issue #168): the Postgres home for
+-- internal/competitions/domain.CompetitionAdmin — a durable record that a
+-- Competition's Host delegated Competition-Admin authority over that
+-- Competition to another user.
+--
+-- The deliberate mirror of db/migrations/0020_socialplay_game_admins.sql
+-- (T14.4), in the context T14 did not reach. T15.3 instruction 1 is "copy
+-- T14.4's shape deliberately; do not redesign it", so the differences from
+-- 0020 are exactly two: the table and FK name the Competitions aggregate, and
+-- the identifier-space note cites this context's own evidence. Everything else
+-- — composite PK, text actor columns, the CHECKs, the reverse index — is the
+-- same by intent, not by coincidence.
+--
+-- 0021 is the next free number: db/migrations ended at 0020
+-- (0020_socialplay_game_admins.sql, T14.4), confirmed by listing the directory
+-- before naming this file rather than assuming the sprint plan's number was
+-- still free. If a second migration lands in this sprint anyway, the PR that
+-- merges second renumbers on its own source branch rather than on the shared
+-- branch (CLAUDE.md rule 9, and 0015's own precedent).
+--
+-- Prototype-only migration tooling: applied via docker-compose initdb.d on a
+-- FRESH volume only (see CLAUDE.md gotchas) — after this lands, `make down`
+-- (which drops the volume) then `make up`. Adopt golang-migrate/goose before
+-- production.
+--
+-- # Why this table exists
+--
+-- Before it, Competition-Admin assignment was persisted NOWHERE in this
+-- codebase: no table, no domain type, no port, no RPC. The concept existed
+-- only as a caller-supplied repeated string field on the requests that needed
+-- it (payments' RecordOfflinePaymentRequest.
+-- assigned_competition_admin_user_ids and its refund twin). Any authorization
+-- rule wanting to include admins therefore had to either trust a list the
+-- caller wrote — letting the caller name themselves an admin and satisfy the
+-- check — or exclude admins entirely, which is what T13.6 did to
+-- ListEntriesForCompetition (its doc comment says so: "the admin list that
+-- would widen it is caller-supplied and persisted nowhere (#168)"). This table
+-- is the fact those rules were missing.
+--
+-- # Identifier space: text holding SUBJECTS, not uuid (ADR-0014 §5a, #164)
+--
+-- user_id and assigned_by are `text`, deliberately, and hold the same values
+-- competitions.host_id holds: the verified subject returned by
+-- internal/platform/auth.RequireSubject (e.g. an IdP `sub` such as
+-- 'auth0|abc123'), which CreateCompetition mints Competition.HostID from —
+-- verified against internal/competitions/adapter/grpcapi/handler.go, whose
+-- CreateCompetition reads host_id from actor(ctx) and never from the wire, and
+-- against 0014_competitions.sql:18-25, where host_id is already `text NOT NULL`
+-- for this exact reason.
+--
+-- This is a stated decision, not an accident, and #168 demands it be stated:
+-- "a new table should not quietly pick a third convention." ADR-0014 §5a's
+-- table names **Competitions** explicitly, alongside Social Play and Payments,
+-- as a context whose stored actor columns are text subjects — non-conformant
+-- with the uuid convention Facilities/Booking use, but SELF-CONSISTENT — and
+-- defers conformance to the backfill tracked in #164. Going uuid here would put
+-- a uuid on one side of an ownership comparison whose other side is a subject
+-- (assigned_by vs competitions.host_id; user_id vs the actor a check resolves),
+-- which is exactly the failure §5a legislates against: a check that silently
+-- denies everybody. When #164 backfills competitions.host_id and
+-- competition_entries.player_id, THIS TABLE'S user_id AND assigned_by MUST BE
+-- BACKFILLED IN THE SAME PASS — that sentence is here so the backfill finds it,
+-- exactly as 0020 carries it for game_admins.
+--
+-- # Invariants, and which of them Postgres actually enforces (CLAUDE.md rule 4)
+--
+-- The one invariant with a real concurrency race to close is uniqueness: two
+-- simultaneous AssignCompetitionAdmin calls for the same (competition, user)
+-- must not both succeed. The composite PRIMARY KEY below is the authoritative
+-- guard, and domain.AssignCompetitionAdmin's own already-assigned check is a
+-- fail-fast pre-check — the identical relationship domain.Enter has with
+-- competition_entries_active_player_idx. The adapter translates 23505 into
+-- domain.ErrAlreadyCompetitionAdmin so upper layers only ever see domain errors
+-- (CLAUDE.md rule 5).
+--
+-- The other two domain rules are NOT mirrored as constraints here, and that is
+-- a decision rather than an omission — 0020 makes the same two calls for the
+-- same two reasons:
+--
+--   * "only the Host may assign or revoke" (domain.AssignCompetitionAdmin /
+--     EnsureMayRevokeCompetitionAdmin) is an authorization rule about the
+--     ACTOR, not a property of the stored row. Postgres never sees the actor —
+--     it sees the row the app decided to write — so there is nothing here to
+--     check. assigned_by records who granted it, which is auditable after the
+--     fact, but a row is not evidence that the writer was entitled to write it.
+--   * "the Host cannot be their own Competition Admin"
+--     (domain.ErrHostCannotBeCompetitionAdmin) IS expressible as a trigger
+--     reading competitions.host_id, but it is a validation with no
+--     cross-request race: unlike this context's capacity rule, whose correct
+--     answer changes between two concurrent entries, a Competition's host_id
+--     does not change under the two concurrent assignments that could violate
+--     this. Enforced in the domain, tested there, and left to the domain here
+--     rather than duplicated as a trigger that could drift.
+--
+-- The CHECKs below cover what a constraint genuinely adds: a blank user id or
+-- assigner would be a row that matches a blank actor at read time — the
+-- accident domain.HasCompetitionAdmin's `!= ''` guard defends the read end
+-- against. Guarding both ends means a row arriving from anywhere (a
+-- hand-written INSERT, a future import) cannot create the hazard.
+
+CREATE TABLE competition_admins (
+    -- competition_id is a real FK into competitions, exactly as
+    -- competition_entries.competition_id and competition_sessions.
+    -- competition_id are: a Competition Admin assignment always references an
+    -- existing, same-context Competition, so a real FK is both possible and
+    -- correct. ON DELETE is deliberately left at the default (NO ACTION): this
+    -- codebase never deletes Competitions, only cancels them
+    -- (domain.Competition.Cancel), and a cascade here would quietly encode a
+    -- deletion path that does not exist.
+    competition_id uuid NOT NULL REFERENCES competitions (id),
+    -- user_id: the subject holding Competition-Admin authority. text, not
+    -- uuid — see the identifier-space note above before "fixing" this.
+    user_id        text NOT NULL CHECK (user_id <> ''),
+    -- assigned_by: the subject of the Host who granted the assignment. Stored
+    -- rather than inferred from competitions.host_id, which can only answer
+    -- "who hosts this Competition now" — an audit of a delegated authority
+    -- needs to record who actually granted it at the time it was granted.
+    assigned_by    text NOT NULL CHECK (assigned_by <> ''),
+    assigned_at    timestamptz NOT NULL,
+    created_at     timestamptz NOT NULL DEFAULT now(),
+    -- The uniqueness guard T15.3 instruction 1 requires: the same user cannot
+    -- be assigned twice to one Competition. A composite PRIMARY KEY rather
+    -- than a surrogate id plus a UNIQUE index, because (competition_id,
+    -- user_id) IS the identity of an assignment — there is no meaningful
+    -- second row for the same pair, and nothing references an assignment by an
+    -- id of its own. The PK's index also serves the (competition_id)-prefixed
+    -- lookup ListCompetitionAdmins performs, so no separate index is needed
+    -- for the read path.
+    PRIMARY KEY (competition_id, user_id)
+);
+
+-- Reverse lookup: "which Competitions is this user an admin of". Not used by
+-- T15.3's own queries (all of which are competition-scoped) and added anyway,
+-- for the reason 0020 adds its twin: the payments half of #168 — the locked
+-- "admins can record offline payments" decision, which T15.5 implements for
+-- this context — resolves in the other direction, and an index is the cheapest
+-- thing in this migration to get right now rather than in a later one against a
+-- populated table.
+CREATE INDEX competition_admins_user_idx ON competition_admins (user_id);

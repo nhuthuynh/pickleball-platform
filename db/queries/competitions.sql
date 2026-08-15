@@ -212,3 +212,52 @@ UPDATE competition_entries
 SET payment_status = $2
 WHERE id = $1
 RETURNING id, competition_id, player_id, guest_count, source, status, payment_status;
+
+-- name: AssignCompetitionAdmin :one
+-- T15.3 (partial fix for #168), mirroring socialplay.sql's AssignGameAdmin.
+-- assigned_at is always supplied by the adapter (app.Service passes
+-- time.Now()) rather than defaulted in the column, so the timestamp the domain
+-- value carries and the timestamp the row carries are the same value rather
+-- than two clocks that agree by luck — created_at keeps its own DEFAULT now()
+-- as the row's insertion record.
+--
+-- A duplicate (competition_id, user_id) violates competition_admins' composite
+-- primary key (23505); the adapter translates that into
+-- domain.ErrAlreadyCompetitionAdmin, which is the authoritative guard behind
+-- domain.AssignCompetitionAdmin's own fail-fast pre-check (CLAUDE.md rule 4).
+-- A competition_id naming no Competition violates the FK (23503) and
+-- translates to domain.ErrCompetitionNotFound.
+INSERT INTO competition_admins (competition_id, user_id, assigned_by, assigned_at)
+VALUES ($1, $2, $3, $4)
+RETURNING competition_id, user_id, assigned_by, assigned_at;
+
+-- name: RevokeCompetitionAdmin :one
+-- T15.3. RETURNING (with :one) rather than a bare DELETE, so the adapter can
+-- tell "removed an assignment" from "there was nothing to remove": zero rows
+-- back arrives as pgx.ErrNoRows and becomes
+-- domain.ErrCompetitionAdminNotFound. A revoke that silently removed nothing
+-- would confirm a Host's belief about who holds authority that this table does
+-- not support — see port.CompetitionAdminRepository.Revoke's doc comment.
+DELETE FROM competition_admins
+WHERE competition_id = $1 AND user_id = $2
+RETURNING competition_id, user_id, assigned_by, assigned_at;
+
+-- name: ListCompetitionAdmins :many
+-- T15.3 — the read half the sprint plan requires this ticket to ship even
+-- though it does not consume it (§A12 GAP A): T15.4 resolves the roster read's
+-- entitled set from this query, and T15.5 reaches app.Service.
+-- ListCompetitionAdmins from the Payments context. Resolution goes through
+-- domain.HasCompetitionAdmin, so the membership rule including its blank-entry
+-- guard stays in the domain rather than in SQL (CLAUDE.md rule 2).
+--
+-- Ordered oldest assignment first, with user_id as the tiebreaker so two
+-- assignments sharing an assigned_at (possible: the column is caller-supplied)
+-- still come back in a stable order rather than whatever the heap returns.
+-- Existence of competition_id itself is checked by the app layer via
+-- Repository.GetByID before this runs — this query answers an empty list for
+-- an unknown Competition, which is a real and common state (most Competitions
+-- have no admins) and must not be confused with "no such Competition".
+SELECT competition_id, user_id, assigned_by, assigned_at
+FROM competition_admins
+WHERE competition_id = $1
+ORDER BY assigned_at, user_id;
