@@ -36,7 +36,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T14 | `docs/process/t14-sprint-plan.md` (Ceremony 1 closes the nine issues T13 fixed but never closed **as its first act**, before ranking — the first live test of the "correct the previous sprint's row" amendment T13 itself added; re-measures #157's gate gap and finds 22 packages, not the 20 its title claims; surfaces #144's product decision as **D1**, escalated to the user rather than guessed; decides the label taxonomy; Ceremony 2 tickets 9 items, 39 points, threading all ten T13-retro recommendations into ticket text) | `docs/process/t14-retro.md` (6 findings, 2 recorded as unresolved disagreements, all three owed scorings resolved plus both escalated decisions re-verified untouched, 10 recommendations for T15's ceremonies; indexed from `docs/LESSONS.md`'s `## T14 sprint retro`) | PRs #174 (Ceremony 1/2 doc) → #175 (T14.6) → #176 (T14.3) → #177 (T14.2) → #178 (T14.8) → #179 (T14.7) → #180 (T14.9) → #181 (T14.1) → #182 (T14.4) → #183 (T14.5) → #184 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention — this sprint's merge order and numeric order agree, which was only knowable by checking) — all merged, all reviewed via GitHub review comments, see naming convention. **Two of these PRs (#181, #182) were authored, reviewed and merged by the same session** recovering interrupted implementers' work, 14 and 13 seconds from open to merge — see the retro's finding 2 | `adr/0015` (T14.3: what owns a Booking made through the public quote-and-book flow — **four** options, costs stated, **decision escalated to the user**, trigger tied to the answer and not a sprint boundary; distinguished from ADR-0012's Q1/Q2, which are blocked indefinitely rather than merely unanswered) | — |
 
 | T15 | `docs/process/t15-sprint-plan.md` (Ceremony 1 runs the merged-fix sweep as its first act — clean on closures, but finds three unwritten partial-fix sentences and one entirely untracked residual, filed as #185; sweeps the label taxonomy across the whole open list; **executes the scheduled removal** of the dual coverage question on its stated condition; re-titles #147; records #144's third deferral as a **finding** and puts D1 to the user as its own item; Ceremony 2 tickets 7 items, 34 points, giving each of T14 retro's ten recommendations a disposition) | `docs/process/t15-retro.md` (7 findings, three live bookkeeping corrections performed during the ceremony itself — #185 and #137 closed, #149 corrected — 7 recommendations for T16's ceremonies; indexed from `docs/LESSONS.md`'s `## T15 sprint retro`) | PRs #186 (Ceremony 1/2 doc) → #187 (T15.2) → #188 (T15.1) → #189 (T15.7) → #190 (T15.3) → #191 (T15.6) → #192 (T15.4) → #193 (T15.5) → #194 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention — this sprint's merge order and numeric order agree, which was only knowable by checking) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0016` (T15.2: may a session that reviews and merges a PR also author code on it — **DECISION D2, escalated to the user rather than decided by the team**, because CLAUDE.md rule 9's own text names that judgement call as the failure mode it exists to remove; four options incl. a fully-specified carve-out the user can approve directly) | — |
-| T16 | `docs/process/t16-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep, corrects this row, files the FK-race residual T15.6 disclosed as **#195**, corrects a stale issue — **#125** — found to already be resolved by T10.6/#96 and re-titled to what it actually still tracks, resolves the carried T15-plan §A11 disagreement on #124 by taking its Registrations/Entries half; Ceremony 2 tickets 3 items, 16 points) | not yet written | not yet opened | none new | — |
+| T16 | `docs/process/t16-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep, corrects this row, files the FK-race residual T15.6 disclosed as **#195**, corrects a stale issue — **#125** — found to already be resolved by T10.6/#96 and re-titled to what it actually still tracks, resolves the carried T15-plan §A11 disagreement on #124 by taking its Registrations/Entries half; Ceremony 2 tickets 3 items, 16 points) | `docs/process/t16-retro.md` (7 findings, most consequentially a real defect that reached the shared branch's own tip for 15m21s — traced to a false review-time claim, not to anything genuinely uncatchable; indexed from `docs/LESSONS.md`'s `## T16 sprint retro`) | PRs #197 (T16.3) → #199 (T16.2) → #200 (T16.4), in that merge order (verified against each PR's `merged_at` per this project's standing convention) — all merged, all reviewed via GitHub review comments, see naming convention | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -748,8 +748,47 @@ directly in this ceremony's own PR. T15.6's disclosed FK-race residual is
 filed as **#195** and deliberately **not** folded into this sprint — argued,
 with a scoring condition binding T17's Ceremony 1 if it goes untaken a third
 sprint running. **D1 and D2 both remain unanswered by the user** — fourth and
-second deferral respectively, put to the user again as their own items. Not
-yet implemented as of this entry.
+second deferral respectively, put to the user again as their own items.
+
+**Outcome: all 3 tickets (16 points) implemented, reviewed, and MERGED** (PRs
+#197, #199, #200, plus #196 for the Ceremony 1/2 doc), in the merge order
+recorded in the Docs-index row above. Retro: `docs/process/t16-retro.md` — 7
+findings, all three of T16 Ceremony 1's own same-sprint process amendments
+scored individually as held on their first live test, and one carried-forward
+lesson argued (not just observed) about D1's absence now shaping ticket
+scope rather than merely being re-named.
+
+**State the outcome in this form, not a stronger one.** This is the retro's
+own agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires the
+retro's form, not a stronger one). The engineering claim is strong — #168
+closed for real, four sprints after it was first disclosed, with the exact
+methods and join key the plan named actually built — and should not be
+undersold; the branch-integrity claim must not be softened.
+
+> T16 closed #168 (Payments resolves a Registration's Game and a
+> CompetitionEntry's Competition, reads the real admin stores T15.5 built)
+> and the corrected #125 (`RefundPayment` admits `competition_entry`), both
+> via the mandatory close T16's own Ceremony 1 amended into the DoD — the
+> first sprint this amendment has actually fired, 2/2, after T15 scored
+> 0/2 on the identical shape. #124 takes its Registrations/Entries half
+> (T16.3), leaving court-Bookings deferred for a stated, D1-shaped reason.
+> **A real defect reached the shared branch's own tip: T16.2 and T16.3, both
+> Wave 1 and correctly dispatched with no functional dependency between
+> them, concurrently touched the blast radius of the same widened interface
+> in disjoint files neither could see the other editing** — T16.3 patched
+> every implementer it could find; T16.2 authored a third one it couldn't
+> know existed. The resulting break was real and `go vet`-visible on the
+> shared branch's tip for 15m21s. It was not caught by T16.2's own review,
+> whose stated verification method ("base already included T16.3,
+> mergeable_state clean, no test-merge needed") did not describe what it
+> actually tested — verified false from the commit graph itself, not
+> inferred. It was caught, correctly and independently, by T16.4's review,
+> which did what T16.2's review claimed to have done. T16.2's own sibling
+> sweep found a second, real caller-supplied-fact gap `CreateOnlinePayment`
+> still has, filed as **#198**, mechanically small and unblocked. D1's
+> unanswered status now visibly shapes ticket scope a second time — #124's
+> court-Bookings half is deferred specifically because of it, not merely
+> alongside it. D1 and D2 both remain unanswered by the user.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args

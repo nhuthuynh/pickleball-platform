@@ -1280,3 +1280,121 @@ supersedes an earlier issue comment. `HANDOFF.md` is deliberately not
 touched by the retro PR, per the standing convention that a retro cannot
 correctly write the Docs-index row that cites its own merge number — T16's
 Ceremony 1 corrects it, as it has every prior sprint.
+
+## T16 (2026-08-15) — a review's own "no test-merge needed" claim was false, and the shared branch's own tip sat uncompilable for 15m21s between two merges that both reported green
+
+**What happened, reconstructed from the commit graph, not from either PR's
+prose (full mechanism: `docs/process/t16-retro.md` finding 1).** T16.2 and
+T16.3 were both Wave 1 — correctly dispatched with no functional dependency
+on each other — and both branched from the same commit before either had
+merged. T16.3 merged first, widening `internal/competitions/port.Repository`
+with a new method and patching every existing test fake in
+`internal/payments/adapter/competitions/` that implemented it — a correct,
+complete blast-radius search for the tree it could see. T16.2, working
+concurrently in an isolated worktree, was simultaneously authoring a brand
+new file in that same package containing a **third** implementer of the same
+interface — one T16.3 could not have found, because it did not exist in any
+tree T16.3 ever read. When T16.2 merged second, onto the tip T16.3 had
+already updated, the new fake was missing the method the interface now
+required. `go vet ./internal/payments/adapter/competitions/...` genuinely
+failed on the shared branch's own tip from that moment.
+
+**The part that makes this a real process gap and not an unavoidable
+timing accident**: T16.2's own review explicitly claimed to have checked
+this — *"base already included T16.3 (mergeable_state clean, no test-merge
+needed)... all green"* — and that claim is falsifiable, and false, from the
+commit graph alone: the reviewed commit's only parent is the pre-T16.3
+plan-doc commit, not T16.3's merge. `mergeable_state: clean` certifies the
+absence of a *textual* conflict; it says nothing about whether the combined
+tree still *type-checks*, and a new file plus a widened interface in
+disjoint lines of disjoint files is exactly the shape that produces a clean
+merge and a broken build at the same time. The reviewer treated "no
+conflict" and "already tested against the merged tree" as the same fact.
+They are not.
+
+**Contrast, in the same sprint, with the discipline that would have caught
+it**: T16.4's review, reviewing the next PR onto the same branch, checked
+out the *bare* shared-branch tip in a separate worktree with none of its own
+changes and ran `go vet` directly against it — and found and reported the
+break, correctly, before folding in the one-line fix. That is what T16.2's
+review claimed to have done and had not.
+
+**Same shape as T10's finding, different mechanism.** T10's retro named "a
+green claim checked against the wrong commit" for a fixture fix verified
+against a working tree that was never `git add`'d. This is the same failure
+class — a verification step that is true of the tree it was actually run
+against, misreported as true of a different tree it was never run against —
+recurring in a new form: not an unstaged file this time, but an inferred
+merge state substituted for a constructed one.
+
+**Fix / lesson, threaded into `docs/process/t16-retro.md` recommendation
+1.** When two same-wave tickets both touch the blast radius of one shared
+interface in files that will not textually conflict — one widening it, one
+authoring a new implementer — the second to merge must verify against an
+actually reconstructed post-merge tree (a real local merge, or GitHub's
+`refs/pull/<n>/merge` ref), never against `mergeable_state: clean` alone.
+This is a narrow, specific verification-method gap — not a dispatch or
+wave-design failure; the wave design that let T16.2 and T16.3 run
+concurrently was correctly reasoned and is not what this entry is about.
+**The broken window itself was short (15m21s, `cd31f86` to `c0e9c7d`) and
+was caught and fixed within the same sprint, by the very next PR's own
+mandated toolchain run** — worth stating plainly so this entry is not read
+as "the shared branch was down for a long time and nobody noticed." It was
+down for a short time, on the record, because the DoD's per-ticket testing
+step actually requires the toolchain to run, and running it (correctly, at
+T16.4) is exactly what surfaced this.
+
+## T16 sprint retro
+
+Held as `docs/process/t16-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15 set and CLAUDE.md's **Docs index & naming
+convention**.
+
+Seven findings against the sprint's own plan, the merged code, and the live
+PR/issue record (PRs #196–#200, issues #124–#198), with every claim
+re-derived at the retro rather than taken from any PR's or the plan's own
+prose — including a from-the-commit-graph investigation of a genuine defect
+that reached the shared branch's own tip this sprint (finding 1, see the
+incident entry above). **Sprint outcome: all 3 tickets (16 points) merged in
+one unbroken 59m14s work block, no session interruption; both "closes #N"-
+titled PRs performed the mandatory close within seconds of merging (2/2,
+after T15's 0/2 on the identical shape); the merged-fix sweep reconciles
+exactly (`12 − 2 + 1 = 11`) and is the first fully clean sweep — nothing left
+for the retro to close — in this project's history.**
+
+**Finding 1 is the sprint's central result, argued rather than accepted at
+face value.** A real defect reached the shared branch's own tip: T16.2 and
+T16.3, both correctly-dispatched Wave-1 tickets with no functional
+dependency between them, concurrently touched the blast radius of the same
+widened interface in files that produced no textual conflict. T16.3's own
+blast-radius search was complete for what it could see; T16.2's review
+explicitly claimed to have verified against the post-T16.3 merged state and
+had not — a claim this retro proved false directly from the commit graph,
+not inferred. The shared branch sat genuinely uncompilable for 15m21s,
+caught and fixed by the next PR's own mandated toolchain run. **Finding 2**
+scores all three of T16 Ceremony 1's own process amendments individually on
+their first live test — all three held, a genuinely different outcome from
+T15's mixed record on its own first-sprint amendments. **Finding 3** is the
+merged-fix sweep, clean and reconciled. **Finding 4** confirms #198 (a new,
+accurately-described gap in `CreateOnlinePayment`'s competition_entry
+branch) is real and flags it for T17. **Finding 5** argues that D1's
+unanswered status has now shaped ticket *scope* a second time (T16.3's
+court-Bookings half deferred specifically because of it), which is a
+materially worse trajectory than being merely re-named each sprint.
+**Finding 6** argues T15's own retro — not its Ceremony 1 — had, in its own
+session, in writing, everything needed to draft T16.2's exact ticket shape
+twenty minutes before it wrote a generic "flag for T16 planning" instead.
+**Finding 7** finds nothing to score on ADR-0016's interim rule this sprint
+(zero reviewer-authored gap-fixes, second consecutive clean sprint, still a
+small sample).
+
+Five recommendations bind T17's Ceremony 1 and 2: verify against a
+reconstructed merged tree, not `mergeable_state`, when same-wave tickets
+share an interface's blast radius; rank #198; escalate D1 a fifth time and
+say its footprint grew; transcribe an already-known unblocking shape into
+the next ceremony's ticket text rather than re-deriving it; and re-run the
+merged-fix sweep in full regardless of this retro's clean result.
+`HANDOFF.md`'s T16 row is corrected by this same retro PR, per this
+ceremony's own explicit instruction distinguishing "correcting the prior
+ceremony's now-knowable placeholder" from the disallowed "citing this PR's
+own future number."
