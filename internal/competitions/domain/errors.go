@@ -12,10 +12,24 @@ import "errors"
 // log says which context produced it.
 var (
 	// Construction-time validation (NewCompetition).
-	ErrInvalidTimeRange      = errors.New("competitions: invalid time range")
-	ErrInvalidCapacity       = errors.New("competitions: capacity must be greater than zero")
-	ErrEmptySessions         = errors.New("competitions: at least one session is required")
-	ErrEmptyCourtIDs         = errors.New("competitions: at least one court id is required per session")
+	ErrInvalidTimeRange = errors.New("competitions: invalid time range")
+	ErrInvalidCapacity  = errors.New("competitions: capacity must be greater than zero")
+	ErrEmptySessions    = errors.New("competitions: at least one session is required")
+	ErrEmptyCourtIDs    = errors.New("competitions: at least one court id is required per session")
+
+	// ErrMalformedCourtID is ScheduleCompetition's shape guard on the
+	// entries of every session's caller-supplied court_ids list (T14.8,
+	// closing issue #156). Twin of
+	// internal/socialplay/domain.ErrMalformedCourtID — see that sentinel's
+	// doc comment for why this is InvalidArgument rather than the
+	// not-found answer T10.7 gives a malformed Competition ID, and why it is
+	// a distinct sentinel from ErrEmptyCourtIDs rather than a reuse of it.
+	//
+	// Kept context-local rather than shared with Social Play's copy for the
+	// same reason uuidShape itself is duplicated per context (CLAUDE.md rule
+	// 2 / the write-up on this package's uuidShape): a domain package does
+	// not import another context's domain package.
+	ErrMalformedCourtID      = errors.New("competitions: court id is not a valid court reference")
 	ErrInvalidPaymentMethod  = errors.New("competitions: invalid payment method")
 	ErrInvalidFormat         = errors.New("competitions: invalid format")
 	ErrInvalidGuestAllowance = errors.New("competitions: guest allowance must not be negative")
