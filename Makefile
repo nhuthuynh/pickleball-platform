@@ -1,4 +1,4 @@
-.PHONY: test-domain test-platform test-tools generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
+.PHONY: test-domain test-platform test-tools test-adapters test-cmd gate-coverage generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
         build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
@@ -35,6 +35,65 @@ test-platform:
 # deliberately scoped to the product's pure core.
 test-tools:
 	go test ./tools/... -race -count=1
+
+# The adapter ring: every internal/<context>/adapter/<x> package. Until T14.1
+# these 22 packages ran in NO gate (#157) — including the five behavioural
+# tests T13.1 wrote precisely because #146 had shipped without them, and the
+# 216-line regression test PR #151 added to prove #146 stays fixed. Tests that
+# no gate runs cannot fail a build, which is the failure mode one level out
+# from "no tests at all".
+#
+# Depends on `generate` because SOME of these import the gitignored
+# internal/gen (every adapter/postgres and adapter/grpcapi). The other 11 are
+# codegen-free and could in principle sit in a codegen-free gate — but
+# splitting them would take a hand-maintained list of which is which, and a
+# hand-maintained list going stale inside one sprint is the exact defect
+# T14.1 exists to remove (#157's own list missed
+# internal/facilities/adapter/identity, created by its sprint sibling T13.3).
+# One glob, no exclusions, no list.
+#
+# Docker-free: the testcontainers tests in these same packages sit behind
+# //go:build integration and are not selected here. `make vet-integration`
+# compiles those; `make ci-integration` runs them.
+test-adapters: generate
+	go test ./internal/.../adapter/... -race -count=1
+
+# The composition root. cmd/server/main_test.go holds T13.5's three tests
+# proving the server REFUSES to start without an auth verifier configured
+# (#136) — a fail-closed property that is a property of this package's wiring
+# and cannot be tested from internal/platform/auth. It ran in no gate either,
+# and unlike the 22 it was missed by #157 and by the T14 plan's own
+# enumeration too, both of which scanned `internal tools` and not `cmd`.
+# Found by the check in this ticket rather than by another human re-reading
+# the tree, which is the point of the check.
+test-cmd: generate
+	go test ./cmd/... -race -count=1
+
+# The standing answer to "which packages hold tests that no gate executes?"
+#
+# Three consecutive sprints each closed that question for the packages named
+# in one issue and left the next set open (T11 build tags -> T12
+# internal/platform -> T13's 22 adapter packages; docs/process/t13-retro.md
+# finding 2). Every fix was a glob written from a list, and every list was
+# stale before its sprint ended. This target asks the GENERAL question
+# instead, and both sides of it are computed at run time:
+#
+#   side A  every package holding a `func Test`, from a scan of the tree
+#   side B  every package a `go test` reachable from `ci-checks` executes,
+#           by parsing THIS Makefile and expanding its patterns with `go list`
+#
+# Side B being derived from the Makefile rather than copied into the tool is
+# what stops the check from desynchronising when a target's pattern changes.
+# There is no package list anywhere in the tool — that is the whole design
+# constraint, and `go run` re-derives both sides on every invocation, so a
+# package created by a future ticket is covered with no edit here.
+#
+# It exits non-zero AND names the offending packages: whoever trips this
+# should not have to re-derive the analysis to act on it. Fix a failure by
+# widening a `go test` pattern in a target reachable from `ci-checks` — never
+# by adding an exclusion to the tool.
+gate-coverage:
+	go run ./cmd/gatecoverage
 
 # buf (proto -> gRPC/gateway/OpenAPI) + sqlc (SQL -> typed Go) into internal/gen
 # (gitignored, regenerate locally — see CLAUDE.md).
@@ -242,7 +301,11 @@ loadtest:
 # comment: it covers ./internal, which contains the gitignored internal/gen,
 # so running it before codegen would check a different (smaller) set of files
 # on a clean checkout than on a warm one.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools generate-client lint-web test-web build-web
+# `gate-coverage` is placed AFTER every test target on purpose. It is a
+# meta-check on the gate's own shape, not a test — running it last means its
+# report describes the set of targets that just ran, and a genuine test
+# failure surfaces before the structural complaint about coverage does.
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
