@@ -427,7 +427,13 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -456,7 +462,13 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation("court-1")
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -476,7 +488,13 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation("court-2")
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -501,7 +519,13 @@ func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 
 	reservation := newFakeReservation("court-2")
 	reservation.releaseErr = errors.New("release: boom")
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -522,7 +546,13 @@ func TestScheduleGame_InvalidInputRejectedBeforeTouchingPort(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.Capacity = 0
@@ -548,7 +578,13 @@ func TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts(t *testi
 
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.VenueFacilityID = "no-such-facility"
@@ -572,7 +608,13 @@ func TestScheduleGame_KnownVenueFacilityAccepted(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	in.VenueFacilityID = "facility-1"
@@ -596,7 +638,13 @@ func TestScheduleGame_EmptyVenueFacilitySkipsLookup(t *testing.T) {
 	t.Parallel()
 
 	reservation := newFakeReservation()
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -621,7 +669,13 @@ func TestScheduleGame_PersistsGame(t *testing.T) {
 
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -649,7 +703,13 @@ func TestScheduleGame_RollsBackReservationsWhenPersistFails(t *testing.T) {
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
 	games.createErr = errors.New("persist: boom")
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	in := validInput("court-1", "court-2")
 	in.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
@@ -673,7 +733,13 @@ func TestRegisterForGame_Valid(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -711,7 +777,13 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	in := validInput("court-1")
@@ -737,7 +809,13 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 func TestRegisterForGame_GameNotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 
 	_, err := svc.RegisterForGame(context.Background(), app.RegisterForGameInput{GameID: "no-such-game", PlayerID: "player-1"})
 	if !errors.Is(err, domain.ErrGameNotFound) {
@@ -753,7 +831,13 @@ func TestCancelRegistration_OwnerSucceeds(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -794,7 +878,13 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -835,7 +925,13 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -871,7 +967,13 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 func TestMarkRegistrationPaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := app.NewService(&sequentialIDs{}, newFakeGameRepository(), newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         newFakeGameRepository(),
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 
 	err := svc.MarkRegistrationPaymentStatus(context.Background(), "no-such-registration", domain.PaymentStatusPaid)
 	if !errors.Is(err, domain.ErrRegistrationNotFound) {
@@ -887,7 +989,13 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -946,7 +1054,13 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist, newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	g := fixtureFullGame(t, ctx, svc, 1)
@@ -979,7 +1093,13 @@ func TestJoinWaitlist_GameNotFull(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	in := validInput("court-1")
@@ -1006,7 +1126,13 @@ func TestCancelRegistration_PromotesOldestWaiting(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist, newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	g := fixtureFullGame(t, ctx, svc, 1)
@@ -1064,7 +1190,13 @@ func TestCancelRegistration_NoWaitlistIsNotAnError(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	fixtureIn := validInput("court-1")
@@ -1095,7 +1227,13 @@ func TestRegisterForGame_UnexpiredPromotionReservesSlot(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist, newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	g := fixtureFullGame(t, ctx, svc, 1)
@@ -1147,7 +1285,13 @@ func TestRegisterForGame_ExpiredPromotionDoesNotBlock(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist, newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	g := fixtureFullGame(t, ctx, svc, 1)
@@ -1194,7 +1338,13 @@ func TestExpireWaitlistPromotion_CascadesToNext(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist, newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	g := fixtureFullGame(t, ctx, svc, 1)
@@ -1254,7 +1404,13 @@ func TestExpireWaitlistPromotion_RejectsPremature(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, waitlist, newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      waitlist,
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	g := fixtureFullGame(t, ctx, svc, 1)
@@ -1295,7 +1451,13 @@ func TestListGames_FiltersByVenueFacility(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	rng1 := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
@@ -1319,7 +1481,13 @@ func TestListGames_FiltersByDateRange(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	early := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
@@ -1349,7 +1517,13 @@ func TestListGames_ExcludesCancelled(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	rng := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
@@ -1379,7 +1553,13 @@ func TestListGames_ComputesSpotsLeft(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	rng := mustRange(t, "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
@@ -1439,7 +1619,13 @@ func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
-	svc := app.NewService(&sequentialIDs{}, games, registrations, newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: registrations,
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 	ctx := context.Background()
 
 	// Game IDs are UUID-shaped because that is what the real system mints and
@@ -1496,7 +1682,13 @@ func newMatchTestService(t *testing.T) (*app.Service, domain.Game, *fakeGameRepo
 	t.Helper()
 	games := newFakeGameRepository()
 	matches := newFakeMatchRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), matches)
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       matches,
+	})
 
 	fixtureIn := validInput("court-1")
 	fixtureIn.Range = mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
@@ -1697,7 +1889,13 @@ func TestRecordMatchResult_UnknownGameRejected(t *testing.T) {
 
 	games := newFakeGameRepository()
 	matches := newFakeMatchRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), matches)
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       matches,
+	})
 
 	unknown := gameID(9001)
 	_, err := svc.RecordMatchResult(context.Background(), app.RecordMatchResultInput{
@@ -1748,7 +1946,13 @@ func TestListMatchesForGame_UnknownGameRejected(t *testing.T) {
 
 	games := newFakeGameRepository()
 	matches := newFakeMatchRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), matches)
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       matches,
+	})
 
 	unknown := gameID(9002)
 	_, err := svc.ListMatchesForGame(context.Background(), unknown)
@@ -1866,7 +2070,13 @@ func TestCancelGame_UnknownGameNotFound(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 
 	if _, err := svc.CancelGame(context.Background(), gameID(9101), "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
 		t.Fatalf("got err %v, want ErrGameNotFound", err)
@@ -1884,7 +2094,13 @@ func TestCancelGame_MalformedGameIDNotFound(t *testing.T) {
 	t.Parallel()
 
 	games := newFakeGameRepository()
-	svc := app.NewService(&sequentialIDs{}, games, newFakeRegistrationRepository(), newFakeWaitlistRepository(), newFakeMatchRepository())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &sequentialIDs{},
+		Games:         games,
+		Registrations: newFakeRegistrationRepository(),
+		Waitlist:      newFakeWaitlistRepository(),
+		Matches:       newFakeMatchRepository(),
+	})
 
 	if _, err := svc.CancelGame(context.Background(), "not-a-uuid", "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
 		t.Fatalf("got err %v, want ErrGameNotFound", err)

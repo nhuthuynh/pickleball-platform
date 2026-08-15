@@ -86,7 +86,13 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	regRepo := socialplaypg.NewRegistrationRepository(pool)
 	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	matchRepo := socialplaypg.NewMatchRepository(pool)
-	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, regRepo, waitlistRepo, matchRepo)
+	socialplaySvc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		IDs:           idgen.UUID{},
+		Games:         gameRepo,
+		Registrations: regRepo,
+		Waitlist:      waitlistRepo,
+		Matches:       matchRepo,
+	})
 
 	// Real Payments stack (T6.4's Postgres adapter + app.Service), wired
 	// with the real RegistrationUpdater (T6.5) against the same

@@ -27,7 +27,13 @@ func (f *fakeReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Ti
 func (f *fakeReservation) ReleaseCourt(_ context.Context, _ string) error { return nil }
 
 func newEntryFeeHandler() *grpcapi.Handler {
-	svc := app.NewService(&fakeIDs{}, newFakeGameRepo(), newFakeRegistrationRepo(), newFakeWaitlistRepo(), newFakeMatchRepo())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &fakeIDs{},
+		Games:         newFakeGameRepo(),
+		Registrations: newFakeRegistrationRepo(),
+		Waitlist:      newFakeWaitlistRepo(),
+		Matches:       newFakeMatchRepo(),
+	})
 	return grpcapi.NewHandler(svc, &fakeReservation{}, nil)
 }
 

@@ -60,7 +60,13 @@ func (f *fakeMatchRepo) ListForGame(_ context.Context, gameID string) ([]domain.
 func newTestHandlerWithMatches() (*grpcapi.Handler, *fakeGameRepo, *fakeMatchRepo) {
 	gameRepo := newFakeGameRepo()
 	matchRepo := newFakeMatchRepo()
-	svc := app.NewService(&fakeIDs{}, gameRepo, newFakeRegistrationRepo(), newFakeWaitlistRepo(), matchRepo)
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &fakeIDs{},
+		Games:         gameRepo,
+		Registrations: newFakeRegistrationRepo(),
+		Waitlist:      newFakeWaitlistRepo(),
+		Matches:       matchRepo,
+	})
 	return grpcapi.NewHandler(svc, nil, nil), gameRepo, matchRepo
 }
 

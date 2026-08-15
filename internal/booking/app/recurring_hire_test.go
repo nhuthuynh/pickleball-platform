@@ -208,8 +208,15 @@ func newRecurringSvc() *recurringFixture {
 		ownerByFacility: map[string]string{facilityID(1): userID(ownerUser)},
 		facilityByCourt: map[string]string{courtID(1): facilityID(1)},
 	}
-	svc := app.NewService(bookings, &fakePricingRepo{}, newFakeDiscountRepo(), templates,
-		facilities, identity, &sequentialIDs{})
+	svc := app.NewService(app.ServiceOptions{
+		Bookings:       bookings,
+		PricingRules:   &fakePricingRepo{},
+		DiscountRules:  newFakeDiscountRepo(),
+		RecurringHires: templates,
+		Facilities:     facilities,
+		Identity:       identity,
+		IDs:            &sequentialIDs{},
+	})
 	return &recurringFixture{
 		svc: svc, templates: templates, bookings: bookings,
 		identity: identity, facilities: facilities,

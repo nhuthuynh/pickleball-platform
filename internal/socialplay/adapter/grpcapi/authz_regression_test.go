@@ -220,7 +220,13 @@ func (f *fakeIDs) NewID() string {
 func newTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
-	svc := app.NewService(&fakeIDs{}, gameRepo, regRepo, newFakeWaitlistRepo(), newFakeMatchRepo())
+	svc := app.NewService(app.ServiceOptions{
+		IDs:           &fakeIDs{},
+		Games:         gameRepo,
+		Registrations: regRepo,
+		Waitlist:      newFakeWaitlistRepo(),
+		Matches:       newFakeMatchRepo(),
+	})
 	return grpcapi.NewHandler(svc, nil, nil), gameRepo, regRepo
 }
 

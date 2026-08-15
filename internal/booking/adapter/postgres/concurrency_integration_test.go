@@ -83,7 +83,15 @@ func TestCreateBooking_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 	// constraint, and a nil interface would panic the moment anything did
 	// reach it.
 	discountRepo := bookingpg.NewDiscountRuleRepository(pool)
-	svc := bookingapp.NewService(repo, pricingRepo, discountRepo, unusedRecurringHireRepository{}, unusedFacilityLookup{}, unusedIdentityLookup{}, idgen.UUID{})
+	svc := bookingapp.NewService(bookingapp.ServiceOptions{
+		Bookings:       repo,
+		PricingRules:   pricingRepo,
+		DiscountRules:  discountRepo,
+		RecurringHires: unusedRecurringHireRepository{},
+		Facilities:     unusedFacilityLookup{},
+		Identity:       unusedIdentityLookup{},
+		IDs:            idgen.UUID{},
+	})
 
 	rng := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 

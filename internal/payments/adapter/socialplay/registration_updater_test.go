@@ -153,7 +153,13 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 		Status:        socialplaydomain.RegistrationStatusRegistered,
 		PaymentStatus: socialplaydomain.PaymentStatusUnpaid,
 	})
-	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, regs, fakeWaitlist{}, fakeMatches{})
+	svc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		IDs:           fakeIDs{},
+		Games:         fakeGames{},
+		Registrations: regs,
+		Waitlist:      fakeWaitlist{},
+		Matches:       fakeMatches{},
+	})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
 	if err := updater.UpdatePaymentStatus(context.Background(), "reg-1", socialplaydomain.PaymentStatusPaid); err != nil {
@@ -176,7 +182,13 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 func TestUpdatePaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
-	svc := socialplayapp.NewService(fakeIDs{}, fakeGames{}, newFakeRegistrations(), fakeWaitlist{}, fakeMatches{})
+	svc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		IDs:           fakeIDs{},
+		Games:         fakeGames{},
+		Registrations: newFakeRegistrations(),
+		Waitlist:      fakeWaitlist{},
+		Matches:       fakeMatches{},
+	})
 	updater := paymentssocialplay.NewRegistrationUpdater(svc)
 
 	err := updater.UpdatePaymentStatus(context.Background(), "no-such-registration", socialplaydomain.PaymentStatusPaid)

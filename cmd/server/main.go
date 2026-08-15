@@ -159,8 +159,15 @@ func run(logger *slog.Logger) error {
 	recurringRepo := bookingpg.NewRecurringHireRepository(pool)
 	bookingFacilityLookup := bookingfacilities.NewLookup(facilitiesSvc)
 	bookingIdentityLookup := bookingidentity.NewLookup(identitySvc)
-	bookingSvc := bookingapp.NewService(repo, pricingRepo, discountRepo, recurringRepo,
-		bookingFacilityLookup, bookingIdentityLookup, idgen.UUID{})
+	bookingSvc := bookingapp.NewService(bookingapp.ServiceOptions{
+		Bookings:       repo,
+		PricingRules:   pricingRepo,
+		DiscountRules:  discountRepo,
+		RecurringHires: recurringRepo,
+		Facilities:     bookingFacilityLookup,
+		Identity:       bookingIdentityLookup,
+		IDs:            idgen.UUID{},
+	})
 	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
 
 	// Social Play (T5.4): its GameRepository/RegistrationRepository are
@@ -182,7 +189,13 @@ func run(logger *slog.Logger) error {
 	matchRepo := socialplaypg.NewMatchRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
 	facilityLookup := socialplayfacilities.NewLookup(facilitiesSvc)
-	socialplaySvc := socialplayapp.NewService(idgen.UUID{}, gameRepo, registrationRepo, waitlistRepo, matchRepo)
+	socialplaySvc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		IDs:           idgen.UUID{},
+		Games:         gameRepo,
+		Registrations: registrationRepo,
+		Waitlist:      waitlistRepo,
+		Matches:       matchRepo,
+	})
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
 
 	// Competitions (T9.4). Same shape as Social Play's wiring above, one
