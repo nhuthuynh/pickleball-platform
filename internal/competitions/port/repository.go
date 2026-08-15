@@ -164,4 +164,31 @@ type Repository interface {
 	// Two methods rather than one with a boolean, so neither caller can
 	// accidentally get the other's semantics.
 	ListEntriesForCompetition(ctx context.Context, competitionID string) ([]domain.CompetitionEntry, error)
+
+	// CancelAllActiveForCompetition bulk-cancels every non-cancelled
+	// CompetitionEntry scoped to competitionID in ONE atomic statement
+	// (T16.3, closes the mirrored Competitions gap found this ceremony —
+	// see socialplay.port.RegistrationRepository.CancelAllActiveForGame,
+	// which this mirrors field-for-field apart from the owning
+	// aggregate). app.Service.CancelCompetition's cascade, fired after the
+	// Competition's own status write persists so a cancelled Competition
+	// never leaves an active entry behind. Returns the number of rows
+	// actually transitioned (an already-cancelled entry is not
+	// re-counted).
+	//
+	// Deliberately NOT N sequential UpdateEntryPaymentStatus-shaped calls:
+	// a single-query bulk write, following
+	// db/queries/competitions.sql's CancelAllActiveEntriesForCompetition
+	// (an `UPDATE ... WHERE competition_id = $1 AND status <>
+	// 'cancelled'`) — one round trip per Host action instead of N, and the
+	// set-based UPDATE closes the same concurrent-entry race
+	// CancelAllActiveForGame's doc comment describes: an entry that
+	// CreateEntry lands between the Competition's status write and this
+	// call is still caught by the same WHERE clause.
+	//
+	// Scope, matching CancelCompetition's own instructions (T16.3): ONLY
+	// the status column. It does not call RefundPayment or touch
+	// PaymentStatus (instruction 4), and Competitions has no waitlist to
+	// consider (instruction 5 scopes that half to Social Play only).
+	CancelAllActiveForCompetition(ctx context.Context, competitionID string) (int, error)
 }

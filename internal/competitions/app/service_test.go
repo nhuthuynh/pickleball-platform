@@ -267,6 +267,27 @@ func (r *fakeRepository) UpdateEntryPaymentStatus(_ context.Context, id string, 
 	return e, nil
 }
 
+// CancelAllActiveForCompetition mirrors the real Postgres adapter's
+// contract (T16.3): bulk-cancels every non-cancelled entry scoped to
+// competitionID and returns the count actually transitioned. An
+// already-cancelled entry is left untouched and not counted, mirroring
+// the real query's `WHERE ... AND status <> 'cancelled'` clause — this
+// fake would otherwise silently disagree with the production adapter
+// about what "actually transitioned" means.
+func (r *fakeRepository) CancelAllActiveForCompetition(_ context.Context, competitionID string) (int, error) {
+	n := 0
+	for _, id := range r.entryOrder {
+		e := r.entries[id]
+		if e.CompetitionID != competitionID || e.Status == domain.EntryStatusCancelled {
+			continue
+		}
+		e.Status = domain.EntryStatusCancelled
+		r.entries[id] = e
+		n++
+	}
+	return n, nil
+}
+
 // ListCompetitions mirrors the real Postgres adapter's contract: only
 // scheduled Competitions, each paired with its WEIGHTED SpotsLeft. It
 // deliberately delegates that computation to domain.SpotsLeft — the same
@@ -905,6 +926,110 @@ func TestCancelCompetition_AlreadyCancelledRejected(t *testing.T) {
 	}
 	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); !errors.Is(err, domain.ErrIllegalStatusTransition) {
 		t.Fatalf("got err %v, want ErrIllegalStatusTransition", err)
+	}
+}
+
+// TestCancelCompetition_CancelsActiveEntries is T16.3's core proof (closes
+// the mirrored Competitions gap found this ceremony): cancelling a
+// Competition must cascade to its active entries, not just flip the
+// Competition's own status and leave every entrant looking "entered" in
+// something that no longer exists.
+func TestCancelCompetition_CancelsActiveEntries(t *testing.T) {
+	t.Parallel()
+
+	repo, svc, c := scheduleFixture(t, 16, 0)
+	ctx := context.Background()
+
+	first, err := svc.EnterCompetition(ctx, app.EnterCompetitionInput{
+		CompetitionID: c.ID, PlayerID: "player-1", Source: domain.EntrySourceApp,
+	})
+	if err != nil {
+		t.Fatalf("fixture entry 1 failed: %v", err)
+	}
+	second, err := svc.EnterCompetition(ctx, app.EnterCompetitionInput{
+		CompetitionID: c.ID, PlayerID: "player-2", Source: domain.EntrySourceApp,
+	})
+	if err != nil {
+		t.Fatalf("fixture entry 2 failed: %v", err)
+	}
+
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+		t.Fatalf("CancelCompetition failed: %v", err)
+	}
+
+	if got := repo.entries[first.ID].Status; got != domain.EntryStatusCancelled {
+		t.Fatalf("entry 1 Status = %q after CancelCompetition, want cancelled", got)
+	}
+	if got := repo.entries[second.ID].Status; got != domain.EntryStatusCancelled {
+		t.Fatalf("entry 2 Status = %q after CancelCompetition, want cancelled", got)
+	}
+}
+
+// TestCancelCompetition_LeavesAlreadyCancelledEntryPaymentStatusAlone proves
+// the cascade only touches Status, never PaymentStatus (T16.3 instruction
+// 4: this ticket does not call RefundPayment or decide the refund
+// question) — a paid entry stays marked paid even once its Status flips to
+// cancelled, so a support/admin view can still tell "this player paid,
+// then the competition was cancelled" from "this player never paid".
+func TestCancelCompetition_LeavesEntryPaymentStatusAlone(t *testing.T) {
+	t.Parallel()
+
+	repo, svc, c := scheduleFixture(t, 16, 0)
+	ctx := context.Background()
+
+	entry, err := svc.EnterCompetition(ctx, app.EnterCompetitionInput{
+		CompetitionID: c.ID, PlayerID: "player-1", Source: domain.EntrySourceApp,
+	})
+	if err != nil {
+		t.Fatalf("fixture entry failed: %v", err)
+	}
+	if err := svc.MarkCompetitionEntryPaymentStatus(ctx, entry.ID, domain.PaymentStatusPaid); err != nil {
+		t.Fatalf("fixture MarkCompetitionEntryPaymentStatus failed: %v", err)
+	}
+
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+		t.Fatalf("CancelCompetition failed: %v", err)
+	}
+
+	got := repo.entries[entry.ID]
+	if got.Status != domain.EntryStatusCancelled {
+		t.Fatalf("Status = %q, want cancelled", got.Status)
+	}
+	if got.PaymentStatus != domain.PaymentStatusPaid {
+		t.Fatalf("PaymentStatus = %q, want paid (unchanged) — the cascade must not touch payment state", got.PaymentStatus)
+	}
+}
+
+// TestCancelCompetition_AlreadyCancelledEntryNotRecancelled proves an entry
+// a player withdrew before the Host cancelled the Competition is left
+// alone by the cascade — CancelAllActiveForCompetition's WHERE clause is
+// `status <> 'cancelled'`, so this test would catch a fake or a query that
+// swept every entry indiscriminately.
+func TestCancelCompetition_AlreadyCancelledEntryNotRecancelled(t *testing.T) {
+	t.Parallel()
+
+	repo, svc, c := scheduleFixture(t, 16, 0)
+	ctx := context.Background()
+
+	entry, err := svc.EnterCompetition(ctx, app.EnterCompetitionInput{
+		CompetitionID: c.ID, PlayerID: "player-1", Source: domain.EntrySourceApp,
+	})
+	if err != nil {
+		t.Fatalf("fixture entry failed: %v", err)
+	}
+	// Manually pre-cancel the entry (there is no withdraw RPC yet — see
+	// domain.EntryStatusCancelled's doc comment), mirroring what a future
+	// withdrawal path would leave behind.
+	preCancelled := repo.entries[entry.ID]
+	preCancelled.Status = domain.EntryStatusCancelled
+	repo.entries[entry.ID] = preCancelled
+
+	n, err := repo.CancelAllActiveForCompetition(ctx, c.ID)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("CancelAllActiveForCompetition transitioned %d rows, want 0 (the only entry was already cancelled)", n)
 	}
 }
 

@@ -97,6 +97,40 @@ type RegistrationRepository interface {
 	// the payment_status column and can't accidentally clobber Status (or
 	// vice versa). Returns domain.ErrRegistrationNotFound for an unknown id.
 	UpdatePaymentStatus(ctx context.Context, id string, status domain.PaymentStatus) (domain.Registration, error)
+
+	// CancelAllActiveForGame bulk-cancels every non-cancelled Registration
+	// scoped to gameID in ONE atomic statement (T16.3, partial fix for
+	// #124) — app.Service.CancelGame's cascade, fired after the Game's own
+	// status write persists so a cancelled Game never leaves an active
+	// Registration behind. Returns the number of rows actually
+	// transitioned (an already-cancelled Registration is not re-counted),
+	// not merely "did this succeed" — the caller has no other way to
+	// learn how many Registrations a Host's single cancel action affected.
+	//
+	// Deliberately NOT N sequential calls to Update/UpdatePaymentStatus:
+	// this is a single-query bulk write, mirroring the
+	// one-query-per-write-path convention UpdateRegistrationStatus and
+	// waitlist.go's PromoteNext already establish, following
+	// db/queries/socialplay.sql's CancelAllActiveRegistrationsForGame
+	// (an `UPDATE ... WHERE game_id = $1 AND status <> 'cancelled'`). A
+	// loop of individual updates would cost N round trips for one Host
+	// action and — the sharper reason — could not close the same race
+	// this one statement closes: a Registration created concurrently,
+	// between the Game's status write and this call running, is still
+	// caught by the same WHERE clause and cancelled in the same
+	// statement, rather than possibly landing after a per-row loop had
+	// already passed it by.
+	//
+	// Scope, matching CancelGame's own instructions (T16.3): this method
+	// touches ONLY the status column. It does not call RefundPayment or
+	// touch PaymentStatus (instruction 4 — refunding a cancelled
+	// Registration's Payment is an explicitly open sub-question, not
+	// this ticket's to answer), and it does not touch WaitlistEntry rows
+	// (instruction 5 — a cancelled Game must not promote anyone off its
+	// waitlist; app.Service.CancelGame simply never calls
+	// promoteNextWaiting, so there is nothing for this method to
+	// suppress).
+	CancelAllActiveForGame(ctx context.Context, gameID string) (int, error)
 }
 
 // MatchRepository is Social Play's persistence boundary for the Match

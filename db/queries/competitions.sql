@@ -213,6 +213,37 @@ SET payment_status = $2
 WHERE id = $1
 RETURNING id, competition_id, player_id, guest_count, source, status, payment_status;
 
+-- name: CancelAllActiveEntriesForCompetition :execrows
+-- T16.3 (closes the mirrored Competitions gap found this ceremony; see
+-- socialplay.sql's CancelAllActiveRegistrationsForGame, which this mirrors
+-- field-for-field apart from the owning column). Fired by
+-- app.Service.CancelCompetition immediately after a Competition's own
+-- status write persists, so a Host's single cancel action leaves no active
+-- CompetitionEntry behind. ONE atomic statement, not N sequential
+-- UpdateEntryPaymentStatus/status-style calls — a round trip per active
+-- entry would multiply a single Host action into N, and the set-based
+-- UPDATE is what closes the race a loop of individual updates would leave
+-- open: an entry that CreateEntry lands concurrently, between this
+-- Competition's own status write and this statement running, still
+-- matches "status <> 'cancelled' AND competition_id = $1" and is swept up
+-- in the same statement as every entry that existed before the cancel
+-- began.
+--
+-- Scoped to status <> 'cancelled' so an already-cancelled entry (a player
+-- who withdrew before the Host cancelled the Competition) is left alone
+-- rather than rewritten, and :execrows returns exactly the count of rows
+-- this call actually transitioned.
+--
+-- Deliberately does NOT touch payment_status (T16.3 instruction 4: this
+-- ticket cancels the CompetitionEntry only, and does not call
+-- RefundPayment or decide whether a future ticket should). Competitions
+-- has no waitlist (T16.3 instruction 5 scopes that half to Social Play
+-- only), so there is no sibling waitlist concern here.
+UPDATE competition_entries
+SET status = 'cancelled'
+WHERE competition_id = $1
+  AND status <> 'cancelled';
+
 -- name: AssignCompetitionAdmin :one
 -- T15.3 (partial fix for #168), mirroring socialplay.sql's AssignGameAdmin.
 -- assigned_at is always supplied by the adapter (app.Service passes

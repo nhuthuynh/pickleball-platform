@@ -114,6 +114,38 @@ SET payment_status = $2
 WHERE id = $1
 RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
 
+-- name: CancelAllActiveRegistrationsForGame :execrows
+-- T16.3 (partial fix for #124): the bulk cascade app.Service.CancelGame
+-- fires immediately after a Game's own status write persists, so a Host's
+-- single cancel action leaves no active Registration behind. ONE atomic
+-- statement, not N sequential UpdateRegistrationStatus calls — a
+-- round trip per active Registration would multiply a single Host action
+-- into N, and (more importantly) a set-based UPDATE is what closes the
+-- race a loop of individual updates would leave open: a Registration that
+-- Create() lands concurrently, between this Game's own status write and
+-- this statement running, still matches "status <> 'cancelled' AND
+-- game_id = $1" and gets swept up in the same transaction as every
+-- Registration that existed before the cancel began — nothing joined
+-- during the cancel window can be missed.
+--
+-- Scoped to status <> 'cancelled' so an already-cancelled Registration
+-- (a player who withdrew before the Host cancelled the Game) is left
+-- alone rather than rewritten, and :execrows returns exactly the count of
+-- rows this call actually transitioned — the "how many Registrations did
+-- this cancellation affect" fact app.Service.CancelGame's port method
+-- reports back to its caller.
+--
+-- Deliberately does NOT touch payment_status (CLAUDE.md/T16.3 instruction
+-- 4: this ticket cancels the Registration only, and does not call
+-- RefundPayment or decide whether a future ticket should) and does NOT
+-- touch waitlist_entries (T16.3 instruction 5: a cancelled Game's
+-- waitlist is proven, by test, to get no promotion — see
+-- promoteNextWaiting's callers — rather than swept by this query).
+UPDATE registrations
+SET status = 'cancelled'
+WHERE game_id = $1
+  AND status <> 'cancelled';
+
 -- name: JoinWaitlistEntry :one
 -- The DB-level race-closing operation for queue-position assignment
 -- (db/migrations/0009_socialplay_waitlist_join_position.sql, T6.6-loop-2) —

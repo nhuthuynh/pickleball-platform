@@ -146,6 +146,21 @@ func (f *fakeRegistrationRepo) UpdatePaymentStatus(_ context.Context, id string,
 	return r, nil
 }
 
+// CancelAllActiveForGame mirrors the real Postgres adapter's contract
+// (T16.3): bulk-cancels every non-cancelled registration scoped to gameID.
+func (f *fakeRegistrationRepo) CancelAllActiveForGame(_ context.Context, gameID string) (int, error) {
+	n := 0
+	for id, r := range f.regs {
+		if r.GameID != gameID || r.Status == domain.RegistrationStatusCancelled {
+			continue
+		}
+		r.Status = domain.RegistrationStatusCancelled
+		f.regs[id] = r
+		n++
+	}
+	return n, nil
+}
+
 // fakeWaitlistRepo is a minimal, empty-always port.WaitlistRepository stand-in
 // — neither RegisterForGame nor CancelRegistration's BOLA behaviour under
 // test here depends on waitlist state, so this only needs to satisfy the

@@ -838,12 +838,48 @@ func (s *Service) ListMatchesForGame(ctx context.Context, gameID string) ([]doma
 // coincide, but the guard is kept so a future third status is still
 // rejected by the domain rather than only by this method.
 //
-// KNOWN GAP, inherited from domain.Game.Cancel and restated here because
-// this is the layer that could close it: cancelling a Game does NOT cascade
-// to the court Bookings it reserved or to its Registrations. Tracked in
-// GitHub issue #124; it needs a product decision (are the reserved courts
-// freed, are players refunded) before it can be built, so it is left
-// visibly undone rather than half-implemented here.
+// T16.3 CASCADE (partial fix for #124): once the Game's own status write
+// persists, this method bulk-cancels every active Registration through
+// s.registrations.CancelAllActiveForGame — ONE atomic statement, run
+// AFTER the parent's status write succeeds. That order is deliberate, not
+// incidental: cancelling the parent before cascading to its children means
+// a failure partway through (the cascade call erroring after the Game is
+// already durably cancelled) never leaves an ACTIVE Game with cancelled
+// Registrations — it leaves a correctly-cancelled Game whose
+// Registrations haven't caught up yet, which a retry or a sweep can still
+// repair. The reverse order (cascade first, parent status second) would
+// create exactly the inconsistency this ordering avoids: if the parent
+// write then failed or was never reached, an application would see
+// cancelled Registrations for a Game the domain still considers
+// scheduled. A cascade failure IS surfaced as an error from this call (not
+// swallowed the way promoteNextWaiting's ErrNoWaitingEntries is), because
+// unlike an empty waitlist a cascade write failing is never an expected
+// outcome.
+//
+// Waitlist entries are DELIBERATELY UNTOUCHED and no promotion fires: this
+// method never calls promoteNextWaiting, so a cancelled Game's waitlist
+// simply stops being examined — see
+// TestCancelGame_DoesNotPromoteWaitlist for the proof this is actually
+// true and not merely asserted (T16.3 instruction 5). Contrast
+// CancelRegistration, which promotes the next waiting entry because that
+// Game is still live and the freed slot is real; a cancelled Game has no
+// slot left to offer anyone.
+//
+// STILL A KNOWN GAP, narrower than before: cancelling a Game does NOT
+// cascade to the court Bookings it reserved (issue #124's other half).
+// This is left deliberately undone, not merely deferred by omission — see
+// this method's own package-level PR/#124 comment for why: the cascade
+// would call booking's app.Service.CancelBooking, whose signature
+// ADR-0015's still-open D1 may yet change (adding an actor parameter is
+// one of D1's four options), and building against a signature under
+// active escalation means either guessing D1 or shipping code that may
+// need rewriting.
+//
+// Also DELIBERATELY UNTOUCHED: refunds. #124's own "why this needs a
+// decision" list names whether a cancelled Registration's Payment gets
+// refunded as its own open sub-question (now sharper given T12.3's
+// RefundPayment) — this method cancels the Registration only; it never
+// calls RefundPayment and does not answer whether a future ticket should.
 func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string) (domain.Game, error) {
 	// Same T10.7-shaped boundary guard the methods above apply, for the
 	// identical reason: this method calls GetByID(gameID) next, and a
@@ -871,7 +907,21 @@ func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string) 
 		return domain.Game{}, err
 	}
 
-	return s.games.UpdateStatus(ctx, game.ID, game.Status)
+	cancelled, err := s.games.UpdateStatus(ctx, game.ID, game.Status)
+	if err != nil {
+		return domain.Game{}, err
+	}
+
+	// T16.3 cascade: the parent's status write above has already
+	// committed, so this bulk-cancel runs strictly after it — see the
+	// doc comment above for why that ordering (parent first, children
+	// second) is the one that keeps a failure here from ever producing an
+	// active Game with cancelled Registrations.
+	if _, err := s.registrations.CancelAllActiveForGame(ctx, cancelled.ID); err != nil {
+		return cancelled, fmt.Errorf("socialplay: cancelling active registrations for game %s: %w", cancelled.ID, err)
+	}
+
+	return cancelled, nil
 }
 
 // AssignGameAdminInput is the use-case input for assigning a Game Admin

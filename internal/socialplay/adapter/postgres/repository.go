@@ -238,6 +238,24 @@ func (r *RegistrationRepository) UpdatePaymentStatus(ctx context.Context, id str
 	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
 }
 
+// CancelAllActiveForGame implements
+// port.RegistrationRepository.CancelAllActiveForGame (T16.3, partial fix
+// for #124): the bulk cascade app.Service.CancelGame fires after the
+// Game's own status write persists. One statement
+// (db/queries/socialplay.sql's CancelAllActiveRegistrationsForGame),
+// scoped to status <> 'cancelled', so a Registration a player already
+// cancelled before the Host cancelled the Game is left untouched.
+// :execrows hands back the number of rows actually transitioned, which
+// this method surfaces as an int — the count app.Service reports back to
+// its own caller.
+func (r *RegistrationRepository) CancelAllActiveForGame(ctx context.Context, gameID string) (int, error) {
+	n, err := r.q.CancelAllActiveRegistrationsForGame(ctx, mustUUID(gameID))
+	if err != nil {
+		return 0, translateRegistrationErr(err)
+	}
+	return int(n), nil
+}
+
 // translateRegistrationErr maps infrastructure failures onto domain errors
 // — the only errors allowed to cross out of this package (CLAUDE.md rule
 // 5). A 23505 unique_violation on registrations_active_player_per_game_idx
