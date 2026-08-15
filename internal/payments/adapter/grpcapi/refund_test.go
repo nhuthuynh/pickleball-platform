@@ -184,13 +184,13 @@ func TestRefundPayment_Handler_UnknownAndMalformedIDsNotFound(t *testing.T) {
 //
 // FailedPrecondition is the semantically right code here: the request is
 // perfectly well-formed, it's the *system state* that makes the operation
-// illegal, and the caller shouldn't retry until that state changes. Note
-// this diverges from the shared toStatus mapping, which sends
-// ErrIllegalStatusTransition to InvalidArgument for this service's other
-// RPCs — the divergence is deliberate and specified by T12.3, and the
-// resulting service-wide inconsistency is tracked as issue #131 rather than
-// silently reconciled here (changing the other RPCs' codes would be an
-// unrequested breaking change to their wire contract).
+// illegal, and the caller shouldn't retry until that state changes.
+//
+// T13.9 (closing #131) resolved the divergence this comment used to
+// describe: ErrIllegalStatusTransition now maps to FailedPrecondition for
+// *every* RPC in this service, not just RefundPayment, so this test no
+// longer pins a per-RPC exception. The service-wide version of this
+// assertion lives in error_mapping_test.go.
 func TestRefundPayment_Handler_IllegalTransitionFailedPrecondition(t *testing.T) {
 	t.Parallel()
 
@@ -235,13 +235,21 @@ func TestRefundPayment_Handler_IllegalTransitionFailedPrecondition(t *testing.T)
 	})
 }
 
-// TestRefundPayment_Handler_ProcessorFailureInternalAndNotRefunded is
-// T12.3's required processor-failure assertion at the handler boundary: the
-// caller sees Internal, and — the part that actually matters — the Payment
-// is still paid, not silently advanced to refunded. A platform that marks a
-// refund it never made is one that believes it returned money it still
-// holds.
-func TestRefundPayment_Handler_ProcessorFailureInternalAndNotRefunded(t *testing.T) {
+// TestRefundPayment_Handler_ProcessorFailureUnavailableAndNotRefunded is
+// T12.3's required processor-failure assertion at the handler boundary, with
+// T13.9's corrected code: the caller sees Unavailable, and — the part that
+// actually matters, and the part T13.9 did not touch — the Payment is still
+// paid, not silently advanced to refunded. A platform that marks a refund it
+// never made is one that believes it returned money it still holds.
+//
+// T12.3 pinned Internal here. T13.9 (closing #131) changed it to Unavailable
+// service-wide: ErrPaymentProcessorUnavailable means the processor could not
+// complete the request — in both the capture and refund directions nothing
+// moved, so a retry is safe, which is Unavailable's contract. Internal is for
+// broken invariants in our own system. The persistence assertion below is
+// what actually guarantees a failed refund is not mistaken for a completed
+// one; the status code is how the caller is told, not what protects the money.
+func TestRefundPayment_Handler_ProcessorFailureUnavailableAndNotRefunded(t *testing.T) {
 	t.Parallel()
 
 	h, repo, _ := newRefundTestHandler()
@@ -265,7 +273,7 @@ func TestRefundPayment_Handler_ProcessorFailureInternalAndNotRefunded(t *testing
 		PaymentId:     refundBookingPaymentID,
 		BookingHostId: refundBookingHostID,
 	})
-	wantCode(t, err, codes.Internal)
+	wantCode(t, err, codes.Unavailable)
 
 	stored, getErr := repo.GetByID(context.Background(), refundBookingPaymentID)
 	if getErr != nil {
