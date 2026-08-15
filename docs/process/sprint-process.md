@@ -225,32 +225,150 @@ A ticket is only "done" when:
    still good practice for human/PR-review legibility, but it is not
    sufficient by itself and must not be treated as satisfying this step.
 
-   **The review is the moment the close happens** (T13 retro finding 1,
-   recommendation 1(i), adopted at T14's Ceremony 1 §A1). Every PR review
-   **states the issues that PR closes — by number, or explicitly "none" —
-   and the reviewer performs the close before moving to the next ticket.**
-   This is the *symmetric half* of the rule T12's A6 added for issues a PR
-   **opens**: the review template this project evolved has always had a slot
-   for newly disclosed gaps and never had one for resolved ones, so a
-   reviewer scanning their own checklist found nothing missing. Both halves
-   now belong to the same enumeration — opened, closed, and (per "Label
-   taxonomy" below) label-conformant.
+   **The enumeration is mandatory in review; the close at that moment is an
+   optional early close.** Every PR review **states the issues that PR closes —
+   by number, or explicitly "none"**. That sentence is owed by every review
+   without exception: it is the input the sprint-level sweep and the retro both
+   read, and it is the *symmetric half* of the rule T12's A6 added for issues a
+   PR **opens** — the review template this project evolved has always had a slot
+   for newly disclosed gaps and never had one for resolved ones, so a reviewer
+   scanning their own checklist found nothing missing. Opened, closed, each
+   named issue's current state, and label conformance now belong to one
+   enumeration (see "Label taxonomy" below).
+
+   The reviewer **may** perform the close at that moment, and where it is
+   cheap it should: an issue closed at review time never misdescribes the
+   codebase, which is the cost PE's recorded disagreement (below) correctly
+   identifies. But the close is **not owed at that moment**, and a review that
+   enumerates correctly without closing is **not a finding against this step**.
+   The obligation to have closed lands on **the merged-fix issue sweep** in the
+   "Definition of Done (sprint-level)" section, which is the primary and
+   authoritative mechanism.
+
+   *Why the step's shape changed rather than its wording being repeated*
+   (T15.1, from T14 retro finding 1 and recommendation 1;
+   `docs/process/t15-sprint-plan.md` §A4). This step previously read *"the
+   review is the moment the close happens"* and it has now been measured twice:
+   the closing API call was made **0 times out of 9** at that moment in T13, and
+   **0 times out of 6** in T14, in both sprints while every other quality signal
+   was green. T13 followed the **wording** half flawlessly across the same nine
+   PRs — every title correctly said "closes #N" or "partial fix for #N" — which
+   is the whole lesson: a rule that governs the sentence does not govern the
+   act, and restating the same instruction a third time would be the third
+   attempt at a mechanism with a measured 0/15 record. So the timing half is
+   demoted to optional and the named sprint-level task carries the obligation,
+   because a named sprint-level task is the mechanism that has actually produced
+   correct outcomes on this project.
+
+   **The enumeration half is kept, but it is kept on notice, not on a record.**
+   Being honest about its measurement rather than assuming the surviving half is
+   the healthy one: the *wording* rule scored 9/9 in T13 on PR titles, but the
+   *review-level* enumeration line this step requires scored **0 of 9 reviews in
+   T14**, its first sprint (T14 retro finding 5; the single instance was in PR
+   #175's body, the wrong artifact, since this rule binds the review). It is
+   retained rather than reshaped because one sprint is not two, and because
+   unlike the close it is genuinely free — it is a sentence in an artifact the
+   reviewer is already writing. **If it scores zero again in T15, it has the
+   per-PR close's record and is due the same treatment: change its shape, or
+   mechanize it, rather than exhort it a third time.** The retro is asked to
+   score it explicitly.
 
    A PR that resolves only *part* of an issue says so in its title ("partial
    fix for #N"), names the successor issue or ticket that finishes it, and
    **leaves the issue open**. That is an honest half-claim, not a close, and
    it is not a finding against this step.
 
-   *Why the reviewer:* the reviewer is the party with merge authority, so it
-   is the only party positioned to act at the moment the close becomes true.
-   *Why this step is nevertheless not sufficient on its own:* T13 followed
-   the **wording** rule flawlessly across nine PRs — every title correctly
-   said "closes #N" or "partial fix for #N" — and made the closing API call
-   **zero times out of nine**. The lesson is that a rule which governs the
-   sentence does not govern the act. The sprint-level sweep in the
-   "Definition of Done (sprint-level)" section exists precisely because this
-   is the step that gets skipped under dispatch pressure, and it is not
-   optional just because this one was followed.
+### Recovering an interrupted session's work
+
+Implementer sessions can end mid-ticket without opening a PR — most commonly on
+an account-level session limit, which terminates the session wherever it
+happens to be. **The work is usually not lost, but it is only findable if
+someone looks in the right place**, and the place is the interrupted session's
+worktree, not the remote branch list.
+
+Adopted at T15.1 as a named practice from T14 retro finding 2 and
+recommendation 2. It earned the name rather than staying a one-off: it saved
+two 8-point tickets in one sprint (T14.1 → PR #181, T14.4 → PR #182), and
+T14.4's only copy in existence was an **unpushed local commit** — the exact
+shape `docs/LESSONS.md` records (T11.4) as the case that polling and
+branch-listing structurally cannot catch. The same interruption class will
+recur.
+
+**(a) Detect — check the worktree, not just the branch list.** When an
+implementer session ends without a PR, before re-dispatching the ticket,
+inspect that session's worktree for **both** unpushed commits and uncommitted
+working-tree changes. **Listing remote branches is not sufficient and its
+failure is silent:** T14.1 had pushed a commit but written no PR body, so a
+branch listing found it; T14.4 had committed locally and never pushed, so a
+branch listing found **nothing at all** and reported the same "nothing there"
+answer it would give for a session that had done no work. Re-dispatching on
+that answer discards finished work without anyone noticing it existed.
+
+**(b) Verify before trusting, then disclose it in a first-line provenance
+note.** Recovered work has not been through the loop that normally precedes a
+PR, so it is verified from scratch — not read and pronounced fine. At minimum:
+run the toolchain gates the ticket's own DoD requires, re-run the ticket's
+headline verification in a fresh worktree rather than the one being recovered,
+and scan the recovered diff for `TODO`/`FIXME`/unimplemented markers to
+distinguish finished work from work interrupted mid-thought (#182 did exactly
+this before deciding to recover rather than re-dispatch). Any PR opened from
+recovered work then **must** carry a provenance note as the **first** paragraph
+of its body, where it cannot be missed, stating what interrupted the original
+session, what state the work was recovered from, and what was independently
+re-verified. #181 and #182 are the template:
+
+> *#181:* "…after pushing its commit but before writing this PR body. I (the
+> coordinating/reviewing session) am opening the PR on its behalf, after
+> independently reviewing, merge-conflict-resolving, and re-verifying the work
+> from scratch"
+
+> *#182:* "…after committing substantial work locally in its worktree but
+> before pushing or opening a PR. I … recovered the uncommitted work from the
+> worktree, reviewed it, committed it, resolved a clean auto-merge …"
+
+**(c) The safeguard: a recovered PR is reviewed by a party other than the one
+that recovered it, wherever one can be dispatched.** Recovery makes the
+recovering session the author, and this project's standing supported mode (DoD
+step 4 — merging on a reviewing agent's recommended verdict) has *"the review
+was correct"* as its safety property, which presupposes the reviewer is reading
+**someone else's** work. That presupposition does not hold for a
+self-recovered, self-reviewed PR, and the measurement shows it: #181 and #182
+hold T14's two shortest open-to-review windows — **9s and 8s**, against 59s for
+the next shortest — because the reviewer had nothing left to do, having already
+done it as the author.
+
+Where no independent reviewer can be dispatched, **the recovering session states
+that plainly in the PR** — that no independent review was available and the
+review is therefore not independent — and the sprint's retro **independently
+re-derives that PR's headline claim** and records the result, including
+recording it when it did not. (T14's retro discharged this for T14.1 by
+re-running the gate, re-deriving Side A and reproducing the mutation, and stated
+explicitly that it did **not** re-perform T14.4's Host-only mutation check.
+Naming the undischarged half is the practice working, not a gap in it.)
+
+**(d) Never write a safeguard sentence the merge record will contradict.**
+Delete *"I am not merging this myself either"* — and any equivalent — from a PR
+the author does in fact intend to merge. #181 and #182 both carried that
+sentence and were both merged by the same account 14 and 13 seconds later, with
+no other party involved. The intent behind it was right; the sentence was
+false. **A written safeguard that does not exist is worse than an acknowledged
+absence**, because it stops the reader looking for the thing that is missing.
+State the absence instead, per (c).
+
+**Out of scope here — deliberately, and not by oversight: this section does not
+decide whether a reviewing or merging session may author code at all.** It
+governs detection, verification, disclosure and review independence, and it
+grants no exception to CLAUDE.md rule 9. The underlying permission question —
+may the session that reviews and merges a PR also be the one that wrote it,
+whether by recovering an interrupted agent's work or by fixing a gap it finds
+in someone else's PR — is a **rulebook** question, above this document's
+altitude, and is being put to the user as **DECISION D2** via ADR-0016 (T15.2,
+`docs/process/t15-sprint-plan.md` §A6). Do not read this section as a rule-9
+carve-out, and in particular **do not read it as licensing a reviewer to fix
+gaps it finds in a PR under review** — that is the separate case ADR-0016
+covers, and treating the two as one question would pre-empt the escalation.
+Until D2 is answered, the practice above applies to the case it was written
+for: work an interrupted session had already finished.
 
 ## Ceremony 3 — Sprint retro (end of sprint)
 
@@ -360,6 +478,39 @@ issues were non-conformant as a result (#165 missing `role:`, #167 unlabelled
 entirely, #168 carrying `type:tech-debt` plus two then-unsanctioned
 `context:*` labels). All three were relabelled when this taxonomy landed.
 
+**Each named issue's current state is read from the API, not from memory.**
+Added at T15.1 from T14 retro recommendation 4. Whenever a review names an
+issue — as opened, as closed, as partially fixed, or as a still-open gap it is
+declining to fix — it reports that issue's `state` as fetched, in the same
+`issue_read` call the label check is already making. **The cost is one field on
+a call already being made**, which is the whole argument for it; nothing new is
+fetched and no new step is added.
+
+The failure it catches is not hypothetical. PR #178's body and PR #178's own
+review **both** described **#97** as a still-open gap the PR was leaving alone
+(*"the disclosed #97 gap"*, *"the separate, still-open #97 gap"*). #97 was
+closed — `state: closed`, `state_reason: completed`, `closed_at:
+2026-08-13T14:45:54Z`, closed two days earlier by T11.8's retroactive sweep —
+**and was never about that gap in the first place**; its subject is
+malformed-ID guards on write handlers. Two parties asserted an issue's state
+and subject from memory, agreed with each other, and were both wrong, which is
+exactly the shape a second reader cannot catch. The residual PR #178 actually
+disclosed was consequently tracked nowhere until T15's Ceremony 1 filed it as
+**#185**.
+
+**Stated plainly, because this clause is being added to an enumeration that has
+not yet been performed once.** The label-conformance check above scored **0 of
+9 reviews in T14**, its first sprint, as did the closure-enumeration line in DoD
+step 5 (T14 retro finding 5). Adding a third clause to an unperformed
+enumeration is defensible only on the grounds that all of it is one sentence in
+an artifact the reviewer already writes, and that one sprint is not a record.
+**It is not defensible twice.** If T15's reviews again score zero on this
+enumeration, the correct response is a mechanical check — the retro's own
+suggestion was a `make label-conformance` target run against the live API — and
+**not** a fourth clause or a fourth restatement. The T15 retro is asked to score
+this enumeration explicitly and by count, in the same form: *reviews carrying
+it, of reviews written.*
+
 **Sprint-plan fields** — recorded in `docs/process/t<N>-sprint-plan.md`'s
 ticket entry, **not** as GitHub labels, because in-sprint tickets no longer
 have issues to label:
@@ -382,13 +533,20 @@ human question *and* the automated gate, forever, because nobody wrote down
 that the first was temporary. This table is that written record, so the
 removing ceremony **executes a plan rather than re-making a judgement**.
 
-| Practice | Adopted | Removal condition | Removed by |
-|---|---|---|---|
-| **The dual coverage question** added to Ceremony 1's dependency-completeness check: *"for every gate, glob, or shared coverage artifact a ticket produces, which other in-flight tickets' outputs must it cover?"* | T14 Ceremony 1 (§A5), from T13 retro recommendation 4 — **explicitly for one sprint only** | **T14.1 merges** (the run-time gate-coverage check: computes both sides from `go list` + a source scan at run time, fails when a package holding a `func Test` is executed by no gate, and contains no hand-maintained package list). Once a gate computes this mechanically, asking a human the same question every sprint is the second shape. | **T15's Ceremony 1** — drop the question; it does **not** become a fourth standing planning question. If T14.1 did *not* merge, the question is carried one more sprint and this row's condition is re-checked at T16, unchanged. |
+| Practice | Adopted | Removal condition | Removed by | Status |
+|---|---|---|---|---|
+| **The dual coverage question** added to Ceremony 1's dependency-completeness check: *"for every gate, glob, or shared coverage artifact a ticket produces, which other in-flight tickets' outputs must it cover?"* | T14 Ceremony 1 (§A5), from T13 retro recommendation 4 — **explicitly for one sprint only** | **T14.1 merges** (the run-time gate-coverage check: computes both sides from `go list` + a source scan at run time, fails when a package holding a `func Test` is executed by no gate, and contains no hand-maintained package list). Once a gate computes this mechanically, asking a human the same question every sprint is the second shape. | **T15's Ceremony 1** — drop the question; it does **not** become a fourth standing planning question. If T14.1 did *not* merge, the question is carried one more sprint and this row's condition is re-checked at T16, unchanged. | **REMOVED at T15's Ceremony 1 (2026-08-15)**, on schedule, by executing the plan in this row rather than re-making the judgement. Condition verified three ways: T14.1 merged as **PR #181**, `merged_at` **13:23:26Z** (fetched, not assumed from numbering); **`make gate-coverage` green at 41 packages**, with side B printed as five `go test` invocations parsed out of the `Makefile` itself; and it is reachable from the gate — `Makefile:326` lists `gate-coverage` in `ci-checks`. The question was accordingly **not** asked in T15's dependency-completeness check (`docs/process/t15-sprint-plan.md` §A7, §A12) and did not become a fourth standing planning question. |
 
 Adding a row here is the price of adopting a temporary practice: if a
 ceremony cannot state the condition under which a new question goes away, it
 is proposing a permanent one and should say so.
+
+**Removed rows stay in this table as history; they are not deleted.** The
+table's value is that a reader can see a temporary practice was actually
+retired on schedule — which is exactly what becomes unreadable if retired rows
+vanish, leaving an empty table indistinguishable from a project that never
+adopted a stopgap or never removed one. A `Status` cell reading REMOVED is the
+evidence that the mechanism works.
 
 ## Definition of Done (sprint-level)
 
@@ -402,12 +560,15 @@ sprint to resume from.
 ### The merged-fix issue sweep
 
 **No issue may remain open whose fix merged this sprint.** This is the
-sprint-level backstop to the per-ticket DoD step 5 above, adopted at T14's
-Ceremony 1 (§A1) from T13 retro finding 1 and recommendation 1(ii). It exists
-because the per-PR step failed silently nine times out of nine while every
-other quality signal in that sprint was green.
+**primary** mechanism for that property, and the obligation DoD step 5's
+optional early close does not carry. Adopted at T14's Ceremony 1 (§A1) from T13
+retro finding 1 and recommendation 1(ii) as a *backstop*; promoted to primary at
+T15.1, after the per-PR moment scored 0/9 in T13 and 0/6 in T14 while every
+other quality signal in both sprints was green (T14 retro finding 1;
+`docs/process/t15-sprint-plan.md` §A4).
 
-**Who runs it, and when — two moments, deliberately:**
+**Who runs it, and when — two sanctioned moments, plus a third that occurs in
+practice and is named here rather than left unscored:**
 
 1. **The retro (Ceremony 3) runs it and *reports* it. The retro does not
    block on it.** A retro that cannot be held until a bookkeeping sweep is
@@ -422,6 +583,57 @@ other quality signal in that sprint was green.
    property actually lives: a different session, on a different day's work,
    already re-reading the issue list in order to rank it. Ranking a backlog
    off an unswept list re-ranks work that is already finished.
+3. **The third state, named: the merging session sweeps its own work at sprint
+   end.** This is neither moment above, and it is what T14 actually did — six
+   closes, every one correct, every one citing its resolving PR, all landing
+   inside an **eleven-second window 65 seconds after the sprint's last ticket
+   merged**, performed by the party that had just merged them, between 26
+   minutes and 6h45m after the PRs that earned them (T14 retro finding 1,
+   re-checked at `docs/process/t15-sprint-plan.md` §A4). It is named here
+   because the scoring condition below originally enumerated only two branches
+   — the per-PR step ran, or the sweep fired — and a sprint landing in this
+   third state could be scored as neither, which is a defect in the rule, not
+   in the sprint.
+
+   **Classification: acceptable-but-not-sufficient.**
+
+   - **Acceptable**, because the outcome is the one this rule exists to
+     produce. The issue list was correct before the sprint closed, each close
+     named its PR, and the arithmetic reconciled. This is not scored as a
+     failure and a sprint that does it is not in violation.
+   - **Not sufficient**, because *"a party other than the merger"* — the
+     property moment 2 exists to supply — **is not obtained**. A session
+     sweeping its own merges cannot catch the one error class that matters
+     here: having misread its own merge. It re-reads its own conclusions and
+     finds them consistent, which is what T14's six-for-six record measures and
+     also what it cannot distinguish itself from. The eleven-second window is
+     the same signature as the 9s/8s review windows in "Recovering an
+     interrupted session's work" (c) above, and it means the same thing.
+   - **Also not sufficient in time.** The issue list misdescribed the codebase
+     for up to 6h45m *inside* the sprint — which is worse than the
+     between-sprints window PE's recorded disagreement (below) predicted, and
+     is why that disagreement is only half-resolved rather than dismissed.
+
+   **Consequence, stated so it cannot be inferred away: a self-sweep does not
+   discharge the next Ceremony 1's run.** Moment 2 re-runs the arithmetic
+   anyway, in full, and does not shorten it on the strength of the previous
+   sprint having swept itself. "The merger already checked" is not a reason to
+   skip the check whose entire purpose is that the merger is not the one
+   checking.
+
+   **This rule has been run once, and it earned its keep on the first run.**
+   T15's Ceremony 1 (`docs/process/t15-sprint-plan.md` §A0) re-ran the sweep
+   over T14's self-swept list: the closes were confirmed correct and the
+   arithmetic reconciled exactly (`19 − 6 + 0 = 13`, matching `totalCount`), so
+   the self-sweep's *closes* were sound — and the independent run still found
+   what the self-sweep had not, because it was looking at a different half of
+   the rule. **Three partial-fix issues (#147, #168, #149) were correctly left
+   open but carried no written sentence saying why or naming a successor** — the
+   sweep's second disposition requires that sentence, and T14 wrote it 1 time in
+   4 — **and one residual (#185) was tracked nowhere at all**, having been
+   disclosed in PR #178 and misattributed to an issue that was already closed
+   and had never been about it. All four are now written on the issues
+   themselves rather than in a plan document no reader of the issue list opens.
 
 **The sweep itself — three steps, the first of which is one API call:**
 
@@ -476,17 +688,47 @@ single backlog item was ranked (`docs/process/t14-sprint-plan.md` §A0). The
 amendment carries its own evidence rather than a hope.
 
 **Recorded disagreement — PE, per "do not manufacture consensus" (Ceremony 2
-rule 3).** PE holds that placing the *authoritative* sweep in the next sprint
-means the issue list misdescribes the codebase for the entire gap between
-sprints, and that this is a real cost: anyone reading the repository in that
-window sees finished work as open. PE's position is that the per-PR half (DoD
-step 5) must be primary and the sweep merely a rarely-firing backstop. PO's
-answer is that the per-PR half is exactly the half that failed 9/9 under
-dispatch pressure, so the backstop is what makes the property real. **Both are
-adopted; which is primary is not resolved.**
+rule 3) — now resolved, with PE's cost confirmed.** PE held that placing the
+*authoritative* sweep in the next sprint means the issue list misdescribes the
+codebase for the entire gap between sprints, and that this is a real cost:
+anyone reading the repository in that window sees finished work as open. PE's
+position was that the per-PR half (DoD step 5) must be primary and the sweep
+merely a rarely-firing backstop. PO's answer was that the per-PR half is exactly
+the half that failed 9/9 under dispatch pressure.
 
-> **Scoring condition.** If every ticket that closes an issue follows DoD step
-> 5 and the sweep therefore finds nothing, PE is right and the sweep should
-> stay a cheap backstop. **If the sweep fires again**, PO is right that the
-> per-PR moment is the one that gets skipped, and the next retro should
-> strengthen the sprint-level half rather than re-exhort the per-PR one.
+**Resolved at T15.1 by two sprints of measurement, and the resolution splits the
+two claims apart:**
+
+- **PE's cost claim is confirmed, and was understated.** T14's issue list
+  misdescribed the codebase for up to **6h45m**, and that window fell *inside*
+  the sprint rather than between sprints. The cost is real and is now recorded
+  in the third state's classification above rather than treated as
+  hypothetical.
+- **PE's proposed remedy is not adopted.** Making the per-PR step primary is
+  the remedy that has now been tried twice and produced **0/9** and **0/6**.
+  The mechanism that produced T14's correct outcome was a *named sprint-level
+  task*, not the per-PR step. So the sprint-level sweep is **primary** (this
+  section), and the per-PR close becomes an **optional early close** (DoD step
+  5) which is where PE's cost argument is actually served — closing early is
+  encouraged precisely because it shortens the misdescription window, but
+  nothing depends on it happening.
+- **The per-PR step is not exhorted a third time.** Changing a rule's shape is
+  the response to a mechanism that scores zero; repeating it louder is not.
+
+> **Scoring condition (replaces the two-branch version, which T14 landed
+> outside of — that gap is the defect this rewrite fixes).** Score each sprint's
+> closure record into exactly one of three states, and record which:
+>
+> 1. **Closed at review time, per-PR** (DoD step 5's optional early close) —
+>    the misdescription window is near zero. Good; nothing to change.
+> 2. **Closed by a sweep run by a party other than the merger** — the
+>    designed path. Good; the property holds.
+> 3. **Closed by the merging session sweeping its own work** —
+>    acceptable-but-not-sufficient, per the third state above. The next
+>    Ceremony 1 runs the full sweep regardless and reports what it found.
+>
+> **Only one outcome is a failure: an issue whose fix merged this sprint is
+> still open when the next Ceremony 1 sweeps.** If that happens, the sweep's
+> mechanics — not its exhortation — are what the next retro strengthens; a
+> repeat of state 3 across two more sprints is a signal to automate the sweep,
+> not to re-word it.
