@@ -2,8 +2,10 @@ package postgres
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -166,9 +168,38 @@ func fromEndConditionColumns(kind string, date pgtype.Timestamptz, occurrences p
 // discount lookup. Neither discount query can return pgx.ErrNoRows today
 // (Create is an INSERT ... RETURNING that either inserts or fails, and
 // ListForFacility is a :many whose no-match is an empty slice), so there is
-// no sentinel to map yet — the point is that reusing a Booking-flavored
-// translator would silently mismap the moment a `:one` discount read is
-// added.
+// no ErrNoRows sentinel to map here.
+//
+// T17.4 (issue #195) added the 23503 arm below: discount_rules.facility_id
+// (db/migrations/0017_booking_discount_rules.sql) "REFERENCES facilities
+// (id)". Note for reviewers of #195's own table, which names this file as
+// living under internal/facilities: it doesn't. discount_rules is a Booking
+// table (0017_booking_discount_rules.sql, migration-numbered and owned by
+// T11.2's sprint, not T7.3's), and CreateDiscountRule's whole write path —
+// domain.DiscountRule, port.DiscountRuleRepository, and this adapter — lives
+// entirely in internal/booking; internal/facilities never sees a
+// DiscountRule. #195's table is right about the FK and the guarding read
+// (app.Service.CreateDiscountRule calls s.facilities.EnsureFacilityOwner,
+// Booking's own port.FacilityLookup, before persisting — see service.go),
+// just not about which context's adapter file the fix belongs in. Checked
+// against the live tree rather than carried forward from the ticket, per
+// this ticket's own instruction to confirm rather than assume (and CLAUDE.md
+// rule 10) — mirroring PR #191/T15.6 §1's identical re-verification.
+//
+// Reuses domain.ErrFacilityNotFound — Booking's own copy of that sentinel
+// (see domain/errors.go; every context keeps this sentinel local rather than
+// importing another context's domain, per CLAUDE.md rule 3), already mapped
+// to codes.NotFound in adapter/grpcapi/handler.go's toStatus and already
+// exercised by error_mapping_test.go's "unknown or malformed facility id"
+// row via CreateDiscountRule's app-level EnsureFacilityOwner guard. That row
+// proves the guard's own miss maps correctly; it does not by itself prove
+// this new 23503 arm returns the same value on the branch it added — see
+// discount_foreign_key_test.go for that (T17.4 instruction 2's "check, don't
+// assume").
 func translateDiscountErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+		return domain.ErrFacilityNotFound
+	}
 	return fmt.Errorf("discount postgres adapter: %w", err)
 }

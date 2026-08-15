@@ -12,12 +12,52 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/nhuthuynh/white-label/internal/facilities/domain"
 	facilitiesdb "github.com/nhuthuynh/white-label/internal/gen/facilitiesdb"
 )
+
+// pgForeignKeyViolation is Postgres' foreign_key_violation SQLSTATE (23503):
+// the row being written names a parent row that does not exist. On this
+// adapter's writes that means one thing — a facility_id that names no row in
+// facilities(id) — because both writes that carry a facility_id
+// (AddCourt -> courts.facility_id, AddCameraLink ->
+// facility_camera_links.facility_id, both db/migrations/0010_facilities.sql)
+// FK to the same parent table. T17.4 (issue #195), mirroring T15.6/#185's
+// identical shape for bookings.court_id.
+//
+// Before this ticket both AddCourt and AddCameraLink were reached only after
+// app.Service's own GetFacilityByID guard already confirmed the Facility
+// exists (see internal/facilities/app/service.go), so this arm was
+// unreachable in the non-racing case — issue #195's own table lists this
+// exact pair as "guarded by a read, not a translation". Under a concurrent
+// delete of the Facility landing between that guard's read and this INSERT,
+// the 23503 fired here, fell through to the wrapped default below, and
+// answered codes.Internal (a 500) for what is — at the moment it happens — a
+// legitimate, client-visible "no such Facility" condition, the same shape
+// #185 fixed for a narrower window on bookings.court_id.
+//
+// The constraint name is deliberately not part of the match, mirroring
+// booking's identical 23503 arm and its own comment on why: Postgres names
+// FKs from the table/column by default (courts_facility_id_fkey,
+// facility_camera_links_facility_id_fkey — confirmed against
+// db/migrations/0010_facilities.sql), but matching on that string would make
+// the mapping silently fall back to Internal the day a migration renames
+// either constraint.
+//
+// facility_camera_links also carries a nullable court_id FK
+// (0010_facilities.sql) that this same 23503 code could in principle signal,
+// but AddCameraLink never populates CourtID from any RPC today (T7.2's
+// AddCameraLink only ever appends facility-wide links — see that method's
+// own doc comment) — PR #191/T15.6's sibling sweep called this path
+// "structurally unreachable" for the same reason. If a future ticket wires a
+// per-court camera link, this arm will need to stop assuming every 23503
+// here means ErrFacilityNotFound; flagging that here rather than leaving it
+// to be rediscovered.
+const pgForeignKeyViolation = "23503"
 
 type Repository struct {
 	q *facilitiesdb.Queries
@@ -178,6 +218,17 @@ func (r *Repository) cameraLinksFor(ctx context.Context, facilityID string) ([]d
 // translateErr maps infrastructure failures onto domain errors — the only
 // errors allowed to cross out of this package (CLAUDE.md rule 5).
 func translateErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+		// T17.4 (issue #195): AddCourt/AddCameraLink's facility_id FK firing
+		// on a since-deleted Facility. See pgForeignKeyViolation's doc
+		// comment above for why this is safe to map generically. Reuses
+		// ErrFacilityNotFound rather than a new sentinel — the caller-visible
+		// fact in this race case ("no such Facility") is identical to
+		// GetFacilityByID's own non-racing miss, and toStatus already maps
+		// this sentinel to codes.NotFound.
+		return domain.ErrFacilityNotFound
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrFacilityNotFound
 	}
