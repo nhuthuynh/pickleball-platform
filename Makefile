@@ -1,4 +1,4 @@
-.PHONY: test-domain test-platform test-tools generate generate-client tidy test vet-integration up down lint lint-web test-web test-web-ci \
+.PHONY: test-domain test-platform test-tools generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
         build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
@@ -88,6 +88,53 @@ down:
 
 lint:
 	golangci-lint run ./...
+
+# The formatting gate. Added T14.2; before it `make ci` had NO formatting
+# check at all (`grep -n gofmt Makefile Jenkinsfile` returned nothing), so
+# gofmt was enforced by review convention only. That is how two lines of
+# struct-field alignment in internal/socialplay/domain/game.go survived nine
+# PRs and three reviews which each independently re-observed them and
+# correctly declined to fix an unrelated file inside their own scoped diff
+# (#165). Every refusal was right; the outcome was still that nothing
+# happened, because no gate owned the repository.
+#
+# This is ADDITIVE, not a duplicate of `lint`: .golangci.yml runs
+# `default: none` plus errcheck/govet/ineffassign/staticcheck/unused and
+# declares no `formatters` section, so `golangci-lint run ./...` reported
+# "0 issues" on that exact unformatted file. Verified in T14.2's PR.
+#
+# `gofmt -l` prints the paths of files whose formatting differs from gofmt's
+# and exits 0 either way, so the non-empty OUTPUT is the failure signal, not
+# the exit code. A bare `gofmt -l ./...` as a recipe line would therefore
+# pass silently on a mis-formatted tree — hence the capture-and-test below.
+# Deliberately `-l` (list) and never `-w` (write): a gate that rewrites the
+# agent's checked-out source reports green precisely by destroying the
+# evidence it exists to surface, and leaves the workspace dirty.
+#
+# `set -e` matters: without it, a gofmt invocation that dies (e.g. a file
+# with a syntax error) yields empty output and the gate would PASS on a tree
+# it never actually checked.
+#
+# Scope is the Go tree: ./internal ./cmd ./tools. That INCLUDES the
+# gitignored internal/gen, deliberately — which is also why this target sits
+# AFTER `generate` in ci-checks rather than before it, so the set of files
+# checked is identical on a clean checkout and a warm one instead of
+# silently depending on whether codegen had been run. All 47 generated files
+# are gofmt-clean today (buf's and sqlc's Go plugins format their output). If
+# a future plugin ever emits unformatted code, CLAUDE.md rule 6 forbids
+# hand-editing it and the fix is to narrow the path list here — not to drop
+# the gate.
+fmt-check:
+	@set -e; \
+	unformatted="$$(gofmt -l ./internal ./cmd ./tools)"; \
+	if [ -n "$$unformatted" ]; then \
+	  echo "fmt-check: FAIL — these files are not gofmt-formatted:"; \
+	  for f in $$unformatted; do echo "    $$f"; done; \
+	  echo; \
+	  echo "Inspect with 'gofmt -d <file>', fix with 'gofmt -w <file>', then commit."; \
+	  exit 1; \
+	fi; \
+	echo "fmt-check: OK — gofmt clean across ./internal ./cmd ./tools."
 
 # The web equivalent of `make lint`. web/package.json has no eslint setup,
 # so there is no `lint` script to call; `type-check` (vue-tsc) is the real
@@ -190,7 +237,12 @@ loadtest:
 # build on any agent that cannot reach vuln.go.dev, which ADR-0011 section 3
 # forbids ("findings UNKNOWN, never no findings"). So: Jenkins runs
 # ci-checks, then its own scan. Local `make ci` still runs both, unchanged.
-ci-checks: generate tidy lint test-domain test-platform vet-integration test-tools generate-client lint-web test-web build-web
+#
+# `fmt-check` is placed after `generate` on purpose — see that target's
+# comment: it covers ./internal, which contains the gitignored internal/gen,
+# so running it before codegen would check a different (smaller) set of files
+# on a clean checkout than on a warm one.
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.

@@ -66,6 +66,12 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
 - `make test` — full suite: race + JUnit + coverage.
 - `make up` / `make down` — run / tear down via docker compose.
 - `make lint` — golangci-lint.
+- `make fmt-check` — fails if `gofmt -l ./internal ./cmd ./tools` names any
+  file. Part of `make ci-checks` (after `generate`). Added T14.2; before it
+  there was no formatting gate anywhere, and `.golangci.yml` enables no
+  formatter, so `make lint` does not cover this — the two checks are
+  additive. Never use `gofmt -w` as the gate: it would rewrite CI's checkout
+  and report green.
 
 ## Architecture
 ```
