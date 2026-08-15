@@ -7,11 +7,41 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
 	bookingdb "github.com/nhuthuynh/white-label/internal/gen/bookingdb"
+)
+
+// recurring_hire_templates carries TWO FK-backed references
+// (0018_booking_recurring_hire_templates.sql), unlike bookings' single
+// court_id FK (repository.go's translateErr): court_id -> courts(id) and
+// requested_by_user_id -> identity_users(id). Both are guarded by an
+// app-level read before the INSERT — app.Service.RequestRecurringHire calls
+// port.FacilityLookup.FacilityIDForCourt then port.IdentityLookup.
+// EnsureClubRole (T11.5) — so in the ordinary case a 23503 here can only
+// fire on a race: the parent existed when the guard read it and is gone by
+// the time this INSERT runs (T17.5, issue #195, mirroring #185/T15.6's
+// identical shape for bookings.court_id on a narrower window).
+//
+// Because there are two FKs sharing one violation code, unlike translateErr's
+// single-FK table, the constraint name IS load-bearing here: it is the only
+// signal that tells the two apart, and pgconn.PgError does not set
+// ColumnName for a foreign_key_violation (only ConstraintName and TableName
+// are populated for that SQLSTATE). Both names below are Postgres' default
+// for an unnamed inline REFERENCES clause (`<table>_<column>_fkey`) —
+// 0018_booking_recurring_hire_templates.sql declares neither FK with an
+// explicit CONSTRAINT name, so nothing here renames them out from under this
+// mapping. An unrecognized (or absent) constraint name deliberately falls
+// through to the wrapped Internal default rather than guessing which parent
+// was missing — the same fail-closed-on-the-unknown-case discipline
+// translateErr's own "23503 without a constraint name still translates"
+// case explains is safe there only because that table has exactly one FK.
+const (
+	pgRecurringHireTemplateCourtIDFKey           = "recurring_hire_templates_court_id_fkey"
+	pgRecurringHireTemplateRequestedByUserIDFKey = "recurring_hire_templates_requested_by_user_id_fkey"
 )
 
 // RecurringHireRepository implements port.RecurringHireRepository (T11.5)
@@ -197,7 +227,45 @@ func fromRecurringEndConditionColumns(kind string, date pgtype.Timestamptz, occu
 // domain.ErrRecurringHireTemplateNotFound, which GetByID and UpdateStatus can
 // both genuinely return (an UPDATE ... RETURNING that matches no row yields
 // pgx.ErrNoRows).
+//
+// T17.5 (issue #195) adds the two 23503 arms below, on Create only (GetByID
+// and UpdateStatus write no FK-backed columns). Both reuse a sentinel this
+// context already has, rather than a new one — the caller-visible fact in
+// the race case is identical to the one each column's own guarding read
+// already answers in the non-racing case (#195's own reasoning, and the
+// principle T15.6/#185 established first):
+//
+//   - court_id: adapter/facilities.Lookup.FacilityIDForCourt already answers
+//     domain.ErrFacilityNotFound for "no such Court" — see that method's own
+//     doc comment ("Both 'no such Court' and 'a Court belonging to no
+//     Facility' ... come back as domain.ErrFacilityNotFound"). This is
+//     NOT domain.ErrInvalidCourtReference, the sentinel repository.go's
+//     translateErr uses for bookings.court_id's own FK: that sentinel
+//     belongs to CreateBooking's call site, whose app-layer guard
+//     (uuidShape only) and RPC-level meaning differ from
+//     RequestRecurringHire's — a Court naming no Facility is specifically
+//     rejected here because approval requires a Facility Owner (see
+//     domain/errors.go's ErrFacilityNotFound comment and
+//     app/recurring_hire.go's RequestRecurringHire doc comment). One
+//     sentinel per concept per call site, not one sentinel per column.
+//   - requested_by_user_id: adapter/identity.Lookup.EnsureClubRole (via its
+//     shared translate helper) already answers domain.ErrUserNotFound for
+//     "no such User" — issue #164's description of this exact call site.
+//
+// Both sentinels already have a codes.PermissionDenied/NotFound row apiece
+// in adapter/grpcapi's toStatus exhaustiveness table (T14.7) from their
+// existing raise sites, so this ticket adds no new table row — see that
+// table's own comments for why each code was chosen.
 func translateRecurringHireErr(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == pgForeignKeyViolation {
+		switch pgErr.ConstraintName {
+		case pgRecurringHireTemplateCourtIDFKey:
+			return domain.ErrFacilityNotFound
+		case pgRecurringHireTemplateRequestedByUserIDFKey:
+			return domain.ErrUserNotFound
+		}
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.ErrRecurringHireTemplateNotFound
 	}

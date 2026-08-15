@@ -382,7 +382,11 @@ func toStatus(err error) error {
 		// so both arrive here as the same sentinel and get the same code.
 		// T11.5 also routes an unresolvable CourtID on RequestRecurringHire
 		// here: a Court naming no Facility is a request that could never be
-		// approved, and NotFound is the honest answer for it.
+		// approved, and NotFound is the honest answer for it. T17.5 (#195)
+		// adds a third raise site with the same meaning: a 23503 on
+		// recurring_hire_templates.court_id, when a concurrent delete races
+		// RequestRecurringHire's FacilityIDForCourt guard — see
+		// domain/errors.go's ErrFacilityNotFound comment.
 		errors.Is(err, domain.ErrFacilityNotFound),
 		// An unknown or malformed template id on approve/reject (T11.5).
 		errors.Is(err, domain.ErrRecurringHireTemplateNotFound),
@@ -403,7 +407,10 @@ func toStatus(err error) error {
 		// non-club actor has, and answering NotFound for the unresolvable
 		// case would turn RequestRecurringHire — an unauthenticated endpoint
 		// — into a user-enumeration oracle. See the sentinels' own doc
-		// comments in domain/errors.go.
+		// comments in domain/errors.go. T17.5 (#195) adds a third raise site
+		// for ErrUserNotFound with the same meaning: a 23503 on
+		// recurring_hire_templates.requested_by_user_id, when a concurrent
+		// delete races RequestRecurringHire's EnsureClubRole guard.
 		errors.Is(err, domain.ErrUserNotFound),
 		errors.Is(err, domain.ErrNotClub):
 		// PermissionDenied, mirroring facilities' own grpcapi mapping for

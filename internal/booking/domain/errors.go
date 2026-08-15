@@ -98,6 +98,17 @@ var (
 	// or grpcapi layers — the identical reasoning
 	// internal/socialplay/domain.ErrFacilityNotFound's own comment gives
 	// for keeping a per-context copy rather than importing one.
+	//
+	// T17.5 (issue #195) adds a second raise site for ErrFacilityNotFound,
+	// deliberately reusing rather than adding a parallel sentinel:
+	// adapter/postgres.translateRecurringHireErr, on a 23503
+	// foreign_key_violation from recurring_hire_templates.court_id
+	// REFERENCES courts(id). RequestRecurringHire's app-level guard
+	// (FacilityIDForCourt) already answers this sentinel for "no such
+	// Court" in the non-racing case; the FK only fires when a concurrent
+	// delete removes the Court between that guard's read and this INSERT —
+	// the same narrow-window shape #185/T15.6 fixed for bookings.court_id,
+	// on a call site guarded by a read instead of unguarded.
 	ErrFacilityNotFound = errors.New("booking: facility not found")
 	ErrNotFacilityOwner = errors.New("booking: actor is not authorized to modify this facility")
 
@@ -135,6 +146,17 @@ var (
 	// actor has, and answering NotFound for the unresolvable case would turn
 	// RequestRecurringHire, an unauthenticated endpoint, into a
 	// user-enumeration oracle that reports which user ids exist.
+	//
+	// T17.5 (issue #195) adds a second raise site for ErrUserNotFound:
+	// adapter/postgres.translateRecurringHireErr, on a 23503
+	// foreign_key_violation from
+	// recurring_hire_templates.requested_by_user_id REFERENCES
+	// identity_users(id). RequestRecurringHire's app-level guard
+	// (EnsureClubRole, issue #164's call site) already answers this
+	// sentinel for "no such User" in the non-racing case; the FK only fires
+	// when a concurrent delete removes the User between that guard's read
+	// and this INSERT. Reused rather than a parallel sentinel, per the same
+	// reasoning ErrFacilityNotFound's comment above gives.
 	ErrUserNotFound = errors.New("booking: user not found")
 	ErrNotClub      = errors.New("booking: actor does not hold the club role")
 )
