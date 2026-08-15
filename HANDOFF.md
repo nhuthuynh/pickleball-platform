@@ -35,7 +35,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 
 | T14 | `docs/process/t14-sprint-plan.md` (Ceremony 1 closes the nine issues T13 fixed but never closed **as its first act**, before ranking — the first live test of the "correct the previous sprint's row" amendment T13 itself added; re-measures #157's gate gap and finds 22 packages, not the 20 its title claims; surfaces #144's product decision as **D1**, escalated to the user rather than guessed; decides the label taxonomy; Ceremony 2 tickets 9 items, 39 points, threading all ten T13-retro recommendations into ticket text) | `docs/process/t14-retro.md` (6 findings, 2 recorded as unresolved disagreements, all three owed scorings resolved plus both escalated decisions re-verified untouched, 10 recommendations for T15's ceremonies; indexed from `docs/LESSONS.md`'s `## T14 sprint retro`) | PRs #174 (Ceremony 1/2 doc) → #175 (T14.6) → #176 (T14.3) → #177 (T14.2) → #178 (T14.8) → #179 (T14.7) → #180 (T14.9) → #181 (T14.1) → #182 (T14.4) → #183 (T14.5) → #184 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention — this sprint's merge order and numeric order agree, which was only knowable by checking) — all merged, all reviewed via GitHub review comments, see naming convention. **Two of these PRs (#181, #182) were authored, reviewed and merged by the same session** recovering interrupted implementers' work, 14 and 13 seconds from open to merge — see the retro's finding 2 | `adr/0015` (T14.3: what owns a Booking made through the public quote-and-book flow — **four** options, costs stated, **decision escalated to the user**, trigger tied to the answer and not a sprint boundary; distinguished from ADR-0012's Q1/Q2, which are blocked indefinitely rather than merely unanswered) | — |
 
-| T15 | `docs/process/t15-sprint-plan.md` (Ceremony 1 runs the merged-fix sweep as its first act — clean on closures, but finds three unwritten partial-fix sentences and one entirely untracked residual, filed as #185; sweeps the label taxonomy across the whole open list; **executes the scheduled removal** of the dual coverage question on its stated condition; re-titles #147; records #144's third deferral as a **finding** and puts D1 to the user as its own item; Ceremony 2 tickets 7 items, 34 points, giving each of T14 retro's ten recommendations a disposition) | not yet written | not yet opened | `adr/0016` (T15.2: may a session that reviews and merges a PR also author code on it — **DECISION D2, escalated to the user rather than decided by the team**, because CLAUDE.md rule 9's own text names that judgement call as the failure mode it exists to remove; three options incl. a fully-specified carve-out the user can approve directly) | — |
+| T15 | `docs/process/t15-sprint-plan.md` (Ceremony 1 runs the merged-fix sweep as its first act — clean on closures, but finds three unwritten partial-fix sentences and one entirely untracked residual, filed as #185; sweeps the label taxonomy across the whole open list; **executes the scheduled removal** of the dual coverage question on its stated condition; re-titles #147; records #144's third deferral as a **finding** and puts D1 to the user as its own item; Ceremony 2 tickets 7 items, 34 points, giving each of T14 retro's ten recommendations a disposition) | `docs/process/t15-retro.md` (7 findings, three live bookkeeping corrections performed during the ceremony itself — #185 and #137 closed, #149 corrected — 7 recommendations for T16's ceremonies; indexed from `docs/LESSONS.md`'s `## T15 sprint retro`) | PRs #186 (Ceremony 1/2 doc) → #187 (T15.2) → #188 (T15.1) → #189 (T15.7) → #190 (T15.3) → #191 (T15.6) → #192 (T15.4) → #193 (T15.5) → #194 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention — this sprint's merge order and numeric order agree, which was only knowable by checking) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0016` (T15.2: may a session that reviews and merges a PR also author code on it — **DECISION D2, escalated to the user rather than decided by the team**, because CLAUDE.md rule 9's own text names that judgement call as the failure mode it exists to remove; four options incl. a fully-specified carve-out the user can approve directly) | — |
+| T16 | `docs/process/t16-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep, corrects this row, files the FK-race residual T15.6 disclosed as **#195**, corrects a stale issue — **#125** — found to already be resolved by T10.6/#96 and re-titled to what it actually still tracks, resolves the carried T15-plan §A11 disagreement on #124 by taking its Registrations/Entries half; Ceremony 2 tickets 3 items, 16 points) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -664,21 +665,91 @@ were closed* must not be softened.
 contradictions get resolved into text.** Ceremony 1/2 complete; full ticket
 breakdown, the sweep result, the whole-backlog ranking, the dependency-completeness
 check and every T14-retro recommendation's disposition:
-`docs/process/t15-sprint-plan.md`. 7 tickets, 34 points. Takes the Competitions
-half of #168/#147 that T14 could not reach (store, then roster read), then makes
-Payments read **both** admin stores instead of the caller's word — closing #147
-and #168 and advancing #149 by two of its five facts. Also: a well-formed but
-unknown `court_id` stops answering 500 (#185, opened at this Ceremony 1 — the
-residual T14.8 disclosed and misattributed to the closed #97), and a remote JWKS
-`KeySource` so a live identity provider's tokens can be verified for the first
-time (#137). On process: `sprint-process.md` gets the closure sweep's **third
-state** named and the per-PR step demoted rather than exhorted a third time, plus
-worktree-recovery-after-session-limit as a named practice with its safeguard.
-**The reviewer-may-author question is escalated to the user as ADR-0016 / D2,
-not decided** — CLAUDE.md rule 9 is the user's rulebook and its own text names
-"low-risk enough" self-judgement as the failure it exists to remove. **No
-Wave-1.5 checkpoint**: condition checked, does not fire (two first-time
-consumers, not three). Not yet implemented as of this entry.
+`docs/process/t15-sprint-plan.md`. 7 tickets, 34 points.
+
+**Outcome: all 7 tickets merged** (PRs #187–#193, plus #186 for the Ceremony 1/2
+doc and #194 for the retro), in one unbroken 1h09m10s work block with no session
+interruption. Retro: `docs/process/t15-retro.md` — 7 findings, 7 recommendations
+that bind T16's Ceremony 1 and 2 (`docs/process/t16-sprint-plan.md` threads all of
+them).
+
+**State the outcome in this form, not a stronger one.** This is the retro's own
+agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires the retro's form,
+not a stronger one). The engineering claim is strong — real, tested, reusable
+infrastructure shipped on both admin stores — and should not be undersold; the
+closure claim on #168 must not be made at all, because it did not happen.
+
+> T15 closed #147 (Competitions' roster read, Host-or-Competition-Admin,
+> mutation-proven) but **did not close #168** — Payments' offline-payment
+> authorization is byte-for-byte unchanged from before the sprint. T15.5 built
+> real, tested read-side infrastructure onto both admin stores and then
+> discovered, by independently enumerating every exported method on both
+> `socialplay.app.Service` and `competitions.app.Service`, that Payments has no
+> way to obtain the `gameID`/`competitionID` its new readers need for the payable
+> types that require one — a genuine structural finding, verified twice (by the
+> implementer and independently by the reviewer), not a shortcut. The
+> dependency-completeness check that cleared this ticket for dispatch (§A12 GAP
+> B) verified that the producer capability existed but never checked that the
+> consumer's own inputs could reach it — a narrow, real planning miss, cheap to
+> have caught, and now a standing check (T16's Ceremony 1 amends
+> `sprint-process.md` accordingly). Two PRs (T15.6, T15.7) titled "closes #N" and
+> neither call was made; **the retro's own sweep caught both**, closing #185 and
+> #137 with the resolving PR cited on each — this is the merged-fix sweep
+> catching, one ceremony early, exactly the failure its own text names as the one
+> unacceptable outcome. A third stale tracker claim (#149's mid-sprint prediction
+> that T15.5 would resolve two of its five facts) was also corrected. A disclosed
+> FK-race residual from T15.6 went unfiled at the time, the same shape that
+> produced #185 in the first place, and was carried to T16's Ceremony 1, which
+> filed it as **#195**. ADR-0016's interim rule held for its first full sprint —
+> zero reviewer-authored gap-fixes, one correctly-distinguished merge-conflict
+> resolution. D1 and D2 both remain unanswered by the user.
+
+Also shipped: a well-formed but unknown `court_id` stops answering 500 (#185,
+opened at T15's Ceremony 1 — the residual T14.8 disclosed and misattributed to
+the closed #97; closed by T15.6/PR #191, then closed on GitHub by the retro), and
+a remote JWKS `KeySource` so a live identity provider's tokens can be verified
+for the first time (#137, closed by T15.7/PR #189, then closed on GitHub by the
+retro). On process: `sprint-process.md` gained the closure sweep's **third
+state**, named, with the per-PR step demoted rather than exhorted a third time,
+plus worktree-recovery-after-session-limit as a named practice with its
+safeguard. **The reviewer-may-author question was escalated to the user as
+ADR-0016 / D2, not decided** — CLAUDE.md rule 9 is the user's rulebook and its
+own text names "low-risk enough" self-judgement as the failure it exists to
+remove. **No Wave-1.5 checkpoint**: condition checked, did not fire (two
+first-time consumers, not three).
+
+**T16 — Payments actually reads the admin stores it built last sprint, plus
+a seven-sprint-old cascading-cancel gap and a stale issue found during
+backlog verification.** Ceremony 1/2 complete; full ticket breakdown, the
+merged-fix sweep re-run and reconciled independently, the `sprint-process.md`
+amendments (landed directly in this ceremony rather than deferred to a
+ticket), the new FK-race issue, and the dependency-completeness check applied
+by name to each ticket's join key: `docs/process/t16-sprint-plan.md`. 3
+tickets, 16 points — smaller than recent precedent by design: most of the
+open backlog is genuinely blocked on D1, D2, a real IdP tenant, or Product
+Owner input that has not arrived across three to seven sprints of asking, and
+T16 takes only what is actually unblocked. Finishes what T15.5 disclosed as
+blocked: Payments gains real reads from a Registration to its Game and a
+CompetitionEntry to its Competition (**T16.2**, closing **#168** and narrowing
+**#149** to its one remaining, D1-blocked fact, `booking_host_id`). Resolves
+T15-plan §A11's carried PO/PE disagreement on **#124** by taking the
+Registrations/Entries half (**T16.3**, also fixing `CancelCompetition`'s
+identical, previously-undisclosed gap found this ceremony) while leaving the
+court-Bookings half deferred for the stated reason (its cascade would call a
+`CancelBooking` signature D1 may still change). Corrects a stale issue found
+during this ceremony's own backlog verification — **#125** asked for a
+Competitions-shaped `payments.PayableType` that had already shipped in
+T10.6/#96; re-titled to what it actually still tracks (`RefundPayment`
+rejecting `competition_entry`) and taken as **T16.4**. On process: the three
+`sprint-process.md` amendments T15's retro asked for (the
+dependency-completeness check's consumer-input clause, mandatory closes for
+"closes #N"-titled PRs, and the correction-not-just-closure clause) land
+directly in this ceremony's own PR. T15.6's disclosed FK-race residual is
+filed as **#195** and deliberately **not** folded into this sprint — argued,
+with a scoring condition binding T17's Ceremony 1 if it goes untaken a third
+sprint running. **D1 and D2 both remain unanswered by the user** — fourth and
+second deferral respectively, put to the user again as their own items. Not
+yet implemented as of this entry.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args

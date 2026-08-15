@@ -165,6 +165,54 @@ sprint and resolved now — the merging party (or a follow-up chore ticket)
 must close it explicitly after merge. See the Execution section's DoD step 5
 for exactly how.
 
+### The dependency-completeness check
+
+Adopted at T13's Ceremony 1 (`docs/process/t13-sprint-plan.md` §A12, from a
+T12-retro recommendation) and run by every Ceremony 1 since, but never
+written into this document itself until now — each sprint plan re-explained
+it from scratch, which is the same "stated only in a sprint plan is not a
+taxonomy" gap the Label taxonomy section below names for a different
+practice.
+
+**What it is.** For every ticket in the sprint being planned, before it is
+dispatched: does every context the ticket touches already have the members,
+ports, and read paths the ticket's own text assumes — or does some *other*
+ticket in the sprint have to supply them first? Run against the code (a
+`grep`, a direct read), never against a ticket's or an issue's own prose
+description of what exists.
+
+**Two questions, not one — added at T16's Ceremony 1 from T15 retro
+recommendations 1 and 7.** Checking that a producer capability *exists* is
+not the same question as checking that the *consumer* can *reach* it, and
+T15.5 is the incident that proved the two diverge: `internal/socialplay/
+app.Service.ListGameAdmins(ctx, gameID)` existed, was exported, and was
+verified exported by T15's own Ceremony 1 (§A12 GAP B) — and T15.5 still
+could not call it, because `RecordOfflinePaymentInput` never carried a
+`gameID` to pass it. Verifying the producer's signature and stopping there
+is a real, narrow, and — as T15's retro finding 1 argued — a cheaply
+avoidable planning miss. From T16 onward the check asks both:
+
+1. **Does the producer's capability exist?** (The question this check has
+   always asked.)
+2. **Does the consumer's own input actually contain the value the
+   producer's signature requires?** Answered by reading the consuming
+   ticket's own request/input struct field list — one grep, not an
+   implementation attempt. Where a ticket's plan says it will call an
+   upstream export with an ID-shaped parameter, the ceremony's own
+   dependency-completeness write-up names the **specific field or method on
+   the consuming side** that supplies that id — not merely the read method
+   it will call on the producing side. Naming the read method without
+   naming the join key is exactly the shape of check that cleared T15.5 for
+   dispatch and then hit the wall its own retro found.
+
+**Generalized past ID-shaped export/input pairs (recommendation 7).**
+Whenever a ticket's plan says context B will read a fact from context A, the
+write-up names the specific field or method on B's own call site that
+supplies whatever key A's read requires — not just that A's read exists.
+Payments reading Social Play/Competitions state (T15.5, and again in T16) is
+the recurring shape this generalizes from; it is not expected to be the
+last one.
+
 ## Ceremony 2 — Sprint planning (start of sprint)
 
 The full six-role team (loading their briefs + dossiers) discusses the
@@ -277,6 +325,27 @@ A ticket is only "done" when:
    fix for #N"), names the successor issue or ticket that finishes it, and
    **leaves the issue open**. That is an honest half-claim, not a close, and
    it is not a finding against this step.
+
+   **Amendment (T16, from T15 retro recommendation 2): the optionality above
+   is conditional on the PR's own title, not blanket.** A PR titled "partial
+   fix for #N" is making an honest half-claim, and the close it is not
+   making is correctly optional — nothing in its own text asserts otherwise.
+   A PR titled **"closes #N" is a different case**: its own title has
+   already asserted a completed fact, and treating the matching API call as
+   optional makes that title's truth depend on whether the reviewing session
+   also remembered to make it. T15 measured this directly, in the same
+   sprint that demoted the per-PR close to optional: two PRs (#189, #191)
+   titled "closes #N", and neither review performed the close — caught only
+   by the next ceremony's sweep (T15's own retro, one ceremony early), which
+   is precisely the failure state the sweep exists to catch, not a
+   demonstration that it is unnecessary to also fix the review-time half for
+   this narrower case. **So: a review whose PR's title contains "closes #N"
+   either performs the close, or states in the review why it is not doing so
+   at that moment** (deferring to the sweep on purpose, with a reason) —
+   matching the one T15 instance that worked (PR #192's review: *"will close
+   #147 per instruction 5"*, then did). This changes what a "closes #N"
+   review must record; it does not reopen the optional-early-close treatment
+   for "partial fix for #N" titles, which is unchanged.
 
 ### Recovering an interrupted session's work
 
@@ -497,6 +566,23 @@ and subject from memory, agreed with each other, and were both wrong, which is
 exactly the shape a second reader cannot catch. The residual PR #178 actually
 disclosed was consequently tracked nowhere until T15's Ceremony 1 filed it as
 **#185**.
+
+**When a review or a PR body corrects an earlier claim about an issue —
+including a claim made by an earlier ceremony's own comment — the
+correction is posted to the issue itself, not left only in the PR.** Added
+at T16's Ceremony 1 from T15 retro recommendation 4 (finding 5). T15's own
+Ceremony 1 predicted, in a comment on #149, that T15.5 would resolve two of
+its five named facts; T15.5's own PR and its review both independently and
+correctly discovered that it resolved zero, not two — and neither went back
+to fix the record on #149 itself. The stale prediction sat as #149's only
+comment until T15's retro corrected it — the same shape as T14 finding 5's
+#97 misattribution, recurring a third time in a different form. The
+merged-fix sweep and the issue-state-from-the-API clause above are both
+scoped to *closing*; this clause closes the adjacent gap, *correcting*, at
+the same one-sentence cost: if a review's or a PR body's own findings
+falsify something an earlier ceremony or PR wrote on a still-open issue,
+post the correction to that issue before the PR merges — not only inside
+the PR that found it.
 
 **Stated plainly, because this clause is being added to an enumeration that has
 not yet been performed once.** The label-conformance check above scored **0 of
