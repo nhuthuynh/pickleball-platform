@@ -329,6 +329,13 @@ func errorMappingCases() []errorMappingCase {
 			wantCode: codes.InvalidArgument,
 		},
 		{
+			name:     "malformed court id",
+			sentinel: "ErrMalformedCourtID",
+			err:      domain.ErrMalformedCourtID,
+			wantCode: codes.InvalidArgument,
+			why:      "T14.8 (#156): a non-uuid court id cannot name any court that exists, so it is a client-input defect regardless of system state — not an existence oracle, since the value could never resolve either way",
+		},
+		{
 			name:     "empty player id",
 			sentinel: "ErrEmptyPlayerID",
 			err:      domain.ErrEmptyPlayerID,
