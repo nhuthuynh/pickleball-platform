@@ -80,6 +80,38 @@ record — not as a GitHub issue with labels. Sprint and points live only
 there; role and type additionally become GitHub labels if the item is ever
 filed as an issue. See the rule below.
 
+### Correct the previous sprint's Docs-index row
+
+**Ceremony 1 must check, and correct, the previous sprint's row in
+`HANDOFF.md`'s Docs index before refining any tickets.** The row's Retro and
+Reviews cells are written *before* that sprint runs, so they say "not yet
+written" / "not yet opened"; nothing in the sprint that follows ever goes back
+to fix them. This is a mechanical, structural gap, not an oversight by any
+particular sprint — it had silently recurred twice (T11's row, corrected at
+T12's Ceremony 1; T12's row, corrected at T13's) before being fixed here.
+
+**Why this ceremony and not the retro PR** (the alternative
+`docs/process/t12-retro.md` recommendation 9 offered). By established
+precedent — verified across PRs #110, #122 and #153, each of which touched
+exactly `docs/LESSONS.md` and its own retro doc — **a retro PR never updates
+the index row that points at it.** That convention is deliberate and worth
+keeping. More decisively: the row must cite the retro's own merge PR number,
+which does not exist until that PR merges, so a retro PR is structurally
+incapable of writing its own row correctly. Ceremony 1 runs after everything
+from the previous sprint is merged, when every number is knowable — and it
+already re-reads the Docs index, since CLAUDE.md's "Docs index & naming
+convention" section requires reading the relevant row before starting a task.
+
+Concretely, the Ceremony 1 output PR carries:
+
+1. The previous sprint's row, corrected: its real retro path, and its real
+   PRs in merge order **verified against each PR's `merged_at`** rather than
+   assumed from numbering (this project's standing convention — PR numbers and
+   merge order routinely disagree).
+2. A new row for the sprint being planned.
+3. The previous sprint's narrative entry in the Task backlog, stating its
+   outcome **in the form its own retro agreed**, not a stronger one.
+
 ### Board of record — split by lifetime
 
 Resolved at T12's Ceremony 1 (`docs/process/t12-sprint-plan.md` §A7),
