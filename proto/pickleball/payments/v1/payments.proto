@@ -244,14 +244,15 @@ message ConfirmOnlinePaymentResponse {
 // deprecated, for the identical reason and issue (#149) RecordOfflinePaymentRequest's
 // booking_host_id field states.
 //
-// Scope: `booking` and `registration` payables only. A
-// PAYABLE_TYPE_COMPETITION_ENTRY Payment is rejected — Competitions
-// remains cash-only for refund purposes (issue #125) — as is
-// PAYABLE_TYPE_NO_SHOW_FEE (issue #130). (Scope note, unaffected by this
-// ticket: since RefundPayment never reaches
-// authorizeCompetitionEntryRecording, EntryLookup/CompetitionAdminReader are
-// wired into app.Service for RecordOfflinePayment's benefit only, not
-// because RefundPayment needs them.)
+// Scope: `booking`, `registration`, and — as of T16.4, closing the
+// corrected #125 — `competition_entry` payables. A
+// PAYABLE_TYPE_NO_SHOW_FEE Payment is still rejected (issue #130, which
+// carries a genuinely open product question, unlike #125). A
+// PAYABLE_TYPE_COMPETITION_ENTRY refund reuses
+// authorizeCompetitionEntryRecording via authorizeOfflineRecording
+// unchanged, so EntryLookup/CompetitionAdminReader are now load-bearing for
+// this RPC too, not only for RecordOfflinePayment's benefit as this
+// comment stated before T16.4.
 message RefundPaymentRequest {
   string payment_id = 1;
   // DEPRECATED (T12.8): ignored by the server. The acting user is taken from
@@ -315,24 +316,27 @@ service PaymentsService {
     };
   }
 
-  // RefundPayment refunds an already-paid Payment (T12.3). The online path
-  // refunds the stored intent reference through
+  // RefundPayment refunds an already-paid Payment (T12.3; T16.4 widened it
+  // to admit competition_entry, closing the corrected #125). The online
+  // path refunds the stored intent reference through
   // port.PaymentProcessor.RefundPayment; the offline path is a
-  // Host/Game-Admin action with no processor step.
+  // Host/Game-Admin/entrant-or-Competition-Admin action with no processor
+  // step.
   //
   // Status codes (gRPC codes, deliberately stated without HTTP statuses
   // alongside them — the wire contract this file defines is gRPC, and
   // grpc-gateway's HTTP mapping is a downstream consequence, not a second
   // contract to keep in sync by hand):
   //   - PERMISSION_DENIED: the actor is not the Booking's Host, the
-  //     Registration's Game's Host, or an assigned Game Admin.
+  //     Registration's Game's Host or an assigned Game Admin, or the
+  //     CompetitionEntry's entrant or an assigned Competition Admin.
   //   - NOT_FOUND: unknown or malformed payment_id (both answer
   //     identically — see app.Service.GetPayment's uuidShape guard).
   //   - FAILED_PRECONDITION: illegal transition — the Payment is already
   //     refunded, or was never paid. Rejected by domain.Payment.Refund()'s
   //     own state machine.
   //   - INVALID_ARGUMENT: the Payment's payable type is out of this RPC's
-  //     scope (competition_entry, issue #125; no_show_fee, issue #130).
+  //     scope (no_show_fee, issue #130 — the one remaining gap).
   //   - INTERNAL: the payment processor failed. The Payment is NOT marked
   //     refunded in that case.
   rpc RefundPayment(RefundPaymentRequest) returns (RefundPaymentResponse) {

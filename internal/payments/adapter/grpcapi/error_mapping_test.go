@@ -205,9 +205,12 @@ func errorMappingCases() []errorMappingCase {
 			name:     "payable type out of scope for refund",
 			sentinel: "ErrInvalidPayableType",
 			wantCode: codes.InvalidArgument,
+			why: "no_show_fee (issue #130) is the one remaining out-of-scope payable type for RefundPayment " +
+				"as of T16.4 — competition_entry moved into scope (closes the corrected #125), so this row now " +
+				"exercises no_show_fee instead, mirroring refund_test.go's own OutOfScopePayableTypesRejected move",
 			invoke: func(t *testing.T) error {
 				h, repo, proc := newMappingHandler()
-				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableTypeCompetitionEntry, fixtureCompetitionEntryID)
+				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableTypeNoShowFee, fixtureRegistrationID)
 				_, err := h.RefundPayment(ctxAs(refundGameHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:  mapPaymentID,
 					GameHostId: refundGameHostID,

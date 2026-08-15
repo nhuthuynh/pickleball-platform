@@ -36,9 +36,12 @@ const (
 	refundNoShowPaymentID      = "6ba7b810-0000-4000-8000-0000000000b3"
 	refundUnknownPaymentID     = "6ba7b810-0000-4000-8000-0000000000bf"
 
-	refundBookingHostID = "host-booking-9"
-	refundGameHostID    = "host-game-9"
-	refundOtherPlayerID = "player-outsider-9"
+	refundBookingHostID    = "host-booking-9"
+	refundGameHostID       = "host-game-9"
+	refundOtherPlayerID    = "player-outsider-9"
+	refundEntrantPlayerID  = "player-entrant-9"
+	refundCompAdminUserID  = "admin-competition-9"
+	refundCompetitionPayID = "6ba7b810-0000-4000-8000-0000000000b4"
 
 	// seededPaymentOwnerID is the actor the seed helpers below record as the
 	// Payment's own (RecordedByUserID) — the value CreateOnlinePayment would
@@ -62,17 +65,28 @@ const (
 // ignored, so this is what makes TestRefundPayment_Handler_NonRecorderActorPermissionDenied
 // below a genuine "the real Host would succeed, this actor doesn't match"
 // negative test rather than a fail-closed-because-nothing-is-wired one.
+//
+// T16.4 (closes the corrected #125): also wires EntryLookup/
+// CompetitionAdminReader via newEntryAuthzResolverFixtures, with
+// refundEntrantPlayerID pre-wired as fixtureCompetitionEntryID's resolved
+// entrant — the Competitions mirror of the Registration wiring above, needed
+// now that RefundPayment admits PayableTypeCompetitionEntry. Without this, a
+// competition_entry refund test would fail closed for the wrong reason (no
+// resolver wired) rather than proving the real authorized-actor set.
 func newRefundTestHandler() (*grpcapi.Handler, *fakeRepository, *stripestub.Processor) {
 	repo := newFakeRepository()
 	proc := stripestub.NewProcessor()
 	regs, games, admins := newAuthzResolverFixtures(refundGameHostID)
+	entries, compAdmins := newEntryAuthzResolverFixtures(refundEntrantPlayerID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments:           repo,
-		IDs:                &fixedIDs{},
-		Processor:          proc,
-		RegistrationLookup: regs,
-		GameLookup:         games,
-		GameAdminReader:    admins,
+		Payments:               repo,
+		IDs:                    &fixedIDs{},
+		Processor:              proc,
+		RegistrationLookup:     regs,
+		GameLookup:             games,
+		GameAdminReader:        admins,
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
 	})
 	return grpcapi.NewHandler(svc), repo, proc
 }
@@ -365,10 +379,15 @@ func TestRefundPayment_Handler_ProcessorFailureUnavailableAndNotRefunded(t *test
 	}
 }
 
-// TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument pins
-// T12.3's scope boundary at the wire: competition_entry (issue #125 —
-// Competitions stays cash-only for refund purposes) and no_show_fee (issue
-// #130) are rejected rather than silently refunded.
+// TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument pins the
+// remaining scope boundary at the wire: no_show_fee (issue #130, which
+// carries a genuinely open product question, unlike #125) is rejected
+// rather than silently refunded.
+//
+// competition_entry moved OUT of this table at T16.4 (closes the corrected
+// #125) — see TestRefundPayment_Handler_CompetitionEntryPayable_EntrantSucceeds
+// below for its accepted-case counterpart. Moved, not deleted: a case that
+// simply vanished here would prove nothing had been checked.
 func TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument(t *testing.T) {
 	t.Parallel()
 
@@ -377,7 +396,6 @@ func TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument(t *testing.T
 		payableType domain.PayableType
 		payableID   string
 	}{
-		{name: "competition_entry (#125)", payableType: domain.PayableTypeCompetitionEntry, payableID: fixtureCompetitionEntryID},
 		{name: "no_show_fee (#130)", payableType: domain.PayableTypeNoShowFee, payableID: fixtureRegistrationID},
 	}
 
@@ -402,5 +420,105 @@ func TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument(t *testing.T
 				t.Fatalf("persisted status = %v, want paid", stored.Status)
 			}
 		})
+	}
+}
+
+// TestRefundPayment_Handler_CompetitionEntryPayable_EntrantSucceeds is
+// T16.4's accepted-case counterpart to the now-removed "competition_entry
+// (#125)" case in TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument
+// above — the same payable type, run through the real handler, now expected
+// to succeed rather than InvalidArgument: RefundPayment admits
+// PayableTypeCompetitionEntry (closes the corrected #125), reusing
+// authorizeOfflineRecording's existing PayableTypeCompetitionEntry branch,
+// so the resolved entrant (refundEntrantPlayerID, per
+// newRefundTestHandler's EntryLookup/CompetitionAdminReader wiring) may
+// refund their own entry's Payment exactly as a Registration's Game Host
+// already can.
+func TestRefundPayment_Handler_CompetitionEntryPayable_EntrantSucceeds(t *testing.T) {
+	t.Parallel()
+
+	h, repo, proc := newRefundTestHandler()
+	seedPaidOnline(t, repo, proc, refundCompetitionPayID, domain.PayableTypeCompetitionEntry, fixtureCompetitionEntryID)
+
+	resp, err := h.RefundPayment(ctxAs(refundEntrantPlayerID), &paymentsv1.RefundPaymentRequest{
+		PaymentId: refundCompetitionPayID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := resp.GetPayment().GetStatus(); got != paymentsv1.PaymentStatus_PAYMENT_STATUS_REFUNDED {
+		t.Fatalf("status = %v, want PAYMENT_STATUS_REFUNDED", got)
+	}
+
+	stored, getErr := repo.GetByID(context.Background(), refundCompetitionPayID)
+	if getErr != nil {
+		t.Fatalf("unexpected err: %v", getErr)
+	}
+	if stored.Status != domain.StatusRefunded {
+		t.Fatalf("persisted status = %v, want refunded", stored.Status)
+	}
+}
+
+// TestRefundPayment_Handler_CompetitionEntryPayable_AssignedAdminSucceeds
+// proves the refund reuses authorizeCompetitionEntryRecording's existing
+// authorized-actor set exactly (entrant OR assigned Competition Admin, not
+// entrant only) — mirroring
+// TestRefundPayment_Handler_RegistrationPayable_GameHostSucceeds's own
+// Host-or-Admin pairing on the Registration side.
+func TestRefundPayment_Handler_CompetitionEntryPayable_AssignedAdminSucceeds(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	proc := stripestub.NewProcessor()
+	regs, games, admins := newAuthzResolverFixtures(refundGameHostID)
+	entries, compAdmins := newEntryAuthzResolverFixtures(refundEntrantPlayerID, refundCompAdminUserID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:               repo,
+		IDs:                    &fixedIDs{},
+		Processor:              proc,
+		RegistrationLookup:     regs,
+		GameLookup:             games,
+		GameAdminReader:        admins,
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
+	})
+	h := grpcapi.NewHandler(svc)
+	seedPaidOnline(t, repo, proc, refundCompetitionPayID, domain.PayableTypeCompetitionEntry, fixtureCompetitionEntryID)
+
+	resp, err := h.RefundPayment(ctxAs(refundCompAdminUserID), &paymentsv1.RefundPaymentRequest{
+		PaymentId: refundCompetitionPayID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := resp.GetPayment().GetStatus(); got != paymentsv1.PaymentStatus_PAYMENT_STATUS_REFUNDED {
+		t.Fatalf("status = %v, want PAYMENT_STATUS_REFUNDED", got)
+	}
+}
+
+// TestRefundPayment_Handler_CompetitionEntryPayable_NonEntrantNonAdminRejected
+// is the negative control paired with the success test immediately above,
+// the same pairing authz_regression_test.go's Allows/Rejects tests already
+// establish elsewhere: an actor who is neither the resolved entrant nor an
+// assigned Competition Admin is refused, proving the check actually
+// discriminates rather than admitting anyone once the payable type gate
+// opened.
+func TestRefundPayment_Handler_CompetitionEntryPayable_NonEntrantNonAdminRejected(t *testing.T) {
+	t.Parallel()
+
+	h, repo, proc := newRefundTestHandler()
+	seedPaidOnline(t, repo, proc, refundCompetitionPayID, domain.PayableTypeCompetitionEntry, fixtureCompetitionEntryID)
+
+	_, err := h.RefundPayment(ctxAs(refundOtherPlayerID), &paymentsv1.RefundPaymentRequest{
+		PaymentId: refundCompetitionPayID,
+	})
+	wantCode(t, err, codes.PermissionDenied)
+
+	stored, getErr := repo.GetByID(context.Background(), refundCompetitionPayID)
+	if getErr != nil {
+		t.Fatalf("unexpected err: %v", getErr)
+	}
+	if stored.Status != domain.StatusPaid {
+		t.Fatalf("persisted status = %v, want paid — a denied refund must have no side effect", stored.Status)
 	}
 }

@@ -310,7 +310,7 @@ func (s *Service) ConfirmOnlinePayment(ctx context.Context, p domain.Payment, ac
 	if err := s.reconcileRegistrationPaymentStatus(ctx, updated, socialplaydomain.PaymentStatusPaid); err != nil {
 		return updated, err
 	}
-	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, updated); err != nil {
+	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, updated, competitionsdomain.PaymentStatusPaid); err != nil {
 		return updated, err
 	}
 	return updated, nil
@@ -435,7 +435,7 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 	if err := s.reconcileRegistrationPaymentStatus(ctx, created, socialplaydomain.PaymentStatusPaid); err != nil {
 		return created, err
 	}
-	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, created); err != nil {
+	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, created, competitionsdomain.PaymentStatusPaid); err != nil {
 		return created, err
 	}
 	return created, nil
@@ -488,13 +488,24 @@ type RefundPaymentInput struct {
 // the transition, and pushes `refunded` through to Social Play for a
 // registration payable.
 //
-// Scope (T12.3, stated rather than left implicit): `booking` and
-// `registration` payables only. `competition_entry` is out of scope —
-// Competitions remains cash-only for refund purposes, tracked as issue
-// #125 — and `no_show_fee`, which the ticket's scope sentence names in
-// neither half, is likewise left out rather than silently included (issue
-// #130). Both are rejected with the existing ErrInvalidPayableType rather
-// than a new sentinel invented for a scope boundary.
+// Scope: `booking`, `registration`, and — as of T16.4, closing the
+// corrected #125 — `competition_entry` payables. `no_show_fee`, which no
+// version of this ticket's scope sentence has ever named, is still left out
+// rather than silently included (issue #130, which unlike #125 carries a
+// genuinely open product question — see RefundPayment's own instruction 3
+// history in docs/process/t16-sprint-plan.md). It is rejected with the
+// existing ErrInvalidPayableType rather than a new sentinel invented for a
+// scope boundary.
+//
+// `competition_entry` was out of scope from T12.3 through T16.3: Payments
+// had no live join to Competitions' Competition-Admin/entrant facts to
+// authorize a refund against (see authorizeCompetitionEntryRecording's own
+// history). T16.2 built and wired that resolution for the *recording* path;
+// T16.4 is the ticket that widens the gate below to admit the same payable
+// type for the symmetric *refund* path, reusing authorizeOfflineRecording's
+// existing PayableTypeCompetitionEntry branch unchanged rather than adding a
+// second authorization rule — exactly the precedent T12.3 set for
+// `registration` reusing the same method for its own refund path.
 //
 // Ordering, and why it differs from RecordOfflinePayment's:
 //
@@ -527,14 +538,22 @@ type RefundPaymentInput struct {
 //     rather than swallowed (T12.3 instruction 7): the money really has
 //     moved at the processor by that point, so silently reporting success
 //     would leave the record permanently disagreeing with the processor
-//     with nobody aware of it.
+//     with nobody aware of it. The projection step pushes `refunded`
+//     through whichever of RegistrationPaymentUpdater/CompetitionEntryUpdater
+//     owns this Payment's payable type (T16.4 adds the second one) — each
+//     helper is a no-op for the payable type it doesn't own, so exactly one
+//     ever does real work for a given Payment, mirroring
+//     ConfirmOnlinePayment/RecordOfflinePayment calling both unconditionally
+//     on the `paid` direction.
 func (s *Service) RefundPayment(ctx context.Context, in RefundPaymentInput) (domain.Payment, error) {
 	p, err := s.GetPayment(ctx, in.PaymentID)
 	if err != nil {
 		return domain.Payment{}, err
 	}
 
-	if p.PayableType != domain.PayableTypeBooking && p.PayableType != domain.PayableTypeRegistration {
+	if p.PayableType != domain.PayableTypeBooking &&
+		p.PayableType != domain.PayableTypeRegistration &&
+		p.PayableType != domain.PayableTypeCompetitionEntry {
 		return domain.Payment{}, domain.ErrInvalidPayableType
 	}
 
@@ -580,6 +599,14 @@ func (s *Service) RefundPayment(ctx context.Context, in RefundPaymentInput) (dom
 	}
 
 	if err := s.reconcileRegistrationPaymentStatus(ctx, updated, socialplaydomain.PaymentStatusRefunded); err != nil {
+		return updated, err
+	}
+	// T16.4 (closes the corrected #125): the CompetitionEntry mirror of the
+	// registration push immediately above, through the same
+	// CompetitionEntryUpdater port ConfirmOnlinePayment/RecordOfflinePayment
+	// already push `paid` through (T10.6) — not a new updater or a second
+	// pattern, per this ticket's own instruction 2.
+	if err := s.reconcileCompetitionEntryPaymentStatus(ctx, updated, competitionsdomain.PaymentStatusRefunded); err != nil {
 		return updated, err
 	}
 	return updated, nil
@@ -644,14 +671,21 @@ func (s *Service) reconcileRegistrationPaymentStatus(ctx context.Context, p doma
 // the Payment itself is already correctly persisted as paid (the source of
 // truth is not at risk), but the Competitions projection is now stale until
 // the caller retries or a background reconciliation job picks it up.
-func (s *Service) reconcileCompetitionEntryPaymentStatus(ctx context.Context, p domain.Payment) error {
+// status is a parameter rather than a hardcoded PaymentStatusPaid as of
+// T16.4: RefundPayment pushes competitionsdomain.PaymentStatusRefunded
+// through this same helper, the same port, and the same call site shape —
+// mirroring exactly how T12.3 generalized reconcileRegistrationPaymentStatus
+// above for the identical reason. See that method's own doc comment for why
+// a second, near-identical helper differing only in a constant would have
+// been the wrong shape.
+func (s *Service) reconcileCompetitionEntryPaymentStatus(ctx context.Context, p domain.Payment, status competitionsdomain.PaymentStatus) error {
 	if p.PayableType != domain.PayableTypeCompetitionEntry {
 		return nil
 	}
 	if s.competitionEntryUpdater == nil {
 		return nil
 	}
-	return s.competitionEntryUpdater.UpdatePaymentStatus(ctx, p.PayableID, competitionsdomain.PaymentStatusPaid)
+	return s.competitionEntryUpdater.UpdatePaymentStatus(ctx, p.PayableID, status)
 }
 
 // authorizeOfflineRecording is the actor-scoped (BOLA-shaped) check T6.3
