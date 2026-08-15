@@ -193,11 +193,11 @@ func TestCreateFacility_Valid(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{
-		OwnerID:     "owner-1",
+		OwnerID:     ownerUserID,
 		Name:        "Riverside Courts",
 		Description: "Nice courts",
 		Address:     "123 Main St",
@@ -214,21 +214,54 @@ func TestCreateFacility_Valid(t *testing.T) {
 	}
 }
 
+// TestCreateFacility_ValidationRejectedBeforeTouchingRepo proves the
+// "nothing invalid is persisted" contract for the two fields a client
+// actually sends.
+//
+// **OwnerID is deliberately no longer one of them.** It used to be tested
+// here with OwnerID: "" expecting ErrEmptyFacilityField; as of T13.3 an empty
+// OwnerID is answered by CreateFacility's uuidShape guard with
+// ErrUserNotFound instead, one step earlier. That is a deliberate change of
+// answer, not a regression, and the reason is ADR-0014: OwnerID stopped being
+// a wire field in T12.7 and is now minted by the grpcapi actor() funnel, so
+// an empty one does not mean "the client left a required field blank"
+// (InvalidArgument) — it means no actor was resolved (PermissionDenied). The
+// domain rule itself is untouched and still covered:
+// internal/facilities/domain's TestNewFacility cases pin
+// ErrEmptyFacilityField for an empty OwnerID at the layer that owns that
+// rule, and identity_seam_test.go pins the new app-layer answer.
 func TestCreateFacility_ValidationRejectedBeforeTouchingRepo(t *testing.T) {
 	t.Parallel()
 
-	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
-	ctx := context.Background()
-
-	_, err := svc.CreateFacility(ctx, app.CreateFacilityInput{
-		OwnerID: "", Name: "Riverside Courts", Address: "123 Main St",
-	})
-	if !errors.Is(err, domain.ErrEmptyFacilityField) {
-		t.Fatalf("got err %v, want %v", err, domain.ErrEmptyFacilityField)
+	tests := []struct {
+		name  string
+		input app.CreateFacilityInput
+	}{
+		{
+			name:  "empty name",
+			input: app.CreateFacilityInput{OwnerID: ownerUserID, Name: "", Address: "123 Main St"},
+		},
+		{
+			name:  "empty address",
+			input: app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: ""},
+		},
 	}
-	if len(repo.facilities) != 0 {
-		t.Fatalf("invalid facility must not be persisted, repo has %d entries", len(repo.facilities))
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo := newInMemoryRepo()
+			svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
+
+			_, err := svc.CreateFacility(context.Background(), tc.input)
+			if !errors.Is(err, domain.ErrEmptyFacilityField) {
+				t.Fatalf("got err %v, want %v", err, domain.ErrEmptyFacilityField)
+			}
+			if len(repo.facilities) != 0 {
+				t.Fatalf("invalid facility must not be persisted, repo has %d entries", len(repo.facilities))
+			}
+		})
 	}
 }
 
@@ -236,7 +269,7 @@ func TestGetFacility_UnknownReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
 	_, err := svc.GetFacility(ctx, "does-not-exist")
@@ -249,13 +282,13 @@ func TestListFacilities_NameFilter(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	if _, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"}); err != nil {
+	if _, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"}); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if _, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Lakeside Courts", Address: "2 St"}); err != nil {
+	if _, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Lakeside Courts", Address: "2 St"}); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
@@ -285,17 +318,17 @@ func TestGetFacility_IncludesCourtsAddedViaAddCourt(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if _, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 1"); err != nil {
+	if _, err := svc.AddCourt(ctx, f.ID, ownerUserID, "Court 1"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
-	if _, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 2"); err != nil {
+	if _, err := svc.AddCourt(ctx, f.ID, ownerUserID, "Court 2"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
@@ -324,10 +357,10 @@ func TestGetFacility_ZeroCourtsIsEmptyNotNilPanic(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -354,15 +387,15 @@ func TestAddCourt_InsertsIntoExistingCourtsTable(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	c, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 1")
+	c, err := svc.AddCourt(ctx, f.ID, ownerUserID, "Court 1")
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -385,10 +418,10 @@ func TestAddCourt_SucceedsWithoutCameraConsent(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -396,7 +429,7 @@ func TestAddCourt_SucceedsWithoutCameraConsent(t *testing.T) {
 		t.Fatalf("fixture CameraConsentAttested = true, want false")
 	}
 
-	if _, err := svc.AddCourt(ctx, f.ID, "owner-1", "Court 1"); err != nil {
+	if _, err := svc.AddCourt(ctx, f.ID, ownerUserID, "Court 1"); err != nil {
 		t.Fatalf("AddCourt should succeed regardless of camera consent, got %v", err)
 	}
 }
@@ -411,15 +444,15 @@ func TestAddCourt_RejectsNonOwner(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	_, err = svc.AddCourt(ctx, f.ID, "attacker", "Court 1")
+	_, err = svc.AddCourt(ctx, f.ID, attackerUserID, "Court 1")
 	if !errors.Is(err, domain.ErrNotFacilityOwner) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
 	}
@@ -438,15 +471,15 @@ func TestAddCameraLink_RequiresConsent(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	_, err = svc.AddCameraLink(ctx, f.ID, "owner-1", "https://example.com/cam1.m3u8")
+	_, err = svc.AddCameraLink(ctx, f.ID, ownerUserID, "https://example.com/cam1.m3u8")
 	if !errors.Is(err, domain.ErrCameraConsentRequired) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrCameraConsentRequired)
 	}
@@ -467,10 +500,10 @@ func TestAddCameraLink_SucceedsOnceConsentAttested(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -479,7 +512,7 @@ func TestAddCameraLink_SucceedsOnceConsentAttested(t *testing.T) {
 		t.Fatalf("unexpected err updating fixture consent: %v", err)
 	}
 
-	if _, err := svc.AddCameraLink(ctx, f.ID, "owner-1", "https://example.com/cam1.m3u8"); err != nil {
+	if _, err := svc.AddCameraLink(ctx, f.ID, ownerUserID, "https://example.com/cam1.m3u8"); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
@@ -496,10 +529,10 @@ func TestAddCameraLink_UnknownFacilityReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	_, err := svc.AddCameraLink(ctx, "does-not-exist", "owner-1", "https://example.com/cam1.m3u8")
+	_, err := svc.AddCameraLink(ctx, "does-not-exist", ownerUserID, "https://example.com/cam1.m3u8")
 	if !errors.Is(err, domain.ErrFacilityNotFound) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrFacilityNotFound)
 	}
@@ -514,10 +547,10 @@ func TestAddCameraLink_RejectsNonOwner(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -526,7 +559,7 @@ func TestAddCameraLink_RejectsNonOwner(t *testing.T) {
 		t.Fatalf("unexpected err updating fixture consent: %v", err)
 	}
 
-	_, err = svc.AddCameraLink(ctx, f.ID, "attacker", "https://example.com/cam1.m3u8")
+	_, err = svc.AddCameraLink(ctx, f.ID, attackerUserID, "https://example.com/cam1.m3u8")
 	if !errors.Is(err, domain.ErrNotFacilityOwner) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
 	}
@@ -551,15 +584,15 @@ func TestAttestCameraConsent_EnablesAddCameraLink(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	attested, err := svc.AttestCameraConsent(ctx, f.ID, "owner-1")
+	attested, err := svc.AttestCameraConsent(ctx, f.ID, ownerUserID)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -575,7 +608,7 @@ func TestAttestCameraConsent_EnablesAddCameraLink(t *testing.T) {
 		t.Fatalf("persisted CameraConsentAttested = false, want true")
 	}
 
-	if _, err := svc.AddCameraLink(ctx, f.ID, "owner-1", "https://example.com/cam1.m3u8"); err != nil {
+	if _, err := svc.AddCameraLink(ctx, f.ID, ownerUserID, "https://example.com/cam1.m3u8"); err != nil {
 		t.Fatalf("AddCameraLink after AttestCameraConsent should succeed, got: %v", err)
 	}
 }
@@ -586,18 +619,18 @@ func TestAttestCameraConsent_Idempotent(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	if _, err := svc.AttestCameraConsent(ctx, f.ID, "owner-1"); err != nil {
+	if _, err := svc.AttestCameraConsent(ctx, f.ID, ownerUserID); err != nil {
 		t.Fatalf("first AttestCameraConsent: unexpected err: %v", err)
 	}
-	if _, err := svc.AttestCameraConsent(ctx, f.ID, "owner-1"); err != nil {
+	if _, err := svc.AttestCameraConsent(ctx, f.ID, ownerUserID); err != nil {
 		t.Fatalf("second AttestCameraConsent: unexpected err: %v (want idempotent)", err)
 	}
 }
@@ -608,10 +641,10 @@ func TestAttestCameraConsent_UnknownFacilityReturnsNotFound(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	_, err := svc.AttestCameraConsent(ctx, "does-not-exist", "owner-1")
+	_, err := svc.AttestCameraConsent(ctx, "does-not-exist", ownerUserID)
 	if !errors.Is(err, domain.ErrFacilityNotFound) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrFacilityNotFound)
 	}
@@ -624,15 +657,15 @@ func TestAttestCameraConsent_RejectsNonOwner(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 	ctx := context.Background()
 
-	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: "owner-1", Name: "Riverside Courts", Address: "1 St"})
+	f, err := svc.CreateFacility(ctx, app.CreateFacilityInput{OwnerID: ownerUserID, Name: "Riverside Courts", Address: "1 St"})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
-	_, err = svc.AttestCameraConsent(ctx, f.ID, "attacker")
+	_, err = svc.AttestCameraConsent(ctx, f.ID, attackerUserID)
 	if !errors.Is(err, domain.ErrNotFacilityOwner) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotFacilityOwner)
 	}

@@ -63,6 +63,27 @@ var (
 	// it is not itself authentication; see HANDOFF.md's Auth cross-cutting
 	// item.
 	ErrNotFacilityOwner = errors.New("facilities: actor is not authorized to modify this facility")
+
+	// ErrUserNotFound is Facilities' own, context-local sentinel for the one
+	// answer port.IdentityLookup can give (T13.3, Facilities' first call into
+	// Identity/Users at all — before this ticket internal/facilities/port
+	// held exactly idgenerator.go and repository.go).
+	//
+	// Like ErrFacilityNotFound and ErrNotFacilityOwner above, it is
+	// deliberately NOT internal/identity/domain's sentinel of the same name:
+	// CLAUDE.md rule 5 requires the adapter to translate at the boundary so
+	// no identitydomain error type ever reaches Facilities' app or grpcapi
+	// layers. internal/booking/domain declares its own for the same reason
+	// (T11.5) — the duplication is the point, not an oversight.
+	//
+	// It maps to PermissionDenied at the gRPC boundary, not NotFound. That
+	// is ADR-0014 §6's ruling, reused rather than re-decided here: the
+	// caller's token verified, so we know exactly who they are and the
+	// honest answer is "you may not act", not "you do not exist". Answering
+	// NotFound would also make every actor-taking endpoint on this service a
+	// user-enumeration oracle, and would make a 404 from AddCourt ambiguous
+	// between "no such Facility" and "no such you".
+	ErrUserNotFound = errors.New("facilities: user not found")
 )
 
 // FieldError wraps one of the Err*Field sentinels above with the specific

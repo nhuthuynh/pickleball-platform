@@ -42,7 +42,7 @@ func TestGetFacility_MalformedIDIsNotFound(t *testing.T) {
 		t.Run(id, func(t *testing.T) {
 			t.Parallel()
 
-			svc := app.NewService(newInMemoryRepo(), &sequentialIDs{})
+			svc := app.NewService(newInMemoryRepo(), stubIdentity{}, &sequentialIDs{})
 
 			_, err := svc.GetFacility(context.Background(), id)
 			if !errors.Is(err, domain.ErrFacilityNotFound) {
@@ -59,10 +59,10 @@ func TestGetFacility_WellFormedIDStillResolves(t *testing.T) {
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
 	created, err := svc.CreateFacility(context.Background(), app.CreateFacilityInput{
-		OwnerID: "owner-1",
+		OwnerID: ownerUserID,
 		Name:    "Riverside Courts",
 		Address: "1 River Rd",
 	})
@@ -100,9 +100,9 @@ func TestAddCourt_MalformedFacilityIDIsNotFoundAndNeverReachesRepository(t *test
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo, &sequentialIDs{})
+			svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
-			_, err := svc.AddCourt(context.Background(), id, "owner-1", "Court 1")
+			_, err := svc.AddCourt(context.Background(), id, ownerUserID, "Court 1")
 			if !errors.Is(err, domain.ErrFacilityNotFound) {
 				t.Fatalf("AddCourt(%q) error = %v, want %v", id, err, domain.ErrFacilityNotFound)
 			}
@@ -121,10 +121,10 @@ func TestAddCourt_WellFormedUnknownFacilityIDStillReachesRepository(t *testing.T
 	t.Parallel()
 
 	repo := newInMemoryRepo()
-	svc := app.NewService(repo, &sequentialIDs{})
+	svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
 	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-	_, err := svc.AddCourt(context.Background(), unknown, "owner-1", "Court 1")
+	_, err := svc.AddCourt(context.Background(), unknown, ownerUserID, "Court 1")
 	if !errors.Is(err, domain.ErrFacilityNotFound) {
 		t.Fatalf("AddCourt(%q) error = %v, want %v", unknown, err, domain.ErrFacilityNotFound)
 	}
@@ -149,9 +149,9 @@ func TestAddCameraLinkAndAttestCameraConsent_MalformedFacilityIDNeverReachesRepo
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo, &sequentialIDs{})
+			svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
-			_, err := svc.AddCameraLink(context.Background(), id, "owner-1", "https://example.com/cam1.m3u8")
+			_, err := svc.AddCameraLink(context.Background(), id, ownerUserID, "https://example.com/cam1.m3u8")
 			if !errors.Is(err, domain.ErrFacilityNotFound) {
 				t.Fatalf("AddCameraLink(%q) error = %v, want %v", id, err, domain.ErrFacilityNotFound)
 			}
@@ -164,9 +164,9 @@ func TestAddCameraLinkAndAttestCameraConsent_MalformedFacilityIDNeverReachesRepo
 			t.Parallel()
 
 			repo := newInMemoryRepo()
-			svc := app.NewService(repo, &sequentialIDs{})
+			svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
-			_, err := svc.AttestCameraConsent(context.Background(), id, "owner-1")
+			_, err := svc.AttestCameraConsent(context.Background(), id, ownerUserID)
 			if !errors.Is(err, domain.ErrFacilityNotFound) {
 				t.Fatalf("AttestCameraConsent(%q) error = %v, want %v", id, err, domain.ErrFacilityNotFound)
 			}
@@ -188,9 +188,9 @@ func TestAddCameraLinkAndAttestCameraConsent_WellFormedUnknownFacilityIDStillRea
 	t.Run("AddCameraLink", func(t *testing.T) {
 		t.Parallel()
 		repo := newInMemoryRepo()
-		svc := app.NewService(repo, &sequentialIDs{})
+		svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
-		_, err := svc.AddCameraLink(context.Background(), unknown, "owner-1", "https://example.com/cam1.m3u8")
+		_, err := svc.AddCameraLink(context.Background(), unknown, ownerUserID, "https://example.com/cam1.m3u8")
 		if !errors.Is(err, domain.ErrFacilityNotFound) {
 			t.Fatalf("AddCameraLink(%q) error = %v, want %v", unknown, err, domain.ErrFacilityNotFound)
 		}
@@ -202,9 +202,9 @@ func TestAddCameraLinkAndAttestCameraConsent_WellFormedUnknownFacilityIDStillRea
 	t.Run("AttestCameraConsent", func(t *testing.T) {
 		t.Parallel()
 		repo := newInMemoryRepo()
-		svc := app.NewService(repo, &sequentialIDs{})
+		svc := app.NewService(repo, stubIdentity{}, &sequentialIDs{})
 
-		_, err := svc.AttestCameraConsent(context.Background(), unknown, "owner-1")
+		_, err := svc.AttestCameraConsent(context.Background(), unknown, ownerUserID)
 		if !errors.Is(err, domain.ErrFacilityNotFound) {
 			t.Fatalf("AttestCameraConsent(%q) error = %v, want %v", unknown, err, domain.ErrFacilityNotFound)
 		}

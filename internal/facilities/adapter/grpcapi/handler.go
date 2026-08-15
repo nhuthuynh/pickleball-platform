@@ -21,9 +21,10 @@ import (
 	"github.com/nhuthuynh/white-label/internal/platform/auth"
 )
 
-// actor resolves the acting user for an authenticated RPC (T12.7).
+// actor resolves the acting user for an authenticated RPC (T12.7), and since
+// T13.3 it is also ADR-0014's translation seam for this context.
 //
-// This one function is the whole of A11 Ruling 3 for this context: the
+// This one method is the whole of A11 Ruling 3 for this context: the
 // Principal is translated into the plain actor string app.Service and
 // domain.Facility.EnsureOwner already take, here at the grpcapi boundary, so
 // internal/facilities/{domain,app} keep their existing signatures and never
@@ -33,10 +34,54 @@ import (
 // not passed in and cannot be consulted, so there is no fallback to the
 // caller's claim when no principal is present — the failure mode the T12.7
 // ticket calls out as "a handler that falls back to the claimed value has
-// changed nothing". Missing principal is codes.Unauthenticated ("I do not know
-// who you are"), never PermissionDenied (ADR-0013 §5).
-func actor(ctx context.Context) (string, error) {
-	return auth.RequireSubject(ctx)
+// changed nothing".
+//
+// **It returns a User.ID (uuid), not the subject.** That is ADR-0014's ruling
+// and the fix for issue #154. Two steps, in this order:
+//
+//  1. auth.RequireSubject — who is calling? A missing or unverified principal
+//     is codes.Unauthenticated ("I do not know who you are"), never
+//     PermissionDenied (ADR-0013 §5).
+//  2. app.Service.ResolveActorUserID — which User is that? A subject
+//     registered to no User is codes.PermissionDenied, never NotFound
+//     (ADR-0014 §6: the caller is known and simply may not act, and NotFound
+//     would make this an enumeration oracle).
+//
+// **Being the single funnel is the point, not an implementation detail.**
+// Every actor-taking RPC on this service calls it — four call sites:
+// CreateFacility, AddCourt, AddCameraLink, AttestCameraConsent — so the
+// translation happens once and cannot be half-applied. A handler has no other
+// way to obtain an actor. Resolving inside each app method instead would have
+// to be remembered once per method, which is the shape that produced #154 and
+// #146 in the first place.
+//
+// **Why this fixes all four RPCs and not just CreateFacility.** The other
+// three compare the actor against a stored facilities.owner_id via
+// domain.Facility.EnsureOwner. Before this ticket both sides of that
+// comparison were subjects, so the check was self-consistent and those RPCs
+// were not independently broken — they were unreachable, because
+// CreateFacility could not persist a Facility for them to act on without
+// panicking the Postgres adapter. Moving the translation here keeps both
+// sides in the same space, now the uuid one: the write path stores a
+// resolved User.ID and the read path compares against a resolved User.ID.
+// Resolving on one side only is what would have broken them, which is why
+// this is a funnel and not four separate edits.
+//
+// It is a method rather than a package function only because it needs the
+// service to reach port.IdentityLookup. NewHandler's signature is unchanged;
+// app.NewService's is not — see its doc comment for why Facilities differs
+// from Booking there.
+func (h *Handler) actor(ctx context.Context) (string, error) {
+	subject, err := auth.RequireSubject(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	actorUserID, err := h.svc.ResolveActorUserID(ctx, subject)
+	if err != nil {
+		return "", toStatus(err)
+	}
+	return actorUserID, nil
 }
 
 type Handler struct {
@@ -60,7 +105,7 @@ func NewHandler(svc *app.Service) *Handler {
 // could hand ownership to a subject that is not theirs. Minting it here is
 // what makes the enforced check on the other three internally consistent.
 func (h *Handler) CreateFacility(ctx context.Context, req *facilitiesv1.CreateFacilityRequest) (*facilitiesv1.CreateFacilityResponse, error) {
-	ownerID, err := actor(ctx)
+	ownerID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +159,7 @@ func (h *Handler) ListFacilities(ctx context.Context, req *facilitiesv1.ListFaci
 // deprecated actor_user_id — web/ sends it until its own follow-up, and
 // removing a proto field is a client break — but no handler below reads it.
 func (h *Handler) AddCourt(ctx context.Context, req *facilitiesv1.AddCourtRequest) (*facilitiesv1.AddCourtResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +172,7 @@ func (h *Handler) AddCourt(ctx context.Context, req *facilitiesv1.AddCourtReques
 }
 
 func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCameraLinkRequest) (*facilitiesv1.AddCameraLinkResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +185,7 @@ func (h *Handler) AddCameraLink(ctx context.Context, req *facilitiesv1.AddCamera
 }
 
 func (h *Handler) AttestCameraConsent(ctx context.Context, req *facilitiesv1.AttestCameraConsentRequest) (*facilitiesv1.AttestCameraConsentResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -177,6 +222,19 @@ func toStatus(err error) error {
 		// mirrors booking's toStatus's handling of
 		// ErrAmbiguousPricingRule.
 		return status.Error(codes.FailedPrecondition, err.Error())
+	case errors.Is(err, domain.ErrUserNotFound):
+		// PermissionDenied (-> HTTP 403 via grpc-gateway), not NotFound and
+		// not Unauthenticated: ADR-0014 §6's ruling for a caller whose token
+		// verified but who is registered to no User (T13.3).
+		//
+		// Unauthenticated is wrong because we know exactly who they are — the
+		// token verified, and ADR-0013 §5 reserves that code for "I do not
+		// know who you are". NotFound is wrong for two reasons: it would make
+		// a 404 from AddCourt ambiguous between "no such Facility" and "no
+		// such you", and it would turn every actor-taking RPC here into a
+		// user-enumeration oracle. This reuses the mapping Booking's toStatus
+		// already gives the same sentinel rather than inventing one.
+		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrEmptyFacilityField), errors.Is(err, domain.ErrEmptyCourtField):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:

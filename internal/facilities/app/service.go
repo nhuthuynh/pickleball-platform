@@ -29,12 +29,58 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 
 // Service is the Facilities context's application layer.
 type Service struct {
-	repo port.Repository
-	ids  port.IDGenerator
+	repo     port.Repository
+	identity port.IdentityLookup
+	ids      port.IDGenerator
 }
 
-func NewService(repo port.Repository, ids port.IDGenerator) *Service {
-	return &Service{repo: repo, ids: ids}
+// NewService gained its identity parameter in T13.3, when Facilities acquired
+// its first outbound port into another context (ADR-0014, issue #154).
+//
+// The parameter order mirrors internal/booking/app.NewService's — every
+// cross-context lookup port first, port.IDGenerator last — rather than
+// appending the new one on the end, so the two services stay readable against
+// each other (CLAUDE.md: "mirror the booking context exactly").
+//
+// Note that ADR-0014's "constructor signatures are unchanged" consequence is
+// specific to Booking, and does not apply here: Booking already held
+// port.IdentityLookup as a constructor parameter before that ADR, so its seam
+// added a method to an existing dependency. Facilities held no such port at
+// all, so the dependency is genuinely new and has to be wired. cmd/server
+// passes the real internal/facilities/adapter/identity.Lookup over the same
+// identitySvc instance every other context resolves against.
+func NewService(repo port.Repository, identity port.IdentityLookup, ids port.IDGenerator) *Service {
+	return &Service{repo: repo, identity: identity, ids: ids}
+}
+
+// ResolveActorUserID translates a verified IdP subject into the caller's
+// User.ID (uuid) — ADR-0014's resolution seam applied to Facilities, and the
+// fix for issue #154.
+//
+// **This is the only method in internal/facilities/app whose parameter is a
+// subject, and the name says so deliberately.** ADR-0014's invariant is that
+// below the grpcapi boundary an actor value is always a User.ID; this method
+// is the one place that invariant is established rather than assumed. Every
+// other actor-taking method here — CreateFacility, AddCourt, AddCameraLink,
+// AttestCameraConsent — takes the resolved uuid.
+//
+// It is called from the grpcapi handler's actor() funnel, once per
+// authenticated RPC, so a subject never reaches the two places that would
+// mishandle it: a uuid column (the Postgres adapter's mustUUID panics — see
+// adapter/postgres/owner_subject_panic_test.go) and a uuid-keyed comparison
+// (domain.Facility.EnsureOwner against a stored owner_id).
+//
+// It takes a plain string rather than an auth.Principal on purpose: this
+// package still imports nothing from internal/platform/auth (A11 Ruling 3),
+// so the app layer keeps no opinion about how the caller was authenticated —
+// only that somebody upstream did.
+//
+// An unregistered subject is domain.ErrUserNotFound, which grpcapi maps to
+// PermissionDenied rather than NotFound (ADR-0014 §6): the caller is known,
+// they simply may not act, and answering NotFound would turn every
+// actor-taking endpoint into a user-enumeration oracle.
+func (s *Service) ResolveActorUserID(ctx context.Context, subject string) (string, error) {
+	return s.identity.UserIDBySubject(ctx, subject)
 }
 
 // CreateFacilityInput is CreateFacility's use-case input.
@@ -51,6 +97,34 @@ type CreateFacilityInput struct {
 // that could set it true on creation (T7.2's round-10 design-review
 // finding), so there is nothing for this method to pass through either.
 func (s *Service) CreateFacility(ctx context.Context, in CreateFacilityInput) (domain.Facility, error) {
+	// T13.3 / ADR-0014: OwnerID is a resolved User.ID by the time it gets
+	// here, because the grpcapi handler's actor() funnel resolved it. This
+	// guard is what makes that an enforced invariant rather than a hope.
+	//
+	// It is the same shape as the FacilityID guards on AddCourt/
+	// AddCameraLink/AttestCameraConsent below (T10.7, issue #97), applied to
+	// the actor field for the same reason: the Postgres adapter converts
+	// owner_id with mustUUID, which PANICS on a non-uuid rather than
+	// returning an error, and grpc installs no recover() beyond
+	// internal/platform/grpcrecovery. That panic is issue #154, and it is
+	// pinned Docker-free in
+	// internal/facilities/adapter/postgres/owner_subject_panic_test.go.
+	//
+	// So a future RPC wired past the funnel — or a caller of this package
+	// from outside grpcapi — fails closed with a clean PermissionDenied
+	// instead of taking the process down. domain.NewFacility cannot do this
+	// job: it validates OwnerID for non-emptiness only, and must, since
+	// internal/facilities/domain is not allowed to know that a User.ID is a
+	// uuid in Postgres (CLAUDE.md rule 2).
+	//
+	// ErrUserNotFound rather than a malformed-input error, matching how
+	// internal/booking/app answers the same case: an actor value that is not
+	// a User.ID resolves to no User, and ADR-0014 §6 rules that answer is
+	// PermissionDenied.
+	if !uuidShape.MatchString(in.OwnerID) {
+		return domain.Facility{}, domain.ErrUserNotFound
+	}
+
 	f, err := domain.NewFacility(s.ids.NewID(), in.OwnerID, in.Name, in.Description, in.Address, in.PhotoURLs)
 	if err != nil {
 		return domain.Facility{}, err

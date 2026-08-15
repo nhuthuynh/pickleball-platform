@@ -47,6 +47,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/competitions/adapter/sharetoken"
 	competitionsapp "github.com/nhuthuynh/white-label/internal/competitions/app"
 	facilitiesgrpc "github.com/nhuthuynh/white-label/internal/facilities/adapter/grpcapi"
+	facilitiesidentity "github.com/nhuthuynh/white-label/internal/facilities/adapter/identity"
 	facilitiespg "github.com/nhuthuynh/white-label/internal/facilities/adapter/postgres"
 	facilitiesapp "github.com/nhuthuynh/white-label/internal/facilities/app"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
@@ -100,20 +101,6 @@ func run(logger *slog.Logger) error {
 	}
 	defer pool.Close()
 
-	// Facilities (T7.3). Its Repository is Postgres-backed like Booking's;
-	// AddCourt inserts into the *same* courts table Booking's repo below
-	// reads court_id from (0001_init.sql + 0010_facilities.sql's
-	// facility_id column) — not a second courts table.
-	//
-	// Built before Booking as of T11.2: Booking now has a FacilityLookup
-	// port of its own (its first call into Facilities at all) and is wired
-	// against this same, real facilitiesSvc instance — not a second/separate
-	// Facilities stack — exactly as Social Play and Competitions already are
-	// further down.
-	facilitiesRepo := facilitiespg.NewRepository(pool)
-	facilitiesSvc := facilitiesapp.NewService(facilitiesRepo, idgen.UUID{})
-	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
-
 	// Identity/Users (T10.2). Its Repository is Postgres-backed like the
 	// other contexts', and as of T12.9 it takes a port.IDGenerator like the
 	// other contexts too — a User's id is now server-minted rather than the
@@ -125,9 +112,39 @@ func run(logger *slog.Logger) error {
 	// call into Identity at all: Booking's RequestRecurringHire resolves the
 	// actor's `club` role against this same, real identitySvc instance — not
 	// a second/separate one — through internal/booking/adapter/identity.
+	//
+	// Moved above Facilities in T13.3, which makes Facilities the second
+	// context to call into Identity (ADR-0014's seam, issue #154). This is a
+	// pure reordering — no construction below it changed — and it is forced:
+	// facilitiesSvc now takes an identity lookup built over identitySvc, so
+	// identitySvc has to exist first.
 	identityRepo := identitypg.NewRepository(pool)
 	identitySvc := identityapp.NewService(identityRepo, idgen.UUID{})
 	identityHandler := identitygrpc.NewHandler(identitySvc)
+
+	// Facilities (T7.3). Its Repository is Postgres-backed like Booking's;
+	// AddCourt inserts into the *same* courts table Booking's repo below
+	// reads court_id from (0001_init.sql + 0010_facilities.sql's
+	// facility_id column) — not a second courts table.
+	//
+	// Built before Booking as of T11.2: Booking now has a FacilityLookup
+	// port of its own (its first call into Facilities at all) and is wired
+	// against this same, real facilitiesSvc instance — not a second/separate
+	// Facilities stack — exactly as Social Play and Competitions already are
+	// further down.
+	//
+	// facilitiesIdentityLookup (T13.3) is Facilities' first outbound call
+	// into any other context, and it resolves against the SAME real
+	// identitySvc instance Booking's own lookup uses just below — not a
+	// second Identity stack. That shared instance is what makes ADR-0014's
+	// invariant hold across contexts rather than per-context: a given
+	// subject resolves to one User.ID everywhere, so the uuid Facilities
+	// stores in facilities.owner_id is the same uuid Booking compares
+	// against in ApproveRecurringHire/CreateDiscountRule.
+	facilitiesRepo := facilitiespg.NewRepository(pool)
+	facilitiesIdentityLookup := facilitiesidentity.NewLookup(identitySvc)
+	facilitiesSvc := facilitiesapp.NewService(facilitiesRepo, facilitiesIdentityLookup, idgen.UUID{})
+	facilitiesHandler := facilitiesgrpc.NewHandler(facilitiesSvc)
 
 	repo := bookingpg.NewRepository(pool)
 	pricingRepo := bookingpg.NewPricingRuleRepository(pool)

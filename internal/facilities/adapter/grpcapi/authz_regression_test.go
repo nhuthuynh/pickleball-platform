@@ -172,20 +172,76 @@ func (f *fakeIDs) NewID() string {
 	return fmt.Sprintf("00000000-0000-4000-8000-%012d", f.n)
 }
 
+// --- port.IdentityLookup fake -----------------------------------------
+
+// userUUID mints the server-side identifier space's fixture values: a
+// resolved identity_users.id, which facilities.owner_id (`uuid NOT NULL`)
+// can actually hold. subjectOf's values are the other space — see
+// fakeIdentityLookup.
+func userUUID(n int) string { return fmt.Sprintf("00000000-0000-4000-b000-%012d", n) }
+
+var (
+	ownerUserID    = userUUID(1)
+	attackerUserID = userUUID(2)
+)
+
+// fakeIdentityLookup stands in for internal/facilities/adapter/identity,
+// returning the same context-local sentinel that adapter translates
+// Identity's ErrUserNotFound into (T13.3).
+//
+// It models BOTH identifier spaces ADR-0014 distinguishes, because a fake
+// that collapsed them would reintroduce the exact blind spot #154 came
+// through: `subjects` maps a verified IdP subject to the User.ID this
+// platform stores, and those two strings are never equal. Before this ticket
+// the tests in this package used "owner-1" as the subject AND as the stored
+// owner_id, which is why every one of them passed against a handler that
+// wrote a subject into a uuid column.
+//
+// The genuinely unmocked end-to-end coverage of this seam is
+// subject_owner_seam_test.go, which drives the real adapter over the real
+// Identity service. This fake exists so the authorization cases in this
+// package do not each need an Identity fixture.
+type fakeIdentityLookup struct {
+	subjects map[string]string
+}
+
+func newFakeIdentityLookup() *fakeIdentityLookup {
+	return &fakeIdentityLookup{subjects: map[string]string{
+		ownerSubject:    ownerUserID,
+		attackerSubject: attackerUserID,
+	}}
+}
+
+// UserIDBySubject is ADR-0014's translation, faked: the subject the token
+// carries in, the User.ID this platform stores out. An unregistered subject
+// is domain.ErrUserNotFound, which the handler maps to PermissionDenied.
+func (l *fakeIdentityLookup) UserIDBySubject(_ context.Context, subject string) (string, error) {
+	id, ok := l.subjects[subject]
+	if !ok {
+		return "", domain.ErrUserNotFound
+	}
+	return id, nil
+}
+
 // newTestHandler wires the real app.Service and the real grpcapi.Handler —
 // exactly what cmd/server wires in production — against the in-memory
 // fakeRepo above.
 func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
 	repo := newFakeRepo()
-	svc := app.NewService(repo, &fakeIDs{})
+	svc := app.NewService(repo, newFakeIdentityLookup(), &fakeIDs{})
 	return grpcapi.NewHandler(svc), repo
 }
 
-func seedFacility(t *testing.T, h *grpcapi.Handler, ownerID string) *facilitiesv1.Facility {
+// seedFacility creates a Facility owned by the caller authenticated as
+// subject. Note the parameter is a SUBJECT, not an owner id: as of T13.3 the
+// handler resolves it to a User.ID and stores that, so the value this
+// function is given and the value that lands in owner_id are deliberately
+// different strings (ADR-0014).
+func seedFacility(t *testing.T, h *grpcapi.Handler, subject string) *facilitiesv1.Facility {
 	t.Helper()
 	// T12.7: the owner is minted from the verified principal, so the fixture
-	// authenticates as ownerID rather than declaring it in the request body.
-	resp, err := h.CreateFacility(ctxAs(ownerID), &facilitiesv1.CreateFacilityRequest{
+	// authenticates as the owner rather than declaring them in the request body.
+	resp, err := h.CreateFacility(ctxAs(subject), &facilitiesv1.CreateFacilityRequest{
 		Name:    "Riverside Courts",
 		Address: "123 Main St",
 	})
@@ -205,14 +261,14 @@ func seedFacility(t *testing.T, h *grpcapi.Handler, ownerID string) *facilitiesv
 func TestAddCourt_RejectsMismatchedActor(t *testing.T) {
 	h, repo := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
-	// The BOLA attempt: "attacker", a verified caller who is not the
+	// The BOLA attempt: attackerSubject, a verified caller who is not the
 	// Facility's owner, tries to add a Court to owner-1's Facility. T12.7
 	// moved this identity from an actor_user_id request field to the
 	// verified principal — see principal_authz_test.go for the case that
 	// proves the request field is now ignored outright.
-	ctx := ctxAs("attacker")
+	ctx := ctxAs(attackerSubject)
 	_, err := h.AddCourt(ctx, &facilitiesv1.AddCourtRequest{
 		FacilityId: facility.GetId(),
 		Name:       "Court 1",
@@ -248,9 +304,9 @@ func TestAddCourt_RejectsMismatchedActor(t *testing.T) {
 func TestAddCourt_AllowsOwningActor(t *testing.T) {
 	h, repo := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
-	ctx := ctxAs("owner-1")
+	ctx := ctxAs(ownerSubject)
 	resp, err := h.AddCourt(ctx, &facilitiesv1.AddCourtRequest{
 		FacilityId: facility.GetId(),
 		Name:       "Court 1",
@@ -277,8 +333,8 @@ func TestAddCourt_AllowsOwningActor(t *testing.T) {
 func TestAddCameraLink_RejectsMismatchedActor(t *testing.T) {
 	h, repo := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
-	ctx := ctxAs("attacker")
+	facility := seedFacility(t, h, ownerSubject)
+	ctx := ctxAs(attackerSubject)
 	// Attest consent directly against the fake repo's fixture, bypassing
 	// the wire API (there is no AttestConsent RPC) — mirrors
 	// internal/facilities/app/service_test.go's own fixture setup.
@@ -315,12 +371,12 @@ func TestAddCameraLink_RejectsMismatchedActor(t *testing.T) {
 func TestAddCameraLink_AllowsOwningActor(t *testing.T) {
 	h, repo := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 	stored := repo.facilities[facility.GetId()]
 	stored.CameraConsentAttested = true
 	repo.facilities[facility.GetId()] = stored
 
-	ctx := ctxAs("owner-1")
+	ctx := ctxAs(ownerSubject)
 	resp, err := h.AddCameraLink(ctx, &facilitiesv1.AddCameraLinkRequest{
 		FacilityId: facility.GetId(),
 		Url:        "https://example.com/cam1.m3u8",
@@ -353,9 +409,9 @@ func TestAddCameraLink_AllowsOwningActor(t *testing.T) {
 func TestAttestCameraConsent_RejectsMismatchedActor(t *testing.T) {
 	h, repo := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
-	ctx := ctxAs("attacker")
+	ctx := ctxAs(attackerSubject)
 	_, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
 		FacilityId: facility.GetId(),
 	})
@@ -389,9 +445,9 @@ func TestAttestCameraConsent_RejectsMismatchedActor(t *testing.T) {
 func TestAttestCameraConsent_AllowsOwningActor(t *testing.T) {
 	h, repo := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
-	ctx := ctxAs("owner-1")
+	ctx := ctxAs(ownerSubject)
 	resp, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
 		FacilityId: facility.GetId(),
 	})
@@ -414,9 +470,9 @@ func TestAttestCameraConsent_AllowsOwningActor(t *testing.T) {
 func TestAttestCameraConsent_ThenAddCameraLink_EndToEnd(t *testing.T) {
 	h, _ := newTestHandler()
 
-	facility := seedFacility(t, h, "owner-1")
+	facility := seedFacility(t, h, ownerSubject)
 
-	ctx := ctxAs("owner-1")
+	ctx := ctxAs(ownerSubject)
 
 	if _, err := h.AttestCameraConsent(ctx, &facilitiesv1.AttestCameraConsentRequest{
 		FacilityId: facility.GetId(),
