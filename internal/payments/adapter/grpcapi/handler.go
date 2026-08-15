@@ -181,53 +181,53 @@ func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPayme
 		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
 	})
 	if err != nil {
-		return nil, toRefundStatus(err)
+		return nil, toStatus(err)
 	}
 
 	return &paymentsv1.RefundPaymentResponse{Payment: toProto(p)}, nil
 }
 
-// toRefundStatus is RefundPayment's error mapping. It handles the two codes
-// T12.3 specifies differently from the shared toStatus below, then delegates
-// everything else to it so there is exactly one place each remaining
-// sentinel is mapped.
-//
-// The two deliberate divergences, and why they are scoped to this RPC:
-//
-//   - ErrIllegalStatusTransition -> FailedPrecondition (toStatus sends it to
-//     InvalidArgument). FailedPrecondition is the semantically correct code:
-//     an already-refunded or never-paid Payment is a well-formed request
-//     against a system state that forbids it, not a malformed argument.
-//   - ErrPaymentProcessorUnavailable -> Internal (toStatus sends it to
-//     Unavailable). Specified by the ticket: a refund that failed at the
-//     processor left real money unreturned, and the ticket treats that as a
-//     server-side failure the caller should escalate rather than a
-//     retry-and-it-might-work condition.
-//
-// Both are scoped to RefundPayment rather than changed in toStatus because
-// changing toStatus would silently alter the wire contract of
-// RecordOfflinePayment/CreateOnlinePayment/ConfirmOnlinePayment, which no
-// ticket asked for and existing clients may depend on (PE dossier §2,
-// Hyrum's Law). The resulting inconsistency — one sentinel, two codes,
-// depending on the RPC — is real and is tracked as issue #131 rather than
-// left undisclosed.
-func toRefundStatus(err error) error {
-	switch {
-	case errors.Is(err, domain.ErrIllegalStatusTransition):
-		return status.Error(codes.FailedPrecondition, err.Error())
-	case errors.Is(err, domain.ErrPaymentProcessorUnavailable),
-		errors.Is(err, domain.ErrPaymentDeclined):
-		return status.Error(codes.Internal, err.Error())
-	default:
-		return toStatus(err)
-	}
-}
-
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, PermissionDenied ->
-// 403, NotFound -> 404, InvalidArgument -> 400 — this is what makes the PR
-// description's smoke-test AC true end-to-end (duplicate offline recording
-// -> 409, actor mismatch -> 403-shaped, not 500).
+// 403, NotFound -> 404, InvalidArgument -> 400, FailedPrecondition -> 400,
+// Unavailable -> 503 — this is what makes the PR description's smoke-test AC
+// true end-to-end (duplicate offline recording -> 409, actor mismatch ->
+// 403-shaped, not 500).
+//
+// T13.9 (closes #131): this is the *only* error mapper in this package, and
+// deliberately so. T12.3 added a second, RefundPayment-only mapper
+// (toRefundStatus) that sent ErrIllegalStatusTransition to FailedPrecondition
+// and ErrPaymentProcessorUnavailable/ErrPaymentDeclined to Internal, so the
+// same domain sentinel produced a different code depending on which RPC
+// surfaced it. That split is resolved here rather than perpetuated, because a
+// sentinel's meaning does not depend on its caller:
+//
+//   - ErrIllegalStatusTransition now maps to FailedPrecondition service-wide
+//     (RefundPayment's code won, not the majority's). gRPC defines
+//     InvalidArgument as a problem with the argument *regardless of the state
+//     of the system*; a status-machine violation is state-dependent by
+//     definition, which is FailedPrecondition's own wording ("the system is
+//     not in a state required for the operation's execution"). The one other
+//     RPC that can surface it is ConfirmOnlinePayment; RecordOfflinePayment's
+//     MarkPaid cannot fail, since domain.NewPayment always returns a Payment
+//     in StatusUnpaid, and CreateOnlinePayment performs no transition at all.
+//     Both codes map to HTTP 400, so no REST client sees a change.
+//   - ErrPaymentProcessorUnavailable stays Unavailable service-wide
+//     (toStatus's code won). The sentinel means one thing in both directions —
+//     domain/errors.go defines it as the processor being unable to complete
+//     the request — so in both the capture and refund directions nothing
+//     moved and a retry is safe, which is precisely Unavailable's contract.
+//     Internal describes broken invariants in *our* system; a third party's
+//     outage is not that. T12.3's "escalate rather than retry" reasoning is
+//     a client-side policy about consequences, not a statement about what
+//     happened, and it does not survive the sentinel meaning the same thing
+//     on both paths.
+//   - ErrPaymentDeclined stays FailedPrecondition. toRefundStatus also sent
+//     this one to Internal, undocumented in its own doc comment, and it was
+//     unreachable there: port.PaymentProcessor documents declines on
+//     CapturePayment only, and RefundPayment's contract (and its sole
+//     implementation) never returns it. Removing the branch changes no
+//     observable behaviour.
 func toStatus(err error) error {
 	switch {
 	case errors.Is(err, domain.ErrPaymentAlreadyRecorded):
@@ -236,20 +236,27 @@ func toStatus(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrPaymentNotFound):
 		return status.Error(codes.NotFound, err.Error())
-	case errors.Is(err, domain.ErrPaymentDeclined):
+	case errors.Is(err, domain.ErrPaymentDeclined),
 		// A decline is a legitimate business outcome, not a client input
 		// error or a server bug (see port.PaymentProcessor's doc
 		// comment) — FailedPrecondition (-> HTTP 400 via grpc-gateway)
 		// distinguishes it from both InvalidArgument-shaped bad input and
 		// an actual Internal server error.
+		//
+		// ErrIllegalStatusTransition joins it here in T13.9 (#131): a
+		// well-formed request against a system state that forbids it is
+		// the definition of FailedPrecondition, and InvalidArgument is
+		// explicitly reserved for arguments that are wrong regardless of
+		// system state. See the doc comment above for the full reasoning
+		// and the blast radius.
+		errors.Is(err, domain.ErrIllegalStatusTransition):
 		return status.Error(codes.FailedPrecondition, err.Error())
 	case errors.Is(err, domain.ErrPaymentProcessorUnavailable):
 		return status.Error(codes.Unavailable, err.Error())
 	case errors.Is(err, domain.ErrEmptyPayableID),
 		errors.Is(err, domain.ErrInvalidPayableType),
 		errors.Is(err, domain.ErrInvalidAmount),
-		errors.Is(err, domain.ErrInvalidCurrency),
-		errors.Is(err, domain.ErrIllegalStatusTransition):
+		errors.Is(err, domain.ErrInvalidCurrency):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
