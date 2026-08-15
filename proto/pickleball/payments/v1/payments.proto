@@ -157,32 +157,36 @@ message RecordOfflinePaymentResponse {
 // card directly with Stripe before this call, and confirms via
 // ConfirmOnlinePayment below.
 //
-// actor_user_id / entrant_player_id / assigned_competition_admin_user_ids
-// (T10.6, closes #96) are new, PAYABLE_TYPE_COMPETITION_ENTRY-scoped
-// fields — a caller-claimed identity, the same known-gap caveat every
-// other actor_user_id field in this codebase carries (not yet a verified
-// identity; see RecordOfflinePaymentRequest's doc comment). They are
-// validated only when payable_type is PAYABLE_TYPE_COMPETITION_ENTRY; every
-// other payable type this request accepts is unaffected and continues to
-// require no actor at all, exactly as before T10.6 (see
-// app.CreateOnlinePaymentInput's doc comment for why extending this to
-// those pre-existing types is out of this ticket's scope).
+// actor_user_id (T10.6, closes #96) is a PAYABLE_TYPE_COMPETITION_ENTRY-scoped
+// field — a caller-claimed identity, the same known-gap caveat every other
+// actor_user_id field in this codebase carries (not yet a verified identity;
+// see RecordOfflinePaymentRequest's doc comment). It is validated only when
+// payable_type is PAYABLE_TYPE_COMPETITION_ENTRY; every other payable type
+// this request accepts is unaffected and continues to require no actor at
+// all, exactly as before T10.6 (see app.CreateOnlinePaymentInput's doc
+// comment for why extending this to those pre-existing types is out of this
+// ticket's scope).
 //
 // T15.5 sibling-sweep finding (§A15), RE-VERIFIED AND STILL TRUE AS OF T16.2
-// (this ticket's own required sibling sweep, instruction 10): entrant_player_id
-// / assigned_competition_admin_user_ids here are the same
+// (that ticket's own required sibling sweep, instruction 10): entrant_player_id
+// / assigned_competition_admin_user_ids here used to be the same
 // caller-supplied-entitlement fields RecordOfflinePaymentRequest's four fields
-// were before this ticket, reachable through authorizeOnlineCreation rather
-// than authorizeOfflineRecording — a genuinely different authorization branch,
-// on a genuinely different RPC (CreateOnlinePayment, not RecordOfflinePayment/
-// RefundPayment). T16.2 wires its five new resolver ports into
-// authorizeOfflineRecording ONLY, per its own instructions — authorizeOnlineCreation
-// is untouched, so these two fields are NOT deprecated and stay exactly as
-// caller-supplied and forgeable as before. This is a real, named gap, not an
-// oversight: closing it is mechanically identical to what this ticket just did
-// for authorizeOfflineRecording (the same port.EntryLookup/CompetitionAdminReader
-// would answer it), and is tracked as issue #198 rather than folded in here
-// silently.
+// were before T16.2, reachable through authorizeOnlineCreation rather than
+// authorizeOfflineRecording — a genuinely different authorization branch, on
+// a genuinely different RPC (CreateOnlinePayment, not RecordOfflinePayment/
+// RefundPayment). T16.2 wired its five new resolver ports into
+// authorizeOfflineRecording ONLY, per its own instructions, leaving this gap
+// tracked as issue #198 rather than folded in there silently.
+//
+// T17.1 (closes #198) closes it: entrant_player_id and
+// assigned_competition_admin_user_ids below are now [deprecated = true] and
+// IGNORED BY THE SERVER, mirroring RecordOfflinePaymentRequest's own four
+// fields' identical T16.2 treatment above — internal/payments/app.Service's
+// authorizeOnlineCreation now resolves the CompetitionEntry's own PlayerID
+// and the owning Competition's admin set from payable_id alone, via the same
+// port.EntryLookup/CompetitionAdminReader RecordOfflinePayment/RefundPayment
+// already use (authorizeCompetitionEntryRecording, reused unchanged — see
+// internal/payments/app/service.go's doc comment for the full mechanism).
 message CreateOnlinePaymentRequest {
   PayableType payable_type = 1;
   string payable_id = 2;
@@ -193,8 +197,17 @@ message CreateOnlinePaymentRequest {
   // wire-compatibility reason RecordOfflinePaymentRequest's field states.
   string actor_user_id = 4 [deprecated = true];
 
-  string entrant_player_id = 5;
-  repeated string assigned_competition_admin_user_ids = 6;
+  // DEPRECATED (T17.1, closes #198): ignored by the server. The
+  // CompetitionEntry's own PlayerID is now resolved server-side from
+  // payable_id via port.EntryLookup, not accepted from the caller — the
+  // identical resolution RecordOfflinePaymentRequest.entrant_player_id
+  // already documents above, now closed for this RPC too.
+  string entrant_player_id = 5 [deprecated = true];
+  // DEPRECATED (T17.1, closes #198): ignored by the server. The
+  // CompetitionEntry's Competition's current admin set is now resolved
+  // server-side from payable_id via port.EntryLookup/CompetitionAdminReader,
+  // not accepted from the caller.
+  repeated string assigned_competition_admin_user_ids = 6 [deprecated = true];
 }
 
 message CreateOnlinePaymentResponse {
