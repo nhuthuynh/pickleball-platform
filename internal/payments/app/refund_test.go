@@ -116,9 +116,13 @@ func TestRefundPayment_OfflineRegistrationPayable_GameHostSucceeds(t *testing.T)
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -126,7 +130,6 @@ func TestRefundPayment_OfflineRegistrationPayable_GameHostSucceeds(t *testing.T)
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
@@ -134,7 +137,6 @@ func TestRefundPayment_OfflineRegistrationPayable_GameHostSucceeds(t *testing.T)
 	refunded, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -153,9 +155,13 @@ func TestRefundPayment_RegistrationPayable_AssignedGameAdminSucceeds(t *testing.
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID, fixtureGameAdminID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -163,22 +169,63 @@ func TestRefundPayment_RegistrationPayable_AssignedGameAdminSucceeds(t *testing.
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
 
 	refunded, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
-		PaymentID:                fixtureRegistrationPaymentID,
-		ActorUserID:              fixtureGameAdminID,
-		GameHostID:               fixtureGameHostID,
-		AssignedGameAdminUserIDs: []string{fixtureGameAdminID},
+		PaymentID:   fixtureRegistrationPaymentID,
+		ActorUserID: fixtureGameAdminID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 	if refunded.Status != domain.StatusRefunded {
 		t.Fatalf("Status = %v, want refunded", refunded.Status)
+	}
+}
+
+// TestRefundPayment_RegistrationPayable_RevokedGameAdminRejected is T16.2's
+// positive-then-negative control at the app layer (instruction 9, mirroring
+// T15.4's mutation table): a Game Admin who is currently assigned succeeds
+// (proved above by TestRefundPayment_RegistrationPayable_AssignedGameAdminSucceeds),
+// then the identical actor is refused once revoked from the resolver's
+// admin set — proving GameAdminReader's answer, not merely its presence, is
+// what authorizeGameRecording consults on every call, not a value cached
+// from an earlier one.
+func TestRefundPayment_RegistrationPayable_RevokedGameAdminRejected(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID, fixtureGameAdminID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureGameHostID,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+
+	// Revoke fixtureGameAdminID from the resolver's admin set — mutating the
+	// same fake instance RefundPayment below will consult, not a second,
+	// differently-configured one.
+	admins.adminsByGame[fixtureGameID] = nil
+
+	_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureRegistrationPaymentID,
+		ActorUserID: fixtureGameAdminID,
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
 	}
 }
 
@@ -192,9 +239,13 @@ func TestRefundPayment_WrongActorRejected(t *testing.T) {
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -202,7 +253,6 @@ func TestRefundPayment_WrongActorRejected(t *testing.T) {
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
@@ -210,7 +260,6 @@ func TestRefundPayment_WrongActorRejected(t *testing.T) {
 	_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureOutsidePlayer,
-		GameHostID:  fixtureGameHostID,
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -225,15 +274,23 @@ func TestRefundPayment_WrongActorRejected(t *testing.T) {
 	}
 }
 
-// TestRefundPayment_MissingActorRejected proves an empty actor is rejected
-// rather than treated as a match against an equally-empty ownership fact.
-func TestRefundPayment_MissingActorRejected(t *testing.T) {
+// TestRefundPayment_RegistrationPayable_ForgedDeprecatedFieldIgnored is
+// T16.2's headline mutation check (instruction 9) at the refund path: a
+// caller naming themselves via the now-deleted-from-input, still-on-the-wire
+// deprecated game_host_id/assigned_game_admin_user_ids fields has no effect
+// — RefundPaymentInput no longer has fields to receive them into, so an
+// actor unrelated to the real, resolved Host/admin set is refused.
+func TestRefundPayment_RegistrationPayable_ForgedDeprecatedFieldIgnored(t *testing.T) {
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -241,7 +298,39 @@ func TestRefundPayment_MissingActorRejected(t *testing.T) {
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
+	}); err != nil {
+		t.Fatalf("seed: RecordOfflinePayment: %v", err)
+	}
+
+	_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
+		PaymentID:   fixtureRegistrationPaymentID,
+		ActorUserID: "attacker",
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+}
+
+// TestRefundPayment_MissingActorRejected proves an empty actor is rejected
+// rather than treated as a match against an equally-empty ownership fact.
+func TestRefundPayment_MissingActorRejected(t *testing.T) {
+	t.Parallel()
+
+	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+
+	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
@@ -264,9 +353,13 @@ func TestRefundPayment_AlreadyRefundedRejectedByDomain(t *testing.T) {
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -274,7 +367,6 @@ func TestRefundPayment_AlreadyRefundedRejectedByDomain(t *testing.T) {
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
@@ -282,7 +374,6 @@ func TestRefundPayment_AlreadyRefundedRejectedByDomain(t *testing.T) {
 	in := app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}
 	if _, err := svc.RefundPayment(context.Background(), in); err != nil {
 		t.Fatalf("first refund should succeed: %v", err)
@@ -382,7 +473,6 @@ func TestRefundPayment_UnknownAndMalformedIDsBothAnswerNotFound(t *testing.T) {
 			_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 				PaymentID:   tc.paymentID,
 				ActorUserID: fixtureGameHostID,
-				GameHostID:  fixtureGameHostID,
 			})
 			if !errors.Is(err, domain.ErrPaymentNotFound) {
 				t.Fatalf("got err %v, want %v", err, domain.ErrPaymentNotFound)
@@ -413,11 +503,15 @@ func TestRefundPayment_ProcessorFailure_DoesNotMarkRefunded(t *testing.T) {
 	proc := stripestub.NewProcessor()
 	repo := newFakeRepository()
 	updater := &fakeRegistrationUpdater{}
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
 		Payments:            repo,
 		IDs:                 &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
 		Processor:           proc,
 		RegistrationUpdater: updater,
+		RegistrationLookup:  regs,
+		GameLookup:          games,
+		GameAdminReader:     admins,
 	})
 	seedPaidOnlinePayment(t, svc, fixtureRegistrationPaymentID, domain.PayableTypeRegistration, fixtureRegistrationID)
 
@@ -442,7 +536,6 @@ func TestRefundPayment_ProcessorFailure_DoesNotMarkRefunded(t *testing.T) {
 	returned, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	})
 	if !errors.Is(err, domain.ErrPaymentProcessorUnavailable) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPaymentProcessorUnavailable)
@@ -481,11 +574,15 @@ func TestRefundPayment_PersistFailure_ReportsError(t *testing.T) {
 	proc := stripestub.NewProcessor()
 	repo := newFakeRepository()
 	updater := &fakeRegistrationUpdater{}
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
 		Payments:            repo,
 		IDs:                 &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
 		Processor:           proc,
 		RegistrationUpdater: updater,
+		RegistrationLookup:  regs,
+		GameLookup:          games,
+		GameAdminReader:     admins,
 	})
 	seedPaidOnlinePayment(t, svc, fixtureRegistrationPaymentID, domain.PayableTypeRegistration, fixtureRegistrationID)
 
@@ -499,7 +596,6 @@ func TestRefundPayment_PersistFailure_ReportsError(t *testing.T) {
 	_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	})
 	if err == nil {
 		t.Fatal("a refund that failed to persist must not report success")
@@ -527,10 +623,14 @@ func TestRefundPayment_RegistrationPayable_PushesRefundedToSocialPlay(t *testing
 
 	repo := newFakeRepository()
 	updater := &fakeRegistrationUpdater{}
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
 		Payments:            repo,
 		IDs:                 &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
 		RegistrationUpdater: updater,
+		RegistrationLookup:  regs,
+		GameLookup:          games,
+		GameAdminReader:     admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -538,7 +638,6 @@ func TestRefundPayment_RegistrationPayable_PushesRefundedToSocialPlay(t *testing
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
@@ -550,7 +649,6 @@ func TestRefundPayment_RegistrationPayable_PushesRefundedToSocialPlay(t *testing
 	if _, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -606,9 +704,13 @@ func TestRefundPayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) {
 	t.Parallel()
 
 	repo := newFakeRepository()
+	regs, games, admins := newGameAuthzFixtures(fixtureGameHostID)
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: []string{fixtureRegistrationPaymentID}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
 	})
 
 	if _, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
@@ -616,7 +718,6 @@ func TestRefundPayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) {
 		PayableID:   fixtureRegistrationID,
 		Amount:      offlineFixtureAmount(),
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	}); err != nil {
 		t.Fatalf("seed: RecordOfflinePayment: %v", err)
 	}
@@ -624,7 +725,6 @@ func TestRefundPayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) {
 	refunded, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
 		PaymentID:   fixtureRegistrationPaymentID,
 		ActorUserID: fixtureGameHostID,
-		GameHostID:  fixtureGameHostID,
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -666,10 +766,9 @@ func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 			payableType: domain.PayableTypeCompetitionEntry,
 			payableID:   fixtureCompetitionEntryID,
 			in: app.RecordOfflinePaymentInput{
-				PayableType:     domain.PayableTypeCompetitionEntry,
-				PayableID:       fixtureCompetitionEntryID,
-				ActorUserID:     fixtureEntrantPlayer,
-				EntrantPlayerID: fixtureEntrantPlayer,
+				PayableType: domain.PayableTypeCompetitionEntry,
+				PayableID:   fixtureCompetitionEntryID,
+				ActorUserID: fixtureEntrantPlayer,
 			},
 		},
 		{
@@ -681,7 +780,6 @@ func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 				PayableType: domain.PayableTypeNoShowFee,
 				PayableID:   fixtureRegistrationID,
 				ActorUserID: fixtureGameHostID,
-				GameHostID:  fixtureGameHostID,
 			},
 		},
 	}
@@ -691,9 +789,16 @@ func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 			t.Parallel()
 
 			repo := newFakeRepository()
+			regs, games, gameAdmins := newGameAuthzFixtures(fixtureGameHostID)
+			entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer, fixtureCompAdminUser)
 			svc := app.NewService(app.ServiceOptions{
-				Payments: repo,
-				IDs:      &fixedIDs{ids: []string{tc.paymentID}},
+				Payments:               repo,
+				IDs:                    &fixedIDs{ids: []string{tc.paymentID}},
+				RegistrationLookup:     regs,
+				GameLookup:             games,
+				GameAdminReader:        gameAdmins,
+				EntryLookup:            entries,
+				CompetitionAdminReader: compAdmins,
 			})
 
 			seed := tc.in
@@ -703,10 +808,8 @@ func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
 			}
 
 			_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
-				PaymentID:                tc.paymentID,
-				ActorUserID:              fixtureGameHostID,
-				GameHostID:               fixtureGameHostID,
-				AssignedGameAdminUserIDs: []string{fixtureCompAdminUser},
+				PaymentID:   tc.paymentID,
+				ActorUserID: fixtureGameHostID,
 			})
 			if !errors.Is(err, domain.ErrInvalidPayableType) {
 				t.Fatalf("got err %v, want %v", err, domain.ErrInvalidPayableType)

@@ -10,7 +10,7 @@ import "context"
 // first port in this package that reads IN, and
 // internal/payments/adapter/socialplay.GameAdminReader implements it against
 // the real socialplayapp.Service.ListGameAdmins (exported at
-// service.go:1009 specifically so a second context could consume it later —
+// service.go:1089 specifically so a second context could consume it later —
 // see that method's own doc comment and the sprint plan's §A12 GAP A/B).
 //
 // Returns bare subject strings, not socialplaydomain.GameAdmin values: this
@@ -24,47 +24,35 @@ import "context"
 // internal/payments/adapter/socialplay is where that import belongs, and
 // already has it.
 //
-// # NOT wired into internal/payments/app.Service as of T15.5 — read this
-// before wiring it in
+// # Wired into internal/payments/app.Service as of T16.2 — history below
 //
 // This port and internal/payments/adapter/socialplay.GameAdminReader (the
-// implementation against it) are built and tested against Social Play's real
-// app.Service (T15.5 instruction 1, §A12 GAP C), but are deliberately NOT
-// constructor-wired into app.Service and NOT consulted by
-// authorizeOfflineRecording. That is not an oversight: T15.5 instruction 2
-// requires stopping and reporting a finding, rather than forcing a
-// workaround, the moment consuming an already-exported read turns out to
-// need more than the sprint plan's dependency-completeness check verified —
-// and it does here.
+// implementation against it) were built and tested against Social Play's
+// real app.Service in T15.5 (instruction 1, §A12 GAP C), but were
+// deliberately left NOT constructor-wired into app.Service and NOT consulted
+// by authorizeOfflineRecording — T15.5 instruction 2 required stopping and
+// reporting a finding, rather than forcing a workaround, the moment
+// consuming an already-exported read turned out to need more than that
+// sprint plan's dependency-completeness check had verified, and it did:
+// ListGameAdmins(ctx, gameID) needs a gameID, and neither
+// RecordOfflinePaymentInput nor RefundPaymentInput carried one for a
+// PayableTypeRegistration/PayableTypeNoShowFee payable — only PayableID (the
+// Registration's own id) and the caller-supplied GameHostID (a *subject*,
+// not a Game id, and one that would not have resolved to a single Game even
+// if looked up, since one Host can host many Games).
 //
-// ListGameAdmins(ctx, gameID) needs a gameID. RecordOfflinePaymentInput and
-// RefundPaymentInput never carry one for a PayableTypeRegistration or
-// PayableTypeNoShowFee payable — only PayableID (the Registration's own id)
-// and the caller-supplied GameHostID (a *subject*, not a Game id — and one
-// Host can host many Games, so it would not resolve to a single Game even if
-// it were looked up). Resolving "the Game this Registration belongs to" is a
-// read no context exports today: socialplay/app.Service has no
-// GetRegistration-shaped method, only write paths
-// (RegisterForGame/CancelRegistration) and gameID-scoped reads
-// (ListRegistrationsForGame, which additionally runs its own Host-or-admin
-// authorization check — using it here to discover a Registration's GameID
-// would require already knowing the answer this port exists to compute, a
-// circularity, not a shortcut).
-//
-// Issue #149 already names this exact resolution step as the harder,
-// still-open half of Payments' fact-fabrication gap: its "what closing it
-// looks like" section says closing it means "RecordOfflinePayment looks up
-// the Registration's Game's Host instead of being told it" — a read that
-// does not exist yet, independent of whether the Game-Admin store does.
-// #149 was open before T15.5 and stays open after it for exactly this
-// reason (see the T15.5 PR description for the full writeup, and the
-// follow-up issue this finding was filed as). Accepting a second,
-// caller-supplied id here (e.g. a new game_id field, trusted without
-// verification against the real Registration) would not close the gap — it
-// would relocate it: a genuine Game Admin of some *other* Game could name
-// that Game's id and pass this port's check for a Registration that is not
-// theirs to administer, which is the same shape of forgery this ticket
-// exists to close, one level up.
+// T16.2 closes exactly that gap: internal/payments/port.RegistrationLookup
+// resolves a Registration's own id to its GameID
+// (socialplayapp.Service.GetRegistrationByID), and this port then resolves
+// that GameID to its current admin set — the two-step read issue #149's
+// "what closing it looks like" section named as the harder, still-open half
+// of Payments' fact-fabrication gap. Both steps are now wired into
+// authorizeOfflineRecording via internal/payments/app.Service, for
+// PayableTypeRegistration and PayableTypeNoShowFee payables. #149 stays open
+// after T16.2 for one remaining fact only: PayableTypeBooking's
+// BookingHostID, which is blocked on ADR-0015's still-open D1 (a Booking's
+// Host is not resolvable the same way a Game's is until that decision
+// lands), not on a missing read.
 type GameAdminReader interface {
 	// ListGameAdmins returns the user ids currently holding Game-Admin
 	// authority over gameID, oldest assignment first — the order

@@ -355,6 +355,49 @@ func (s *Service) EnterCompetition(ctx context.Context, in EnterCompetitionInput
 	return s.competitions.CreateEntry(ctx, entry)
 }
 
+// GetEntryByID returns a single CompetitionEntry by ID, or
+// domain.ErrCompetitionEntryNotFound — exposing the already-implemented
+// port.Repository.GetEntryByID as its own public app-layer method (T16.2,
+// closing part of #168).
+//
+// This is NOT a new repository capability: GetEntryByID is already called
+// *internally*, inside MarkCompetitionEntryPaymentStatus's own body below
+// (verified directly against that method rather than assumed from the
+// ticket text, which cites its pre-this-PR line number). This method
+// exports that same read as its own entry point so a second caller
+// (internal/payments/adapter/competitions.EntryLookup, T16.2) can resolve a
+// CompetitionEntry's CompetitionID and PlayerID in one call, mirroring
+// GetGame's identical "already-implemented repository read gets its first
+// second caller" shape on the Social Play side.
+//
+// A deliberate thin pass-through to the repository with no orchestration of
+// its own, mirroring GetCompetition's shape exactly (see that method's doc
+// comment for the general argument).
+//
+// **No ownership check, deliberately**, for the identical reason
+// GetCompetition has none: reading a CompetitionEntry by its own opaque id
+// is not an act *on* it. The same enumeration-oracle reasoning
+// socialplayapp.Service.GetRegistrationByID's doc comment records applies
+// unchanged here — field-for-field this discloses nothing
+// ListEntriesForCompetition does not already show a Host/Competition Admin,
+// and today it has no RPC in front of it (grepped across
+// proto/pickleball/competitions/v1 and
+// internal/competitions/adapter/grpcapi/handler.go — confirmed neither
+// defines a GetEntry-shaped RPC), so the only caller this ticket adds is the
+// in-process EntryLookup adapter, not a wire endpoint. See
+// GetRegistrationByID's doc comment for why that is a fact about today's
+// call graph, to be re-checked if a future ticket ever puts an RPC directly
+// in front of this method.
+func (s *Service) GetEntryByID(ctx context.Context, entryID string) (domain.CompetitionEntry, error) {
+	// Same T10.7-shaped boundary guard every other get-shaped read in this
+	// package applies: a malformed id is answered exactly like an unknown
+	// one, and never reaches the Postgres adapter's mustUUID.
+	if !uuidShape.MatchString(entryID) {
+		return domain.CompetitionEntry{}, domain.ErrCompetitionEntryNotFound
+	}
+	return s.competitions.GetEntryByID(ctx, entryID)
+}
+
 // GetCompetition returns a single Competition by ID, or
 // domain.ErrCompetitionNotFound (which T9.4's handler maps to a 404-shaped
 // status).

@@ -257,15 +257,36 @@ func run(logger *slog.Logger) error {
 	// CompetitionEntryUpdater (T10.6, closes #96) is the identical pattern
 	// mirrored for Competitions: built against the same, real
 	// competitionsSvc instance Competitions' own gRPC handler uses above.
+	// RegistrationLookup/GameLookup/GameAdminReader and EntryLookup/
+	// CompetitionAdminReader (T16.2, closes #168) are the resolver ports
+	// authorizeOfflineRecording uses to verify a Registration's Game's
+	// Host/admins and a CompetitionEntry's Competition's entrant/admins
+	// against the real stores, wired the identical way
+	// registrationUpdater/competitionEntryUpdater already are: against the
+	// same, real socialplaySvc/competitionsSvc instances those contexts'
+	// own gRPC handlers use above, not a second/separate stack. See
+	// internal/payments/app/service.go's Service doc comment for why these
+	// five are not optional the way registrationUpdater/
+	// competitionEntryUpdater are.
 	paymentsRepo := paymentspg.NewRepository(pool)
 	registrationUpdater := paymentssocialplay.NewRegistrationUpdater(socialplaySvc)
 	competitionEntryUpdater := paymentscompetitions.NewEntryUpdater(competitionsSvc)
+	registrationLookup := paymentssocialplay.NewRegistrationLookup(socialplaySvc)
+	gameLookup := paymentssocialplay.NewGameLookup(socialplaySvc)
+	gameAdminReader := paymentssocialplay.NewGameAdminReader(socialplaySvc)
+	entryLookup := paymentscompetitions.NewEntryLookup(competitionsSvc)
+	competitionAdminReader := paymentscompetitions.NewCompetitionAdminReader(competitionsSvc)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments:                paymentsRepo,
 		IDs:                     idgen.UUID{},
 		Processor:               stripestub.NewProcessor(),
 		RegistrationUpdater:     registrationUpdater,
 		CompetitionEntryUpdater: competitionEntryUpdater,
+		RegistrationLookup:      registrationLookup,
+		GameLookup:              gameLookup,
+		GameAdminReader:         gameAdminReader,
+		EntryLookup:             entryLookup,
+		CompetitionAdminReader:  competitionAdminReader,
 	})
 	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
 

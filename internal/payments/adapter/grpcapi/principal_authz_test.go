@@ -33,6 +33,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	"github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
+	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
+	"github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 	"github.com/nhuthuynh/white-label/internal/platform/auth"
 
@@ -87,9 +90,11 @@ func requireCode(t *testing.T, what string, err error, want codes.Code) {
 }
 
 // offlineReq is the Registration-payable RecordOfflinePayment fixture every
-// case below varies only the context of. game_host_id names hostSubject, so
-// the caller entitled to record this payment is the holder of hostSubject's
-// token and nobody else.
+// case below varies only the context of. game_host_id is set to hostSubject
+// too, on principle — this file's whole point is proving the field is
+// IGNORED — but as of T16.2 it has no effect either way: the caller entitled
+// to record this payment is whoever newPrincipalAuthzHandler below resolved
+// as fixtureGameID's real Host, not whoever this field names.
 func offlineReq() *paymentsv1.RecordOfflinePaymentRequest {
 	return &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType: paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
@@ -97,6 +102,46 @@ func offlineReq() *paymentsv1.RecordOfflinePaymentRequest {
 		Amount:      offlineFixtureAmount(),
 		GameHostId:  hostSubject,
 	}
+}
+
+// newPrincipalAuthzHandler builds a handler like newTestHandler
+// (authz_regression_test.go), but with the resolver fakes configured so
+// fixtureRegistrationID's Game is hosted by hostID — parameterized, unlike
+// newTestHandler's fixed "host-1" default, because this file's tests need
+// the *principal*, not the (now-ignored) wire game_host_id, to be what the
+// resolvers report, and different tests below need different hosts:
+// hostSubject for the "real owner" cases, attackerSubject for
+// TestRecordOfflinePayment_RecordedByComesFromPrincipalNotWire's "the
+// attacker legitimately hosts this Game" case (T16.2, closes #168).
+func newPrincipalAuthzHandler(hostID string, seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
+	repo := newFakeRepository()
+	regs, games, admins := newAuthzResolverFixtures(hostID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: seedIDs},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+	return grpcapi.NewHandler(svc), repo
+}
+
+// newPrincipalAuthzHandlerWithProcessor is newPrincipalAuthzHandler plus a
+// stripestub.Processor, for the one case in this file
+// (TestRefundPayment_WireActorClaimingOwnershipIsIgnored) that seeds a real
+// Payment via RecordOfflinePayment and then refunds it.
+func newPrincipalAuthzHandlerWithProcessor(hostID string, seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
+	repo := newFakeRepository()
+	regs, games, admins := newAuthzResolverFixtures(hostID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           repo,
+		IDs:                &fixedIDs{ids: seedIDs},
+		Processor:          stripestub.NewProcessor(),
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+	return grpcapi.NewHandler(svc), repo
 }
 
 func onlineReq() *paymentsv1.CreateOnlinePaymentRequest {
@@ -113,7 +158,7 @@ func onlineReq() *paymentsv1.CreateOnlinePaymentRequest {
 // --- (a) and (b): the principal decides ---------------------------------
 
 func TestEnforcedRPCs_OwnerPrincipalSucceeds(t *testing.T) {
-	h, repo := newTestHandler("pay-1")
+	h, repo := newPrincipalAuthzHandler(hostSubject, "pay-1")
 
 	if _, err := h.RecordOfflinePayment(ctxAs(hostSubject), offlineReq()); err != nil {
 		t.Fatalf("RecordOfflinePayment as the Game Host's principal should succeed, got: %v", err)
@@ -249,8 +294,10 @@ func TestRefundPayment_WireActorClaimingOwnershipIsIgnored(t *testing.T) {
 			// The seeded Payment id must be UUID-shaped: app.Service.GetPayment
 			// applies a uuidShape boundary guard (T10.7, issue #97), so a
 			// "pay-1"-style fixture id would answer NotFound before the
-			// authorization check this test exists to reach.
-			h, repo := newTestHandlerWithProcessor(fixturePaymentID)
+			// authorization check this test exists to reach. hostSubject
+			// must resolve as fixtureGameID's real Host (T16.2) so the seed
+			// call below still succeeds.
+			h, repo := newPrincipalAuthzHandlerWithProcessor(hostSubject, fixturePaymentID)
 
 			// Seed a real paid Payment, recorded by its rightful Host.
 			paid, err := h.RecordOfflinePayment(ctxAs(hostSubject), offlineReq())
@@ -282,9 +329,19 @@ func TestRefundPayment_WireActorClaimingOwnershipIsIgnored(t *testing.T) {
 // stored record blamed someone else, which is worse than either failing or
 // succeeding honestly.
 func TestRecordOfflinePayment_RecordedByComesFromPrincipalNotWire(t *testing.T) {
-	h, _ := newTestHandler("pay-1")
+	// attackerSubject must resolve as fixtureGameID's real Host (T16.2) —
+	// the ONLY way that fact can be established now that game_host_id below
+	// is ignored — so this test's own "the attacker legitimately hosts this
+	// Game" premise is expressed through newPrincipalAuthzHandler's
+	// resolvers, not through the (still-set, still-forged-in-spirit,
+	// now-inert) wire field.
+	h, _ := newPrincipalAuthzHandler(attackerSubject, "pay-1")
 
 	req := offlineReq()
+	// DEPRECATED, IGNORED (T16.2): retained on the request only to prove it
+	// really has no effect — the resolver above, not this field, is what
+	// makes attackerSubject the real Host in this test.
+	// nolint:staticcheck // SA1019: setting the deprecated field IS the test.
 	req.GameHostId = attackerSubject // the attacker legitimately hosts this Game
 	// nolint:staticcheck // SA1019: setting the deprecated field IS the test.
 	req.ActorUserId = hostSubject // ...but claims to be someone else on the wire

@@ -65,11 +65,93 @@ import (
 // and the identical fix already applied once in
 // internal/payments/app/service_test.go — this package's own test fixtures
 // were a separate, undiscovered instance of the same bug).
+// fixtureGameID/fixtureCompetitionID (T16.2, closing #168) are the parent
+// ids fixtureRegistrationID/fixtureCompetitionEntryID resolve to through the
+// new resolver ports — see newAuthzResolverFixtures/newEntryAuthzResolverFixtures
+// below, this package's mirror of internal/payments/app/service_test.go's
+// identically-named fixtures and helpers.
 const (
 	fixtureBookingID          = "6ba7b810-0000-4000-8000-000000000001"
 	fixtureRegistrationID     = "6ba7b810-0000-4000-8000-000000000002"
 	fixtureCompetitionEntryID = "6ba7b810-0000-4000-8000-000000000003"
+	fixtureGameID             = "6ba7b810-0000-4000-8000-000000000004"
+	fixtureCompetitionID      = "6ba7b810-0000-4000-8000-000000000005"
 )
+
+// --- T16.2: authorization resolver port fakes (closes #168) ---------------
+//
+// Package-shared across every *_test.go file in grpcapi_test — these fake
+// the five NEW ports at the same level authz_regression_test.go's own
+// fakeRepository fakes port.Repository: a plain in-memory double of
+// internal/payments' own port interfaces, not a fake of another context's
+// app.Service. This package proves the handler -> app.Service wiring and the
+// gRPC status-code mapping survive the real stack; it does not re-prove that
+// the ADAPTERS correctly translate a real socialplayapp.Service/
+// competitionsapp.Service call — that proof lives in
+// internal/payments/adapter/socialplay and .../competitions (T15.5's
+// existing game_admin_reader_test.go and T16.2's new
+// registration_lookup_test.go/game_lookup_test.go/entry_lookup_test.go/
+// authorization_boundary_test.go), per T14.8/T15.5's cross-context-fake
+// warning.
+type fakeRegistrationLookup struct{ gameByRegistration map[string]string }
+
+func (f *fakeRegistrationLookup) GameIDForRegistration(_ context.Context, registrationID string) (string, error) {
+	return f.gameByRegistration[registrationID], nil
+}
+
+type fakeGameLookup struct{ hostByGame map[string]string }
+
+func (f *fakeGameLookup) HostIDForGame(_ context.Context, gameID string) (string, error) {
+	return f.hostByGame[gameID], nil
+}
+
+type fakeGameAdminReader struct{ adminsByGame map[string][]string }
+
+func (f *fakeGameAdminReader) ListGameAdmins(_ context.Context, gameID string) ([]string, error) {
+	return f.adminsByGame[gameID], nil
+}
+
+type fakeEntryLookup struct {
+	competitionByEntry map[string]string
+	playerByEntry      map[string]string
+}
+
+func (f *fakeEntryLookup) CompetitionIDAndPlayerIDForEntry(_ context.Context, entryID string) (string, string, error) {
+	return f.competitionByEntry[entryID], f.playerByEntry[entryID], nil
+}
+
+type fakeCompetitionAdminReader struct{ adminsByCompetition map[string][]string }
+
+func (f *fakeCompetitionAdminReader) ListCompetitionAdmins(_ context.Context, competitionID string) ([]string, error) {
+	return f.adminsByCompetition[competitionID], nil
+}
+
+// newAuthzResolverFixtures builds the three resolver fakes
+// authorizeGameRecording (RecordOfflinePayment/RefundPayment's
+// PayableTypeRegistration/PayableTypeNoShowFee branch) needs, pre-wired so
+// fixtureRegistrationID resolves to fixtureGameID, hostID is that Game's
+// Host, and admins is its current Game-Admin set — the handler-level
+// replacement for what a request used to establish directly via the
+// now-ignored game_host_id/assigned_game_admin_user_ids wire fields.
+func newAuthzResolverFixtures(hostID string, admins ...string) (*fakeRegistrationLookup, *fakeGameLookup, *fakeGameAdminReader) {
+	regs := &fakeRegistrationLookup{gameByRegistration: map[string]string{fixtureRegistrationID: fixtureGameID}}
+	games := &fakeGameLookup{hostByGame: map[string]string{fixtureGameID: hostID}}
+	gameAdmins := &fakeGameAdminReader{adminsByGame: map[string][]string{fixtureGameID: admins}}
+	return regs, games, gameAdmins
+}
+
+// newEntryAuthzResolverFixtures is newAuthzResolverFixtures' Competitions
+// mirror: pre-wires fixtureCompetitionEntryID to resolve to
+// fixtureCompetitionID and playerID in one call, and admins as that
+// Competition's current Competition-Admin set.
+func newEntryAuthzResolverFixtures(playerID string, admins ...string) (*fakeEntryLookup, *fakeCompetitionAdminReader) {
+	entries := &fakeEntryLookup{
+		competitionByEntry: map[string]string{fixtureCompetitionEntryID: fixtureCompetitionID},
+		playerByEntry:      map[string]string{fixtureCompetitionEntryID: playerID},
+	}
+	competitionAdmins := &fakeCompetitionAdminReader{adminsByCompetition: map[string][]string{fixtureCompetitionID: admins}}
+	return entries, competitionAdmins
+}
 
 // --- in-memory port.Repository fake -----------------------------------
 //
@@ -145,11 +227,31 @@ func (f *fixedIDs) NewID() string {
 // recording has no processor step, and the reconciliation call to Social
 // Play is a side effect that fires only on success — irrelevant to proving
 // a rejected actor gets no side effects at all).
+//
+// T16.2 (closes #168): the five resolver ports ARE wired, with a fixed
+// default every existing test in this file and competition_entry_authz_regression_test.go
+// already assumes — "host-1"/"admin-1"/"admin-2" as fixtureGameID's Host/
+// admin set, "player-1" as fixtureCompetitionEntryID's entrant with the same
+// admin set — because game_host_id/assigned_game_admin_user_ids/
+// entrant_player_id/assigned_competition_admin_user_ids on the wire request
+// are now ignored (see grpcapi.Handler.RecordOfflinePayment's doc comment):
+// the equivalent facts must come from these resolvers instead, or every
+// positive-path test below would start failing closed. Tests that need a
+// DIFFERENT resolved Host/entrant (principal_authz_test.go, whose subjects
+// don't match these literals) use their own dedicated constructor —
+// newPrincipalAuthzHandler — rather than overloading this one.
 func newTestHandler(seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
+	regs, games, gameAdmins := newAuthzResolverFixtures("host-1", "admin-1", "admin-2")
+	entries, compAdmins := newEntryAuthzResolverFixtures("player-1", "admin-1", "admin-2")
 	svc := app.NewService(app.ServiceOptions{
-		Payments: repo,
-		IDs:      &fixedIDs{ids: seedIDs},
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: seedIDs},
+		RegistrationLookup:     regs,
+		GameLookup:             games,
+		GameAdminReader:        gameAdmins,
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
 	})
 	return grpcapi.NewHandler(svc), repo
 }

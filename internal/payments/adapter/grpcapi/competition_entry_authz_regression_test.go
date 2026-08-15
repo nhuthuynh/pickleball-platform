@@ -40,13 +40,22 @@ func competitionEntryFixtureAmount() *paymentsv1.Money {
 // needs that RecordOfflinePayment doesn't — no PermissionDenied case in
 // this file needs a working capture (a rejected CreateOnlinePayment never
 // reaches the processor at all), but NewService still requires a non-nil
-// Processor for the online path's happy-path cases below.
+// Processor for the online path's happy-path cases below. Wires the
+// identical resolver defaults newTestHandler does (T16.2) — see that
+// function's own doc comment.
 func newTestHandlerWithProcessor(seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
+	regs, games, gameAdmins := newAuthzResolverFixtures("host-1", "admin-1", "admin-2")
+	entries, compAdmins := newEntryAuthzResolverFixtures("player-1", "admin-1", "admin-2")
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  repo,
-		IDs:       &fixedIDs{ids: seedIDs},
-		Processor: stripestub.NewProcessor(),
+		Payments:               repo,
+		IDs:                    &fixedIDs{ids: seedIDs},
+		Processor:              stripestub.NewProcessor(),
+		RegistrationLookup:     regs,
+		GameLookup:             games,
+		GameAdminReader:        gameAdmins,
+		EntryLookup:            entries,
+		CompetitionAdminReader: compAdmins,
 	})
 	return grpcapi.NewHandler(svc), repo
 }

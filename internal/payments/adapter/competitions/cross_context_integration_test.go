@@ -120,13 +120,21 @@ func TestRecordOfflinePayment_ReconcilesCompetitionEntryPaymentStatus_CrossConte
 	// Real Payments stack (T6.4's Postgres adapter + app.Service), wired
 	// with the real EntryUpdater (T10.6) against the same competitionsSvc
 	// instance — not a fake, and not a second Competitions stack that
-	// happens to point at the same DB.
+	// happens to point at the same DB. EntryLookup/CompetitionAdminReader
+	// (T16.2, closes #168) are wired the identical way, against the same
+	// real competitionsSvc/real Postgres — this is what lets
+	// RecordOfflinePayment below authorize the entry's real entrant without
+	// a caller-supplied entrant_player_id.
 	paymentsRepo := paymentspg.NewRepository(pool)
 	entryUpdater := paymentscompetitions.NewEntryUpdater(competitionsSvc)
+	entryLookup := paymentscompetitions.NewEntryLookup(competitionsSvc)
+	competitionAdminReader := paymentscompetitions.NewCompetitionAdminReader(competitionsSvc)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments:                paymentsRepo,
 		IDs:                     idgen.UUID{},
 		CompetitionEntryUpdater: entryUpdater,
+		EntryLookup:             entryLookup,
+		CompetitionAdminReader:  competitionAdminReader,
 	})
 
 	// Set up a live Competition + CompetitionEntry through the real
@@ -171,13 +179,15 @@ func TestRecordOfflinePayment_ReconcilesCompetitionEntryPaymentStatus_CrossConte
 	}
 
 	// The T10.6 AC: recording an offline payment for the live
-	// CompetitionEntry through the real Payments stack.
+	// CompetitionEntry through the real Payments stack. No
+	// entrant_player_id (T16.2, closes #168): "player-1" is authorized
+	// because it is genuinely entry.PlayerID, resolved end to end through
+	// real Postgres via EntryLookup, not because the caller claims it.
 	_, err = paymentsSvc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
-		PayableType:     paymentsdomain.PayableTypeCompetitionEntry,
-		PayableID:       entry.ID,
-		Amount:          paymentsdomain.Money{Cents: 2500, Currency: "AUD"},
-		ActorUserID:     "player-1",
-		EntrantPlayerID: "player-1",
+		PayableType: paymentsdomain.PayableTypeCompetitionEntry,
+		PayableID:   entry.ID,
+		Amount:      paymentsdomain.Money{Cents: 2500, Currency: "AUD"},
+		ActorUserID: "player-1",
 	})
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment: unexpected err: %v", err)

@@ -38,15 +38,27 @@ import (
 // Missing principal is codes.Unauthenticated ("I do not know who you are"),
 // never PermissionDenied (ADR-0013 §5).
 //
-// Note what is NOT migrated here, deliberately: booking_host_id, game_host_id,
-// entrant_player_id and the two assigned-admin lists remain caller-supplied
-// ownership *facts*, because Payments has no port into Booking, Social Play or
-// Competitions to resolve them against. That is a real, pre-existing gap this
-// ticket narrows but does not close — verifying the actor stops a caller
-// impersonating the Host, but a caller can still assert that some other Game's
-// Host is whoever they like. Closing it means new cross-context ports, which
-// is a structural change well outside a handler-boundary ticket. Disclosed in
-// the PR body with a tracked issue, per the sprint's A5 rule.
+// Note what is NOT migrated here, deliberately, and what changed since
+// (T12.8 vs. T16.2, kept both dated so this comment stays accurate rather
+// than rewritten into a single blended claim): as of T12.8, booking_host_id,
+// game_host_id, entrant_player_id and the two assigned-admin lists all
+// remained caller-supplied ownership *facts*, because Payments had no port
+// into Booking, Social Play or Competitions to resolve them against — a
+// real, pre-existing gap that ticket narrowed but did not close. T16.2
+// (closes #168) closes it for four of those five: game_host_id,
+// entrant_player_id, assigned_game_admin_user_ids and
+// assigned_competition_admin_user_ids are no longer read off the wire at
+// all (see RecordOfflinePayment/RefundPayment below) — app.Service now
+// RESOLVES the equivalent facts itself via
+// port.RegistrationLookup/GameLookup/GameAdminReader/EntryLookup/
+// CompetitionAdminReader against the real Social Play/Competitions stores,
+// so a caller can no longer assert who a Game's Host or a Competition's
+// admins are. booking_host_id is the one fact that STAYS caller-supplied:
+// Payments still has no live join to Booking's database (ADR-0015's
+// still-open D1 blocks the identical resolution built here for the other
+// two contexts), so a caller can still assert who a Booking's Host is.
+// Tracked as issue #149, narrowed by this ticket to that one remaining
+// fact — see this ticket's PR body.
 func actor(ctx context.Context) (string, error) {
 	return auth.RequireSubject(ctx)
 }
@@ -65,6 +77,19 @@ func NewHandler(svc *app.Service) *Handler {
 // this RPC also *writes* that actor into Payment.RecordedByUserId, honoring
 // the wire field would additionally let a caller record a payment under
 // someone else's name in the audit trail.
+//
+// T16.2 (closes #168): req.GetGameHostId(), req.GetAssignedGameAdminUserIds(),
+// req.GetEntrantPlayerId() and req.GetAssignedCompetitionAdminUserIds() are
+// deliberately NOT read here anymore — those four wire fields are now
+// [deprecated = true] on the proto (see payments.proto) and app.
+// RecordOfflinePaymentInput no longer even has fields to receive them into
+// (deleted, not left unread — see that struct's doc comment). A caller
+// still sending them (an un-migrated client) has those values silently
+// ignored, exactly as actor_user_id already was as of T12.8: app.Service
+// resolves the equivalent facts itself from PayableID via the real
+// Social Play/Competitions stores. booking_host_id is the one field this
+// handler still reads off the wire — see the actor func's doc comment for
+// why.
 func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.RecordOfflinePaymentRequest) (*paymentsv1.RecordOfflinePaymentResponse, error) {
 	actorUserID, err := actor(ctx)
 	if err != nil {
@@ -77,15 +102,11 @@ func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.Reco
 	}
 
 	p, err := h.svc.RecordOfflinePayment(ctx, app.RecordOfflinePaymentInput{
-		PayableType:                     payableType,
-		PayableID:                       req.GetPayableId(),
-		Amount:                          fromProtoMoney(req.GetAmount()),
-		ActorUserID:                     actorUserID,
-		BookingHostID:                   req.GetBookingHostId(),
-		GameHostID:                      req.GetGameHostId(),
-		AssignedGameAdminUserIDs:        req.GetAssignedGameAdminUserIds(),
-		EntrantPlayerID:                 req.GetEntrantPlayerId(),
-		AssignedCompetitionAdminUserIDs: req.GetAssignedCompetitionAdminUserIds(),
+		PayableType:   payableType,
+		PayableID:     req.GetPayableId(),
+		Amount:        fromProtoMoney(req.GetAmount()),
+		ActorUserID:   actorUserID,
+		BookingHostID: req.GetBookingHostId(),
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -185,6 +206,13 @@ func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.Conf
 // the payable type from the *stored* Payment — denying the caller any say in
 // which authorization branch judges them — was only as good as the actor that
 // branch compares, which until now the caller also supplied.
+//
+// T16.2 (closes #168): req.GetGameHostId() and
+// req.GetAssignedGameAdminUserIds() are deliberately NOT read here anymore,
+// for the identical reason RecordOfflinePayment's doc comment gives —
+// app.RefundPaymentInput no longer has fields to receive them into, and
+// app.Service resolves the equivalent facts itself. booking_host_id is
+// still read off the wire; see the actor func's doc comment.
 func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPaymentRequest) (*paymentsv1.RefundPaymentResponse, error) {
 	actorUserID, err := actor(ctx)
 	if err != nil {
@@ -192,11 +220,9 @@ func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPayme
 	}
 
 	p, err := h.svc.RefundPayment(ctx, app.RefundPaymentInput{
-		PaymentID:                req.GetPaymentId(),
-		ActorUserID:              actorUserID,
-		BookingHostID:            req.GetBookingHostId(),
-		GameHostID:               req.GetGameHostId(),
-		AssignedGameAdminUserIDs: req.GetAssignedGameAdminUserIds(),
+		PaymentID:     req.GetPaymentId(),
+		ActorUserID:   actorUserID,
+		BookingHostID: req.GetBookingHostId(),
 	})
 	if err != nil {
 		return nil, toStatus(err)
