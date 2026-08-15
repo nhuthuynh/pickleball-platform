@@ -129,6 +129,7 @@ func TestRegisterForGame_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) {
 		Registrations: regRepo,
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
+		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
@@ -256,6 +257,7 @@ func TestRegisterForGame_VaryingGuestCountsFillExactlyToCapacityUnderConcurrency
 		Registrations: regRepo,
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
+		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")

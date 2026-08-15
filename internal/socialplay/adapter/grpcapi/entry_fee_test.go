@@ -33,6 +33,7 @@ func newEntryFeeHandler() *grpcapi.Handler {
 		Registrations: newFakeRegistrationRepo(),
 		Waitlist:      newFakeWaitlistRepo(),
 		Matches:       newFakeMatchRepo(),
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	return grpcapi.NewHandler(svc, &fakeReservation{}, nil)
 }

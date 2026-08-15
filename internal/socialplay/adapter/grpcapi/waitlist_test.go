@@ -33,6 +33,7 @@ func newTestHandlerWithWaitlist() (*fakeGameRepo, *fakeRegistrationRepo, *fakeWa
 		Registrations: regRepo,
 		Waitlist:      waitlistRepo,
 		Matches:       newFakeMatchRepo(),
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	return gameRepo, regRepo, waitlistRepo, svc
 }

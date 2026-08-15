@@ -207,6 +207,23 @@ func errorMappingCases() []errorMappingCase {
 			},
 		},
 		{
+			name:     "assigning a game admin who already holds an assignment",
+			sentinel: "ErrAlreadyGameAdmin",
+			err:      domain.ErrAlreadyGameAdmin,
+			wantCode: codes.AlreadyExists,
+			why:      "T14.4 (#168): the request names a state that already exists, the group ErrAlreadyRegistered and ErrAlreadyOnWaitlist occupy",
+			invoke: func(t *testing.T) error {
+				h, gameRepo, _ := newTestHandler()
+				game := seedGameWithHost(t, gameRepo, "map-dup-admin", mapHostID)
+				req := &socialplayv1.AssignGameAdminRequest{GameId: game.ID, UserId: mapPlayerID}
+				if _, err := h.AssignGameAdmin(ctxAs(mapHostID), req); err != nil {
+					t.Fatalf("seed AssignGameAdmin: %v", err)
+				}
+				_, err := h.AssignGameAdmin(ctxAs(mapHostID), req)
+				return err
+			},
+		},
+		{
 			name:     "court already booked for the requested range",
 			sentinel: "ErrCourtUnavailable",
 			err:      domain.ErrCourtUnavailable,
@@ -244,6 +261,24 @@ func errorMappingCases() []errorMappingCase {
 			sentinel: "ErrWaitlistEntryNotFound",
 			err:      domain.ErrWaitlistEntryNotFound,
 			wantCode: codes.NotFound,
+		},
+		{
+			name:     "revoking a game admin assignment that does not exist",
+			sentinel: "ErrGameAdminNotFound",
+			err:      domain.ErrGameAdminNotFound,
+			wantCode: codes.NotFound,
+			why: "T14.4 (#168): the Game is real, the assignment is not — the same distinction ErrRegistrationNotFound draws " +
+				"against its own parent Game. NOT a silent success: a revoke that removed nothing must not confirm a Host's " +
+				"belief about who holds authority",
+			invoke: func(t *testing.T) error {
+				h, gameRepo, _ := newTestHandler()
+				game := seedGameWithHost(t, gameRepo, "map-revoke-missing", mapHostID)
+				_, err := h.RevokeGameAdmin(ctxAs(mapHostID), &socialplayv1.RevokeGameAdminRequest{
+					GameId: game.ID,
+					UserId: mapStranger,
+				})
+				return err
+			},
 		},
 		{
 			name:     "unknown venue facility id",
@@ -334,6 +369,44 @@ func errorMappingCases() []errorMappingCase {
 			err:      domain.ErrMalformedCourtID,
 			wantCode: codes.InvalidArgument,
 			why:      "T14.8 (#156): a non-uuid court id cannot name any court that exists, so it is a client-input defect regardless of system state — not an existence oracle, since the value could never resolve either way",
+		},
+		{
+			name:     "assigning a blank game admin user id",
+			sentinel: "ErrEmptyGameAdminUserID",
+			err:      domain.ErrEmptyGameAdminUserID,
+			wantCode: codes.InvalidArgument,
+			why:      "T14.4 (#168): a blank user id names nobody regardless of system state — the textbook InvalidArgument, and the sibling of ErrEmptyPlayerID below",
+			invoke: func(t *testing.T) error {
+				h, gameRepo, _ := newTestHandler()
+				game := seedGameWithHost(t, gameRepo, "map-blank-admin", mapHostID)
+				_, err := h.AssignGameAdmin(ctxAs(mapHostID), &socialplayv1.AssignGameAdminRequest{
+					GameId: game.ID,
+					UserId: "",
+				})
+				return err
+			},
+		},
+		{
+			name:     "assigning the host as their own game admin",
+			sentinel: "ErrHostCannotBeGameAdmin",
+			err:      domain.ErrHostCannotBeGameAdmin,
+			wantCode: codes.InvalidArgument,
+			why: "T14.4 (#168), and the row in this table whose code is a judgement call rather than a lookup. It is " +
+				"state-dependent in the literal sense — the same user_id is valid against a Game they do not host — so " +
+				"T14.7's own ErrIllegalStatusTransition argument appears to point at FailedPrecondition. It does not: the " +
+				"distinction this context already draws is ErrGuestAllowanceExceeded's, where a limit that is fixed, " +
+				"knowable and caller-visible (a Game's host_id is on the Game message the caller read to get the game_id) " +
+				"makes a violating request a client-input defect. FailedPrecondition's sentinels here are about a " +
+				"*lifecycle* that changes under the caller's feet; a Game's Host does not",
+			invoke: func(t *testing.T) error {
+				h, gameRepo, _ := newTestHandler()
+				game := seedGameWithHost(t, gameRepo, "map-host-as-admin", mapHostID)
+				_, err := h.AssignGameAdmin(ctxAs(mapHostID), &socialplayv1.AssignGameAdminRequest{
+					GameId: game.ID,
+					UserId: mapHostID,
+				})
+				return err
+			},
 		},
 		{
 			name:     "empty player id",

@@ -173,6 +173,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 		Registrations: newFakeRegistrationRepo(),
 		Waitlist:      newFakeWaitlistRepo(),
 		Matches:       newFakeMatchRepo(),
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 
 	return grpcapi.NewHandler(svc, socialplaybooking.NewReservation(bookingSvc), nil), gameRepo, bookingRepo

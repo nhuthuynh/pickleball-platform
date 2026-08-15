@@ -50,6 +50,7 @@ type Service struct {
 	registrations port.RegistrationRepository
 	waitlist      port.WaitlistRepository
 	matches       port.MatchRepository
+	gameAdmins    port.GameAdminRepository
 }
 
 // ServiceOptions is the dependency bundle for NewService (T13.8, closing
@@ -75,6 +76,11 @@ type ServiceOptions struct {
 	Waitlist port.WaitlistRepository
 	// Matches backs the match-recording use cases (T10.4).
 	Matches port.MatchRepository
+	// GameAdmins backs the durable Game-Admin store (T14.4, partial fix for
+	// #168): the assign/revoke use cases and the read T14.5 resolves an
+	// entitled admin set from. Required like every other field here — the
+	// three methods that use it dereference it unconditionally.
+	GameAdmins port.GameAdminRepository
 }
 
 // ErrMissingDependency reports that a ServiceOptions left at least one
@@ -102,6 +108,7 @@ func (o ServiceOptions) Validate() error {
 		{"Registrations", o.Registrations},
 		{"Waitlist", o.Waitlist},
 		{"Matches", o.Matches},
+		{"GameAdmins", o.GameAdmins},
 	} {
 		if isUnusable(dep.value) {
 			missing = append(missing, dep.name)
@@ -153,6 +160,7 @@ func NewService(opts ServiceOptions) *Service {
 		registrations: opts.Registrations,
 		waitlist:      opts.Waitlist,
 		matches:       opts.Matches,
+		gameAdmins:    opts.GameAdmins,
 	}
 }
 
@@ -812,4 +820,148 @@ func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string) 
 	}
 
 	return s.games.UpdateStatus(ctx, game.ID, game.Status)
+}
+
+// AssignGameAdminInput is the use-case input for assigning a Game Admin
+// (T14.4, partial fix for #168).
+//
+// There is deliberately no field here for a caller-supplied admin list. That
+// is the shape this ticket exists to retire: the whole point of the store is
+// that "who is an admin of this Game" becomes a fact the server holds, not one
+// the request asserts.
+type AssignGameAdminInput struct {
+	// GameID is the Game the assignment is scoped to.
+	GameID string
+	// ActorUserID is the acting identity, resolved by the grpcapi adapter
+	// from the verified auth.Principal (T12.8/ADR-0014), never read off the
+	// wire. Only the Game's Host passes domain.AssignGameAdmin's check.
+	ActorUserID string
+	// AdminUserID is the subject being granted Game-Admin authority.
+	AdminUserID string
+}
+
+// RevokeGameAdminInput is the use-case input for withdrawing a Game-Admin
+// assignment (T14.4). Same actor semantics as AssignGameAdminInput.
+type RevokeGameAdminInput struct {
+	GameID      string
+	ActorUserID string
+	AdminUserID string
+}
+
+// AssignGameAdmin records that a Game's Host granted Game-Admin authority over
+// that Game to another user (T14.4, partial fix for #168).
+//
+// Order of checks, and why:
+//
+//  1. A malformed GameID is answered with the bare domain.ErrGameNotFound
+//     before the repository is touched at all — the T10.7-shaped boundary
+//     guard every caller-supplied Game id in this file already carries, for
+//     the identical reason (the Postgres adapter's mustUUID panics on a
+//     non-uuid, and grpc installs no recover() of its own).
+//  2. s.games.GetByID: the Game must exist, and its HostID is the fact the
+//     authorization check compares against — loading it is what makes the
+//     check possible, exactly as in ListRegistrationsForGame (T13.6).
+//  3. s.gameAdmins.ListGameAdmins: the Game's current assignments, handed to
+//     the domain as the already-assigned pre-check's input.
+//  4. domain.AssignGameAdmin: the Host-only authorization rule (**including
+//     "an admin cannot appoint an admin"**), the blank- and self-assignment
+//     input rules, and the duplicate pre-check. All of them live there, not
+//     here — this method holds no business rule of its own (CLAUDE.md rule 2).
+//
+// An unknown Game answers domain.ErrGameNotFound rather than the empty answer
+// ListRegistrationsForGame gives, because this is a write: there is no
+// "nothing to show you" outcome, and a Host whose assignment silently landed
+// nowhere is worse served than one told the Game does not exist.
+//
+// Under concurrency, game_admins' composite primary key is the authoritative
+// duplicate guard; step 3/4's pre-check exists to fail fast with a clear
+// domain error, the same relationship domain.Register has with the
+// registrations unique index (CLAUDE.md rule 4). The Postgres adapter
+// translates that constraint's violation into the same
+// domain.ErrAlreadyGameAdmin this method's pre-check returns, so a caller
+// cannot tell which of the two answered — and has no reason to.
+func (s *Service) AssignGameAdmin(ctx context.Context, in AssignGameAdminInput) (domain.GameAdmin, error) {
+	if !uuidShape.MatchString(in.GameID) {
+		return domain.GameAdmin{}, domain.ErrGameNotFound
+	}
+
+	game, err := s.games.GetByID(ctx, in.GameID)
+	if err != nil {
+		return domain.GameAdmin{}, err
+	}
+
+	existing, err := s.gameAdmins.ListGameAdmins(ctx, in.GameID)
+	if err != nil {
+		return domain.GameAdmin{}, err
+	}
+
+	admin, err := domain.AssignGameAdmin(game, existing, in.ActorUserID, in.AdminUserID, time.Now())
+	if err != nil {
+		return domain.GameAdmin{}, err
+	}
+
+	return s.gameAdmins.Assign(ctx, admin)
+}
+
+// RevokeGameAdmin withdraws a Game-Admin assignment on the Game Host's behalf
+// (T14.4). Host-only, via domain.EnsureMayRevokeGameAdmin: granting and
+// withdrawing a delegated authority are the same authority, so an assigned
+// Game Admin is refused here exactly as they are on the assign path.
+//
+// Revoking a user who holds no assignment returns domain.ErrGameAdminNotFound
+// rather than succeeding silently — see port.GameAdminRepository.Revoke's doc
+// comment for why a no-op success is the wrong answer to a Host asserting a
+// belief about who holds authority. The authorization check still runs first,
+// so an unauthorized caller cannot use the distinction between "not assigned"
+// and "revoked" to enumerate a Game's admins.
+func (s *Service) RevokeGameAdmin(ctx context.Context, in RevokeGameAdminInput) error {
+	if !uuidShape.MatchString(in.GameID) {
+		return domain.ErrGameNotFound
+	}
+
+	game, err := s.games.GetByID(ctx, in.GameID)
+	if err != nil {
+		return err
+	}
+
+	if err := domain.EnsureMayRevokeGameAdmin(game, in.ActorUserID); err != nil {
+		return err
+	}
+
+	return s.gameAdmins.Revoke(ctx, in.GameID, in.AdminUserID)
+}
+
+// ListGameAdmins returns every Game-Admin assignment recorded against gameID
+// (T14.4) — the read half of the sprint plan's §A13 GAP A, and the method
+// T14.5 resolves its entitled set from via domain.HasGameAdmin.
+//
+// An unknown or malformed gameID answers domain.ErrGameNotFound rather than an
+// empty slice, following ListMatchesForGame's convention rather than
+// ListRegistrationsForGame's: an empty admin list is a real and common state
+// (most Games have no admins), so returning it for a Game that does not exist
+// would make the two indistinguishable to the one kind of caller — an
+// authorization decision — that must not confuse them.
+//
+// **This method performs no authorization check of its own, and is
+// deliberately not exposed as an RPC.** It is an in-process read for callers
+// that have already authorized their own operation: AssignGameAdmin's
+// pre-check above, and T14.5's roster and match paths, which run their own
+// Host-or-admin check against the set this returns. That is the shape
+// MarkRegistrationPaymentStatus already has (no check of its own, because its
+// only caller crosses a context boundary rather than arriving from an end
+// user). Putting a Game's admin roster on the wire needs its own decision
+// about who may see it — plausibly the Host and the admins themselves,
+// plausibly every registrant — and no ticket has made that decision; inventing
+// an answer here would be a product decision smuggled in as an implementation
+// detail. Named as out of scope so it is a decision rather than an omission.
+func (s *Service) ListGameAdmins(ctx context.Context, gameID string) ([]domain.GameAdmin, error) {
+	if !uuidShape.MatchString(gameID) {
+		return nil, domain.ErrGameNotFound
+	}
+
+	if _, err := s.games.GetByID(ctx, gameID); err != nil {
+		return nil, err
+	}
+
+	return s.gameAdmins.ListGameAdmins(ctx, gameID)
 }

@@ -66,6 +66,7 @@ func newTestHandlerWithMatches() (*grpcapi.Handler, *fakeGameRepo, *fakeMatchRep
 		Registrations: newFakeRegistrationRepo(),
 		Waitlist:      newFakeWaitlistRepo(),
 		Matches:       matchRepo,
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	return grpcapi.NewHandler(svc, nil, nil), gameRepo, matchRepo
 }

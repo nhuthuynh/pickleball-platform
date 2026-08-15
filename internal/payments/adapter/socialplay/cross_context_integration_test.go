@@ -92,6 +92,7 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 		Registrations: regRepo,
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
+		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
 	})
 
 	// Real Payments stack (T6.4's Postgres adapter + app.Service), wired

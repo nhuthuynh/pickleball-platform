@@ -298,6 +298,67 @@ func (h *Handler) ListMatchesForGame(ctx context.Context, req *socialplayv1.List
 	return &socialplayv1.ListMatchesForGameResponse{Matches: out}, nil
 }
 
+// AssignGameAdmin records that the verified caller — who must be this Game's
+// Host — granted Game-Admin authority over it to another user (T14.4, partial
+// fix for #168).
+//
+// The authorization rule lives in domain.AssignGameAdmin (via
+// Game.EnsureHost), reached through app.Service.AssignGameAdmin; this handler
+// only translates the request and maps domain errors through toStatus. Note
+// what that means for the property #168 cares about most: an assigned Game
+// Admin calling this RPC is refused by the same EnsureHost check a stranger
+// hits, because an admin is never the Host (domain.ErrHostCannotBeGameAdmin
+// keeps the two roles disjoint). There is no separate "reject admins" branch
+// here that could be dropped.
+//
+// The actor is the verified principal, never the wire — the request has no
+// actor field at all. A missing principal is codes.Unauthenticated ("I do not
+// know who you are"), never PermissionDenied (ADR-0013 §5), which is what
+// actor(ctx) returns on its own.
+func (h *Handler) AssignGameAdmin(ctx context.Context, req *socialplayv1.AssignGameAdminRequest) (*socialplayv1.AssignGameAdminResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	admin, err := h.svc.AssignGameAdmin(ctx, app.AssignGameAdminInput{
+		GameID:      req.GetGameId(),
+		ActorUserID: actorUserID,
+		AdminUserID: req.GetUserId(),
+	})
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &socialplayv1.AssignGameAdminResponse{GameAdmin: toProtoGameAdmin(admin)}, nil
+}
+
+// RevokeGameAdmin withdraws a Game-Admin assignment on the Host's behalf
+// (T14.4). Host-only for the same reason AssignGameAdmin is — see
+// domain.EnsureMayRevokeGameAdmin — and with the same verified-principal
+// treatment of the actor.
+//
+// Revoking a user who holds no assignment maps to codes.NotFound
+// (domain.ErrGameAdminNotFound), which is deliberately a different answer from
+// the codes.NotFound an unknown game_id produces only in the sense that a
+// caller who is not the Host never reaches either: the authorization check
+// runs before the store is consulted, so neither answer can be used to
+// enumerate a Game's admins.
+func (h *Handler) RevokeGameAdmin(ctx context.Context, req *socialplayv1.RevokeGameAdminRequest) (*socialplayv1.RevokeGameAdminResponse, error) {
+	actorUserID, err := actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := h.svc.RevokeGameAdmin(ctx, app.RevokeGameAdminInput{
+		GameID:      req.GetGameId(),
+		ActorUserID: actorUserID,
+		AdminUserID: req.GetUserId(),
+	}); err != nil {
+		return nil, toStatus(err)
+	}
+	return &socialplayv1.RevokeGameAdminResponse{}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes; grpc-gateway then maps
 // those onto HTTP statuses (AlreadyExists -> 409, InvalidArgument -> 400,
 // NotFound -> 404, PermissionDenied -> 403) — mirrors
@@ -358,7 +419,12 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrGameFull),
 		errors.Is(err, domain.ErrAlreadyRegistered),
 		errors.Is(err, domain.ErrCourtUnavailable),
-		errors.Is(err, domain.ErrAlreadyOnWaitlist):
+		errors.Is(err, domain.ErrAlreadyOnWaitlist),
+		// T14.4 (#168): a user already holding a Game-Admin assignment for
+		// this Game joins the same conflict group ErrAlreadyRegistered and
+		// ErrAlreadyOnWaitlist occupy — the request names a state that
+		// already exists, which is what AlreadyExists is for.
+		errors.Is(err, domain.ErrAlreadyGameAdmin):
 		return status.Error(codes.AlreadyExists, err.Error())
 	case errors.Is(err, domain.ErrNotRegistrationOwner),
 		errors.Is(err, domain.ErrNotWaitlistEntryOwner),
@@ -373,7 +439,15 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrGameNotFound),
 		errors.Is(err, domain.ErrRegistrationNotFound),
 		errors.Is(err, domain.ErrWaitlistEntryNotFound),
-		errors.Is(err, domain.ErrFacilityNotFound):
+		errors.Is(err, domain.ErrFacilityNotFound),
+		// T14.4 (#168): revoking an assignment that does not exist. Joins the
+		// NotFound group rather than becoming a silent success — see
+		// port.GameAdminRepository.Revoke's doc comment for why answering
+		// "done" to a revoke that removed nothing is the wrong answer. It sits
+		// beside ErrGameNotFound rather than replacing it: the Game is real,
+		// the assignment is not, the same distinction ErrRegistrationNotFound
+		// already draws against its own parent Game.
+		errors.Is(err, domain.ErrGameAdminNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrGameCancelled),
 		// T14.7 (closes #158): ErrIllegalStatusTransition joins
@@ -413,7 +487,27 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidMoney),
 		errors.Is(err, domain.ErrEmptyPlayers),
 		errors.Is(err, domain.ErrTooFewPlayers),
-		errors.Is(err, domain.ErrEmptyScore):
+		errors.Is(err, domain.ErrEmptyScore),
+		// T14.4 (#168) — both join the InvalidArgument group, and the second
+		// one is a judgement call worth stating rather than assuming.
+		//
+		// ErrEmptyGameAdminUserID is the textbook case: a blank user id names
+		// nobody regardless of system state.
+		//
+		// ErrHostCannotBeGameAdmin is state-dependent in the literal sense —
+		// the same user_id is perfectly valid against a Game they do not host
+		// — so T14.7's ErrIllegalStatusTransition argument might seem to point
+		// at FailedPrecondition. It does not, and the distinction this context
+		// already draws is ErrGuestAllowanceExceeded's: a limit that is fixed,
+		// knowable and *caller-visible* (a Game's host_id is right there on the
+		// Game message the caller read to get the game_id) makes a violating
+		// request a client-input defect, not a system-state condition the
+		// client could not have anticipated. The state-condition sentinels
+		// FailedPrecondition covers — ErrGameCancelled,
+		// ErrIllegalStatusTransition — are about a *lifecycle* that changes
+		// under the caller's feet; a Game's Host does not.
+		errors.Is(err, domain.ErrEmptyGameAdminUserID),
+		errors.Is(err, domain.ErrHostCannotBeGameAdmin):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
@@ -635,6 +729,23 @@ func toProtoScore(score map[string]int) map[string]int32 {
 		out[k] = int32(v)
 	}
 	return out
+}
+
+// toProtoGameAdmin converts a domain.GameAdmin to its wire message (T14.4).
+//
+// One-directional on purpose: there is no fromProtoGameAdmin, because nothing
+// off the wire ever becomes a GameAdmin. AssignGameAdminRequest carries a
+// game_id and a user_id and nothing else — the assigner and the timestamp are
+// server facts, minted from the verified principal and the server clock. A
+// client-supplied GameAdmin message would be exactly the caller-asserted
+// admin fact #168 exists to abolish.
+func toProtoGameAdmin(a domain.GameAdmin) *socialplayv1.GameAdmin {
+	return &socialplayv1.GameAdmin{
+		GameId:     a.GameID,
+		UserId:     a.UserID,
+		AssignedBy: a.AssignedBy,
+		AssignedAt: timestamppb.New(a.AssignedAt),
+	}
 }
 
 func fromProtoScore(score map[string]int32) map[string]int {

@@ -245,4 +245,44 @@ var (
 	// mapping is not a reason to share a sentinel, since the callers'
 	// permitted-actor sets differ.
 	ErrNotGameHost = errors.New("socialplay: only the game's host may perform this action on this game")
+
+	// T14.4 Game-Admin-store sentinels (docs/process/t14-sprint-plan.md
+	// T14.4, partial fix for #168). The rules that raise them live in
+	// game_admin.go.
+	//
+	// Note which sentinel is NOT in this block: the Host-only rule on
+	// AssignGameAdmin/RevokeGameAdmin reuses **ErrNotGameHost** above rather
+	// than minting a fourth near-identical PermissionDenied sentinel. That
+	// follows this file's own stated test for when two sentinels must stay
+	// distinct — "the callers' permitted-actor sets differ" — which is
+	// precisely what does not apply here: cancelling, reading the roster,
+	// assigning and revoking all admit exactly the Host and nobody else, so
+	// they are one rule reached from four RPCs, not four rules. T13.6 already
+	// extended the same sentinel to the roster read on the same reasoning,
+	// which is why its message no longer names cancellation.
+	//
+	//   - ErrEmptyGameAdminUserID: AssignGameAdmin was given a blank user id.
+	//     A blank stored row would match a blank actor at read time — the
+	//     accident Game.EnsureHostOrGameAdmin's own `adminID != ""` guard
+	//     already defends the read end against, closed here at the write end
+	//     so the bad row cannot exist in the first place.
+	//   - ErrHostCannotBeGameAdmin: the Host was named as an admin of their
+	//     own Game. The row would grant nothing (the Host is already
+	//     entitled) and would make a later revoke appear to strip Host
+	//     authority, which no assignment row can do. Keeping the two roles
+	//     disjoint is also what makes "an admin cannot appoint an admin" hold
+	//     by construction — see AssignGameAdmin's doc comment.
+	//   - ErrAlreadyGameAdmin: this user already holds an assignment for this
+	//     Game. Mirrors ErrAlreadyRegistered/ErrAlreadyOnWaitlist exactly,
+	//     including their relationship with the authoritative DB constraint
+	//     (here game_admins' composite primary key — CLAUDE.md rule 4).
+	//   - ErrGameAdminNotFound: RevokeGameAdmin named a user holding no
+	//     assignment for this Game. Deliberately distinct from
+	//     ErrGameNotFound — the Game is real, the assignment is not — the
+	//     same distinction ErrRegistrationNotFound and ErrWaitlistEntryNotFound
+	//     already draw against their own parent Game.
+	ErrEmptyGameAdminUserID  = errors.New("socialplay: game admin user id is required")
+	ErrHostCannotBeGameAdmin = errors.New("socialplay: a game's host cannot also be one of its game admins")
+	ErrAlreadyGameAdmin      = errors.New("socialplay: user is already a game admin for this game")
+	ErrGameAdminNotFound     = errors.New("socialplay: game admin assignment not found")
 )

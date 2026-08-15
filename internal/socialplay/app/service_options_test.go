@@ -26,6 +26,7 @@ func completeOptions() app.ServiceOptions {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	}
 }
 

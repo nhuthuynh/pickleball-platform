@@ -80,6 +80,7 @@ func TestScheduleGame_MalformedCourtIDRejectedBeforeReservingCourts(t *testing.T
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			in := validInput(courtID(1), malformed)
@@ -113,6 +114,7 @@ func TestScheduleGame_MalformedCourtIDInFirstPositionRejected(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	in := validInput("not-a-uuid", courtID(2))
@@ -150,6 +152,7 @@ func TestScheduleGame_EmptyCourtIDsStillReportsEmptyNotMalformed(t *testing.T) {
 				Registrations: newFakeRegistrationRepository(),
 				Waitlist:      newFakeWaitlistRepository(),
 				Matches:       newFakeMatchRepository(),
+				GameAdmins:    newFakeGameAdminRepository(),
 			})
 
 			in := validInput(courts...)
@@ -176,6 +179,7 @@ func TestScheduleGame_WellFormedCourtIDsStillReserve(t *testing.T) {
 		Registrations: newFakeRegistrationRepository(),
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
+		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
 	// Upper-case hex is canonical too — pgtype accepts it — so a guard

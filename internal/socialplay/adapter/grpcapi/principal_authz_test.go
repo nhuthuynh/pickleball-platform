@@ -71,6 +71,7 @@ func newPrincipalTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrati
 		Registrations: regRepo,
 		Waitlist:      newFakeWaitlistRepo(),
 		Matches:       newFakeMatchRepo(),
+		GameAdmins:    newFakeGameAdminRepo(),
 	})
 	return grpcapi.NewHandler(svc, &fakeReservation{}, nil), gameRepo, regRepo
 }

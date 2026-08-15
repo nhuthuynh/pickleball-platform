@@ -170,6 +170,51 @@ FROM matches
 WHERE game_id = $1
 ORDER BY recorded_at;
 
+-- name: AssignGameAdmin :one
+-- T14.4 (partial fix for #168). assigned_at is always supplied by the adapter
+-- (app.Service passes time.Now()) rather than defaulted in the column, so the
+-- timestamp the domain value carries and the timestamp the row carries are the
+-- same value rather than two clocks that agree by luck — created_at keeps its
+-- own DEFAULT now() as the row's insertion record.
+--
+-- A duplicate (game_id, user_id) violates game_admins' composite primary key
+-- (23505); the adapter translates that into domain.ErrAlreadyGameAdmin, which
+-- is the authoritative guard behind domain.AssignGameAdmin's own fail-fast
+-- pre-check (CLAUDE.md rule 4). A game_id naming no Game violates the FK
+-- (23503) and translates to domain.ErrGameNotFound.
+INSERT INTO game_admins (game_id, user_id, assigned_by, assigned_at)
+VALUES ($1, $2, $3, $4)
+RETURNING game_id, user_id, assigned_by, assigned_at;
+
+-- name: RevokeGameAdmin :one
+-- T14.4. RETURNING (with :one) rather than a bare DELETE, so the adapter can
+-- tell "removed an assignment" from "there was nothing to remove": zero rows
+-- back arrives as pgx.ErrNoRows and becomes domain.ErrGameAdminNotFound. A
+-- revoke that silently removed nothing would confirm a Host's belief about who
+-- holds authority that this table does not support — see
+-- port.GameAdminRepository.Revoke's doc comment.
+DELETE FROM game_admins
+WHERE game_id = $1 AND user_id = $2
+RETURNING game_id, user_id, assigned_by, assigned_at;
+
+-- name: ListGameAdmins :many
+-- T14.4 — the read half of the sprint plan's §A13 GAP A, and the query T14.5
+-- resolves "is this caller an admin of this Game" from (via
+-- domain.HasGameAdmin, so the membership rule including its blank-entry guard
+-- stays in the domain rather than in SQL — CLAUDE.md rule 2).
+--
+-- Ordered oldest assignment first, with user_id as the tiebreaker so two
+-- assignments sharing an assigned_at (possible: the column is caller-supplied)
+-- still come back in a stable order rather than whatever the heap returns.
+-- Existence of game_id itself is checked by the app layer via
+-- GameRepository.GetByID before this runs — this query answers an empty list
+-- for an unknown Game, which is a real and common state (most Games have no
+-- admins) and must not be confused with "no such Game".
+SELECT game_id, user_id, assigned_by, assigned_at
+FROM game_admins
+WHERE game_id = $1
+ORDER BY assigned_at, user_id;
+
 -- name: ExpireWaitlistPromotion :one
 -- Compare-and-swap: only actually transitions a row that is still
 -- 'promoted' at the moment this runs, so a concurrent confirm (the
