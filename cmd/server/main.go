@@ -278,26 +278,12 @@ func run(logger *slog.Logger) error {
 	// entries — this ticket branched from a base already containing both — but
 	// per A9(e) the diff still touches a file more than one ticket claimed this
 	// sprint, so it was re-verified from a fresh worktree off the pushed branch.
-	authenticatedMethods := auth.NewMethodSet(
-		bookinggrpc.AuthenticatedMethods(),      // T12.7
-		facilitiesgrpc.AuthenticatedMethods(),   // T12.7
-		identitygrpc.AuthenticatedMethods(),     // T12.9
-		socialplaygrpc.AuthenticatedMethods(),   // T12.8
-		paymentsgrpc.AuthenticatedMethods(),     // T12.8
-		competitionsgrpc.AuthenticatedMethods(), // T12.8
-	)
-	if tokenVerifier == nil {
-		// Enforcement without a verifier is fail-*closed*, not fail-open: no
-		// token can ever resolve, so every authenticated RPC rejects every
-		// caller with Unauthenticated. That is the safe direction, but it is
-		// also a deployment that cannot perform a single authenticated write,
-		// so it is said out loud at startup rather than discovered per
-		// request. ADR-0013 anticipates a future step further — refusing to
-		// start at all — which is deliberately not taken here: no identity
-		// provider is provisioned for this project yet, and a hard failure
-		// would make the server unstartable for local development.
-		logger.Warn("no token verifier configured: every authenticated RPC will reject every caller",
-			"authenticated_methods", authenticatedMethods.Len())
+	// T13.5 (#136) replaced the startup *warning* that used to live here with
+	// a startup *failure*; the composition itself moved into
+	// authenticationPolicy so both halves are reachable from a test.
+	authenticatedMethods, err := authenticationPolicy(tokenVerifier, logger)
+	if err != nil {
+		return err
 	}
 
 	grpcServer := grpc.NewServer(
@@ -369,23 +355,84 @@ func run(logger *slog.Logger) error {
 	return nil
 }
 
+// authenticationPolicy composes each bounded context's own
+// AuthenticatedMethods() into the single policy this process enforces, and
+// refuses to hand it back when the process cannot actually perform it.
+//
+// # The composition
+//
+// One line per context (A11 Ruling 2): each context decides which of its RPCs
+// are public next to the handlers that break if it is wrong — see the
+// AuthenticatedMethods/PublicMethods pair in each grpcapi package, where a
+// test fails if any RPC on the service is in neither list. This function is
+// the only place those six lists meet.
+//
+// # The refusal (T13.5, issue #136)
+//
+// Until T13.5 a nil verifier here produced a warning and a running server.
+// That was defensible while the alternative was an unstartable process — but
+// it means a deployment can advertise "these RPCs require authentication"
+// while holding nothing that can verify a token, and every symptom of that
+// state arrives disguised as something else: a fleet of Unauthenticated
+// responses that look, from the client side, exactly like expired credentials.
+// An operator debugging that reads their identity provider's logs, not ours.
+//
+// Startup is the only moment the condition is legible, so it fails here, and
+// the error names the three variables that fix it. The remedy text lives in
+// this file rather than in internal/platform/auth because AUTH_ISSUER and its
+// siblings are cmd/server's vocabulary — the platform package states the rule,
+// this one states how to satisfy it in this binary (CLAUDE.md rule 3).
+//
+// # The cost, stated
+//
+// This binary no longer starts without AUTH_ISSUER, AUTH_AUDIENCE and
+// AUTH_JWKS_FILE, because all six contexts declare authenticated RPCs and
+// none of them can be honoured without a verifier. That includes `make up`
+// and a bare `go run ./cmd/server`. This is the intended consequence rather
+// than an oversight — a server that cannot verify a token must not claim to
+// require one — but it is a real cost to local development, and closing it
+// properly needs a committed dev keypair, a JWKS fixture and a token-minting
+// helper. That is a distinct piece of work, deliberately not smuggled into a
+// hardening ticket; it is tracked as issue #160.
+//
+// It is *not* a security downgrade in the meantime: a developer who wants the
+// old behaviour can get it honestly by pointing AUTH_JWKS_FILE at a key set,
+// and cannot get it by accident.
+func authenticationPolicy(verifier auth.TokenVerifier, logger *slog.Logger) (auth.MethodSet, error) {
+	set := auth.NewMethodSet(
+		bookinggrpc.AuthenticatedMethods(),      // T12.7
+		facilitiesgrpc.AuthenticatedMethods(),   // T12.7
+		identitygrpc.AuthenticatedMethods(),     // T12.9
+		socialplaygrpc.AuthenticatedMethods(),   // T12.8
+		paymentsgrpc.AuthenticatedMethods(),     // T12.8
+		competitionsgrpc.AuthenticatedMethods(), // T12.8
+	)
+
+	if err := auth.EnsureVerifierConfigured(verifier, set); err != nil {
+		return auth.MethodSet{}, fmt.Errorf(
+			"%w; set AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE so this process can verify the tokens it demands", err)
+	}
+
+	logger.Info("auth: enforcement active", "authenticated_methods", set.Len())
+	return set, nil
+}
+
 // tokenVerifierFromEnv builds the token verifier this process runs with, or
 // returns nil when the deployment has not been given an identity provider to
 // verify against.
 //
-// A nil verifier is a supported, currently-normal state, not a failure: no
-// identity provider tenant is provisioned for this project, because doing so
-// is server-side infrastructure work no coding session here can perform (the
-// same gap HANDOFF.md records honestly for the Jenkins server). With a nil
-// verifier the interceptors resolve nothing and every request behaves exactly
-// as it does today. See ADR-0013.
+// It reports the *configuration*, and deliberately does not decide whether a
+// nil result is acceptable — that depends on whether this process enforces
+// anything, which is authenticationPolicy's question and not this one's. Since
+// T13.5 the answer in this binary is always "no", because all six contexts
+// declare authenticated RPCs; a build of this server that enforced nothing
+// would still be free to run without a verifier, and keeping the two concerns
+// apart is what makes that true by construction rather than by luck.
 //
-// Partial configuration, by contrast, is a hard startup failure. Someone who
-// sets AUTH_ISSUER intends tokens to be verified, and a process that silently
-// verified nothing because AUTH_JWKS_FILE had a typo would be the worst of
-// both worlds — configured-looking and inert. Once enforcement lands, this
-// function must go further and refuse to start with no verifier at all, since
-// by then a nil verifier is fail-open rather than merely quiet.
+// Partial configuration, by contrast, is a hard startup failure right here.
+// Someone who sets AUTH_ISSUER intends tokens to be verified, and a process
+// that silently verified nothing because AUTH_JWKS_FILE had a typo would be
+// the worst of both worlds — configured-looking and inert. See ADR-0013.
 func tokenVerifierFromEnv(logger *slog.Logger) (auth.TokenVerifier, error) {
 	var (
 		issuer   = os.Getenv("AUTH_ISSUER")
@@ -394,7 +441,7 @@ func tokenVerifierFromEnv(logger *slog.Logger) (auth.TokenVerifier, error) {
 	)
 
 	if issuer == "" && audience == "" && jwksFile == "" {
-		logger.Info("auth: no token verifier configured; running with no caller identity " +
+		logger.Info("auth: no token verifier configured " +
 			"(set AUTH_ISSUER, AUTH_AUDIENCE and AUTH_JWKS_FILE to enable verification)")
 		return nil, nil
 	}
@@ -425,7 +472,7 @@ func tokenVerifierFromEnv(logger *slog.Logger) (auth.TokenVerifier, error) {
 		return nil, fmt.Errorf("auth: %w", err)
 	}
 
-	logger.Info("auth: token verifier configured (observe-only; nothing is enforced yet)",
+	logger.Info("auth: token verifier configured",
 		"issuer", issuer,
 		"audience", audience,
 		"jwks_file", jwksFile,

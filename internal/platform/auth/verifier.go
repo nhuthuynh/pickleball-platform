@@ -108,6 +108,22 @@ var (
 	// pointless re-authentication loop during an incident. IsTokenRejection
 	// therefore reports false for it; see ADR-0013.
 	ErrKeyUnavailable = errors.New("auth: signing key unavailable")
+
+	// ErrVerifierPanicked means a TokenVerifier implementation panicked
+	// instead of returning, so verification reached no conclusion at all.
+	//
+	// Implementations do not return this — by definition they cannot. The
+	// interceptors synthesize it when they recover a panic out of Verify (see
+	// interceptor.go, issue #135), so that "the verifier is broken" is a case
+	// the request path handles explicitly rather than a goroutine unwinding
+	// past it.
+	//
+	// Like ErrKeyUnavailable it is *our* failure and not the caller's, so
+	// IsTokenRejection reports false for it. Unlike ErrKeyUnavailable it is a
+	// bug rather than an outage, which is why the interceptors answer it with
+	// codes.Internal rather than the codes.Unavailable ADR-0013 §5 assigns to
+	// an unreachable key source.
+	ErrVerifierPanicked = errors.New("auth: token verifier panicked")
 )
 
 // tokenRejections is the set of errors that mean "the token the caller

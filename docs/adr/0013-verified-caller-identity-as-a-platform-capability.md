@@ -253,6 +253,61 @@ that disclosed it — issues #135, #136, #137 and #138 respectively:
    running in the default gate is worth fixing; the `Makefile` is T12.1's file
    this sprint, so this ADR flags it rather than editing it.
 
+### Amendment (T13.5, 2026-08-15): gaps 1 and 2 closed; gap 1's suggested answer was wrong
+
+T13.5 took both fail-open questions together, since they are the same question
+asked at startup and at runtime. Recorded here rather than only in the PR
+because gap 1 above states a position this ticket **overturned**.
+
+**Gap 2 (#136) — resolved as written.** A process whose composed `MethodSet` is
+non-empty and whose `TokenVerifier` is nil now fails at startup
+(`auth.EnsureVerifierConfigured`, called from `cmd/server`'s
+`authenticationPolicy`). An empty `MethodSet` with no verifier stays legal, so
+the rule is about *claimed* enforcement rather than about auth being configured
+everywhere. The check also rejects a non-nil interface holding a nil pointer,
+which `verifier == nil` does not catch.
+
+**Gap 1 (#135) — resolved fail-closed, but not by the mechanism this ADR
+suggested.** The text above says "Recovering locally would be fail-open, which
+is *worse* once enforcement is on." That conflates two different things:
+
+- *recover and continue with no principal* — genuinely fail-open, and rejected.
+  An RPC absent from the `MethodSet` (a new one nobody listed, or a
+  deliberately public one) would be served on the strength of a verifier that
+  crashed, making "we could not evaluate your credentials" indistinguishable
+  from "you needed none".
+- *recover and deny* — what T13.5 implemented. The panic is caught inside
+  `auth`'s interceptors, logged at `Error` with its stack, and converted to
+  `codes.Internal` with the handler never running.
+
+The observable result is unchanged: propagating the panic to `grpcrecovery`
+produced the same `codes.Internal`, so no client sees a difference. What
+changed is what the property *rests on*. Previously auth was fail-closed only
+because `grpcrecovery` happened to be registered ahead of it in `cmd/server`'s
+chain — a security guarantee held up by the order of a slice literal in another
+package, defended by a comment. It is now a property of the auth interceptor
+standing alone, in any chain and any binary. `grpcrecovery` stays outermost;
+protecting the handlers is its own job.
+
+`codes.Internal`, not `Unauthenticated`: the caller did nothing wrong, and
+§5's reasoning for `ErrKeyUnavailable` applies unchanged. Not `Unavailable`
+either — that is the code gRPC clients retry on, and a panic is a
+deterministic bug rather than a transient outage, so a retryable status would
+turn one broken verifier into a request storm. `auth.ErrVerifierPanicked`
+joins the error vocabulary and, like `ErrKeyUnavailable`, is **not** a
+`IsTokenRejection`.
+
+**The cost, recorded rather than glossed.** Fail-closed means a verifier that
+panics on every token denies every request presenting one, including requests
+to public RPCs that needed no token. This project prefers that availability
+failure to the security failure on the other side. Separately, the startup
+check means this binary no longer starts without `AUTH_ISSUER`,
+`AUTH_AUDIENCE` and `AUTH_JWKS_FILE` — including `make up` and a bare
+`go run ./cmd/server`. That is intended, not incidental, but it is a real cost
+to local development; closing it needs a dev keypair, a JWKS fixture and a
+token-minting helper, which is its own piece of work and is tracked as **#160**
+rather than being folded into a hardening ticket.
+
 ## Consequences
 
 - Six contexts gain a trustworthy identity to migrate to, without any of them
