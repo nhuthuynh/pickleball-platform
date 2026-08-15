@@ -409,6 +409,15 @@ func toStatus(err error) error {
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrCompetitionNotFound),
 		errors.Is(err, domain.ErrFacilityNotFound),
+		// T15.6 (closes #185): ScheduleCompetition naming a court that does
+		// not exist. Joins the not-found group — the same "this request
+		// references something that isn't there" concept — and pointedly NOT
+		// ErrCourtUnavailable's AlreadyExists group below: a court that never
+		// existed is not a court that is busy. Before this ticket the
+		// underlying FK violation reached this switch with no sentinel at
+		// all and answered Internal. Twin of the arm in
+		// internal/socialplay/adapter/grpcapi.toStatus.
+		errors.Is(err, domain.ErrCourtNotFound),
 		// T15.3: revoking a user who holds no assignment is NotFound, not a
 		// silent success — see port.CompetitionAdminRepository.Revoke's doc
 		// comment for why answering "done" to a revoke that removed nothing

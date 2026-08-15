@@ -461,7 +461,15 @@ func toStatus(err error) error {
 		// beside ErrGameNotFound rather than replacing it: the Game is real,
 		// the assignment is not, the same distinction ErrRegistrationNotFound
 		// already draws against its own parent Game.
-		errors.Is(err, domain.ErrGameAdminNotFound):
+		errors.Is(err, domain.ErrGameAdminNotFound),
+		// T15.6 (closes #185): ScheduleGame naming a court that does not
+		// exist. Joins ErrGameNotFound and ErrFacilityNotFound here — the
+		// same "this request references something that isn't there" concept
+		// — and pointedly NOT ErrCourtUnavailable's AlreadyExists group: a
+		// court that never existed is not a court that is busy. Before this
+		// ticket the underlying FK violation reached this switch with no
+		// sentinel at all and answered Internal.
+		errors.Is(err, domain.ErrCourtNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrGameCancelled),
 		// T14.7 (closes #158): ErrIllegalStatusTransition joins

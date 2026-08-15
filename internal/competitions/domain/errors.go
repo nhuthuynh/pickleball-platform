@@ -103,6 +103,29 @@ var (
 	// socialplay.ErrCourtUnavailable does for Social Play.
 	ErrCourtUnavailable = errors.New("competitions: court is unavailable for the requested time")
 
+	// ErrCourtNotFound is this context's local translation of
+	// bookingdomain.ErrInvalidCourtReference (T15.6, closing issue #185),
+	// produced by internal/competitions/adapter/booking for the same reason
+	// and by the same rule as ErrCourtUnavailable above: the Booking
+	// sentinel must never cross this boundary as a type. The exact twin of
+	// internal/socialplay/domain.ErrCourtNotFound — see that sentinel's doc
+	// comment for the full argument.
+	//
+	// Distinct from BOTH of its neighbours on purpose. Not
+	// ErrCourtUnavailable: that court is real and busy, and the caller's fix
+	// is a different time; here the court does not exist and the fix is a
+	// different id, so AlreadyExists would be simply false. Not
+	// ErrMalformedCourtID: ScheduleCompetition's T14.8 shape guard rejects
+	// malformed entries before any reservation is attempted, so this
+	// sentinel is only ever reached by an id that IS well-formed.
+	//
+	// Maps to NotFound, beside ErrCompetitionNotFound and
+	// ErrFacilityNotFound. Before T15.6 this path had no sentinel at all:
+	// the untranslated FK violation was stripped at the boundary and fell
+	// through to codes.Internal, so ScheduleCompetition answered 500 for a
+	// caller's own bad court id.
+	ErrCourtNotFound = errors.New("competitions: court not found")
+
 	// ErrFacilityNotFound is this context's local translation of the
 	// Facilities context's own not-found error, produced by
 	// internal/competitions/adapter/facilities. Returned by

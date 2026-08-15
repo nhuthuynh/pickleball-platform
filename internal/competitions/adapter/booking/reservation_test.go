@@ -95,19 +95,46 @@ func hour(h int) time.Time {
 //
 // createFailsWith / getFailsWith, when set, drive an upstream error at the
 // repository layer.
+// knownCourts MODELS THE FOREIGN KEY, deliberately and explicitly (T15.6,
+// issue #185). Read this before using this fake for anything court-shaped.
+// Mirrors the identical field and reasoning in
+// internal/socialplay/adapter/booking/reservation_test.go.
+//
+// bookings.court_id is `uuid NOT NULL REFERENCES courts (id)`
+// (db/migrations/0001_init.sql:24). A well-formed UUID naming no courts row
+// passes bookingapp.CreateBooking's uuidShape guard — which is a shape check
+// and nothing more — and is rejected only at the INSERT, as Postgres 23503,
+// which bookingpg.translateErr turns into
+// bookingdomain.ErrInvalidCourtReference (proved directly against that code
+// path in internal/booking/adapter/postgres/foreign_key_test.go, and against
+// a real Postgres in that package's unknown_court_integration_test.go).
+//
+// A fake WITHOUT this check accepts any well-formed court id and passes
+// whether or not the bug exists — exactly what hid #185 for two sprints, and
+// the fixture-infidelity trap docs/LESSONS.md' T9 entry names.
+// newInMemoryRepo seeds knownCourts with the fixture court so the FK is
+// modelled by default and a test must opt out on purpose.
 type inMemoryRepo struct {
 	bookings        map[string]bookingdomain.Booking
+	knownCourts     map[string]bool
 	createFailsWith error
 	getFailsWith    error
 }
 
 func newInMemoryRepo() *inMemoryRepo {
-	return &inMemoryRepo{bookings: make(map[string]bookingdomain.Booking)}
+	return &inMemoryRepo{
+		bookings:    make(map[string]bookingdomain.Booking),
+		knownCourts: map[string]bool{fixtureCourtID: true},
+	}
 }
 
 func (r *inMemoryRepo) Create(_ context.Context, b bookingdomain.Booking) (bookingdomain.Booking, error) {
 	if r.createFailsWith != nil {
 		return bookingdomain.Booking{}, r.createFailsWith
+	}
+	// The FK, modelled — see knownCourts' comment on the struct.
+	if !r.knownCourts[b.CourtID] {
+		return bookingdomain.Booking{}, bookingdomain.ErrInvalidCourtReference
 	}
 	r.bookings[b.ID] = b
 	return b, nil
