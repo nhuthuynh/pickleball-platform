@@ -53,6 +53,11 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
 
 ## Commands
 - `make test-domain` — run the dependency-free domain + app tests (no DB/codegen).
+- `make test-platform` — run `internal/platform/...`'s own tests (the auth
+  spine above all). Same Docker-free, codegen-free class as `test-domain`,
+  but deliberately a separate target: `test-domain`'s pattern is
+  domain+app-only and matches nothing under `internal/platform/`. Part of
+  `make ci`. Added T13.4 — before it, those tests ran in no gate at all (#138).
 - `make generate` — buf + sqlc → `internal/gen` and `openapi/`.
 - `make tidy` — `go mod tidy` (run after first generate).
 - `make vet-integration` — `go vet -tags=integration ./...` (depends on

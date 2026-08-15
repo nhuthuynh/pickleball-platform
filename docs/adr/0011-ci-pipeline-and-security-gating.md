@@ -51,6 +51,21 @@ Generate) therefore cannot work in this repository, and the pipeline
 deviates from it deliberately: **Checkout → Toolchain → Generate → Lint →
 Unit tests → Build → Integration → Security → Load.**
 
+**Amended T13.4 (2026-08-15, closes #129).** The *ordering constraint above
+is unchanged and still binding* — generate must precede lint and build, for
+exactly the reason given. What changed is **where that order is written
+down**. The Generate/Lint/Unit tests/Build stages each re-listed, by hand, a
+step `make ci` already listed, and the two copies drifted: `make
+vet-integration` entered `make ci` in T12.1 and was never added to the
+pipeline, so it never reached CI. Those four stages are now one **CI gate**
+stage calling `make ci-checks` (= `make ci` minus the vulnerability scan),
+so the order lives only in the Makefile and a new check reaches CI with no
+Jenkinsfile edit. Cost, recorded because it is real: the Go/Web `parallel`
+halves of those stages are gone, so wall-clock rises and a failure reads as
+"make ci-checks failed" plus the failing target rather than as a named red
+stage. The scan stays a separate stage because this ADR's §3 requires it to
+— see the Consequences note below.
+
 ### 3. Skipped stages mark the build UNSTABLE, never green
 
 When no Docker daemon is present the integration stage does not run, and
@@ -121,6 +136,20 @@ something.
   amount of local `make test-domain` would have caught.
 - `make ci` runs the same sequence locally, so the parity this project
   values is enforced by construction rather than by discipline.
+  **Correction, T13.4 (2026-08-15):** as written in SCRUM-6 this was not
+  true. Parity was by *discipline* — two hand-maintained copies of one list
+  — and it had already failed (#129, `vet-integration`). It is by
+  construction now that the pipeline calls `make ci-checks`.
+- **The vulnerability scan stays a Jenkins stage, not part of the command
+  the pipeline calls** (T13.4). §3 above is the reason: the Jenkinsfile
+  records govulncheck's *exit code* and gates on that, while the Makefile's
+  `security` target gates on the report file merely existing — and a scan
+  that dies partway still leaves a well-formed, non-empty, zero-finding
+  report behind (PR #95's review). Folding the scan into `make ci-checks`
+  would have swapped CI's gate for the weaker one and hard-failed every
+  build on an agent that cannot reach vuln.go.dev, which is precisely the
+  "findings UNKNOWN, never no findings" failure §3 forbids. That the two
+  differ at all is a real inconsistency and outlives this ticket.
 - The pipeline is only half of "CI is wired". Job creation, the GitHub
   webhook, plugins and branch protection are all server-side and cannot
   be done from this repository — they are listed in the `Jenkinsfile`
