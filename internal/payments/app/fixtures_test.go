@@ -53,6 +53,18 @@ type fakeRepository struct {
 	createCalls  atomic.Int64
 	getByIDCalls atomic.Int64
 
+	// getByStripeReferenceCalls counts real invocations of
+	// GetByStripeReference (T18.1, closes #167) — the mutation-check
+	// instrument for the idempotency-claim guard in
+	// app.Service.HandleStripeWebhookEvent: proving a redelivered event_id
+	// short-circuits BEFORE Payment resolution needs to observe that this
+	// call never happens a second time, not merely that the end state looks
+	// right (which the already-paid guard could produce on its own even if
+	// the idempotency guard were missing — see webhook_test.go's own
+	// TestHandleStripeWebhookEvent_RedeliveredEvent_CapturesNothingTwice
+	// doc comment for why this distinction matters).
+	getByStripeReferenceCalls atomic.Int64
+
 	// updateErr, when non-nil, makes Update fail *without* mutating byID —
 	// the persistence-failure injection T12.3's RefundPayment tests need to
 	// prove a refund that succeeded at the processor but failed to persist
@@ -93,6 +105,19 @@ func (r *fakeRepository) GetByID(_ context.Context, id string) (domain.Payment, 
 		return domain.Payment{}, domain.ErrPaymentNotFound
 	}
 	return p, nil
+}
+
+// GetByStripeReference implements port.Repository (T18.1, closes #167) —
+// a linear scan over the same in-memory map GetByID already uses, which is
+// fine for a test double covering a handful of seeded Payments.
+func (r *fakeRepository) GetByStripeReference(_ context.Context, ref string) (domain.Payment, error) {
+	r.getByStripeReferenceCalls.Add(1)
+	for _, p := range r.byID {
+		if p.StripeReference == ref {
+			return p, nil
+		}
+	}
+	return domain.Payment{}, domain.ErrPaymentNotFound
 }
 
 func (r *fakeRepository) Update(_ context.Context, p domain.Payment) (domain.Payment, error) {
@@ -268,6 +293,42 @@ func newEntryAuthzFixtures(playerID string, admins ...string) (*fakeEntryLookup,
 	}
 	competitionAdmins := &fakeCompetitionAdminReader{adminsByCompetition: map[string][]string{fixtureCompetitionID: admins}}
 	return entries, competitionAdmins
+}
+
+// --- T18.1: webhook-path port fakes (closes #167) --------------------------
+//
+// No fake of port.WebhookVerifier lives here: every test that needs one
+// wires the real webhookstub.Verifier (webhook_test.go), per T14.8/T15.5's
+// cross-context-fake warning applied to this same-context boundary — a fake
+// that just returns whatever error it's told would prove nothing about
+// HandleStripeWebhookEvent's actual signature-checking behaviour, only
+// about its own orchestration, and webhookstub is cheap enough to construct
+// that there is no need for a second, weaker double.
+
+// fakeWebhookEventStore is an in-memory port.WebhookEventStore test double:
+// ClaimEvent returns true the first time a given eventID is seen and false
+// on every subsequent call for the same eventID, mirroring the real
+// Postgres adapter's ON CONFLICT DO NOTHING semantics exactly.
+type fakeWebhookEventStore struct {
+	claimed    map[string]bool
+	claimCalls atomic.Int64
+	forceErr   error
+}
+
+func newFakeWebhookEventStore() *fakeWebhookEventStore {
+	return &fakeWebhookEventStore{claimed: map[string]bool{}}
+}
+
+func (f *fakeWebhookEventStore) ClaimEvent(_ context.Context, eventID string) (bool, error) {
+	f.claimCalls.Add(1)
+	if f.forceErr != nil {
+		return false, f.forceErr
+	}
+	if f.claimed[eventID] {
+		return false, nil
+	}
+	f.claimed[eventID] = true
+	return true, nil
 }
 
 // fixtureOnlinePayerID is the verified actor the online-path tests create

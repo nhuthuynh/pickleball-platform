@@ -42,6 +42,7 @@ import (
 
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
+	"github.com/nhuthuynh/white-label/internal/payments/adapter/webhookstub"
 	"github.com/nhuthuynh/white-label/internal/payments/app"
 	"github.com/nhuthuynh/white-label/internal/payments/domain"
 
@@ -60,16 +61,27 @@ const (
 	mapUnknownIntentRef = "pi_stub_never_issued"
 )
 
+// mappingWebhookSecret is the shared secret newMappingHandler wires its real
+// webhookstub.Verifier with, so the "invalid webhook signature" row below
+// exercises a genuine HMAC mismatch rather than the nil-verifier
+// fail-closed path — those are two different code paths that happen to
+// share a sentinel (see app.Service.HandleStripeWebhookEvent's own doc
+// comment), and this row's whole point is testing the former.
+const mappingWebhookSecret = "whsec_mapping_test"
+
 // newMappingHandler wires the real app.Service and real grpcapi.Handler, as
-// cmd/server does, with only persistence and the processor faked. ids seeds the
-// deterministic id generator for the RPCs that create a Payment.
+// cmd/server does, with only persistence, the processor, and the webhook
+// idempotency ledger faked. ids seeds the deterministic id generator for
+// the RPCs that create a Payment.
 func newMappingHandler(ids ...string) (*grpcapi.Handler, *fakeRepository, *stripestub.Processor) {
 	repo := newFakeRepository()
 	proc := stripestub.NewProcessor()
 	svc := app.NewService(app.ServiceOptions{
-		Payments:  repo,
-		IDs:       &fixedIDs{ids: ids},
-		Processor: proc,
+		Payments:        repo,
+		IDs:             &fixedIDs{ids: ids},
+		Processor:       proc,
+		WebhookVerifier: webhookstub.NewVerifier(mappingWebhookSecret),
+		WebhookEvents:   newFakeWebhookEventStore(),
 	})
 	return grpcapi.NewHandler(svc), repo, proc
 }
@@ -280,6 +292,32 @@ func errorMappingCases() []errorMappingCase {
 				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID)
 				_, err := h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
+				})
+				return err
+			},
+		},
+		{
+			name:     "invalid webhook signature",
+			sentinel: "ErrWebhookSignatureInvalid",
+			wantCode: codes.PermissionDenied,
+			why: "T18.1 (#167): a forged/malformed Stripe webhook signature is a rejected caller, not a server bug — " +
+				"the same discipline this package already applies to ErrNotPaymentRecorder/ErrNotPaymentOwner, " +
+				"just with no principal involved at all on this RPC",
+			invoke: func(t *testing.T) error {
+				h, repo, proc := newMappingHandler()
+				ref, err := proc.CreateIntent(context.Background(), domain.Money{Cents: 3000, Currency: "USD"}, fixtureBookingID)
+				if err != nil {
+					t.Fatalf("seed: CreateIntent: %v", err)
+				}
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, ref, domain.StatusUnpaid, seededPaymentOwnerID)
+
+				raw := []byte(`{"id":"evt_mapping_1","type":"payment_intent.succeeded"}`)
+				_, err = h.ReceiveStripeWebhookEvent(context.Background(), &paymentsv1.ReceiveStripeWebhookEventRequest{
+					RawPayload:      raw,
+					SignatureHeader: "not-a-valid-signature",
+					EventId:         "evt_mapping_1",
+					EventType:       "payment_intent.succeeded",
+					StripeReference: ref,
 				})
 				return err
 			},

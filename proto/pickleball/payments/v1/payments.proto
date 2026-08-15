@@ -291,6 +291,52 @@ message RefundPaymentResponse {
   Payment payment = 1;
 }
 
+// ReceiveStripeWebhookEventRequest carries a Stripe webhook delivery (T18.1,
+// closes #167) — a second, independent way a Payment's online capture can
+// complete, alongside the existing client-driven ConfirmOnlinePayment above,
+// which this RPC does not replace or remove.
+//
+// This is a deliberate, disclosed simplification of Stripe's actual webhook
+// envelope — stated explicitly rather than silently: a real Stripe delivery
+// is one arbitrary JSON body (raw_payload here) that itself contains the
+// event's id, type, and the PaymentIntent/charge reference the event is
+// about, all nested inside that JSON. This message hands event_id,
+// event_type, and stripe_reference across the wire as separate structured
+// fields rather than requiring the server to parse them out of raw_payload
+// itself — a real Stripe integration (a future internal/payments/adapter/
+// stripe package, see port.WebhookVerifier's doc comment) will need to parse
+// those three facts out of raw_payload directly, since nothing upstream of
+// Stripe can be trusted to have parsed them correctly first. Named here as a
+// known, bounded gap for that future ticket to close, the same way
+// stripestub's own doc comment discloses its boundary rather than hiding it.
+//
+// raw_payload must be the exact bytes Stripe's signature covers — byte-exact,
+// since HMAC verification (port.WebhookVerifier.VerifySignature) fails on any
+// mutation, including one a well-meaning re-serialization step would
+// introduce. That is why it is `bytes`, not a parsed/re-encoded message: a
+// proto/JSON round-trip through a structured message would not reliably
+// preserve the original byte sequence Stripe signed.
+//
+// PCI guardrail (CLAUDE.md rule 11, reviewed against
+// docs/checklists/proto-review.md): this message carries a processor
+// reference (stripe_reference) and a signature header, never a PAN, card
+// number, CVV/CVC or track-data field — a Stripe webhook event for a
+// successful charge does not carry raw card data either; Stripe scopes that
+// out at the source.
+message ReceiveStripeWebhookEventRequest {
+  bytes raw_payload = 1;
+  string signature_header = 2;
+  string event_id = 3;
+  string event_type = 4;
+  string stripe_reference = 5;
+}
+
+// ReceiveStripeWebhookEventResponse is an empty ack. Stripe's own retry
+// behaviour only cares about the HTTP status code the RPC maps to (2xx means
+// "stop retrying this delivery"); there is nothing else for a webhook
+// receiver to report back.
+message ReceiveStripeWebhookEventResponse {}
+
 // PaymentsService is the API contract for the Payments bounded context,
 // mirroring BookingService's/SocialPlayService's style
 // (proto/pickleball/booking/v1, proto/pickleball/socialplay/v1) — buf
@@ -355,6 +401,40 @@ service PaymentsService {
   rpc RefundPayment(RefundPaymentRequest) returns (RefundPaymentResponse) {
     option (google.api.http) = {
       post: "/v1/payments/{payment_id}:refund"
+      body: "*"
+    };
+  }
+
+  // ReceiveStripeWebhookEvent lets a successful Stripe charge complete its
+  // own Payment even if the client's own ConfirmOnlinePayment call never
+  // lands — a dropped connection, a closed tab, a crashed app (T18.1, closes
+  // #167). Declared public in internal/payments/adapter/grpcapi.
+  // PublicMethods(): it is authenticated by a signature check
+  // (port.WebhookVerifier.VerifySignature) rather than a verified principal,
+  // since Stripe itself has no login on this platform to hold one — see that
+  // function's own doc comment for the exhaustiveness check this satisfies,
+  // and app.Service.HandleStripeWebhookEvent for the ordering (signature
+  // verify -> idempotency claim -> event-type filter -> Payment resolution ->
+  // already-paid guard -> capture).
+  //
+  // This RPC is additive, not a replacement: ConfirmOnlinePayment above stays
+  // exactly as it is, still the only path a Player's own device drives
+  // directly. Removing it is a separate, one-way decision this ticket does
+  // not make (T18 sprint plan's own "does not claim" list).
+  //
+  // Status codes:
+  //   - PERMISSION_DENIED: the signature does not verify — a forged or
+  //     malformed delivery is a rejected caller, not a server bug.
+  //   - NOT_FOUND: stripe_reference does not resolve to any Payment.
+  //   - OK (empty response), with no capture performed: event_id was already
+  //     claimed by an earlier delivery of the same event (redelivery-safe
+  //     no-op); event_type is not "payment_intent.succeeded" (every other
+  //     event type is acked and ignored); or the resolved Payment is already
+  //     paid (a race with a prior client-driven confirm, or a differently-
+  //     event_id'd redelivery of conceptually the same event).
+  rpc ReceiveStripeWebhookEvent(ReceiveStripeWebhookEventRequest) returns (ReceiveStripeWebhookEventResponse) {
+    option (google.api.http) = {
+      post: "/v1/payments:receiveStripeWebhookEvent"
       body: "*"
     };
   }

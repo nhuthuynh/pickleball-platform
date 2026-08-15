@@ -76,4 +76,13 @@ var (
 	// no Payment exists with the given id, mirroring
 	// booking.ErrBookingNotFound.
 	ErrPaymentNotFound = errors.New("payments: payment not found")
+
+	// ErrWebhookSignatureInvalid is T18.1's sentinel for
+	// app.Service.HandleStripeWebhookEvent (closes #167): returned when
+	// port.WebhookVerifier.VerifySignature rejects the delivery. Mapped by
+	// grpcapi's toStatus to codes.PermissionDenied, never Internal — a
+	// forged or malformed signature is a rejected caller, not a server bug,
+	// the same discipline this package already applies to
+	// ErrNotPaymentRecorder/ErrNotPaymentOwner.
+	ErrWebhookSignatureInvalid = errors.New("payments: webhook signature is invalid")
 )

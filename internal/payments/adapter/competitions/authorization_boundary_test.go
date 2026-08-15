@@ -42,6 +42,18 @@ func (r *boundaryFakePaymentsRepo) GetByID(_ context.Context, id string) (paymen
 	return p, nil
 }
 
+// GetByStripeReference implements port.Repository (T18.1, closes #167) —
+// unused by this file's own scenarios, but required for
+// *boundaryFakePaymentsRepo to keep satisfying the interface.
+func (r *boundaryFakePaymentsRepo) GetByStripeReference(_ context.Context, ref string) (paymentsdomain.Payment, error) {
+	for _, p := range r.byID {
+		if p.StripeReference == ref {
+			return p, nil
+		}
+	}
+	return paymentsdomain.Payment{}, paymentsdomain.ErrPaymentNotFound
+}
+
 func (r *boundaryFakePaymentsRepo) Update(_ context.Context, p paymentsdomain.Payment) (paymentsdomain.Payment, error) {
 	if _, ok := r.byID[p.ID]; !ok {
 		return paymentsdomain.Payment{}, paymentsdomain.ErrPaymentNotFound

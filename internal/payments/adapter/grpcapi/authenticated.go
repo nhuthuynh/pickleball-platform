@@ -59,13 +59,25 @@ func AuthenticatedMethods() []string {
 // RPC was added and nobody decided whether it needs auth" from a silent
 // default-to-public into a failing test.
 //
-// # Why this list is empty
+// # Why this list holds exactly one entry
 //
-// It is empty as of T13.7 (closes issue #148), and empty is a decision here,
-// not an omission — that is exactly what authenticated_test.go's exhaustiveness
-// check exists to keep true. Every RPC on PaymentsService moves or records
-// money, and every one of them now has a verified actor and something to
-// compare it against.
+// It was empty from T13.7 (closes issue #148) through T17: every RPC on
+// PaymentsService moved or recorded money, and every one of them had a
+// verified actor and something to compare it against. T18.1 (closes #167)
+// is the ticket this doc comment predicted — a Stripe webhook receiver —
+// and ReceiveStripeWebhookEvent is deliberately here, not in
+// AuthenticatedMethods(): Stripe itself has no login on this platform to
+// hold a bearer token, so requiring one would be exactly the "token
+// requirement standing in for a real check" T12.8 rejected for
+// ConfirmOnlinePayment below. What makes this public entry safe rather than
+// a repeat of that pre-T13.7 gap is the same shape T13.7 used — an object-
+// level check that isn't a bare token — just authenticated by a different
+// mechanism: app.Service.HandleStripeWebhookEvent verifies an HMAC
+// signature over the raw payload (port.WebhookVerifier) before touching
+// anything else, so an unsigned or forged delivery is refused with
+// PermissionDenied before it can probe or capture anything, in exactly the
+// way a claimed-but-unverified actor was refused everywhere else in this
+// package (ADR-0013 §5, ADR-0014 §5a).
 //
 // The entry that used to live here was ConfirmOnlinePayment, listed public with
 // a long note saying so was wrong but out of T12.8's reach: it took a
@@ -79,12 +91,12 @@ func AuthenticatedMethods() []string {
 // so the RPC moves into AuthenticatedMethods() with a real object-level check
 // behind it rather than a token requirement standing in for one.
 //
-// Keep this function rather than deleting it: authenticated_test.go's
-// exhaustiveness check reads it (deleting it would make every future RPC
-// unclassifiable except by adding it back), and a future public RPC — a Stripe
-// webhook receiver, say, which issue #148's closing note raises as the shape
-// that would make the client-driven capture question moot — needs somewhere to
-// be declared deliberately rather than by omission.
+// Keep this function rather than deleting it even now that it holds a real
+// entry: authenticated_test.go's exhaustiveness check reads it, and any
+// future public RPC needs somewhere to be declared deliberately rather than
+// by omission, exactly as this one was.
 func PublicMethods() []string {
-	return nil
+	return []string{
+		paymentsv1.PaymentsService_ReceiveStripeWebhookEvent_FullMethodName,
+	}
 }
