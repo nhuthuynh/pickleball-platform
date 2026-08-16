@@ -1918,3 +1918,102 @@ retro as license not to re-trace it. Filed as issue **#237**.
   does not, which is exactly why it is easy to scope out of a
   single-context ticket's own dependency-completeness check without anyone
   deciding to.
+
+## T29 (2026-08-16) — the T9 dispatch-isolation remedy was never durably
+written down, and a near-identical shared-checkout collision recurred
+thirteen sprints later
+
+Found by T29's own retro (`docs/process/t29-retro.md` §8), while scoring
+whether T29.1/T29.2's shared-checkout hazard rose to `docs/LESSONS.md`
+incident severity. Recorded here **not** for the collision itself — see
+below for why that half is a near-miss, not an incident — but for a real,
+separately-scoreable process gap the retro found underneath it.
+
+- **The near-miss, briefly (full detail in the retro).** T29.1 and T29.2,
+  correctly dispatched as same-wave, no-functional-dependency tickets, both
+  initially worked in the *same* shared local checkout
+  (`/home/user/white-label`) concurrently. Each independently detected the
+  collision and self-isolated *before* it corrupted either branch — T29.1
+  built a disposable `git worktree`; T29.2 branched via raw git plumbing off
+  the shared parent commit, never touching the shared checkout's working
+  tree. Both disclosed this in their own PR bodies at first-instance time,
+  not only if later asked. Independently re-verified by the retro
+  (`pull_request_read(get_files)` on both PRs): neither branch's pushed
+  content contains a file under the other ticket's bounded context. No work
+  was lost, no corrupted state reached the shared branch.
+- **Why this is not scored as a T9-grade incident.** T9's own incident (see
+  the `## T9 sprint retro` entry above and `docs/process/t9-retro.md`
+  finding 1) was five agents in one unisolated checkout who genuinely
+  "stepped on each other," recovered only after the collision happened, and
+  wrote none of it down until the retro asked. T29's instance differs in
+  both respects that matter: isolation happened *before* any actual
+  collision manifested as corrupted state, and both sides wrote it down
+  unprompted, in their own PR bodies. Writing this up as if it were a repeat
+  of T9's own severity would overstate what happened.
+- **The real gap, found by checking whether T9's own remedy was ever
+  durably adopted.** T9's retro adopted a concrete fix: *"dispatch isolation
+  becomes an explicit Ceremony 2 checklist item."* A direct `grep -ni
+  "isolat" docs/process/sprint-process.md` returns **zero matches** — that
+  remedy was never written into the durable process document itself, unlike
+  "the same-wave shared-interface verification rule" or "the
+  dependency-completeness check," both of which earned their own named
+  `sprint-process.md` sections from similarly-scoped retro findings. The
+  practice survived for a while as a habit, not a rule — T13's own sprint
+  plan explicitly labels its parallel waves *"(parallel, ≤5 implementers,
+  worktree-isolated)"* — but `docs/process/t29-sprint-plan.md` carries no
+  such annotation anywhere despite dispatching exactly the two-implementer
+  parallel wave the T9 remedy targets (`grep -ni "isolat"
+  docs/process/t29-sprint-plan.md` also returns zero matches). Thirteen
+  sprints after T9, the checklist item that was supposed to prevent this had
+  quietly stopped existing anywhere a Ceremony 2 would be prompted to apply
+  it, and the collision it was written to prevent recurred — prevented this
+  time only by both implementers' own diligence, not by planning-time
+  process.
+- **Generalizable lesson.** A retro remedy that is stated only in that
+  retro's own document (or, worse, only survives as a norm a few subsequent
+  sprint plans happen to repeat in their own prose) is not durably adopted —
+  it is exactly as durable as the next sprint's memory of it, which this
+  project has now measured directly: thirteen sprints. A remedy meant to
+  bind every future Ceremony 2 needs its own named section in
+  `sprint-process.md`, the same way every other durably-adopted process
+  change in this project's history has one. Recommended for T30: give
+  dispatch isolation that section, rather than let a third near-miss be the
+  one that finally forces it.
+
+## T29 sprint retro
+
+Held as `docs/process/t29-retro.md`, following the convention
+T5/T9/T10/…/T27/T28 set and CLAUDE.md's **Docs index & naming convention**.
+
+T29 shipped two tickets (T29.1 Competitions PR #239, T29.2 Social Play PR
+#240, 34 points total), closing all three remaining thirds of issue #164
+(Payments/T28.1, Competitions/T29.1, Social Play/T29.2 — all now ADR-0014/
+ADR-0017 conformant) and, as a side effect with no Payments-side code
+change, closing issue #237 (the T28.1 regression logged above). This retro
+independently re-verified every load-bearing claim rather than trusting
+either PR's own account: both tickets' funnel changes and backfill
+migrations landed together with no window either comparison could break in;
+both backfills were mutation-checked per CLAUDE.md rule 10 by two
+legitimately different verification shapes (re-reproduced a third time by
+the retro against a real local Postgres); both migrations' `NOT NULL`/
+nullable branches were independently correct for two different reasons
+(T29.1 forced by a `PRIMARY KEY`/rule-10 structural conflict, T29.2 earned
+by a reproduced, deployment-model-guaranteed zero-orphan case); both
+Payments-side regression tests use genuinely non-matching fixtures that
+would have caught #237. The backlog's other issues' blockers hold, but the
+correct live count is **7**, not the 6 both the task brief and the sprint
+plan's own DoD line assumed — a drafting gap in the plan's own ranking table
+(silently dropping #124) traced to its source. Neither D1 nor D2 was
+answered as a formal decision. T29.1's review scores as D2's "exercised, no
+fix needed" shape (the seventh instance); T29.2's — a real gap found,
+changes formally requested, the fix authored by neither the implementer nor
+the reviewer but a separately-dispatched party, then re-verified and merged
+— scores as a genuinely new, fourth shape, reported as evidence for
+ADR-0016's own "changed circumstance" clause, not a resolution of D2. The
+shared-checkout near-miss and the process-institutionalization gap
+underneath it are logged above as their own incident entry. The empty-PR-
+body incident for #240 was scored as caught cleanly by existing review
+process, with one cheap safeguard recommended for T30. D1's silence counter
+holds at **sixteen**; a new post-T29 backlog-composition counter starts at
+**one**. One label-taxonomy gap (#237 filed with no labels) was found and
+corrected live by the retro.

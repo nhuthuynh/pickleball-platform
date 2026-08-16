@@ -51,7 +51,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 
 | T27 | `docs/process/t27-sprint-plan.md` (Ceremony 1 corrects T26's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a tenth time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live in the abbreviated form T23–T26 retro established) | `docs/process/t27-retro.md` (no incident-grade finding and no precision correction either; independently re-verified live, issue by issue, that all 8 open issues' blockers held for the whole sprint, byte-for-byte against the plan's own live-fetched table; re-confirmed the `golang-migrate`/`goose` migration-tooling classification unchanged; confirmed D1/D2 unanswered as formal ADR decisions, reading both ADRs' `## Status` sections and #144's comment body directly; scored DoD (d) live for the eighth time running with an identical result; carried forward two running counters — the backlog's consecutive-static-check count to fourteen, D1's consecutive-sprint-silence count held at fourteen within the same sprint; 4 recommendations for T28) | PR #232 (Ceremony 1/2 doc) → PR #233 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:25:54Z` → `11:30:25Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T28 | `docs/process/t28-sprint-plan.md` (Ceremony 1 re-examines issue #164's fourteen-sprint "blocked on a real IdP tenant" classification against its own issue text, ADR-0014 §5/§5a, and the current codebase — independently confirms the classification was wrong, reclassifies #164 as genuinely unblocked scoped engineering work following the T13.2/T13.3 precedent, and takes the smallest of its three per-context slices (Payments) as Wave 1, explicitly deferring Social Play/Competitions to T29 rather than forcing all three into one sprint on unproven backfill-migration cost; also re-verifies the other 7 issues' blockers live, including re-confirming #145 remains genuinely IdP-blocked despite its superficial similarity to #164; Ceremony 2 tickets 1 item, 8 points — the project's first non-zero sprint since T19) | `docs/process/t28-retro.md` (independently re-verified, against the actual merged commit rather than the PR's own account, that the funnel change and the backfill/column-type migration landed as one commit with no window `authorizeOnlineConfirmation` could silently break on; mutation-checked the backfill four independent ways, incl. its own separate DB reproduction and its own separate Go-level fail-closed mutation; re-confirmed the other 7 issues' blockers live and D1/D2 both still unanswered; scored this sprint's real PR review as D2's "exercised, no fix needed" shape, the first since T19; retired the old backlog-static-check counter correctly, incremented D1's silence count to fifteen, and proposed a new post-T28.1 composition counter starting at one) | PR #234 (Ceremony 1/2 doc) → PR #235 (T28.1, "partial fix for #164") → PR #236 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `13:19:47Z` → `13:59:00Z` → `14:12:15Z`) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0017` (extends ADR-0014's ruling to Social Play/Competitions/Payments: translate-not-widen still applies, these columns become real `uuid` FKs once backfilled, and states the orphaned-subject-row ruling the backfill migration follows) | — |
-| T29 | `docs/process/t29-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, finds and files **#237** — a live regression T28.1 introduced in `authorizeGameRecording`/`authorizeCompetitionEntryRecording`, where Payments' now-resolved actor is compared against Social Play's/Competitions' still-subject-shaped reads — and takes both remaining thirds of #164 (Social Play, Competitions) as two tickets, both closing #237 as a side effect; Ceremony 2 tickets 2 items, 34 points) | not yet written | not yet opened | — | — |
+| T29 | `docs/process/t29-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, finds and files **#237** — a live regression T28.1 introduced in `authorizeGameRecording`/`authorizeCompetitionEntryRecording`, where Payments' now-resolved actor is compared against Social Play's/Competitions' still-subject-shaped reads — and takes both remaining thirds of #164 (Social Play, Competitions) as two tickets, both closing #237 as a side effect; Ceremony 2 tickets 2 items, 34 points) | `docs/process/t29-retro.md` (independently re-verified, against the actual merged commits, that both tickets' funnel changes and backfill migrations landed together with no window either comparison could break in; mutation-checked both backfills per CLAUDE.md rule 10 by two legitimately different verification shapes — re-reproduced a third time against a real local Postgres with its own seed data; confirmed both migrations' `NOT NULL`/nullable branches correct for two different, independently-verified reasons; confirmed both Payments-side regression tests use genuinely non-matching fixtures that would have caught #237; corrected the backlog's "other issues" count to **7**, not the 6 the plan's own DoD line assumed — a drafting gap in the plan's §A5 table traced to its source; confirmed neither D1 nor D2 answered as a formal decision; scored T29.1's review as D2's "exercised, no fix needed" shape and T29.2's as a genuinely new, fourth shape — a real gap found, changes requested, the fix authored by a separately-dispatched party rather than the reviewer itself — reported as evidence for ADR-0016's own "changed circumstance" clause, not a resolution; scored the shared-checkout collision as a near-miss but found and logged a real process-institutionalization gap underneath it (T9's dispatch-isolation remedy was never written into `sprint-process.md` itself); scored the empty-PR-body incident as caught cleanly by existing review process; corrected a live label-taxonomy gap on #237) | PR #238 (Ceremony 1/2 doc) → PR #239 (T29.1, "partial fix for #164": Competitions) → PR #240 (T29.2, "partial fix for #164": Social Play, closes #164 and #237 in full) → PR (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `14:28:18Z` → `15:04:23Z` → `15:23:09Z`) — all merged, all reviewed via GitHub review comments, see naming convention | — | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -1477,6 +1477,119 @@ the retro's form, not a stronger one).
 > disclosed interaction with issue #149's caller-supplied `booking_host_id`
 > field was not also posted as a comment on #149 itself, though nothing
 > #149 already states was falsified by it.
+
+**T29 — Close the remaining two-thirds of #164 (Social Play, Competitions)
+as two same-wave tickets, after finding and filing a live regression #164's
+Payments third had introduced.** Ceremony 1/2 complete
+(`docs/process/t29-sprint-plan.md`); tracing PR #235 (T28.1) end to end
+found that Payments' now-resolved actor was being compared against Social
+Play's/Competitions' still-subject-shaped `host_id`/`player_id`/admin-`user_id`
+reads, denying every genuinely authorized Game Host/Admin/Competition
+entrant/Admin from recording certain payments since `2026-08-16T13:59:00Z`
+— filed as **#237** and taken as a side effect of finishing #164's own
+scope, with no Payments-side code change in either ticket. **T29.1** (PR
+#239, 13 points) converts `competitions.host_id`, `competition_entries.player_id`,
+`competition_admins.user_id`/`assigned_by` to real `uuid` FKs, shipped
+**nullable** — `competition_admins.user_id` was part of a composite
+`PRIMARY KEY`, and Postgres forces `NOT NULL` on every PK column, which
+would have made the ticket's own required orphan mutation-check impossible
+to run against the real migration text. **T29.2** (PR #240, 21 points)
+converts `games.host_id`, `registrations.player_id`, `waitlist_entries.player_id`,
+`game_admins.user_id`/`assigned_by`, shipped **`NOT NULL`** for all five
+columns — verified no seed migration touches any of the four tables, so on
+this project's fresh-volume-only deployment model the backfill is provably
+orphan-free. Both tickets also found and fixed an undocumented second
+identity-resolution seam (`resolveTargetUserID`/`resolveUserID`) for their
+context's `AssignXAdmin`/`RevokeXAdmin` caller-supplied *target* subject,
+beyond what either ticket's instructions literally named. PR #240's own
+review found a real gap — `internal/socialplay/adapter/identity/lookup.go`
+shipped with zero direct test coverage, unlike all three prior instances of
+this pattern — formally requested changes, and a separately-dispatched
+implementer added `internal/socialplay/adapter/identity/lookup_test.go`
+before re-review and merge; PR #240 also required a follow-up session to
+reconstruct its own PR body, which had been opened essentially empty
+despite the implementing session's own final chat report describing
+substantial content. Both #164 and #237 closed in full on PR #240's merge,
+correctly checking each issue's live state before writing the closing
+comments. 2 tickets, 34 points.
+
+**Outcome: 2 tickets, 34 points, independently re-verified rather than
+trusted** (PR #238 for the Ceremony 1/2 doc, PR #239 for T29.1, PR #240 for
+T29.2, plus the retro doc's own PR). Retro: `docs/process/t29-retro.md` —
+re-verified, against the actual merged commits, that both tickets' funnel
+changes and backfill/column-type migrations landed together with no window
+either comparison could break in; mutation-checked both backfills per
+CLAUDE.md rule 10 by two legitimately different verification shapes
+(T29.1's nullable migration demonstrated directly, T29.2's `NOT NULL`
+migration demonstrated via a two-part proof — the backfill mechanism in
+isolation, and the shipped migration's loud, not silent, failure on a real
+orphan — all independently reproduced a third time by the retro against a
+real local Postgres with its own seed data); confirmed both migrations'
+`NOT NULL`/nullable branches correct for two different, independently-
+verified reasons; confirmed both Payments-side regression tests use
+genuinely non-matching, mutually distinct fixture values that would have
+caught #237; corrected the backlog's "other issues" count to **7**, not the
+6 the sprint plan's own DoD line assumed — a drafting gap in the plan's own
+§A5 ranking table (silently dropping #124) traced to its source; confirmed
+neither D1 nor D2 answered as a formal ADR decision; scored T29.1's review
+as D2's "exercised, no fix needed" shape (the seventh instance) and T29.2's
+review as a genuinely new, fourth shape — a real gap found, changes formally
+requested, the fix authored by neither the implementer nor the reviewer but
+a separately-dispatched party, then re-verified and merged — reported as
+evidence for ADR-0016's own "changed circumstance" clause, not a resolution
+of D2; scored the shared-checkout collision both tickets independently
+self-detected and disclosed as a near-miss (no corruption occurred, both
+sides wrote it down unprompted) but found and logged a real,
+separately-scoreable gap underneath it: T9's own "dispatch isolation becomes
+an explicit Ceremony 2 checklist item" remedy was never durably written into
+`sprint-process.md` itself and had silently eroded over thirteen sprints;
+scored the empty-PR-body incident as caught cleanly by existing review
+process, with one cheap safeguard recommended for T30; corrected a live
+label-taxonomy gap on #237 (filed with zero labels). 6 recommendations for
+T30.
+
+**State the outcome in this form, not a stronger one.** This is the retro's
+own agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires the
+retro's form, not a stronger one).
+
+> T29 shipped two tickets, T29.1 (Competitions, 13 points, PR #239) and
+> T29.2 (Social Play, 21 points, PR #240), 34 points total, closing both
+> remaining thirds of issue #164 (all three contexts — Payments/T28.1,
+> Competitions/T29.1, Social Play/T29.2 — now ADR-0014/ADR-0017 conformant)
+> and, as a side effect with no Payments-side code change in either ticket,
+> closing issue #237. This retro independently re-verified — not trusted —
+> every load-bearing claim: both tickets' funnel changes and backfill/
+> column-type migrations landed together as one reviewed unit with no
+> window either comparison could break in; both backfills were
+> mutation-checked per CLAUDE.md rule 10 by two legitimately different
+> verification shapes, both independently reproduced a third time by this
+> retro; both migrations' `NOT NULL`-vs-nullable branches were independently
+> confirmed correct for two different reasons; both Payments-side regression
+> tests use genuinely non-matching, mutually distinct fixture values that
+> would have caught #237; the backlog's other issues' blockers hold, but the
+> correct count is **7**, not the 6 both the task's own framing and the
+> sprint plan's own DoD item assumed, a drafting gap in the plan's own §A5
+> ranking table traced to its source and corrected here; neither D1 nor D2
+> was answered as a formal ADR decision this sprint; T29.1's review scores
+> as D2's "exercised, no fix needed" shape (the seventh such instance),
+> while T29.2's review scores as a genuinely new, fourth shape, argued from
+> ADR-0016's own definitions rather than forced into an existing bucket, and
+> reported as real evidence for ADR-0016's own "changed circumstance"
+> clause, not a resolution of D2. The shared-checkout collision both
+> tickets independently self-detected and disclosed is scored as a
+> near-miss, not a T9-grade incident — but a real, separately-scoreable gap
+> was found underneath it and logged to `docs/LESSONS.md`: T9's own dispatch-
+> isolation remedy was never durably written into `sprint-process.md` and
+> has silently eroded over thirteen sprints. The empty-PR-body incident for
+> #240 is scored as caught cleanly by existing review process, with one
+> cheap safeguard recommended for T30. D1's consecutive-sprint-silence
+> counter holds at sixteen (T14 through T29, confirmed rather than
+> incremented a second time within this sprint); the post-T28.1
+> backlog-composition counter is retired at 2, per T29 plan's own
+> disposition; a new post-T29 backlog-composition counter is proposed,
+> starting at one, established by this retro. One label-taxonomy
+> conformance gap was found (#237 filed with zero labels) and corrected
+> live by this retro.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args
