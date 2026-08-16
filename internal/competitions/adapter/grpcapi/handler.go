@@ -30,9 +30,24 @@ import (
 // them per-call. Competitions' app.Service stores every dependency on itself
 // (see app.ServiceOptions), so there is nothing for this adapter to thread
 // through, and the handler stays a pure translation layer.
-// actor resolves the acting user for an authenticated RPC (T12.8).
+type Handler struct {
+	competitionsv1.UnimplementedCompetitionsServiceServer
+	svc *app.Service
+}
+
+func NewHandler(svc *app.Service) *Handler {
+	return &Handler{svc: svc}
+}
+
+// actor resolves the acting user for an authenticated RPC (T12.8), and since
+// T29.1 it is also ADR-0014/ADR-0017's translation seam for this context —
+// mirroring internal/booking/adapter/grpcapi/handler.go's,
+// internal/facilities/adapter/grpcapi/handler.go's, and
+// internal/payments/adapter/grpcapi/handler.go's identical funnels
+// (T13.2/T13.3/T28.1, the last the closest and most recent reference this
+// ticket followed).
 //
-// This one function is the whole of A11 Ruling 3 for this context: the
+// This one method is the whole of A11 Ruling 3 for this context: the
 // Principal is translated into the plain actor string app.Service and
 // domain.Competition's Host check already take, here at the grpcapi boundary,
 // so internal/competitions/{domain,app} keep their existing signatures and
@@ -45,17 +60,52 @@ import (
 // claimed value has changed nothing". Missing principal is
 // codes.Unauthenticated ("I do not know who you are"), never PermissionDenied
 // (ADR-0013 §5).
-func actor(ctx context.Context) (string, error) {
-	return auth.RequireSubject(ctx)
-}
+//
+// **It returns a User.ID (uuid), not the subject, as of T29.1.** That is
+// ADR-0014/ADR-0017's ruling and the fix for #164's Competitions third — and,
+// as a side effect, for Competitions' half of #237 (internal/payments/app.
+// authorizeCompetitionEntryRecording's resolved-actor-vs-still-subject-shaped
+// read regression T28.1 introduced: once this method's return value and
+// competitions.host_id/competition_entries.player_id/competition_admins.
+// user_id all hold the same identifier space, port.EntryLookup/
+// port.CompetitionAdminReader's reads on the Payments side are correct again
+// with no change under internal/payments/**). Two steps, in this order,
+// identical to Booking's/Facilities'/Payments' funnel:
+//
+//  1. auth.RequireSubject — who is calling? A missing or unverified principal
+//     is codes.Unauthenticated, never PermissionDenied (ADR-0013 §5).
+//  2. app.Service.ResolveActorUserID — which User is that? A subject
+//     registered to no User is codes.PermissionDenied, never NotFound
+//     (ADR-0014 §6).
+//
+// **This is why the funnel change and the backfill migration
+// (db/migrations/0025_competitions_identity_conformance.sql) land in the
+// same PR, not two.** Every actor-taking RPC on this service calls this one
+// method, including CancelCompetition and ListEntriesForCompetition, whose
+// domain.Competition.EnsureHost/EnsureHostOrCompetitionAdmin compare the
+// value this method returns against the *stored* c.HostID / the resolved
+// admin set. The instant this method starts returning a uuid instead of a
+// subject, those comparisons are only correct if the stored side is also a
+// uuid — see domain.Competition.EnsureHost's/EnsureHostOrCompetitionAdmin's
+// own doc comments for the full hazard analysis. Landing this method's
+// change without the migration (or vice versa) would have created exactly
+// the window that hazard describes; landing them together is what closes
+// it.
+//
+// It is a method rather than a package function, as of this ticket, only
+// because it needs the service to reach port.IdentityLookup (via
+// Service.ResolveActorUserID) — NewHandler's own signature is unchanged.
+func (h *Handler) actor(ctx context.Context) (string, error) {
+	subject, err := auth.RequireSubject(ctx)
+	if err != nil {
+		return "", err
+	}
 
-type Handler struct {
-	competitionsv1.UnimplementedCompetitionsServiceServer
-	svc *app.Service
-}
-
-func NewHandler(svc *app.Service) *Handler {
-	return &Handler{svc: svc}
+	actorUserID, err := h.svc.ResolveActorUserID(ctx, subject)
+	if err != nil {
+		return "", toStatus(err)
+	}
+	return actorUserID, nil
 }
 
 // CreateCompetition schedules a Competition hosted by the verified caller
@@ -69,7 +119,7 @@ func NewHandler(svc *app.Service) *Handler {
 // caller is provably the Host" — a claim worth nothing if the Host were
 // whoever the request named.
 func (h *Handler) CreateCompetition(ctx context.Context, req *competitionsv1.CreateCompetitionRequest) (*competitionsv1.CreateCompetitionResponse, error) {
-	hostID, err := actor(ctx)
+	hostID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -189,7 +239,7 @@ func (h *Handler) ListCompetitions(ctx context.Context, req *competitionsv1.List
 // this stored value, so an entry created for a claimed player_id would decide
 // who may pay for it.
 func (h *Handler) EnterCompetition(ctx context.Context, req *competitionsv1.EnterCompetitionRequest) (*competitionsv1.EnterCompetitionResponse, error) {
-	playerID, err := actor(ctx)
+	playerID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +261,7 @@ func (h *Handler) EnterCompetition(ctx context.Context, req *competitionsv1.Ente
 // Host-only object-level check is unchanged; what changed is that the identity
 // it compares against is verified rather than claimed.
 func (h *Handler) CancelCompetition(ctx context.Context, req *competitionsv1.CancelCompetitionRequest) (*competitionsv1.CancelCompetitionResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +288,7 @@ func (h *Handler) CancelCompetition(ctx context.Context, req *competitionsv1.Can
 // PublicMethods() to AuthenticatedMethods() in authenticated.go to match.
 // Exact twin of Social Play's ListRegistrationsForGame (T14.5).
 func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitionsv1.ListEntriesForCompetitionRequest) (*competitionsv1.ListEntriesForCompetitionResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,9 +321,14 @@ func (h *Handler) ListEntriesForCompetition(ctx context.Context, req *competitio
 // The actor is the verified principal, never the wire — the request has no
 // actor field at all. A missing principal is codes.Unauthenticated ("I do not
 // know who you are"), never PermissionDenied (ADR-0013 §5), which is what
-// actor(ctx) returns on its own.
+// h.actor(ctx) returns on its own.
 func (h *Handler) AssignCompetitionAdmin(ctx context.Context, req *competitionsv1.AssignCompetitionAdminRequest) (*competitionsv1.AssignCompetitionAdminResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	adminUserID, err := h.resolveTargetUserID(ctx, req.GetUserId())
 	if err != nil {
 		return nil, err
 	}
@@ -281,12 +336,64 @@ func (h *Handler) AssignCompetitionAdmin(ctx context.Context, req *competitionsv
 	admin, err := h.svc.AssignCompetitionAdmin(ctx, app.AssignCompetitionAdminInput{
 		CompetitionID: req.GetCompetitionId(),
 		ActorUserID:   actorUserID,
-		AdminUserID:   req.GetUserId(),
+		AdminUserID:   adminUserID,
 	})
 	if err != nil {
 		return nil, toStatus(err)
 	}
 	return &competitionsv1.AssignCompetitionAdminResponse{CompetitionAdmin: toProtoCompetitionAdmin(admin)}, nil
+}
+
+// resolveTargetUserID is T29.1's second identity-resolution seam in this
+// handler, distinct from h.actor above: AssignCompetitionAdminRequest.
+// user_id / RevokeCompetitionAdminRequest.user_id name a user OTHER than the
+// caller — the proto's own doc comment on AssignCompetitionAdminRequest.
+// user_id says so explicitly ("the subject to grant authority to — a
+// subject, not a uuid"). Before this ticket that subject was written
+// straight into competition_admins.user_id/assigned_by unchanged (both
+// `text`); as of this ticket that column is `uuid`, so the same
+// subject-to-User.ID translation h.actor performs for the CALLER must also
+// run for the person being NAMED, through the identical
+// h.svc.ResolveActorUserID seam — it is a plain subject->User.ID translator
+// regardless of whose subject it is given.
+//
+// This is why domain.CompetitionAdmin's UserID/AssignedBy comparisons
+// (domain.AssignCompetitionAdmin's `adminUserID == c.HostID` check,
+// domain.HasCompetitionAdmin's membership test against a later h.actor(ctx)
+// value) are correct with NO logic change: both sides of every comparison
+// are resolved User.IDs by the time they reach the domain, exactly the
+// property this ticket's funnel change establishes everywhere else. Doing
+// this resolution HERE, at the grpcapi boundary, rather than inside
+// app.Service.AssignCompetitionAdmin/RevokeCompetitionAdmin, keeps those two
+// methods receiving an already-resolved value on every parameter — the same
+// convention every other app-layer method in this package (and Booking's/
+// Facilities'/Payments' identical methods) already follows, so this
+// package's existing app-layer and domain-layer tests, which construct
+// AdminUserID as an already-resolved literal directly, need no change.
+//
+// An EMPTY subject is passed through UNCHANGED, never resolved: a blank
+// AdminUserID is a distinct, request-shape defect
+// (domain.ErrEmptyCompetitionAdminUserID -> InvalidArgument, T15.3's own
+// rule), not an unregistered-user question (domain.ErrUserNotFound ->
+// PermissionDenied). Resolving "" here would answer PermissionDenied to
+// what is actually a plain bad request, and would also never reach
+// domain.AssignCompetitionAdmin's own blank check, which exists precisely
+// to give the bad-request answer for this case.
+//
+// A non-empty subject that resolves to no User answers PermissionDenied,
+// mirroring h.actor's identical ADR-0014 §6 reasoning applied to the named
+// user rather than the caller: NotFound would make this RPC an oracle for
+// "does this subject belong to a registered user", the same enumeration
+// hazard §6 rules against for the caller's own subject.
+func (h *Handler) resolveTargetUserID(ctx context.Context, subject string) (string, error) {
+	if subject == "" {
+		return "", nil
+	}
+	userID, err := h.svc.ResolveActorUserID(ctx, subject)
+	if err != nil {
+		return "", toStatus(err)
+	}
+	return userID, nil
 }
 
 // RevokeCompetitionAdmin withdraws a Competition-Admin assignment on the
@@ -300,7 +407,12 @@ func (h *Handler) AssignCompetitionAdmin(ctx context.Context, req *competitionsv
 // authorization check runs before the store is consulted, so neither can be
 // used to enumerate a Competition's admins.
 func (h *Handler) RevokeCompetitionAdmin(ctx context.Context, req *competitionsv1.RevokeCompetitionAdminRequest) (*competitionsv1.RevokeCompetitionAdminResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	adminUserID, err := h.resolveTargetUserID(ctx, req.GetUserId())
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +420,7 @@ func (h *Handler) RevokeCompetitionAdmin(ctx context.Context, req *competitionsv
 	if err := h.svc.RevokeCompetitionAdmin(ctx, app.RevokeCompetitionAdminInput{
 		CompetitionID: req.GetCompetitionId(),
 		ActorUserID:   actorUserID,
-		AdminUserID:   req.GetUserId(),
+		AdminUserID:   adminUserID,
 	}); err != nil {
 		return nil, toStatus(err)
 	}
@@ -415,6 +527,15 @@ func toStatus(err error) error {
 		// domain.ErrNotCompetitionHostOrAdmin's DO-NOT-UNIFY note for why
 		// the two stay distinct sentinels despite sharing this arm.
 		errors.Is(err, domain.ErrNotCompetitionHostOrAdmin):
+		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.Is(err, domain.ErrUserNotFound):
+		// T29.1 (closes the Competitions third of #164): h.actor resolves a
+		// subject to no User. PermissionDenied, not NotFound (ADR-0014 §6,
+		// restated by ADR-0017) — the caller's token verified, so this is
+		// not Unauthenticated either; they are simply not registered, and
+		// answering NotFound would turn every actor-taking RPC into a
+		// user-enumeration oracle. Mirrors booking/facilities/payments'
+		// identical mapping for their own ErrUserNotFound.
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrCompetitionNotFound),
 		// ErrFacilityNotFound is now produced by TWO raise sites (T17.3,

@@ -300,6 +300,11 @@ func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
 		Facilities:        fakeFacilities{},
 		ShareTokens:       &fakeShareTokens{},
 		CompetitionAdmins: newFakeCompetitionAdminRepo(),
+		// T29.1: h.actor(ctx) now resolves the verified subject through
+		// this port before app.Service ever sees it — see
+		// identity_fixtures_test.go for why an auto-resolving fake, not an
+		// explicit subjects map.
+		Identity: newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
@@ -478,8 +483,8 @@ func TestEnterCompetition_IsNotOwnershipGated(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnterCompetition by a non-Host player should succeed (entering is not ownership-gated), got: %v", err)
 	}
-	if resp.GetEntry().GetPlayerId() != "some-other-player" {
-		t.Errorf("entry player_id = %q, want %q", resp.GetEntry().GetPlayerId(), "some-other-player")
+	if want := resolvedUserID("some-other-player"); resp.GetEntry().GetPlayerId() != want {
+		t.Errorf("entry player_id = %q, want %q (some-other-player's resolved User.ID)", resp.GetEntry().GetPlayerId(), want)
 	}
 }
 
@@ -585,6 +590,7 @@ func TestErrorMapping_FacilityNotFound(t *testing.T) {
 		Reservation:  &fakeReservation{},
 		Facilities:   rejectingFacilities{},
 		ShareTokens:  &fakeShareTokens{},
+		Identity:     newFakeIdentityLookup(),
 	})
 	h := grpcapi.NewHandler(svc)
 

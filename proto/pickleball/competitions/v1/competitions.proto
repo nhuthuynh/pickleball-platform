@@ -442,9 +442,17 @@ message CompetitionAdmin {
 // holds Competition-Admin authority becomes a fact the server stores.
 message AssignCompetitionAdminRequest {
   string competition_id = 1;
-  // user_id is the subject to grant authority to — a subject, not a uuid; see
-  // CompetitionAdmin's doc comment. Must not be blank, and must not be the
-  // Competition's own Host (INVALID_ARGUMENT either way).
+  // user_id is the subject to grant authority to — the wire shape is
+  // unchanged by T29.1 (still the IdP subject naming the target user, not a
+  // uuid) — but the server now resolves it to that user's User.ID (uuid)
+  // before it is ever compared or stored, through the identical
+  // subject->User.ID seam the caller's own bearer token goes through (see
+  // internal/competitions/adapter/grpcapi.Handler.resolveTargetUserID).
+  // This is what keeps CompetitionAdmin's stored user_id in the same
+  // identifier space as competitions.host_id/competition_entries.player_id
+  // (ADR-0014/ADR-0017) even though the target is never the caller. Must
+  // not be blank, and must not resolve to the Competition's own Host
+  // (INVALID_ARGUMENT either way) — see CompetitionAdmin's doc comment.
   string user_id = 2;
 }
 
@@ -454,8 +462,9 @@ message AssignCompetitionAdminResponse {
 
 // RevokeCompetitionAdminRequest names the Competition and the user whose
 // assignment is being withdrawn (T15.3). Both fields are path parameters on
-// the REST mapping. Same no-actor-field rule as
-// AssignCompetitionAdminRequest above.
+// the REST mapping. Same no-actor-field rule as AssignCompetitionAdminRequest
+// above, and the same T29.1 subject->User.ID server-side resolution for
+// user_id.
 message RevokeCompetitionAdminRequest {
   string competition_id = 1;
   string user_id = 2;

@@ -206,10 +206,23 @@ func ensureNoSessionOverlap(sessions []Session) error {
 // Built in T9.1, the same sprint as the write path that uses it (T9.3's
 // CancelCompetition), rather than retrofitted afterwards — HANDOFF.md's
 // Cross-cutting process decision, after four sprints in which authorization
-// arrived late. As with every precedent here, actorUserID is a
-// caller-supplied claim, not a verified identity: real authentication
-// remains HANDOFF.md's open Auth item, and this method must not be read as
-// closing it.
+// arrived late.
+//
+// # Identifier space (ADR-0014/ADR-0017, T29.1 — closes the Competitions
+// third of #164)
+//
+// actorUserID and c.HostID are both **User.ID** uuids as of T29.1: the
+// grpcapi handler's actor(ctx) resolves a verified subject to a User.ID
+// before this method is ever called (ADR-0014's boundary rule), and
+// competitions.host_id is backfilled to the same identifier space
+// (db/migrations/0025_competitions_identity_conformance.sql). Before T29.1
+// both sides held plain IdP subjects instead, comparing correctly "by
+// coincidence" (ADR-0014 §5a) rather than by design — this method's
+// comparison LOGIC is unchanged by that migration; only what feeds both
+// sides changed. This method itself does no cryptographic verification of
+// actorUserID — that verification happens once, upstream, at the grpcapi
+// boundary (auth.RequireSubject, then the resolution above) — this method
+// only ever sees the already-verified, already-resolved result.
 func (c Competition) EnsureHost(actorUserID string) error {
 	if actorUserID == "" || actorUserID != c.HostID {
 		return ErrNotCompetitionHost
@@ -253,10 +266,17 @@ func (c Competition) EnsureHost(actorUserID string) error {
 // app.Service and not here. This package imports nothing outside the
 // standard library and gains no port import from this method.
 //
-// actorUserID is a verified subject (internal/platform/auth.RequireSubject),
-// in the same identifier space c.HostID and CompetitionAdmin.UserID hold —
-// see domain.CompetitionAdmin's doc comment and ADR-0014 §5a. Nothing is
-// resolved or converted on either side.
+// actorUserID is a resolved **User.ID** (uuid) as of T29.1 — the grpcapi
+// handler's actor(ctx) resolves the verified subject before this method is
+// ever called (ADR-0014's boundary rule) — in the same identifier space
+// c.HostID and CompetitionAdmin.UserID hold, both backfilled to User.ID by
+// db/migrations/0025_competitions_identity_conformance.sql. See
+// domain.CompetitionAdmin's doc comment and ADR-0014/ADR-0017 for the full
+// history: before T29.1 all three held plain IdP subjects instead, and this
+// method's own comparison logic is unchanged by the migration — only what
+// feeds it changed. Nothing is resolved or converted HERE, in this method,
+// either before or after T29.1: the resolution step lives entirely at the
+// grpcapi boundary.
 func (c Competition) EnsureHostOrCompetitionAdmin(actorUserID string, assigned []CompetitionAdmin) error {
 	if actorUserID == "" {
 		return ErrNotCompetitionHostOrAdmin

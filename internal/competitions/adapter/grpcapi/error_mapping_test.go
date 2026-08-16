@@ -38,6 +38,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/nhuthuynh/white-label/internal/competitions/adapter/grpcapi"
+	"github.com/nhuthuynh/white-label/internal/competitions/app"
 	"github.com/nhuthuynh/white-label/internal/competitions/domain"
 
 	competitionsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/competitions/v1"
@@ -58,6 +59,26 @@ const (
 // app.Service.CancelCompetition calls competition.Cancel() directly, so this
 // path genuinely produces ErrIllegalStatusTransition. Established by reading
 // the app method rather than assumed from the sentinel's name.
+// newUnregisteredSubjectHandler wires a Handler whose Identity fake treats
+// every subject in unregistered as verified-but-not-a-User — the "an
+// authenticated but unregistered subject" row's fixture, kept separate from
+// newTestHandler (whose Identity fake auto-resolves everything) because this
+// is the ONE case in this package that needs the opposite behaviour on
+// purpose.
+func newUnregisteredSubjectHandler(unregistered ...string) (*grpcapi.Handler, *fakeRepo) {
+	repo := newFakeRepo()
+	svc := app.NewService(app.ServiceOptions{
+		Competitions:      repo,
+		IDs:               &fakeIDs{},
+		Reservation:       &fakeReservation{},
+		Facilities:        fakeFacilities{},
+		ShareTokens:       &fakeShareTokens{},
+		CompetitionAdmins: newFakeCompetitionAdminRepo(),
+		Identity:          newFakeIdentityLookup(unregistered...),
+	})
+	return grpcapi.NewHandler(svc), repo
+}
+
 func cancelCompetitionTwice(t *testing.T) error {
 	t.Helper()
 
@@ -301,6 +322,23 @@ func errorMappingCases() []errorMappingCase {
 		},
 
 		// --- permission denied ---
+		{
+			name:     "an authenticated but unregistered subject",
+			sentinel: "ErrUserNotFound",
+			err:      domain.ErrUserNotFound,
+			wantCode: codes.PermissionDenied,
+			why: "T29.1 (closes the Competitions third of #164): a verified subject h.actor " +
+				"resolves to no User answers PermissionDenied, not NotFound (ADR-0014 §6) — the " +
+				"token verified, so this is not Unauthenticated, and NotFound would turn every " +
+				"authenticated RPC into a user-enumeration oracle",
+			invoke: func(t *testing.T) error {
+				h, _ := newUnregisteredSubjectHandler("auth0|never-registered")
+				_, err := h.CancelCompetition(ctxAs("auth0|never-registered"), &competitionsv1.CancelCompetitionRequest{
+					CompetitionId: fixtureUnknownCompetitionID,
+				})
+				return err
+			},
+		},
 		{
 			name:     "a non-host cancels the competition",
 			sentinel: "ErrNotCompetitionHost",

@@ -392,10 +392,14 @@ func TestListEntriesForCompetition_ReturnsEachEntrySource(t *testing.T) {
 		t.Fatalf("roster has %d entries, want %d", len(resp.GetEntries()), len(entrants))
 	}
 
+	// T29.1: got.GetPlayerId() is now the entrant's RESOLVED User.ID (the
+	// funnel resolves ctxAs(e.playerID) at EnterCompetition time), so this
+	// map must be keyed by the same resolved value, not the raw subject
+	// literal, to keep comparing like with like.
 	want := map[string]competitionsv1.EntrySource{
-		"player-in-app":    competitionsv1.EntrySource_ENTRY_SOURCE_APP,
-		"player-from-link": competitionsv1.EntrySource_ENTRY_SOURCE_SOCIAL,
-		"player-unset":     competitionsv1.EntrySource_ENTRY_SOURCE_APP,
+		resolvedUserID("player-in-app"):    competitionsv1.EntrySource_ENTRY_SOURCE_APP,
+		resolvedUserID("player-from-link"): competitionsv1.EntrySource_ENTRY_SOURCE_SOCIAL,
+		resolvedUserID("player-unset"):     competitionsv1.EntrySource_ENTRY_SOURCE_APP,
 	}
 	for _, got := range resp.GetEntries() {
 		if got.GetSource() != want[got.GetPlayerId()] {

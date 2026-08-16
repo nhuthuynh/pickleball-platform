@@ -74,8 +74,8 @@ func TestListEntriesForCompetition_AssignedAdminPrincipalReadsTheRoster(t *testi
 	if len(entries) != 1 {
 		t.Fatalf("the assigned Competition Admin read %d entries, want 1", len(entries))
 	}
-	if got := entries[0].GetPlayerId(); got != playerSubject {
-		t.Errorf("CompetitionEntry.PlayerId = %q, want %q", got, playerSubject)
+	if want := resolvedUserID(playerSubject); entries[0].GetPlayerId() != want {
+		t.Errorf("CompetitionEntry.PlayerId = %q, want %q", entries[0].GetPlayerId(), want)
 	}
 }
 

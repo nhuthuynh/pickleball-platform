@@ -48,18 +48,27 @@ func NewCompetitionAdminRepository(pool *pgxpool.Pool) *CompetitionAdminReposito
 // violation into the same domain.ErrAlreadyCompetitionAdmin that pre-check
 // returns.
 //
-// Note which values are NOT passed through mustUUID: UserID and AssignedBy.
-// They are subjects held in `text` columns per ADR-0014 §5a (see
-// db/migrations/0021_competitions_competition_admins.sql), not uuids, so
-// parsing them as uuids would panic on every real IdP subject. CompetitionID is
-// a real uuid and is converted the same way every other Competition id in this
+// UserID and AssignedBy are real uuids as of T29.1
+// (db/migrations/0025_competitions_identity_conformance.sql) — mustUUID,
+// not nullableUUID, for both: a.UserID is resolved and non-blank-checked by
+// the time domain.AssignCompetitionAdmin returns a value to store
+// (ErrEmptyCompetitionAdminUserID rejects a blank one first), and
+// a.AssignedBy is always the caller's own resolved actor from
+// h.actor(ctx) — neither is ever blank on this path. CompetitionID is a
+// real uuid and is converted the same way every other Competition id in this
 // package is — app.Service applies its uuidShape guard before this method is
 // ever reached, so mustUUID cannot be handed a malformed value from the wire.
+//
+// Before T29.1, UserID and AssignedBy were subjects held in `text` columns
+// per ADR-0014 §5a (see db/migrations/0021_competitions_competition_admins.sql
+// for the pre-migration shape) — parsing THOSE as uuids would have panicked
+// on every real IdP subject, which is exactly why they were excluded from
+// mustUUID before this ticket.
 func (r *CompetitionAdminRepository) Assign(ctx context.Context, a domain.CompetitionAdmin) (domain.CompetitionAdmin, error) {
 	row, err := r.q.AssignCompetitionAdmin(ctx, competitionsdb.AssignCompetitionAdminParams{
 		CompetitionID: mustUUID(a.CompetitionID),
-		UserID:        a.UserID,
-		AssignedBy:    a.AssignedBy,
+		UserID:        mustUUID(a.UserID),
+		AssignedBy:    mustUUID(a.AssignedBy),
 		AssignedAt:    toTimestamptz(a.AssignedAt),
 	})
 	if err != nil {
@@ -77,10 +86,21 @@ func (r *CompetitionAdminRepository) Assign(ctx context.Context, a domain.Compet
 // authority that the store does not support (see
 // port.CompetitionAdminRepository.Revoke's doc comment). pgx.ErrNoRows is the
 // shape "deleted nothing" arrives in for a `:one` query.
+//
+// userID uses nullableUUID, NOT mustUUID, unlike Assign's identical-looking
+// parameter above — deliberately: the grpcapi handler's
+// resolveTargetUserID passes an EMPTY string through here unresolved when
+// the wire user_id was blank (see that method's own doc comment), and
+// mustUUID panics on "". nullableUUID converts a blank userID into an
+// explicitly-invalid (Valid: false) parameter, which the query's `user_id =
+// $2` comparison then matches against nothing — the identical "blank never
+// matches a real row" answer the pre-migration `text` column already gave,
+// now expressed as a real NULL-shaped comparison instead of an empty-string
+// one.
 func (r *CompetitionAdminRepository) Revoke(ctx context.Context, competitionID, userID string) error {
 	_, err := r.q.RevokeCompetitionAdmin(ctx, competitionsdb.RevokeCompetitionAdminParams{
 		CompetitionID: mustUUID(competitionID),
-		UserID:        userID,
+		UserID:        nullableUUID(userID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -143,11 +163,15 @@ func translateCompetitionAdminErr(err error) error {
 // pattern this package already uses (CLAUDE.md gotcha: sqlc emits a distinct
 // ...Row type per query, not a shared table model, so this converts from the
 // shared columns rather than from one row struct).
-func competitionAdminFromFields(competitionID pgtype.UUID, userID, assignedBy string, assignedAt pgtype.Timestamptz) domain.CompetitionAdmin {
+//
+// userID and assignedBy are pgtype.UUID as of T29.1, converted via
+// fromNullableUUID for the identical orphan-tolerance reason
+// repository.go's competitionFromFields documents for HostID.
+func competitionAdminFromFields(competitionID pgtype.UUID, userID, assignedBy pgtype.UUID, assignedAt pgtype.Timestamptz) domain.CompetitionAdmin {
 	return domain.CompetitionAdmin{
 		CompetitionID: competitionID.String(),
-		UserID:        userID,
-		AssignedBy:    assignedBy,
+		UserID:        fromNullableUUID(userID),
+		AssignedBy:    fromNullableUUID(assignedBy),
 		AssignedAt:    assignedAt.Time,
 	}
 }

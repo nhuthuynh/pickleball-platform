@@ -81,14 +81,15 @@ func TestAssignCompetitionAdmin_HostSucceeds(t *testing.T) {
 	}
 
 	got := resp.GetCompetitionAdmin()
-	if got.GetCompetitionId() != c.GetId() || got.GetUserId() != caAdminID {
-		t.Fatalf("assignment = %+v, want competition %q / user %q", got, c.GetId(), caAdminID)
+	wantAdminID := resolvedUserID(caAdminID)
+	if got.GetCompetitionId() != c.GetId() || got.GetUserId() != wantAdminID {
+		t.Fatalf("assignment = %+v, want competition %q / user %q (caAdminID's resolved User.ID)", got, c.GetId(), wantAdminID)
 	}
-	// assigned_by is the verified principal. This is the assertion that would
-	// fail if a future change ever let the request name the assigner — the
-	// exact caller-asserted admin fact #168 exists to abolish.
-	if got.GetAssignedBy() != caHostID {
-		t.Errorf("assigned_by = %q, want %q — the assigner is the token's subject, never the wire", got.GetAssignedBy(), caHostID)
+	// assigned_by is the verified principal, resolved. This is the assertion
+	// that would fail if a future change ever let the request name the
+	// assigner — the exact caller-asserted admin fact #168 exists to abolish.
+	if want := resolvedUserID(caHostID); got.GetAssignedBy() != want {
+		t.Errorf("assigned_by = %q, want %q — the assigner is the token's resolved subject, never the wire", got.GetAssignedBy(), want)
 	}
 	if got.GetAssignedAt() == nil {
 		t.Error("assigned_at is nil — the timestamp is a server fact, minted by the app layer")
