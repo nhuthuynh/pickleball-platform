@@ -2084,3 +2084,32 @@ a genuinely routine confirm-and-report retro. `HANDOFF.md`'s T31 row and
 Task-backlog narrative are deliberately left for T32's Ceremony 1 to
 correct, per the same convention, with the agreed honest-form sentence
 supplied in the retro document for that ceremony to carry forward.
+
+## T32 sprint retro
+
+Held as `docs/process/t32-retro.md`, following the convention
+T5/T9/T10/…/T30/T31 set and CLAUDE.md's **Docs index & naming convention**.
+
+T32 shipped zero tickets, the eleventh 0-ticket sprint in this project's
+history by total count and the third sprint of the fresh consecutive run
+(T30, T31, T32) since T28 broke the T20–T27 streak, plus the T31 §A0
+bookkeeping corrections T31's own retro deliberately left undone (a retro
+PR cannot cite its own merge PR number before it exists). This retro
+independently re-verified every load-bearing claim rather than trusting
+T32's plan's own account: the live merged-fix sweep matches the plan's own
+count exactly (`totalCount: 7`, reconciled `7 − 0 + 0 = 7`); all 7 open
+issues' blockers were re-checked live, individually, down to their full
+bodies and are unchanged; neither D1 nor D2 was answered as a formal
+decision, both ADR files' `## Status` sections and git history read
+directly, #144's single comment re-confirmed unchanged; DECISION D2 was
+correctly not exercised this sprint (zero tickets, zero PRs beyond the
+planning doc); `HANDOFF.md`'s T31 row correction, performed by T32's own
+Ceremony 1, was independently re-verified against freshly re-fetched
+`pull_request_read` data on #244/#245 and found accurate. The post-T29
+backlog-composition counter increments to **seven**; D1's silence counter
+holds at **nineteen** (confirmed, not incremented a second time within
+this sprint). No incident-grade finding this sprint — a genuinely routine
+confirm-and-report retro. `HANDOFF.md`'s T32 row and Task-backlog
+narrative are deliberately left for T33's Ceremony 1 to correct, per the
+same convention, with the agreed honest-form sentence supplied in the
+retro document for that ceremony to carry forward.
