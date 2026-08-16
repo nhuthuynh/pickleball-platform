@@ -23,9 +23,13 @@ import (
 	paymentsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/payments/v1"
 )
 
-// actor resolves the acting user for an authenticated RPC (T12.8).
+// actor resolves the acting user for an authenticated RPC (T12.8), and since
+// T28.1 it is also ADR-0014/ADR-0017's translation seam for this context —
+// mirroring internal/booking/adapter/grpcapi/handler.go's and
+// internal/facilities/adapter/grpcapi/handler.go's identical funnels
+// (T13.2/T13.3), the two reference implementations this ticket followed.
 //
-// This one function is the whole of A11 Ruling 3 for this context: the
+// This one method is the whole of A11 Ruling 3 for this context: the
 // Principal is translated into the plain actor string app.Service and the
 // domain's authorization branches already take, here at the grpcapi boundary,
 // so internal/payments/{domain,app} keep their existing signatures and never
@@ -38,10 +42,37 @@ import (
 // Missing principal is codes.Unauthenticated ("I do not know who you are"),
 // never PermissionDenied (ADR-0013 §5).
 //
+// **It returns a User.ID (uuid), not the subject, as of T28.1.** That is
+// ADR-0014/ADR-0017's ruling and the fix for #164's Payments third. Two
+// steps, in this order, identical to Booking's/Facilities' funnel:
+//
+//  1. auth.RequireSubject — who is calling? A missing or unverified principal
+//     is codes.Unauthenticated, never PermissionDenied (ADR-0013 §5).
+//  2. app.Service.ResolveActorUserID — which User is that? A subject
+//     registered to no User is codes.PermissionDenied, never NotFound
+//     (ADR-0014 §6).
+//
+// **This is why the funnel change and the backfill migration
+// (db/migrations/0024_payments_recorded_by_user_id_uuid.sql) land in the
+// same PR, not two.** Every actor-taking RPC on this service calls this one
+// method, including ConfirmOnlinePayment, whose authorizeOnlineConfirmation
+// compares the value this method returns against the *stored*
+// p.RecordedByUserID. The instant this method starts returning a uuid
+// instead of a subject, that comparison is only correct if the stored side
+// is also a uuid — see authorizeOnlineConfirmation's own dated doc comment
+// in internal/payments/app/service.go for the full hazard analysis. Landing
+// this method's change without the migration (or vice versa) would have
+// created exactly the window that hazard describes; landing them together is
+// what closes it.
+//
+// It is a method rather than a package function only because it needs the
+// service to reach port.IdentityLookup (via Service.ResolveActorUserID) —
+// NewHandler's own signature is unchanged.
+//
 // Note what is NOT migrated here, deliberately, and what changed since
-// (T12.8 vs. T16.2 vs. T17.1, kept all three dated so this comment stays
-// accurate rather than rewritten into a single blended claim): as of T12.8,
-// booking_host_id, game_host_id, entrant_player_id and the two
+// (T12.8 vs. T16.2 vs. T17.1 vs. T28.1, kept all four dated so this comment
+// stays accurate rather than rewritten into a single blended claim): as of
+// T12.8, booking_host_id, game_host_id, entrant_player_id and the two
 // assigned-admin lists all remained caller-supplied ownership *facts*,
 // because Payments had no port into Booking, Social Play or Competitions to
 // resolve them against — a real, pre-existing gap that ticket narrowed but
@@ -64,9 +95,23 @@ import (
 // Payments still has no live join to Booking's database (ADR-0015's
 // still-open D1 blocks the identical resolution built here for the other
 // two contexts), so a caller can still assert who a Booking's Host is.
-// Tracked as issue #149.
-func actor(ctx context.Context) (string, error) {
-	return auth.RequireSubject(ctx)
+// Tracked as issue #149 — T28.1 does not narrow it (see the PR description
+// for the one place the two interact once this method resolves ActorUserID
+// to a uuid: a legitimate PayableTypeBooking caller must now send their own
+// resolved User.ID as booking_host_id to match, not their subject, a
+// disclosed behaviour change on the fail-closed side, not a security
+// regression).
+func (h *Handler) actor(ctx context.Context) (string, error) {
+	subject, err := auth.RequireSubject(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	actorUserID, err := h.svc.ResolveActorUserID(ctx, subject)
+	if err != nil {
+		return "", toStatus(err)
+	}
+	return actorUserID, nil
 }
 
 type Handler struct {
@@ -97,7 +142,7 @@ func NewHandler(svc *app.Service) *Handler {
 // handler still reads off the wire — see the actor func's doc comment for
 // why.
 func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.RecordOfflinePaymentRequest) (*paymentsv1.RecordOfflinePaymentResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +179,7 @@ func (h *Handler) RecordOfflinePayment(ctx context.Context, req *paymentsv1.Reco
 // deprecated fields already are as of T16.2: app.Service resolves the
 // equivalent facts itself from PayableID via the real Competitions store.
 func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.CreateOnlinePaymentRequest) (*paymentsv1.CreateOnlinePaymentResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +229,7 @@ func (h *Handler) CreateOnlinePayment(ctx context.Context, req *paymentsv1.Creat
 // is answered Unauthenticated before any lookup happens and cannot use this RPC
 // to probe which payment ids exist.
 func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.ConfirmOnlinePaymentRequest) (*paymentsv1.ConfirmOnlinePaymentResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +273,7 @@ func (h *Handler) ConfirmOnlinePayment(ctx context.Context, req *paymentsv1.Conf
 // app.Service resolves the equivalent facts itself. booking_host_id is
 // still read off the wire; see the actor func's doc comment.
 func (h *Handler) RefundPayment(ctx context.Context, req *paymentsv1.RefundPaymentRequest) (*paymentsv1.RefundPaymentResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -334,6 +379,15 @@ func toStatus(err error) error {
 		// both mean "this caller is refused" — the same "different
 		// sentinels, same code" reasoning the doc comment above states for
 		// ErrNotPaymentRecorder/ErrNotPaymentOwner.
+		return status.Error(codes.PermissionDenied, err.Error())
+	case errors.Is(err, domain.ErrUserNotFound):
+		// T28.1 (closes the Payments third of #164): actor() resolves a
+		// subject to no User. PermissionDenied, not NotFound (ADR-0014 §6,
+		// restated by ADR-0017) — the caller's token verified, so this is
+		// not Unauthenticated either; they are simply not registered, and
+		// answering NotFound would turn every actor-taking RPC into a
+		// user-enumeration oracle. Mirrors booking/facilities' identical
+		// mapping for their own ErrUserNotFound.
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrPaymentNotFound):
 		return status.Error(codes.NotFound, err.Error())

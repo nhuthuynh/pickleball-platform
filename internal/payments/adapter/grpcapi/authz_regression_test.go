@@ -253,8 +253,17 @@ func (f *fixedIDs) NewID() string {
 // newPrincipalAuthzHandler — rather than overloading this one.
 func newTestHandler(seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
-	regs, games, gameAdmins := newAuthzResolverFixtures("host-1", "admin-1", "admin-2")
-	entries, compAdmins := newEntryAuthzResolverFixtures("player-1", "admin-1", "admin-2")
+	// T28.1: these resolver fixtures used to be seeded with the raw subject
+	// literals ("host-1", "admin-1", "admin-2", "player-1") because
+	// actor(ctx) returned them unchanged. As of T28.1's funnel, in.ActorUserID
+	// is the RESOLVED User.ID for whichever subject authenticated
+	// (ctxAs("host-1") etc., unchanged below) — so the resolver fixtures must
+	// be seeded with resolvedUserID(...) of the same subjects to keep
+	// comparing like with like, exactly the identifier-space fix this ticket
+	// makes for payments.recorded_by_user_id itself, applied here to this
+	// package's own test doubles.
+	regs, games, gameAdmins := newAuthzResolverFixtures(resolvedUserID("host-1"), resolvedUserID("admin-1"), resolvedUserID("admin-2"))
+	entries, compAdmins := newEntryAuthzResolverFixtures(resolvedUserID("player-1"), resolvedUserID("admin-1"), resolvedUserID("admin-2"))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:               repo,
 		IDs:                    &fixedIDs{ids: seedIDs},
@@ -263,6 +272,7 @@ func newTestHandler(seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 		GameAdminReader:        gameAdmins,
 		EntryLookup:            entries,
 		CompetitionAdminReader: compAdmins,
+		Identity:               newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
@@ -358,8 +368,8 @@ func TestRecordOfflinePayment_RegistrationPayable_AllowsAssignedGameAdmin(t *tes
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment(admin-2) (an assigned Game Admin) should succeed, got: %v", err)
 	}
-	if resp.GetPayment().GetRecordedByUserId() != "admin-2" {
-		t.Errorf("Payment.RecordedByUserId = %q, want admin-2", resp.GetPayment().GetRecordedByUserId())
+	if want := resolvedUserID("admin-2"); resp.GetPayment().GetRecordedByUserId() != want {
+		t.Errorf("Payment.RecordedByUserId = %q, want %q (admin-2's resolved User.ID)", resp.GetPayment().GetRecordedByUserId(), want)
 	}
 }
 
@@ -408,11 +418,18 @@ func TestRecordOfflinePayment_BookingPayable_RejectsMismatchedActor(t *testing.T
 func TestRecordOfflinePayment_BookingPayable_AllowsOwningHost(t *testing.T) {
 	h, repo := newTestHandler("pay-1")
 
+	// T28.1: BookingHostId must now be the caller's RESOLVED User.ID, not
+	// their subject — actor(ctx) resolves ActorUserID before
+	// authorizeOfflineRecording's Booking branch compares the two (see
+	// grpcapi.Handler.actor's own doc comment on this exact, disclosed
+	// interaction with issue #149). A real client learns its own resolved
+	// User.ID from Identity's CreateUser response; this fixture computes the
+	// same value resolvedUserID(subject) does.
 	resp, err := h.RecordOfflinePayment(ctxAs("host-1"), &paymentsv1.RecordOfflinePaymentRequest{
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 		PayableId:     fixtureBookingID,
 		Amount:        offlineFixtureAmount(),
-		BookingHostId: "host-1",
+		BookingHostId: resolvedUserID("host-1"),
 	})
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment(host-1) (the Booking's owning Host) should succeed, got: %v", err)
@@ -439,7 +456,7 @@ func TestRecordOfflinePayment_RejectionNotConflatedWithOtherErrors(t *testing.T)
 		PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 		PayableId:     fixtureBookingID,
 		Amount:        &paymentsv1.Money{AmountCents: 0, CurrencyCode: "USD"}, // invalid amount
-		BookingHostId: "host-1",
+		BookingHostId: resolvedUserID("host-1"),
 	})
 	if err == nil {
 		t.Fatal("expected an error for a zero amount")

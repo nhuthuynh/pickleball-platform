@@ -76,8 +76,10 @@ const (
 func newRefundTestHandler() (*grpcapi.Handler, *fakeRepository, *stripestub.Processor) {
 	repo := newFakeRepository()
 	proc := stripestub.NewProcessor()
-	regs, games, admins := newAuthzResolverFixtures(refundGameHostID)
-	entries, compAdmins := newEntryAuthzResolverFixtures(refundEntrantPlayerID)
+	// T28.1: seeded with resolvedUserID(subject), not the raw subject — see
+	// newTestHandler's identical comment in authz_regression_test.go.
+	regs, games, admins := newAuthzResolverFixtures(resolvedUserID(refundGameHostID))
+	entries, compAdmins := newEntryAuthzResolverFixtures(resolvedUserID(refundEntrantPlayerID))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:               repo,
 		IDs:                    &fixedIDs{},
@@ -87,6 +89,7 @@ func newRefundTestHandler() (*grpcapi.Handler, *fakeRepository, *stripestub.Proc
 		GameAdminReader:        admins,
 		EntryLookup:            entries,
 		CompetitionAdminReader: compAdmins,
+		Identity:               newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo, proc
 }
@@ -108,14 +111,20 @@ func seedPaidOnline(t *testing.T, repo *fakeRepository, proc *stripestub.Process
 	}
 
 	if _, err := repo.Create(ctx, domain.Payment{
-		ID:               paymentID,
-		PayableType:      payableType,
-		PayableID:        payableID,
-		Amount:           amount,
-		Method:           domain.MethodOnline,
-		Status:           domain.StatusPaid,
-		StripeReference:  ref,
-		RecordedByUserID: seededPaymentOwnerID,
+		ID:              paymentID,
+		PayableType:     payableType,
+		PayableID:       payableID,
+		Amount:          amount,
+		Method:          domain.MethodOnline,
+		Status:          domain.StatusPaid,
+		StripeReference: ref,
+		// T28.1: the RESOLVED User.ID for seededPaymentOwnerID, matching what
+		// CreateOnlinePayment now actually writes (see
+		// confirm_authz_test.go's header comment) — a caller confirming as
+		// ctxAs(seededPaymentOwnerID) must have its resolved actor equal this
+		// value for authorizeOnlineConfirmation to pass, exactly as
+		// production requires post-backfill.
+		RecordedByUserID: resolvedUserID(seededPaymentOwnerID),
 	}); err != nil {
 		t.Fatalf("seed: Create: %v", err)
 	}
@@ -145,9 +154,12 @@ func TestRefundPayment_Handler_BookingHostSucceeds(t *testing.T) {
 	h, repo, proc := newRefundTestHandler()
 	seedPaidOnline(t, repo, proc, refundBookingPaymentID, domain.PayableTypeBooking, fixtureBookingID)
 
+	// T28.1: BookingHostId must be the caller's resolved User.ID — see
+	// authz_regression_test.go's identical comment on this exact interaction
+	// with issue #149.
 	resp, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 		PaymentId:     refundBookingPaymentID,
-		BookingHostId: refundBookingHostID,
+		BookingHostId: resolvedUserID(refundBookingHostID),
 	})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
@@ -297,7 +309,7 @@ func TestRefundPayment_Handler_IllegalTransitionFailedPrecondition(t *testing.T)
 
 		req := &paymentsv1.RefundPaymentRequest{
 			PaymentId:     refundBookingPaymentID,
-			BookingHostId: refundBookingHostID,
+			BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
 		}
 		if _, err := h.RefundPayment(ctxAs(refundBookingHostID), req); err != nil {
 			t.Fatalf("first refund should succeed: %v", err)
@@ -324,7 +336,7 @@ func TestRefundPayment_Handler_IllegalTransitionFailedPrecondition(t *testing.T)
 
 		_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 			PaymentId:     refundBookingPaymentID,
-			BookingHostId: refundBookingHostID,
+			BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
 		})
 		wantCode(t, err, codes.FailedPrecondition)
 	})
@@ -366,7 +378,7 @@ func TestRefundPayment_Handler_ProcessorFailureUnavailableAndNotRefunded(t *test
 
 	_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 		PaymentId:     refundBookingPaymentID,
-		BookingHostId: refundBookingHostID,
+		BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
 	})
 	wantCode(t, err, codes.Unavailable)
 
@@ -470,8 +482,10 @@ func TestRefundPayment_Handler_CompetitionEntryPayable_AssignedAdminSucceeds(t *
 
 	repo := newFakeRepository()
 	proc := stripestub.NewProcessor()
-	regs, games, admins := newAuthzResolverFixtures(refundGameHostID)
-	entries, compAdmins := newEntryAuthzResolverFixtures(refundEntrantPlayerID, refundCompAdminUserID)
+	// T28.1: resolvedUserID(subject), not raw — see newRefundTestHandler's
+	// identical comment above.
+	regs, games, admins := newAuthzResolverFixtures(resolvedUserID(refundGameHostID))
+	entries, compAdmins := newEntryAuthzResolverFixtures(resolvedUserID(refundEntrantPlayerID), resolvedUserID(refundCompAdminUserID))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:               repo,
 		IDs:                    &fixedIDs{},
@@ -481,6 +495,7 @@ func TestRefundPayment_Handler_CompetitionEntryPayable_AssignedAdminSucceeds(t *
 		GameAdminReader:        admins,
 		EntryLookup:            entries,
 		CompetitionAdminReader: compAdmins,
+		Identity:               newFakeIdentityLookup(),
 	})
 	h := grpcapi.NewHandler(svc)
 	seedPaidOnline(t, repo, proc, refundCompetitionPayID, domain.PayableTypeCompetitionEntry, fixtureCompetitionEntryID)

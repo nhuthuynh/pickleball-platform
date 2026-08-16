@@ -45,8 +45,10 @@ func competitionEntryFixtureAmount() *paymentsv1.Money {
 // function's own doc comment.
 func newTestHandlerWithProcessor(seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
-	regs, games, gameAdmins := newAuthzResolverFixtures("host-1", "admin-1", "admin-2")
-	entries, compAdmins := newEntryAuthzResolverFixtures("player-1", "admin-1", "admin-2")
+	// T28.1: seeded with resolvedUserID(subject), not the raw subject — see
+	// newTestHandler's identical comment in authz_regression_test.go.
+	regs, games, gameAdmins := newAuthzResolverFixtures(resolvedUserID("host-1"), resolvedUserID("admin-1"), resolvedUserID("admin-2"))
+	entries, compAdmins := newEntryAuthzResolverFixtures(resolvedUserID("player-1"), resolvedUserID("admin-1"), resolvedUserID("admin-2"))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:               repo,
 		IDs:                    &fixedIDs{ids: seedIDs},
@@ -56,6 +58,7 @@ func newTestHandlerWithProcessor(seedIDs ...string) (*grpcapi.Handler, *fakeRepo
 		GameAdminReader:        gameAdmins,
 		EntryLookup:            entries,
 		CompetitionAdminReader: compAdmins,
+		Identity:               newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
@@ -143,8 +146,8 @@ func TestRecordOfflinePayment_CompetitionEntryPayable_AllowsAssignedCompetitionA
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment(admin-2) (an assigned Competition Admin) should succeed, got: %v", err)
 	}
-	if resp.GetPayment().GetRecordedByUserId() != "admin-2" {
-		t.Errorf("Payment.RecordedByUserId = %q, want admin-2", resp.GetPayment().GetRecordedByUserId())
+	if want := resolvedUserID("admin-2"); resp.GetPayment().GetRecordedByUserId() != want {
+		t.Errorf("Payment.RecordedByUserId = %q, want %q (admin-2's resolved User.ID)", resp.GetPayment().GetRecordedByUserId(), want)
 	}
 }
 
