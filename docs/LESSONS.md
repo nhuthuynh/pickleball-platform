@@ -1846,3 +1846,75 @@ PR #235's disclosed interaction with issue #149's caller-supplied
 `User.ID`) was not also posted as a comment on #149 itself, though nothing
 #149 already states was falsified by it — left as a recommendation for
 T29's Ceremony 1 rather than escalated.
+
+## T29 (2026-08-16) — widening what a shared funnel resolves silently broke a comparison against a *different* context's still-unresolved value
+
+Found at T29's Ceremony 1 (`docs/process/t29-sprint-plan.md` §B1–§B3),
+by tracing PR #235 (T28.1) end to end rather than treating T28's own clean
+retro as license not to re-trace it. Filed as issue **#237**.
+
+- **Mistake:** T28.1 changed `internal/payments/adapter/grpcapi/handler.go`'s
+  `actor()` funnel — shared by every authenticated Payments RPC — to resolve
+  the caller's verified subject to a real `User.ID`, and (correctly,
+  verified four independent ways per T28 retro finding 3) made sure the one
+  comparison inside Payments' *own* storage (`authorizeOnlineConfirmation`
+  vs. `payments.recorded_by_user_id`) changed together with it. Two *other*
+  comparisons inside the same file — `authorizeGameRecording` and
+  `authorizeCompetitionEntryRecording` — read facts **out of Social
+  Play/Competitions** (`port.GameLookup`, `port.GameAdminReader`,
+  `port.EntryLookup`, `port.CompetitionAdminReader`), not out of Payments'
+  own column, and neither T28.1's ticket text nor its review traced them.
+  Those two contexts' own `actor()` funnels were untouched by T28.1 (by
+  design — Social Play/Competitions' conformance was explicitly deferred to
+  T29), so the values those four ports return are still raw IdP subjects.
+  Comparing a resolved `User.ID` against a still-raw subject never matches
+  for the same real person. **Net effect, live on the shared branch since PR
+  #235 merged (`2026-08-16T13:59:00Z`):** every genuinely authorized Game
+  Host, Game Admin, Competition entrant, and Competition Admin is denied
+  when calling `RecordOfflinePayment`/`RefundPayment`/`CreateOnlinePayment`
+  for a `registration`, `no_show_fee`, or `competition_entry` payable. Fails
+  **closed** (denies, does not wrongly permit) — a functional/availability
+  regression, not a new access hole, but real and live.
+- **What was missed, and why.** T28.1's own instructions (and the
+  dependency-completeness check T28's Ceremony 1 ran) verified the
+  *producer* side of the funnel change — does `identityapp.Service
+  .UserBySubject` exist, does it resolve correctly — and the *one* consumer
+  inside Payments' own column. Neither asked the reverse, cross-context
+  question `sprint-process.md`'s own "Two questions, not one" clause
+  (adopted T16, from T15 finding 1) exists for: does widening what a shared
+  primitive returns change the correctness of something that compares it
+  against a **different, not-yet-widened** context's value? That question
+  was never posed because T28's Ceremony 1 was scoped to #164's three
+  per-context *columns*, and `authorizeGameRecording`/
+  `authorizeCompetitionEntryRecording` don't touch any of those columns —
+  they read a different context's port, which looked, correctly at the
+  time, like someone else's problem to worry about later. It became a live
+  problem the moment T28.1 merged, not later.
+- **Why existing tests didn't catch it.** `internal/payments/app`'s
+  authorization tests construct `ActorUserID` and the fake `GameLookup`'s/
+  `EntryLookup`'s returned ids from the **same literal string** (e.g.
+  `"host-1"` on both sides), which cannot distinguish "two values in the
+  same identifier space" from "two values that happen to be equal" — it
+  models neither a subject nor a `User.ID` specifically, so a real
+  space-mismatch is invisible to it either way.
+- **Fix, and what was deliberately not done.** No Payments-side code
+  patch — resolving `hostID`/`playerID` through Payments' own
+  `IdentityLookup` at comparison time was considered and rejected, because
+  it would need tearing out the moment Social Play/Competitions migrate
+  (running an already-resolved `User.ID` back through a subject-resolution
+  function is the identical hazard in reverse). The actual fix is finishing
+  the work #164 already scoped — Social Play's and Competitions' own
+  `actor()` funnel + backfill migrations — taken this sprint as T29.1/T29.2,
+  which restores correctness on the Payments side with zero Payments-side
+  code change, the same "fix what feeds both sides of the comparison" shape
+  T28.1 itself used for its own column.
+- **Generalizable lesson, for the next context migration:** when a shared
+  primitive (here, a context's `actor()` funnel) is widened to resolve to a
+  new identifier space, the check owed is not just "does everything that
+  reads *this context's own* storage still compare correctly" — it is also
+  "does everything that reads *a value this widened primitive produces*,
+  anywhere else in the codebase, still compare it against something in the
+  same space." The second question crosses a context boundary the first
+  does not, which is exactly why it is easy to scope out of a
+  single-context ticket's own dependency-completeness check without anyone
+  deciding to.
