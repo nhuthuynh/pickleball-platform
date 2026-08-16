@@ -1605,3 +1605,34 @@ retro instead names the specific conditions (a materially different
 blocker profile, or the backlog running dry entirely) that would reopen it,
 rather than padding the record with a repeat finding that has nothing new
 to add.
+
+## T22 sprint retro
+
+Held as `docs/process/t22-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17/T18/T19/T20/T21 set and CLAUDE.md's
+**Docs index & naming convention**.
+
+T22 was this project's third 0-ticket sprint (PR #222). This retro found no
+incident and no shipped code to mutation-test; its work was independently
+re-verifying, live rather than from the plan's own prose, that all 8 open
+issues' blockers held for the whole sprint (matching T22's plan's own
+live-fetched table field-for-field), that the `golang-migrate`/`goose`
+roadmap-debt classification stayed correctly unticketed on a fresh grep and
+a fresh full read of `HANDOFF.md`'s Cross-cutting section, and that neither
+D1 nor D2 was answered — both ADRs' `## Status` fields and #144's comment
+body re-fetched and read directly, not trusted from the plan's account.
+**The one genuinely new piece of work** was scoring DoD (d) for the first
+time — whether either of T21 retro's two named reopening conditions (a
+materially different blocker profile, or the backlog running dry entirely)
+fired mid-sprint — independently re-verified live and found neither did.
+On the task's own genuine-engagement question, whether a third consecutive
+0-ticket sprint changes anything about "is this healthy," this retro's
+honest answer is no — the user's own answer was open-ended, not
+sprint-counted — but it puts two precise counts on the record rather than
+treating "no" as the whole answer: the entire 8-issue backlog has shown
+zero net change across the four most recent live checks, and DECISION D1
+has now carried its single original T14.3 comment for **nine consecutive
+sprints** (T14 through T22) with no second escalation attempt. This retro
+is also the first successful exercise of T21 retro's recommendation-2
+mechanism (check named conditions live, don't re-derive the analysis)
+rather than a third repetition of the original question.
