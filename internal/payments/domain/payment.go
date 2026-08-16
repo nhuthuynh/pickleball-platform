@@ -80,12 +80,27 @@ const (
 // one. It used to be deliberately empty on the online path ("nobody recorded
 // it — Stripe's confirmation did"), which left ConfirmOnlinePayment with no
 // ownership fact to check and made holding a payment_id the same thing as
-// holding the money. It is a subject, not a User uuid, on both paths
-// (ADR-0014 §5a); the column behind it is `payments.recorded_by_user_id`.
+// holding the money.
 //
-// It can still be empty on a Payment read back from storage — every online row
-// written before T13.7 has no owner — which app.authorizeOnlineConfirmation
-// treats as "nobody may confirm this", never as "anybody may".
+// UPDATED BY T28.1 (closes the Payments third of #164, dated deliberately —
+// see app.authorizeOnlineConfirmation's own dated comment for why): it was a
+// subject, not a User uuid, on both paths from T13.7 through T28's start,
+// per ADR-0014 §5a's explicit deferral of this context. As of T28.1 it is a
+// **User.ID uuid** on both paths, per ADR-0017's ruling — the column behind
+// it, `payments.recorded_by_user_id`, is now `uuid REFERENCES identity_users
+// (id)` (nullable), backfilled by
+// db/migrations/0024_payments_recorded_by_user_id_uuid.sql. The Go field
+// stays a plain `string` (a uuid string, not a Go UUID type), matching every
+// other actor field in this codebase — this migration changed storage and
+// identifier space, not Go representation.
+//
+// It can still be empty on a Payment read back from storage, for two
+// distinct reasons that both resolve to the same safe answer: every online
+// row written before T13.7 has no owner at all, and — as of T28.1 — a row
+// whose pre-migration subject matched no identity_users row (an orphan,
+// ADR-0017 Decision 3) reads back NULL/empty rather than a resolved uuid.
+// app.authorizeOnlineConfirmation treats both identically: "nobody may
+// confirm this", never "anybody may".
 type Payment struct {
 	ID               string
 	PayableType      PayableType

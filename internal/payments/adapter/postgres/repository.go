@@ -44,7 +44,7 @@ func (r *Repository) Create(ctx context.Context, p domain.Payment) (domain.Payme
 		Method:           string(p.Method),
 		Status:           string(p.Status),
 		StripeReference:  toText(p.StripeReference),
-		RecordedByUserID: toText(p.RecordedByUserID),
+		RecordedByUserID: nullableUUID(p.RecordedByUserID),
 	})
 	if err != nil {
 		return domain.Payment{}, translateErr(err)
@@ -102,7 +102,16 @@ func translateErr(err error) error {
 // gotcha on why, and internal/booking/adapter/postgres's identical
 // fromFields for the established pattern. A shared field-level converter
 // avoids duplicating this mapping three times.
-func fromFields(id pgtype.UUID, payableType string, payableID pgtype.UUID, amountCents int64, currencyCode, method, status string, stripeReference, recordedByUserID pgtype.Text) domain.Payment {
+//
+// recordedByUserID is pgtype.UUID, not pgtype.Text, as of T28.1
+// (db/migrations/0024_payments_recorded_by_user_id_uuid.sql, ADR-0017):
+// payments.recorded_by_user_id is now `uuid REFERENCES identity_users (id)`,
+// nullable. uuidOrEmpty converts a NULL (an unresolved/legacy/orphaned row —
+// see domain.Payment.RecordedByUserID's own doc comment) to "", matching
+// this codebase's established convention for a possibly-NULL uuid column
+// (internal/facilities/adapter/postgres.uuidOrEmpty, T13.3's identical
+// shape for facility_camera_links.court_id).
+func fromFields(id pgtype.UUID, payableType string, payableID pgtype.UUID, amountCents int64, currencyCode, method, status string, stripeReference pgtype.Text, recordedByUserID pgtype.UUID) domain.Payment {
 	return domain.Payment{
 		ID:          id.String(),
 		PayableType: domain.PayableType(payableType),
@@ -114,7 +123,7 @@ func fromFields(id pgtype.UUID, payableType string, payableID pgtype.UUID, amoun
 		Method:           domain.Method(method),
 		Status:           domain.Status(status),
 		StripeReference:  stripeReference.String,
-		RecordedByUserID: recordedByUserID.String,
+		RecordedByUserID: uuidOrEmpty(recordedByUserID),
 	}
 }
 
@@ -133,4 +142,37 @@ func mustUUID(s string) pgtype.UUID {
 
 func toText(s string) pgtype.Text {
 	return pgtype.Text{String: s, Valid: s != ""}
+}
+
+// nullableUUID converts a possibly-empty domain string into a pgtype.UUID
+// suitable for a nullable uuid column — as of T28.1,
+// payments.recorded_by_user_id (db/migrations/0024_payments_recorded_by_
+// user_id_uuid.sql). Unlike mustUUID, an empty string is a legitimate input
+// here (domain.Payment.RecordedByUserID can be "" — see that field's own
+// doc comment for the two reasons why) and maps to SQL NULL rather than
+// panicking; a genuinely non-empty-but-malformed value still panics via
+// mustUUID, on the same "this is a programmer error, not a runtime one"
+// reasoning that helper documents, since every non-empty RecordedByUserID
+// reaching this adapter was itself either minted by port.IdentityLookup
+// (always a uuid) or read back from this same column on a prior round trip.
+func nullableUUID(s string) pgtype.UUID {
+	if s == "" {
+		return pgtype.UUID{}
+	}
+	return mustUUID(s)
+}
+
+// uuidOrEmpty converts a possibly-NULL pgtype.UUID (payments.
+// recorded_by_user_id, as of T28.1) into an empty string, matching
+// domain.Payment.RecordedByUserID's plain-string convention and mirroring
+// internal/facilities/adapter/postgres.uuidOrEmpty's identical shape for the
+// identical reason: a NULL column and an empty domain string are the same
+// fact, "no actor recorded", and every caller of this value already treats
+// empty as that fact (see domain.Payment.RecordedByUserID and
+// app.authorizeOnlineConfirmation's own doc comments).
+func uuidOrEmpty(u pgtype.UUID) string {
+	if !u.Valid {
+		return ""
+	}
+	return u.String()
 }

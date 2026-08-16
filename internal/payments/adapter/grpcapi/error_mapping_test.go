@@ -82,6 +82,30 @@ func newMappingHandler(ids ...string) (*grpcapi.Handler, *fakeRepository, *strip
 		Processor:       proc,
 		WebhookVerifier: webhookstub.NewVerifier(mappingWebhookSecret),
 		WebhookEvents:   newFakeWebhookEventStore(),
+		// T28.1: every RPC below is authenticated, and actor(ctx) now
+		// resolves through this port before any of the sentinels in the
+		// table are ever reached — a nil Identity would fail every case
+		// closed with ErrUserNotFound before its real sentinel had a chance
+		// to fire.
+		Identity: newFakeIdentityLookup(),
+	})
+	return grpcapi.NewHandler(svc), repo, proc
+}
+
+// newMappingHandlerWithUnregisteredActor is newMappingHandler's variant for
+// the one row (ErrUserNotFound) that needs a subject Identity has never
+// heard of — every other row in this table authenticates as a subject
+// newFakeIdentityLookup resolves successfully, by design.
+func newMappingHandlerWithUnregisteredActor(unregisteredSubject string, ids ...string) (*grpcapi.Handler, *fakeRepository, *stripestub.Processor) {
+	repo := newFakeRepository()
+	proc := stripestub.NewProcessor()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:        repo,
+		IDs:             &fixedIDs{ids: ids},
+		Processor:       proc,
+		WebhookVerifier: webhookstub.NewVerifier(mappingWebhookSecret),
+		WebhookEvents:   newFakeWebhookEventStore(),
+		Identity:        newFakeIdentityLookup(unregisteredSubject),
 	})
 	return grpcapi.NewHandler(svc), repo, proc
 }
@@ -188,7 +212,7 @@ func errorMappingCases() []errorMappingCase {
 					PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 					PayableId:     fixtureBookingID,
 					Amount:        &paymentsv1.Money{AmountCents: 3000, CurrencyCode: "USD"},
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
 				}
 				if _, err := h.RecordOfflinePayment(ctxAs(refundBookingHostID), req); err != nil {
 					t.Fatalf("first RecordOfflinePayment: %v", err)
@@ -208,7 +232,7 @@ func errorMappingCases() []errorMappingCase {
 					PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 					PayableId:     "",
 					Amount:        &paymentsv1.Money{AmountCents: 3000, CurrencyCode: "USD"},
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw — authorization runs before this check
 				})
 				return err
 			},
@@ -240,7 +264,7 @@ func errorMappingCases() []errorMappingCase {
 					PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 					PayableId:     fixtureBookingID,
 					Amount:        &paymentsv1.Money{AmountCents: 0, CurrencyCode: "USD"},
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw — authorization runs before this check
 				})
 				return err
 			},
@@ -255,7 +279,7 @@ func errorMappingCases() []errorMappingCase {
 					PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
 					PayableId:     fixtureBookingID,
 					Amount:        &paymentsv1.Money{AmountCents: 3000, CurrencyCode: "US"},
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw — authorization runs before this check
 				})
 				return err
 			},
@@ -272,7 +296,10 @@ func errorMappingCases() []errorMappingCase {
 				if err != nil {
 					t.Fatalf("seed: CreateIntent: %v", err)
 				}
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeRegistration, fixtureRegistrationID, ref, domain.StatusUnpaid, seededPaymentOwnerID)
+				// T28.1: recordedBy must be the RESOLVED User.ID so
+				// ConfirmOnlinePayment's authorizeOnlineConfirmation passes
+				// and the flow reaches the (declining) processor.
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeRegistration, fixtureRegistrationID, ref, domain.StatusUnpaid, resolvedUserID(seededPaymentOwnerID))
 
 				_, err = h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
@@ -334,7 +361,27 @@ func errorMappingCases() []errorMappingCase {
 				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusPaid, seededPaymentOwnerID)
 				_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
+				})
+				return err
+			},
+		},
+		{
+			name:     "actor subject resolves to no User",
+			sentinel: "ErrUserNotFound",
+			wantCode: codes.PermissionDenied,
+			why: "T28.1 (closes the Payments third of #164): a verified caller whose subject " +
+				"matches no identity_users row. PermissionDenied, not NotFound (ADR-0014 §6, " +
+				"restated by ADR-0017) and not Unauthenticated (the token verified) — mirrors " +
+				"booking/facilities' identical mapping for their own ErrUserNotFound",
+			invoke: func(t *testing.T) error {
+				const unregistered = "auth0|never-called-createuser"
+				h, _, _ := newMappingHandlerWithUnregisteredActor(unregistered, mapPaymentID)
+				_, err := h.RecordOfflinePayment(ctxAs(unregistered), &paymentsv1.RecordOfflinePaymentRequest{
+					PayableType:   paymentsv1.PayableType_PAYABLE_TYPE_BOOKING,
+					PayableId:     fixtureBookingID,
+					Amount:        &paymentsv1.Money{AmountCents: 3000, CurrencyCode: "USD"},
+					BookingHostId: resolvedUserID(unregistered),
 				})
 				return err
 			},
@@ -406,7 +453,7 @@ func TestPaymentsService_SameSentinelSameCodeAcrossRPCs(t *testing.T) {
 				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusRefunded, seededPaymentOwnerID)
 				_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
 				})
 				return err
 			},
@@ -416,7 +463,9 @@ func TestPaymentsService_SameSentinelSameCodeAcrossRPCs(t *testing.T) {
 			sentinel: "ErrPaymentProcessorUnavailable",
 			viaConfirm: func(t *testing.T) error {
 				h, repo, _ := newMappingHandler()
-				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusUnpaid, seededPaymentOwnerID)
+				// T28.1: recordedBy must be resolved so the ownership check
+				// passes and the flow reaches the (unreachable) processor.
+				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusUnpaid, resolvedUserID(seededPaymentOwnerID))
 				_, err := h.ConfirmOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.ConfirmOnlinePaymentRequest{
 					PaymentId: mapPaymentID,
 				})
@@ -427,7 +476,7 @@ func TestPaymentsService_SameSentinelSameCodeAcrossRPCs(t *testing.T) {
 				seedOnline(t, repo, mapPaymentID, domain.PayableTypeBooking, fixtureBookingID, mapUnknownIntentRef, domain.StatusPaid, seededPaymentOwnerID)
 				_, err := h.RefundPayment(ctxAs(refundBookingHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:     mapPaymentID,
-					BookingHostId: refundBookingHostID,
+					BookingHostId: resolvedUserID(refundBookingHostID), // T28.1: resolved, not raw
 				})
 				return err
 			},

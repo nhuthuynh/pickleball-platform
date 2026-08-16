@@ -86,6 +86,20 @@ var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4
 // AssignedCompetitionAdminUserIDs fields. See authorizeOnlineCreation's own
 // doc comment for why no second resolver call shape was needed: it delegates
 // to authorizeCompetitionEntryRecording unchanged.
+//
+// T28.1 (closes the Payments third of #164) adds `identity
+// port.IdentityLookup` — ADR-0014/ADR-0017's resolution seam, following the
+// identical shape T13.2 (Booking) and T13.3 (Facilities) already established
+// and consumed by ResolveActorUserID below. Unlike RegistrationLookup/
+// GameLookup/GameAdminReader/EntryLookup/CompetitionAdminReader above,
+// `identity` is not consulted deep inside an authorization branch — it backs
+// exactly one method, ResolveActorUserID, called once per authenticated RPC
+// from the grpcapi handler's actor() funnel, mirroring Booking's/Facilities'
+// identical single call site. See ServiceOptions' own doc comment for why
+// this field is load-bearing-but-nil-safe (fails closed) rather than
+// panicking at construction the way Booking's ServiceOptions.Validate does —
+// a deliberate choice to match Payments' own established constructor
+// posture rather than import Booking's.
 type Service struct {
 	payments                port.Repository
 	ids                     port.IDGenerator
@@ -98,6 +112,8 @@ type Service struct {
 	gameAdminReader        port.GameAdminReader
 	entryLookup            port.EntryLookup
 	competitionAdminReader port.CompetitionAdminReader
+
+	identity port.IdentityLookup
 
 	// webhookVerifier/webhookEvents (T18.1, closes #167) back
 	// HandleStripeWebhookEvent below. Unlike registrationUpdater/
@@ -128,6 +144,29 @@ type Service struct {
 // payable type these five ports do not touch, per instruction 6's scope cut)
 // may still leave all five nil, exactly as booking-only tests already leave
 // RegistrationUpdater/CompetitionEntryUpdater nil today.
+//
+// Identity (T28.1, closes the Payments third of #164) is load-bearing for
+// EVERY authenticated RPC once wired in cmd/server, because ResolveActorUserID
+// is the funnel's only path to a usable actor — but, like the five resolver
+// ports above and unlike RegistrationUpdater/CompetitionEntryUpdater, a nil
+// Identity does not panic at construction. ResolveActorUserID returns
+// domain.ErrUserNotFound (-> codes.PermissionDenied) when s.identity is nil,
+// the identical fail-closed posture authorizeGameRecording/
+// authorizeCompetitionEntryRecording already apply to their own nil
+// resolvers: an operator who forgets to wire Identity gets "nobody can act",
+// never "the subject is trusted unresolved" (which is exactly the pre-T28.1
+// bug this ticket closes). A test that only exercises app-layer logic
+// directly — never through ResolveActorUserID/the grpcapi funnel — may
+// leave Identity nil, exactly as every other resolver port above.
+//
+// This is a genuinely different posture from Booking's ServiceOptions
+// (T13.8), which panics on any missing dependency including Identity,
+// because Booking's ServiceOptions documents every field as required with
+// no optional/fail-closed category at all. Payments' ServiceOptions already
+// has both categories (skip-safe reconciliation hooks vs. fail-closed
+// resolvers); Identity fits the fail-closed category Payments already has,
+// so it was added there rather than introducing a third posture or a
+// construction-time panic this package has never had.
 type ServiceOptions struct {
 	Payments                port.Repository
 	IDs                     port.IDGenerator
@@ -148,6 +187,11 @@ type ServiceOptions struct {
 	// case on this Service is unaffected by leaving them nil.
 	WebhookVerifier port.WebhookVerifier
 	WebhookEvents   port.WebhookEventStore
+
+	// Identity backs ResolveActorUserID (T28.1, ADR-0014/ADR-0017's
+	// resolution seam) — see this struct's own doc comment above for its
+	// fail-closed-not-panicking posture.
+	Identity port.IdentityLookup
 }
 
 // NewService constructs a Service from opts. IDs is required by every use
@@ -173,7 +217,44 @@ func NewService(opts ServiceOptions) *Service {
 
 		webhookVerifier: opts.WebhookVerifier,
 		webhookEvents:   opts.WebhookEvents,
+
+		identity: opts.Identity,
 	}
+}
+
+// ResolveActorUserID translates a verified IdP subject into the caller's
+// User.ID (uuid) — ADR-0014/ADR-0017's resolution seam applied to Payments
+// (T28.1, closes the Payments third of #164).
+//
+// **This is the only method in internal/payments/app whose parameter is a
+// subject, and the name says so deliberately** — mirroring
+// internal/booking/app.Service.ResolveActorUserID and
+// internal/facilities/app.Service.ResolveActorUserID exactly. ADR-0014's
+// invariant is that below the grpcapi boundary an actor value is always a
+// User.ID; this method is the one place that invariant is established for
+// Payments rather than assumed. Every other actor-taking method here —
+// CreateOnlinePayment, ConfirmOnlinePayment, RecordOfflinePayment,
+// RefundPayment — takes the resolved uuid, via the handler's actor() funnel
+// calling this method exactly once per authenticated RPC.
+//
+// It takes a plain string rather than an auth.Principal on purpose: this
+// package still imports nothing from internal/platform/auth (A11 Ruling 3),
+// so the app layer keeps no opinion about how the caller was authenticated —
+// only that somebody upstream did.
+//
+// Fails CLOSED, not open, when s.identity is nil: see ServiceOptions' own
+// doc comment for why this mirrors the fail-closed resolver ports
+// (RegistrationLookup et al.) rather than Booking's construction-time panic.
+// An unregistered (or unresolvable-because-unwired) subject is
+// domain.ErrUserNotFound, which grpcapi maps to PermissionDenied rather than
+// NotFound (ADR-0014 §6): the caller is known, they simply may not act, and
+// answering NotFound would turn every actor-taking endpoint into a
+// user-enumeration oracle.
+func (s *Service) ResolveActorUserID(ctx context.Context, subject string) (string, error) {
+	if s.identity == nil {
+		return "", domain.ErrUserNotFound
+	}
+	return s.identity.UserIDBySubject(ctx, subject)
 }
 
 // Payments exposes the persistence port so a caller that genuinely needs
@@ -289,6 +370,16 @@ func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymen
 	// CreateOnlinePayment is in grpcapi.AuthenticatedMethods(): the actor
 	// reaching here is a principal the auth interceptor verified, for every
 	// payable type, not a claim off the wire.
+	//
+	// As of T28.1 (closes the Payments third of #164), in.ActorUserID is a
+	// resolved User.ID (uuid), not a raw subject: the grpcapi handler's
+	// actor() funnel now calls ResolveActorUserID before this method is ever
+	// reached. RecordedByUserID is therefore written in the same identifier
+	// space payments.recorded_by_user_id now stores it in
+	// (db/migrations/0024_payments_recorded_by_user_id_uuid.sql,
+	// ADR-0017) — see authorizeOnlineConfirmation's own doc comment for why
+	// this is exactly the fact that makes ConfirmOnlinePayment's ownership
+	// check correct-by-design rather than correct-by-coincidence.
 	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOnline, in.ActorUserID)
 	if err != nil {
 		return domain.Payment{}, err
@@ -563,6 +654,13 @@ type RecordOfflinePaymentInput struct {
 // (port.Repository.Create, T6.4). Authorization is checked first, before
 // any domain construction, so an unauthorized actor never learns anything
 // about why the input would otherwise be invalid.
+//
+// As of T28.1, in.ActorUserID (and therefore the RecordedByUserID this
+// writes) is a resolved User.ID, the same identifier space
+// payments.recorded_by_user_id now stores at rest — see
+// CreateOnlinePayment's own doc comment for the identical note on its path,
+// and authorizeOnlineConfirmation's for why this matters for the capture
+// side of the lifecycle.
 //
 // The Postgres adapter's UNIQUE (payable_type, payable_id) constraint
 // (T6.4) is the authoritative guard against recording a duplicate Payment
@@ -1035,10 +1133,37 @@ func (s *Service) authorizeCompetitionEntryRecording(ctx context.Context, in Rec
 // That is exactly why #148 was closable inside the Payments context and #149
 // still is not.
 //
-// Both sides of the comparison are subjects — actorUserID is whatever
-// grpcapi's actor(ctx) returned, and p.RecordedByUserID is whatever an earlier
-// actor(ctx) wrote — so they are compared unchanged, with no resolution step,
-// per ADR-0014 §5a's explicit ruling for this ticket.
+// UPDATED BY T28.1 (closes the Payments third of #164) — dated deliberately,
+// like ADR-0014 §4's own "kept all three dated" convention, so this comment
+// stays accurate rather than rewritten into a single blended claim:
+//
+// Until T28.1, both sides of this comparison were subjects — actorUserID was
+// whatever grpcapi's free-function actor(ctx) returned
+// (auth.RequireSubject(ctx), unresolved), and p.RecordedByUserID was
+// whatever an earlier call to that same function had written — so they
+// compared correctly *by coincidence*, per ADR-0014 §5a's explicit ruling
+// deferring this context: "compare the value actor(ctx) returns against the
+// stored value, unchanged... conformance for these three is deliberately
+// deferred, because it is not a code change: it needs a backfill".
+//
+// As of T28.1, both sides are User.ID uuids, by design rather than
+// coincidence: actorUserID is resolved by the grpcapi handler's actor()
+// method (now backed by Service.ResolveActorUserID -> port.IdentityLookup,
+// ADR-0014/ADR-0017's seam), and p.RecordedByUserID is read back from
+// payments.recorded_by_user_id, backfilled to the same uuid space by
+// db/migrations/0024_payments_recorded_by_user_id_uuid.sql in the SAME PR
+// that changed what actor(ctx) returns. This ordering is not incidental —
+// it is the entire reason this PR is one reviewed unit and not two: had the
+// funnel change landed with the backfill migration pending (or vice versa),
+// this exact comparison would have silently compared a uuid against a
+// stale-subject string for every request in the window between the two
+// deploys, either denying every legitimate confirmation (comparing a real
+// uuid against a subject can never match) or — had the comparison been
+// written the other way round — permitting one it should not have. Nothing
+// below this method's own logic changed: the comparison is still plain
+// string equality, and this is deliberate (ADR-0017's ruling is about
+// storage and identifier space, not about introducing a resolution step
+// into an already-resolved-on-both-sides comparison).
 //
 // An empty p.RecordedByUserID means nobody may confirm, never that anybody may:
 //
@@ -1053,6 +1178,16 @@ func (s *Service) authorizeCompetitionEntryRecording(ctx context.Context, in Rec
 //     somehow reaches this code with no principal is refused rather than
 //     matched against an ownerless Payment. (The handler rejects that caller
 //     earlier, with Unauthenticated; this is the belt to that braces.)
+//   - T28.1 adds a second, structurally identical way p.RecordedByUserID
+//     reads back empty: an orphaned row — a subject with no matching
+//     identity_users.subject at backfill time — whose new uuid column
+//     ADR-0017 Decision 3 rules must be left NULL rather than dropped or
+//     defaulted. Repository.GetByID/fromFields surfaces a NULL column as ""
+//     (mirrors uuidOrEmpty's convention, internal/facilities/adapter/postgres),
+//     which lands in this exact bullet's existing rule for free: "nobody may
+//     confirm", not "anybody may". No special case was added for it, because
+//     none was needed — this function already treated every ownerless row
+//     this way before T28.1 existed.
 func authorizeOnlineConfirmation(p domain.Payment, actorUserID string) error {
 	if actorUserID == "" || p.RecordedByUserID == "" || actorUserID != p.RecordedByUserID {
 		return domain.ErrNotPaymentOwner

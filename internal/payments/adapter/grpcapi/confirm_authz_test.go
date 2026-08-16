@@ -24,12 +24,22 @@
 // them — answered by rejecting, since grandfathering would leave exactly the
 // hole this ticket closes open on every row created before it.
 //
-// Identifier space: both sides of the comparison are subjects. The context
-// carries a subject (auth.Principal.Subject), and payments.recorded_by_user_id
-// is a text column holding whatever actor(ctx) returned at creation time — so
-// no resolution step is involved, per ADR-0014 §5a's explicit ruling for this
-// ticket. The fixtures below are auth0|-shaped for that reason: they are
-// subjects, not User uuids.
+// Identifier space, UPDATED BY T28.1 (closes the Payments third of #164):
+// through T28's start, both sides of the comparison were subjects — the
+// context carried a subject (auth.Principal.Subject), and
+// payments.recorded_by_user_id was a text column holding whatever actor(ctx)
+// returned at creation time, per ADR-0014 §5a's explicit deferral of this
+// context. As of T28.1, actor(ctx) resolves the subject to a User.ID before
+// either side of the comparison ever sees it (grpcapi.Handler.actor ->
+// app.Service.ResolveActorUserID -> port.IdentityLookup), and
+// payments.recorded_by_user_id is backfilled to hold the same uuid space
+// (db/migrations/0024_payments_recorded_by_user_id_uuid.sql, ADR-0017). The
+// fixtures below stay auth0|-shaped: they are the SUBJECTS a caller
+// authenticates as (ctxAs(payerSubject) etc.) and this package's
+// fakeIdentityLookup (identity_fixtures_test.go) resolves each one to a
+// fixed User.ID via resolvedUserID — the same value production code would
+// resolve it to, and the value actually compared and actually stored is
+// that resolved uuid, not the subject printed here.
 //
 // Handler-level with the in-memory port.Repository fake and the deterministic
 // stub processor, for the reason authz_regression_test.go, refund_test.go and
@@ -115,10 +125,18 @@ func TestCreateOnlinePayment_RecordsTheVerifiedPrincipalAsOwner(t *testing.T) {
 		t.Fatalf("CreateOnlinePayment as %s should succeed: %v", payerSubject, err)
 	}
 
-	if got := resp.GetPayment().GetRecordedByUserId(); got != payerSubject {
-		t.Fatalf("Payment.RecordedByUserId = %q, want %q — an online Payment must record the "+
-			"verified principal that created the intent, or ConfirmOnlinePayment has nothing to "+
-			"check and anyone holding the payment_id can capture it (issue #148)", got, payerSubject)
+	// T28.1: the RESOLVED User.ID for payerSubject, not the subject itself —
+	// see this file's header comment.
+	if want := resolvedUserID(payerSubject); resp.GetPayment().GetRecordedByUserId() != want {
+		got := resp.GetPayment().GetRecordedByUserId()
+		t.Fatalf("Payment.RecordedByUserId = %q, want %q (payerSubject's resolved User.ID) — an "+
+			"online Payment must record the verified principal that created the intent, or "+
+			"ConfirmOnlinePayment has nothing to check and anyone holding the payment_id can "+
+			"capture it (issue #148)", got, want)
+	}
+	if got := resp.GetPayment().GetRecordedByUserId(); got == payerSubject {
+		t.Fatalf("Payment.RecordedByUserId = %q — the raw SUBJECT was stored unresolved, "+
+			"which is exactly the pre-T28.1 shape ADR-0017's backfill exists to fix", got)
 	}
 }
 

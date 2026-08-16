@@ -115,13 +115,19 @@ func offlineReq() *paymentsv1.RecordOfflinePaymentRequest {
 // attacker legitimately hosts this Game" case (T16.2, closes #168).
 func newPrincipalAuthzHandler(hostID string, seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
-	regs, games, admins := newAuthzResolverFixtures(hostID)
+	// T28.1: hostID is a SUBJECT here (callers pass hostSubject/
+	// attackerSubject) — the resolver fake must be seeded with the value
+	// that subject actually resolves to, since in.ActorUserID is now that
+	// resolved value, not the subject itself. See newTestHandler's identical
+	// comment in authz_regression_test.go.
+	regs, games, admins := newAuthzResolverFixtures(resolvedUserID(hostID))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:           repo,
 		IDs:                &fixedIDs{ids: seedIDs},
 		RegistrationLookup: regs,
 		GameLookup:         games,
 		GameAdminReader:    admins,
+		Identity:           newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
@@ -132,7 +138,8 @@ func newPrincipalAuthzHandler(hostID string, seedIDs ...string) (*grpcapi.Handle
 // Payment via RecordOfflinePayment and then refunds it.
 func newPrincipalAuthzHandlerWithProcessor(hostID string, seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
-	regs, games, admins := newAuthzResolverFixtures(hostID)
+	// T28.1: see newPrincipalAuthzHandler's identical comment above.
+	regs, games, admins := newAuthzResolverFixtures(resolvedUserID(hostID))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:           repo,
 		IDs:                &fixedIDs{ids: seedIDs},
@@ -140,6 +147,7 @@ func newPrincipalAuthzHandlerWithProcessor(hostID string, seedIDs ...string) (*g
 		RegistrationLookup: regs,
 		GameLookup:         games,
 		GameAdminReader:    admins,
+		Identity:           newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
@@ -155,13 +163,16 @@ func newPrincipalAuthzHandlerWithProcessor(hostID string, seedIDs ...string) (*g
 // reaches port.PaymentProcessor.CreateIntent on the authorized path.
 func newPrincipalAuthzOnlineHandler(playerID string, seedIDs ...string) (*grpcapi.Handler, *fakeRepository) {
 	repo := newFakeRepository()
-	entries, compAdmins := newEntryAuthzResolverFixtures(playerID)
+	// T28.1: playerID is a SUBJECT here too — see newPrincipalAuthzHandler's
+	// identical comment above.
+	entries, compAdmins := newEntryAuthzResolverFixtures(resolvedUserID(playerID))
 	svc := app.NewService(app.ServiceOptions{
 		Payments:               repo,
 		IDs:                    &fixedIDs{ids: seedIDs},
 		Processor:              stripestub.NewProcessor(),
 		EntryLookup:            entries,
 		CompetitionAdminReader: compAdmins,
+		Identity:               newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo
 }
@@ -379,7 +390,9 @@ func TestRecordOfflinePayment_RecordedByComesFromPrincipalNotWire(t *testing.T) 
 		t.Fatalf("RecordOfflinePayment by the real Host should succeed: %v", err)
 	}
 
-	if got := resp.GetPayment().GetRecordedByUserId(); got != attackerSubject {
-		t.Errorf("Payment.RecordedByUserId = %q, want %q — the audit field was taken from the wire, so a caller can record a payment under someone else's name", got, attackerSubject)
+	// T28.1: the RESOLVED User.ID for attackerSubject, not the subject itself.
+	if want := resolvedUserID(attackerSubject); resp.GetPayment().GetRecordedByUserId() != want {
+		got := resp.GetPayment().GetRecordedByUserId()
+		t.Errorf("Payment.RecordedByUserId = %q, want %q (attackerSubject's resolved User.ID) — the audit field was taken from the wire, so a caller can record a payment under someone else's name", got, want)
 	}
 }

@@ -61,6 +61,7 @@ import (
 	identityapp "github.com/nhuthuynh/white-label/internal/identity/app"
 	paymentscompetitions "github.com/nhuthuynh/white-label/internal/payments/adapter/competitions"
 	paymentsgrpc "github.com/nhuthuynh/white-label/internal/payments/adapter/grpcapi"
+	paymentsidentity "github.com/nhuthuynh/white-label/internal/payments/adapter/identity"
 	paymentspg "github.com/nhuthuynh/white-label/internal/payments/adapter/postgres"
 	paymentssocialplay "github.com/nhuthuynh/white-label/internal/payments/adapter/socialplay"
 	"github.com/nhuthuynh/white-label/internal/payments/adapter/stripestub"
@@ -289,6 +290,11 @@ func run(logger *slog.Logger) error {
 	competitionAdminReader := paymentscompetitions.NewCompetitionAdminReader(competitionsSvc)
 	webhookVerifier := webhookstub.NewVerifier("whsec_placeholder_dev_only")
 	webhookEventRepo := paymentspg.NewWebhookEventRepository(pool)
+	// Identity lookup (T28.1, closes the Payments third of #164): built
+	// against the same, real identitySvc instance Booking's/Facilities' own
+	// lookups use above (bookingIdentityLookup, facilitiesIdentityLookup) —
+	// not a second/separate stack — mirroring both exactly.
+	paymentsIdentityLookup := paymentsidentity.NewLookup(identitySvc)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments:                paymentsRepo,
 		IDs:                     idgen.UUID{},
@@ -302,6 +308,7 @@ func run(logger *slog.Logger) error {
 		CompetitionAdminReader:  competitionAdminReader,
 		WebhookVerifier:         webhookVerifier,
 		WebhookEvents:           webhookEventRepo,
+		Identity:                paymentsIdentityLookup,
 	})
 	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
 

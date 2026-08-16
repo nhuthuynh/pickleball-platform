@@ -85,4 +85,19 @@ var (
 	// the same discipline this package already applies to
 	// ErrNotPaymentRecorder/ErrNotPaymentOwner.
 	ErrWebhookSignatureInvalid = errors.New("payments: webhook signature is invalid")
+
+	// ErrUserNotFound is Payments' own, context-local sentinel (CLAUDE.md
+	// rule 5) for the identity-resolution seam T28.1 adds: returned by
+	// app.Service.ResolveActorUserID / the adapter/identity Lookup when a
+	// verified IdP subject matches no identity_users row, including when the
+	// subject is empty. Mirrors booking.domain.ErrUserNotFound and
+	// facilities.domain.ErrUserNotFound exactly — one sentinel name reused
+	// per context, never shared across context boundaries, so
+	// internal/payments/adapter/identity must translate
+	// identitydomain.ErrUserNotFound into this one rather than let it cross
+	// unchanged. Mapped by grpcapi's toStatus to codes.PermissionDenied, not
+	// NotFound (ADR-0014 §6): the caller is known (their token verified),
+	// they simply are not registered, and NotFound would turn every
+	// actor-taking Payments RPC into a user-enumeration oracle.
+	ErrUserNotFound = errors.New("payments: user not found")
 )
