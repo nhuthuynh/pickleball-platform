@@ -43,7 +43,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T20 | `docs/process/t20-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean for the sixth sprint running, re-verifies all 8 open issues' blockers live and finds every one still genuinely blocked, re-scans `HANDOFF.md`'s Cross-cutting section a third time and finds the one promising-looking candidate — the `golang-migrate`/`goose` migration-tooling swap — already settled as roadmap debt, not a disclosed gap, by four separate prior ceremonies; takes zero tickets rather than manufacture one or reopen that settled classification on no new fact; Ceremony 2 sprint goal is confirm-and-report) | `docs/process/t20-retro.md` (no incident-grade finding; independently re-verified live, issue by issue, that all 8 open issues' blockers held for the whole sprint and that the migration-tooling classification stayed correctly unticketed; engaged PM's carried-forward stalled-backlog concern directly rather than mechanically, and sharpened it into its more accurate and more actionable form — D1's eight-sprint silence with no escalation beyond the original ADR comment, not the shrinking-sprint-size trend, which has an ordinary explanation; 4 recommendations for T21) | PRs #218 (Ceremony 1/2 doc) → #219 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `19:46:10Z` → `19:52:17Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T21 | `docs/process/t21-sprint-plan.md` (Ceremony 1 corrects T20's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean for the seventh sprint running, re-verifies all 8 open issues' blockers live — unchanged for the tenth consecutive sprint running (T12 through T21) — re-scans `HANDOFF.md`'s Cross-cutting section a fourth time and finds nothing new, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged; dispositions all four of T20 retro's recommendations, including closing the loop on D1's escalation question — put to the user directly outside this repository, who chose continued deferral of both D1 and D2 — rather than leaving it open or proposing a new mechanism; takes zero tickets, the second 0-ticket sprint in this project's history) | `docs/process/t21-retro.md` (no incident-grade finding; DoD (c)'s scrutinized check found the plan's D1/D2-escalation distinction held cleanly, with no overreach in either ADR's `## Status` field or #144's live comment count — checked directly, not read from the plan's own account; closed the "does a second consecutive 0-ticket sprint need a fresh healthiness pass" question as genuinely settled by the user's own direct answer, naming the two conditions that would reopen it rather than padding the record with a repeat analysis; 4 recommendations for T22) | PRs #220 (Ceremony 1/2 doc) → #221 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `07:33:15Z` → `07:38:52Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T22 | `docs/process/t22-sprint-plan.md` (Ceremony 1 corrects T21's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean for the ninth consecutive sprint running, re-verifies all 8 open issues' blockers live — unchanged for the eleventh consecutive sprint running (T12 through T22) — re-scans `HANDOFF.md`'s Cross-cutting section a fifth time and finds nothing new, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged; per T21 retro's recommendation 2, does not re-run the "is a 0-ticket sprint healthy" analysis from scratch — checks live whether either of its two named reopening conditions fired and finds neither did; takes zero tickets, the third 0-ticket sprint in this project's history) | `docs/process/t22-retro.md` (no incident-grade finding; independently re-verified live that all 8 issues' blockers held, byte-for-byte against the plan's own table, and that the migration-tooling classification stayed unticketed; scored DoD (d) for the first time — neither of T21 retro's two named reopening conditions fired; engaged the "does a third 0-ticket sprint change anything" question directly and answered no, while putting the backlog's static duration and D1's nine-sprint silence precisely on the record; 4 recommendations for T23) | PRs #222 (Ceremony 1/2 doc) → #223 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `07:45:36Z` → `07:51:24Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
-| T23 | `docs/process/t23-sprint-plan.md` (Ceremony 1 corrects T22's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a sixth time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live per T22 retro's recommendation 2) | not yet written | not yet opened | none new | — |
+| T23 | `docs/process/t23-sprint-plan.md` (Ceremony 1 corrects T22's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a sixth time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live per T22 retro's recommendation 2) | `docs/process/t23-retro.md` (no incident-grade finding; independently re-verified live that all 8 issues' blockers held, byte-for-byte against the plan's own table, and that the migration-tooling classification stayed unticketed; scored DoD (d) live for the third time running with an identical result; found the "is a 0-ticket sprint healthy" engagement question now genuinely exhausted at four consecutive 0-ticket sprints, stated briefly rather than padded; 4 recommendations for T24) | PRs #224 (Ceremony 1/2 doc) → #225 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `07:58:07Z` → `08:04:37Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
+| T24 | `docs/process/t24-sprint-plan.md` (Ceremony 1 corrects T23's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a seventh time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live per T23 retro's recommendation 2 in its now-abbreviated form) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -1140,6 +1141,57 @@ retro's form, not a stronger one).
 > through T22), and this retro is the first successful exercise of T21
 > retro's recommendation-2 mechanism (check named conditions live, don't
 > re-derive) rather than a third repetition of the original question.
+
+**T23 — Correct T22's row, re-verify the backlog is still genuinely
+blocked, and continue treating the "is a 0-ticket sprint healthy" question
+as settled per T21 retro's own recommendation.** Ceremony 1/2 complete;
+full reasoning, the sweep re-run a tenth sprint running, the live
+re-verification of all 8 open issues (unchanged for the twelfth
+consecutive sprint, T12 through T23), the Cross-cutting re-scan (sixth
+sprint running, T18–T23), and a live check of T21 retro's two named
+reopening conditions: `docs/process/t23-sprint-plan.md`. 0 tickets, 0
+points — the fourth 0-ticket sprint in this project's history, for the
+identical structural reason as T20's, T21's, and T22's: every tracked
+issue is still exactly as blocked as it was, and the
+`golang-migrate`/`goose` migration-tooling swap remains settled roadmap
+debt, not a disclosed gap, on no new fact. D1 and D2 both remain formally
+open per ADR-0015/ADR-0016, neither implemented nor guessed at.
+
+**Outcome: 0 tickets, 0 points, confirmed rather than assumed** (PR #224
+for the Ceremony 1/2 doc, plus #225 for the retro). Retro: `docs/process/
+t23-retro.md` — no incident-grade finding, 4 recommendations that bind
+T24's Ceremony 1 and 2 (`docs/process/t24-sprint-plan.md` gives each one a
+disposition).
+
+**State the outcome in this form, not a stronger one.** This is the
+retro's own agreed sentence (`sprint-process.md` Ceremony 1 item 3
+requires the retro's form, not a stronger one).
+
+> T23 shipped zero tickets, the fourth 0-ticket sprint in this project's
+> history, and this retro independently re-verified rather than trusted
+> that the reason was real: all 8 tracked issues' blockers were re-checked
+> live, issue by issue, and every field matches T23's plan's own
+> live-fetched table exactly — none moved. The `golang-migrate`/`goose`
+> migration-tooling classification is unchanged, re-checked against a
+> fresh grep and the ADR directory listing (still ending at `0016`).
+> Neither D1 nor D2 was answered as a formal ADR decision this sprint —
+> both ADRs' `## Status` fields and #144's comment body were read directly
+> and are unchanged. Neither of T21 retro's two named reopening conditions
+> fired, checked live for the third time by three different ceremonies
+> (T22 retro, T23 Ceremony 1, this retro) with an identical result each
+> time. Two running counts were carried forward: the backlog's
+> consecutive-static-check count increments to six (T21 Ceremony 1, T21
+> retro, T22 Ceremony 1, T22 retro, T23 Ceremony 1, this retro); D1's
+> consecutive-sprint-silence count holds at ten (T14 through T23,
+> unchanged within this same sprint, and will only become eleven if T24
+> opens with #144 still uncommented). On whether a fourth consecutive
+> 0-ticket sprint changes anything about the "is this healthy" question,
+> this retro's honest answer is that the question is now genuinely
+> exhausted: engaged at depth twice already (T20, T21), closed by the
+> user's own direct answer, and its reopening mechanism independently
+> exercised three times with the same correct result. This retro adds
+> nothing new to that analysis beyond the live re-check itself and states
+> so plainly rather than manufacturing a fifth finding.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args
