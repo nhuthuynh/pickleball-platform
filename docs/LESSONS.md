@@ -2171,3 +2171,32 @@ a genuinely routine confirm-and-report retro. `HANDOFF.md`'s T34 row and
 Task-backlog narrative are deliberately left for T35's Ceremony 1 to
 correct, per the same convention, with the agreed honest-form sentence
 supplied in the retro document for that ceremony to carry forward.
+
+## T35 sprint retro
+
+Held as `docs/process/t35-retro.md`, following the convention
+T5/T9/T10/…/T33/T34 set and CLAUDE.md's **Docs index & naming convention**.
+
+T35 shipped zero tickets, the fourteenth 0-ticket sprint in this project's
+history by total count and the sixth sprint of the fresh consecutive run
+(T30, T31, T32, T33, T34, T35) since T28 broke the T20–T27 streak, plus the
+T34 §A0 bookkeeping corrections T34's own retro deliberately left undone.
+This retro independently re-verified every load-bearing claim rather than
+trusting T35's plan's own account: the live merged-fix sweep matches the
+plan's own count exactly (`totalCount: 7`, reconciled `7 − 0 + 0 = 7`); all
+7 open issues' blockers were re-checked live, individually, down to their
+full bodies and are unchanged; neither D1 nor D2 was answered as a formal
+decision, both ADR files' `## Status` sections and git history read
+directly, #144's single comment re-confirmed unchanged; DECISION D2 was
+correctly not exercised this sprint (zero tickets, zero PRs beyond the
+planning doc); `HANDOFF.md`'s T34 row correction, performed by T35's own
+Ceremony 1, was independently re-verified against freshly re-fetched
+`pull_request_read` data on #250/#251 and found accurate; a stale GitHub
+repo-metadata artifact was re-checked and remains present but functionally
+inert. The post-T29 backlog-composition counter increments to **thirteen**;
+D1's silence counter holds at **twenty-two** (confirmed, not incremented a
+second time within this sprint). No incident-grade finding this sprint —
+a genuinely routine confirm-and-report retro. `HANDOFF.md`'s T35 row and
+Task-backlog narrative are deliberately left for T36's Ceremony 1 to
+correct, per the same convention, with the agreed honest-form sentence
+supplied in the retro document for that ceremony to carry forward.
