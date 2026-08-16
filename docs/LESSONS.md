@@ -2017,3 +2017,40 @@ process, with one cheap safeguard recommended for T30. D1's silence counter
 holds at **sixteen**; a new post-T29 backlog-composition counter starts at
 **one**. One label-taxonomy gap (#237 filed with no labels) was found and
 corrected live by the retro.
+
+## T30 sprint retro
+
+Held as `docs/process/t30-retro.md`, following the convention
+T5/T9/T10/…/T28/T29 set and CLAUDE.md's **Docs index & naming convention**.
+
+T30 shipped zero tickets, the ninth 0-ticket sprint in this project's
+history, plus real process work landing two of T29 retro's recommendations
+(the "Dispatch isolation" and "PR-body self-verification" sections in
+`sprint-process.md`). This retro independently re-verified every
+load-bearing claim rather than trusting T30's plan's own account: the live
+merged-fix sweep matches the plan's own count exactly (`totalCount: 7`,
+reconciled `7 − 0 + 0 = 7`); all 7 open issues' blockers were re-checked
+live down to their full bodies, not just cached fields, and are unchanged;
+both new `sprint-process.md` sections were read in full and checked against
+T29 retro §8/§9's own text — both faithful to the incidents they cite,
+correctly and narrowly scoped, and confirmed genuinely orthogonal to
+existing sections rather than duplicative, with one soft observation (who
+audits that a dispatched wave actually named its isolation mechanism)
+recorded for the next multi-implementer wave to resolve by example, not a
+defect. DECISION D2 was correctly not exercised this sprint (zero tickets,
+zero PRs beyond the planning doc — the structurally weaker "no PR existed"
+shape). Neither D1 nor D2 was answered as a formal decision, both ADR
+files' `## Status` sections and git history read directly, #144's single
+comment re-confirmed unchanged. The post-T29 backlog-composition counter
+increments to **three**; D1's silence counter holds at **seventeen**
+(confirmed, not incremented a second time within this sprint). This retro
+also traced and named a real, twice-repeated process mistake: T28's and
+T29's own retros each incorrectly claimed to correct their own `HANDOFF.md`
+Docs-index row within their own PR — structurally impossible before that
+PR's own merge number and `merged_at` are knowable — both caught only by
+the following sprint's Ceremony 1. This retro does not repeat that mistake
+a third time: `HANDOFF.md`'s T30 row and Task-backlog narrative are
+deliberately left for T31's Ceremony 1 to correct, per the convention T27's
+own retro and T30's own plan both already state, with the agreed
+honest-form sentence supplied in the retro document for that ceremony to
+carry forward.
