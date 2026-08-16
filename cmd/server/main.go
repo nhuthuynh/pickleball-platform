@@ -43,6 +43,7 @@ import (
 	competitionsbooking "github.com/nhuthuynh/white-label/internal/competitions/adapter/booking"
 	competitionsfacilities "github.com/nhuthuynh/white-label/internal/competitions/adapter/facilities"
 	competitionsgrpc "github.com/nhuthuynh/white-label/internal/competitions/adapter/grpcapi"
+	competitionsidentity "github.com/nhuthuynh/white-label/internal/competitions/adapter/identity"
 	competitionspg "github.com/nhuthuynh/white-label/internal/competitions/adapter/postgres"
 	"github.com/nhuthuynh/white-label/internal/competitions/adapter/sharetoken"
 	competitionsapp "github.com/nhuthuynh/white-label/internal/competitions/app"
@@ -235,6 +236,21 @@ func run(logger *slog.Logger) error {
 	// competitionsport.CompetitionAdminRepository for why it is a separate
 	// interface rather than three more methods on the Competitions repository.
 	competitionAdminRepo := competitionspg.NewCompetitionAdminRepository(pool)
+	// competitionsIdentityLookup (T29.1, closes the Competitions third of
+	// #164) is Competitions' first outbound call into Identity, built
+	// against the SAME real identitySvc instance Booking's/Facilities'/
+	// Payments' own lookups use (bookingIdentityLookup,
+	// facilitiesIdentityLookup, paymentsIdentityLookup below) — not a
+	// second/separate Identity stack. That shared instance is what makes
+	// ADR-0014's invariant hold across contexts rather than per-context: a
+	// given subject resolves to one User.ID everywhere, so the uuid
+	// Competitions now stores in competitions.host_id/competition_entries.
+	// player_id/competition_admins.user_id is the same uuid Payments'
+	// authorizeCompetitionEntryRecording compares it against (closing
+	// Competitions' half of #237 as a side effect — see
+	// internal/payments/app/service.go's own doc comment, which this ticket
+	// does not modify).
+	competitionsIdentityLookup := competitionsidentity.NewLookup(identitySvc)
 	competitionsSvc := competitionsapp.NewService(competitionsapp.ServiceOptions{
 		Competitions:      competitionsRepo,
 		IDs:               idgen.UUID{},
@@ -242,6 +258,7 @@ func run(logger *slog.Logger) error {
 		Facilities:        competitionsfacilities.NewLookup(facilitiesSvc),
 		ShareTokens:       sharetoken.Generator{},
 		CompetitionAdmins: competitionAdminRepo,
+		Identity:          competitionsIdentityLookup,
 	})
 	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
 

@@ -72,8 +72,8 @@ func TestListEntriesForCompetition_HostPrincipalReadsTheRoster(t *testing.T) {
 	if len(entries) != 1 {
 		t.Fatalf("Host read %d entries, want 1 — the Host's own roster read is broken", len(entries))
 	}
-	if got := entries[0].GetPlayerId(); got != playerSubject {
-		t.Errorf("CompetitionEntry.PlayerId = %q, want %q", got, playerSubject)
+	if want := resolvedUserID(playerSubject); entries[0].GetPlayerId() != want {
+		t.Errorf("CompetitionEntry.PlayerId = %q, want %q", entries[0].GetPlayerId(), want)
 	}
 }
 

@@ -27,19 +27,30 @@ import "time"
 // doc comment says so in as many words). This type is the durable fact those
 // rules were missing.
 //
-// # Identifier space (ADR-0014 §5a, issue #164)
+// # Identifier space (ADR-0014/ADR-0017, T29.1 — closes the Competitions
+// third of #164)
 //
-// UserID and AssignedBy hold **subjects** — the value
-// internal/platform/auth.RequireSubject returns, which is what
-// CreateCompetition already stores in Competition.HostID (the handler mints
-// host_id from actor(ctx), never from the wire). They are deliberately NOT
-// uuids and deliberately not resolved through the Identity context: ADR-0014
-// §5a names Competitions explicitly, alongside Social Play and Payments, as a
-// context whose stored actor facts are non-conformant-but-self-consistent text
-// subjects, with conformance deferred to #164. Putting a uuid on one side of a
-// comparison whose other side is a subject is the exact failure that ruling
-// legislates against. db/migrations/0021_competitions_competition_admins.sql
-// carries the same note so a future backfill finds it.
+// UserID and AssignedBy hold **User.ID** uuids as of T29.1, the same
+// identifier space Competition.HostID holds. AssignedBy is minted from the
+// grpcapi handler's actor(ctx), which resolves the caller's verified subject
+// to a User.ID before app.Service.AssignCompetitionAdmin ever runs (ADR-0014's
+// boundary rule) — never from the wire. UserID names a DIFFERENT user (the
+// one being granted authority, not the caller), so it cannot come from
+// actor(ctx); the handler instead resolves the wire-supplied subject through
+// the identical port.IdentityLookup seam before it ever reaches this package
+// (see internal/competitions/adapter/grpcapi.Handler.resolveTargetUserID).
+//
+// Before T29.1, both fields held plain IdP **subjects** instead — ADR-0014
+// §5a named Competitions explicitly, alongside Social Play and Payments, as a
+// context whose stored actor facts were non-conformant-but-self-consistent
+// text subjects, with conformance deferred to #164. That gap is what T29.1
+// closes: competitions.host_id, competition_entries.player_id, and this
+// table's user_id/assigned_by are all backfilled to real `uuid` foreign keys
+// into identity_users(id) in the same migration
+// (db/migrations/0025_competitions_identity_conformance.sql), per ADR-0017's
+// ruling — so a uuid is never compared against a subject on either side of
+// any check in this file. db/migrations/0021_competitions_competition_admins.sql
+// carries its own historical note for the pre-migration shape.
 //
 // # What this type is not
 //
@@ -53,13 +64,14 @@ type CompetitionAdmin struct {
 	// is per-Competition by construction, the same scoping CLAUDE.md's locked
 	// "per-game Game Admins" decision gives Social Play.
 	CompetitionID string
-	// UserID is the subject holding Competition-Admin authority over
-	// CompetitionID.
+	// UserID is the User.ID (uuid, as of T29.1 — see the identifier-space
+	// note above) holding Competition-Admin authority over CompetitionID.
 	UserID string
-	// AssignedBy is the subject of the Host who made the assignment. Stored
-	// rather than inferred: Competition.HostID can only ever answer "who hosts
-	// this Competition now", and an audit of a delegated authority needs to
-	// record who actually granted it at the time.
+	// AssignedBy is the User.ID (uuid, as of T29.1) of the Host who made the
+	// assignment. Stored rather than inferred: Competition.HostID can only
+	// ever answer "who hosts this Competition now", and an audit of a
+	// delegated authority needs to record who actually granted it at the
+	// time.
 	AssignedBy string
 	// AssignedAt is when the assignment was made. Supplied by the caller
 	// (app.Service passes time.Now()) rather than read here, keeping this

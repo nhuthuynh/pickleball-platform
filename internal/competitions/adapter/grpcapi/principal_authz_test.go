@@ -270,8 +270,8 @@ func TestCreateCompetition_HostComesFromPrincipalNotWire(t *testing.T) {
 		t.Fatalf("CreateCompetition with a valid principal should succeed: %v", err)
 	}
 
-	if got := resp.GetCompetition().GetHostId(); got != attackerSubject {
-		t.Errorf("Competition.HostId = %q, want %q — host_id was taken from the wire, so a caller can create a Competition hosted by someone else", got, attackerSubject)
+	if want := resolvedUserID(attackerSubject); resp.GetCompetition().GetHostId() != want {
+		t.Errorf("Competition.HostId = %q, want %q — host_id was taken from the wire, so a caller can create a Competition hosted by someone else", resp.GetCompetition().GetHostId(), want)
 	}
 }
 
@@ -293,7 +293,7 @@ func TestEnterCompetition_EntrantComesFromPrincipalNotWire(t *testing.T) {
 		t.Fatalf("EnterCompetition with a valid principal should succeed: %v", err)
 	}
 
-	if got := resp.GetEntry().GetPlayerId(); got != attackerSubject {
-		t.Errorf("CompetitionEntry.PlayerId = %q, want %q — player_id was taken from the wire", got, attackerSubject)
+	if want := resolvedUserID(attackerSubject); resp.GetEntry().GetPlayerId() != want {
+		t.Errorf("CompetitionEntry.PlayerId = %q, want %q — player_id was taken from the wire", resp.GetEntry().GetPlayerId(), want)
 	}
 }

@@ -91,8 +91,15 @@ func (r *Repository) Create(ctx context.Context, c domain.Competition) (domain.C
 	qtx := r.q.WithTx(tx)
 
 	row, err := qtx.CreateCompetition(ctx, competitionsdb.CreateCompetitionParams{
-		ID:              mustUUID(c.ID),
-		HostID:          c.HostID,
+		ID: mustUUID(c.ID),
+		// HostID is a real uuid as of T29.1 (db/migrations/
+		// 0025_competitions_identity_conformance.sql) — mustUUID, not
+		// nullableUUID: c.HostID is always the caller's resolved User.ID,
+		// minted from the verified principal at CreateCompetition's grpcapi
+		// handler and never blank on this path (mirrors mustUUID's own
+		// "malformed here means an upstream invariant was already violated"
+		// reasoning).
+		HostID:          mustUUID(c.HostID),
 		Name:            c.Name,
 		VenueFacilityID: nullableUUID(c.VenueFacilityID),
 		Capacity:        int32(c.Capacity),
@@ -232,7 +239,11 @@ func (r *Repository) CreateEntry(ctx context.Context, e domain.CompetitionEntry)
 	row, err := r.q.CreateCompetitionEntry(ctx, competitionsdb.CreateCompetitionEntryParams{
 		ID:            mustUUID(e.ID),
 		CompetitionID: mustUUID(e.CompetitionID),
-		PlayerID:      e.PlayerID,
+		// PlayerID is a real uuid as of T29.1. mustUUID, not nullableUUID:
+		// domain.Enter rejects a blank PlayerID before this method is ever
+		// reached (domain.ErrEmptyPlayerID), so e.PlayerID is never blank
+		// here.
+		PlayerID:      mustUUID(e.PlayerID),
 		GuestCount:    int32(e.GuestCount),
 		Source:        string(e.Source),
 		Status:        string(e.Status),
@@ -491,10 +502,20 @@ func translateEntryErr(err error) error {
 // Sessions are deliberately NOT a parameter: they come from a different
 // query and every caller assigns them explicitly afterwards, so a Competition
 // can never silently acquire an empty session list from a caller that forgot.
-func competitionFromFields(id pgtype.UUID, hostID, name string, venueFacilityID pgtype.UUID, capacity, guestAllowance int32, paymentMethod, format, status string, entryFeeCents int64, entryFeeCurrency, shareToken string) domain.Competition {
+//
+// hostID is pgtype.UUID, not a plain string, as of T29.1
+// (db/migrations/0025_competitions_identity_conformance.sql) — the column
+// is nullable (an orphaned pre-Identity actor, per ADR-0017 Decision 3;
+// see that migration's own header for why this ticket ships it nullable
+// rather than NOT NULL), converted via fromNullableUUID to "" for a NULL
+// row, matching domain.Competition.HostID's existing "empty means unknown
+// actor" convention (unchanged by this ticket — see domain.Competition.
+// EnsureHost, which already treats an empty HostID as never matching any
+// actor).
+func competitionFromFields(id pgtype.UUID, hostID pgtype.UUID, name string, venueFacilityID pgtype.UUID, capacity, guestAllowance int32, paymentMethod, format, status string, entryFeeCents int64, entryFeeCurrency, shareToken string) domain.Competition {
 	return domain.Competition{
 		ID:              id.String(),
-		HostID:          hostID,
+		HostID:          fromNullableUUID(hostID),
 		Name:            name,
 		VenueFacilityID: fromNullableUUID(venueFacilityID),
 		Capacity:        int(capacity),
@@ -531,11 +552,15 @@ func sessionFromFields(startsAt, endsAt pgtype.Timestamptz, courtIDs []pgtype.UU
 // entryFromFields builds a domain.CompetitionEntry from the 7 columns every
 // competition_entries query selects — see competitionFromFields's doc
 // comment for why this pattern exists.
-func entryFromFields(id, competitionID pgtype.UUID, playerID string, guestCount int32, source, status, paymentStatus string) domain.CompetitionEntry {
+//
+// playerID is pgtype.UUID as of T29.1, converted via fromNullableUUID for
+// the identical orphan-tolerance reason competitionFromFields's hostID
+// parameter documents.
+func entryFromFields(id, competitionID pgtype.UUID, playerID pgtype.UUID, guestCount int32, source, status, paymentStatus string) domain.CompetitionEntry {
 	return domain.CompetitionEntry{
 		ID:            id.String(),
 		CompetitionID: competitionID.String(),
-		PlayerID:      playerID,
+		PlayerID:      fromNullableUUID(playerID),
 		GuestCount:    int(guestCount),
 		Source:        domain.EntrySource(source),
 		PaymentStatus: domain.PaymentStatus(paymentStatus),

@@ -248,4 +248,16 @@ var (
 	// domain rule — the exact sequence T14.4/T14.5 already proved for Social
 	// Play.
 	ErrNotCompetitionHostOrAdmin = errors.New("competitions: only the competition's host or an assigned competition admin may perform this action on this competition")
+
+	// ErrUserNotFound is Competitions' own, context-local sentinel
+	// (CLAUDE.md rule 5) for ResolveActorUserID/port.IdentityLookup.
+	// UserIDBySubject resolving a subject to no User — including when the
+	// subject is empty. Mirrors booking.domain.ErrUserNotFound,
+	// facilities.domain.ErrUserNotFound, and payments.domain.ErrUserNotFound
+	// exactly — one sentinel name reused per context (never a shared type,
+	// per CLAUDE.md rule 5) — added T29.1, closing the Competitions third of
+	// #164. internal/competitions/adapter/identity.translate folds
+	// identitydomain.ErrUserNotFound into this one rather than let it cross
+	// the context boundary.
+	ErrUserNotFound = errors.New("competitions: user not found")
 )

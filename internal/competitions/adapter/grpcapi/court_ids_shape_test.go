@@ -193,6 +193,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeRepo, *shapeBookingRepo) 
 		Reservation:  competitionsbooking.NewReservation(bookingSvc),
 		Facilities:   fakeFacilities{},
 		ShareTokens:  &fakeShareTokens{},
+		Identity:     newFakeIdentityLookup(),
 	})
 	return grpcapi.NewHandler(svc), repo, bookingRepo
 }

@@ -73,6 +73,25 @@ type Service struct {
 	// into competitions, for the reasons port.CompetitionAdminRepository's doc
 	// comment gives.
 	competitionAdmins port.CompetitionAdminRepository
+
+	// identity is ADR-0014/ADR-0017's resolution seam (T29.1, closing the
+	// Competitions third of #164), following the identical shape T13.2
+	// (Booking), T13.3 (Facilities), and T28.1 (Payments) already
+	// established. It backs exactly one method, ResolveActorUserID, called
+	// once per authenticated RPC from the grpcapi handler's actor() method —
+	// mirroring Booking's/Facilities'/Payments' identical single call site.
+	//
+	// Unlike the five ServiceOptions fields above, which the existing
+	// ServiceOptions doc comment already documents as "none of these is
+	// optional... a Service missing one would panic on a nil interface
+	// call", ResolveActorUserID guards this one explicitly and fails CLOSED
+	// (returns domain.ErrUserNotFound) rather than letting a nil identity
+	// panic — matching Payments' own T28.1 choice for the identical method,
+	// not this context's pre-existing convention for its other five fields.
+	// See ServiceOptions' own doc comment for why that specific deviation is
+	// made here rather than left to the natural nil-pointer panic every
+	// other field already gets.
+	identity port.IdentityLookup
 }
 
 // ServiceOptions is the dependency bundle for NewService.
@@ -103,6 +122,32 @@ type ServiceOptions struct {
 	// keep here: a sixth positional argument would have had to be threaded
 	// through every existing call site that has no use for it.
 	CompetitionAdmins port.CompetitionAdminRepository
+
+	// Identity backs ResolveActorUserID (T29.1, closing the Competitions
+	// third of #164) — ADR-0014/ADR-0017's resolution seam, wired once per
+	// authenticated RPC from the grpcapi handler's actor() method.
+	//
+	// A DELIBERATE DEVIATION from this struct's own documented convention
+	// above ("none of these is optional... a Service missing one would
+	// panic on a nil interface call rather than degrading gracefully"):
+	// ResolveActorUserID checks for a nil Identity explicitly and fails
+	// CLOSED (returns domain.ErrUserNotFound, -> codes.PermissionDenied)
+	// rather than letting the call panic. This intentionally matches
+	// Payments' own T28.1 choice for the identical method rather than this
+	// context's pre-existing panic-on-nil posture for its other five
+	// fields, for the same reason Payments gave: this field is
+	// load-bearing for EVERY authenticated RPC once wired in cmd/server
+	// (unlike the five fields above, each of which only a subset of
+	// call-through methods touch), so an operator who forgets to wire it
+	// gets "nobody can act", never "the subject is trusted unresolved" (the
+	// exact hazard this ticket's funnel change and backfill migration exist
+	// to close) or an unauthenticated-RPC-wide panic that a single missed
+	// wiring line would cause across the entire service. A test that only
+	// exercises app-layer logic directly — never through
+	// ResolveActorUserID/the grpcapi funnel — may still leave Identity nil,
+	// exactly as every other field above may be left nil by a test that
+	// doesn't exercise its call sites.
+	Identity port.IdentityLookup
 }
 
 // NewService constructs a Service from opts.
@@ -114,7 +159,23 @@ func NewService(opts ServiceOptions) *Service {
 		facilities:        opts.Facilities,
 		shareTokens:       opts.ShareTokens,
 		competitionAdmins: opts.CompetitionAdmins,
+		identity:          opts.Identity,
 	}
+}
+
+// ResolveActorUserID translates a verified IdP subject into the caller's
+// User.ID (uuid) — ADR-0014/ADR-0017's resolution seam (T29.1, closing the
+// Competitions third of #164), called once per authenticated RPC from the
+// grpcapi handler's actor() method. Mirrors
+// internal/payments/app.Service.ResolveActorUserID (T28.1) exactly,
+// including its fail-closed nil guard — see ServiceOptions.Identity's own
+// doc comment for why this one field departs from this package's usual
+// panic-on-nil posture.
+func (s *Service) ResolveActorUserID(ctx context.Context, subject string) (string, error) {
+	if s.identity == nil {
+		return "", domain.ErrUserNotFound
+	}
+	return s.identity.UserIDBySubject(ctx, subject)
 }
 
 // ScheduleCompetitionInput is the use-case input for scheduling a
@@ -512,11 +573,20 @@ func (s *Service) ListCompetitions(ctx context.Context, filter port.CompetitionL
 // may not. Social Play's ListRegistrationsForGame carries the full reasoning
 // and this is its exact twin.
 //
-// **No identifier resolution happens here, on purpose** (ADR-0014 §5a).
-// Competition.HostID is `text` holding the subject CreateCompetition minted
-// from the verified principal, and actorUserID is what actor(ctx) returns —
-// the same subject space on both sides, compared unchanged. ADR-0014 rules
-// explicitly that T13.6 adds no Identity port to this context.
+// **No identifier resolution happens HERE, in this method, either before or
+// after T29.1** — updated from this method's original T13.6-era comment,
+// which is now stale and is corrected rather than left to mislead a future
+// reader: as of T29.1 (closing the Competitions third of #164),
+// Competition.HostID is a real `uuid` (db/migrations/
+// 0025_competitions_identity_conformance.sql) holding the caller's resolved
+// User.ID, and actorUserID is what the grpcapi handler's actor(ctx) returns
+// AFTER resolving the verified subject through port.IdentityLookup — the
+// resolution step lives entirely at that boundary (ADR-0014's ruling), not
+// here. Both sides of the comparison this method's callee
+// (EnsureHostOrCompetitionAdmin) makes are User.ID uuids by the time they
+// reach this method; before T29.1 both were plain subjects instead,
+// compared unchanged in the identical shape (ADR-0014 §5a) — the comparison
+// logic itself never changed, only what feeds it.
 //
 // The check uses only facts this Service already holds (s.competitions), so
 // it adds no constructor dependency — a constraint T13.8 is planned on.
@@ -695,13 +765,21 @@ type AssignCompetitionAdminInput struct {
 	// wire. Only the Competition's Host passes
 	// domain.AssignCompetitionAdmin's check.
 	ActorUserID string
-	// AdminUserID is the subject being granted Competition-Admin authority.
+	// AdminUserID is the User.ID (uuid) being granted Competition-Admin
+	// authority, as of T29.1. Resolved by the grpcapi handler from the
+	// wire-supplied subject (AssignCompetitionAdminRequest.user_id) through
+	// the same port.IdentityLookup seam ActorUserID's own resolution uses —
+	// see Handler.resolveTargetUserID — never a raw subject by the time it
+	// reaches this struct. Before T29.1 this field held a plain subject
+	// instead (ADR-0014 §5a); see domain.CompetitionAdmin's doc comment for
+	// the full identifier-space history.
 	AdminUserID string
 }
 
 // RevokeCompetitionAdminInput is the use-case input for withdrawing a
 // Competition-Admin assignment (T15.3). Same actor semantics as
-// AssignCompetitionAdminInput.
+// AssignCompetitionAdminInput, including AdminUserID's T29.1 resolution —
+// see that struct's own field doc comment.
 type RevokeCompetitionAdminInput struct {
 	CompetitionID string
 	ActorUserID   string
