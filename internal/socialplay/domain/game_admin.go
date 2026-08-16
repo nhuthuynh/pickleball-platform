@@ -16,17 +16,30 @@ import "time"
 // check — or exclude admins entirely, which is what T13.6 did to Social Play's
 // roster read. This type is the durable fact those rules were missing.
 //
-// # Identifier space (ADR-0014 §5a, issue #164)
+// # Identifier space (ADR-0014/ADR-0017, issue #164 — UPDATED T29.2)
 //
-// UserID and AssignedBy hold **subjects** — the value
-// internal/platform/auth.RequireSubject returns, which is what CreateGame
-// already stores in Game.HostID. They are deliberately NOT uuids and
-// deliberately not resolved through the Identity context: ADR-0014 §5a rules
-// that Social Play's stored actor facts are non-conformant-but-self-consistent
-// text subjects, with conformance deferred to #164. Putting a uuid on one side
-// of a comparison whose other side is a subject is the exact failure that
-// ruling legislates against. db/migrations/0020_socialplay_game_admins.sql
-// carries the same note so a future backfill finds it.
+// UserID and AssignedBy hold **User.ID** (uuid) as of T29.2, closing the
+// Social Play third of #164: db/migrations/0026_socialplay_identity_conformance.sql
+// converts game_admins.user_id/assigned_by from `text` to
+// `uuid NOT NULL REFERENCES identity_users (id)`, backfilling every existing
+// row by joining its stored subject against identity_users.subject. This is
+// the same identifier space Game.HostID holds (both resolved once, at write
+// time, by the grpcapi handler's actor()/resolveUserID funnel — see
+// adapter/grpcapi.Handler.actor's and .resolveUserID's doc comments for the
+// full mechanism, including why AssignGameAdmin's/RevokeGameAdmin's
+// caller-supplied user_id target needed its own resolution step no other
+// context's identical migration required).
+//
+// BEFORE T29.2, UserID and AssignedBy held **subjects** — the value
+// internal/platform/auth.RequireSubject returned, unresolved. ADR-0014 §5a
+// ruled that deliberately (Social Play's stored actor facts were
+// non-conformant-but-self-consistent text subjects, with conformance
+// deferred to #164), and db/migrations/0020_socialplay_game_admins.sql's own
+// header comment carried the identical note — both are now historical: this
+// paragraph is kept, dated, rather than deleted, mirroring
+// internal/payments/adapter/grpcapi.Handler.actor's "kept all versions
+// dated" convention, so a reader tracing an old reference to "subjects" here
+// finds the history rather than a silently vanished claim.
 //
 // # What this type is not
 //

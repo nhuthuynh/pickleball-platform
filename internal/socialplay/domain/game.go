@@ -145,10 +145,16 @@ func NewGame(id, hostID, facilityID, venueFacilityID string, courtIDs []string, 
 // here. This package imports nothing outside the standard library and gains no
 // port import from this change.
 //
-// actorUserID is a verified subject as of T12.8 (the handler passes the bearer
-// token's principal, never a request field), in the same identifier space
-// g.HostID and GameAdmin.UserID hold — see domain.GameAdmin's doc comment and
-// ADR-0014 §5a. Nothing is resolved or converted on either side.
+// actorUserID is a verified principal as of T12.8, and — as of T29.2, closing
+// the Social Play third of #164 — a resolved **User.ID** (uuid), not a
+// subject: the grpcapi handler's actor() funnel now calls
+// app.Service.ResolveActorUserID before this method is ever reached.
+// g.HostID and GameAdmin.UserID are the same identifier space, resolved once
+// at write time (CreateGame/AssignGameAdmin) by the same funnel — see
+// domain.GameAdmin's doc comment and ADR-0014/ADR-0017. This method's own
+// comparison logic is UNCHANGED by that migration: nothing is resolved or
+// converted here either before or after T29.2 — only what feeds both sides
+// changed, at the grpcapi/postgres boundaries, not in this pure function.
 func (g Game) EnsureHostOrGameAdmin(actorUserID string, assigned []GameAdmin) error {
 	if actorUserID == "" {
 		return ErrNotGameHostOrAdmin
@@ -178,10 +184,11 @@ func (g Game) EnsureHostOrGameAdmin(actorUserID string, assigned []GameAdmin) er
 // empty admin list — that would make the difference an accident of the
 // caller's arguments rather than a stated rule.
 //
-// As with every actor-scoped check in this codebase, actorPlayerID is a
-// caller-supplied claim, not a verified identity: real authentication is
-// HANDOFF.md's open Auth item (T12.8 this sprint), and this method must not
-// be read as closing it.
+// actorPlayerID is a verified principal as of T12.8, and — as of T29.2,
+// closing the Social Play third of #164 — a resolved **User.ID** (uuid), the
+// same identifier space g.HostID holds; see EnsureHostOrGameAdmin's doc
+// comment above for the full identifier-space history. This method's
+// comparison logic is unchanged by that migration.
 func (g Game) EnsureHost(actorPlayerID string) error {
 	if actorPlayerID == "" || actorPlayerID != g.HostID {
 		return ErrNotGameHost

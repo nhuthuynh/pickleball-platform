@@ -191,6 +191,14 @@ func countActiveRegistrations(gameID string, existing []Registration, playerID s
 // registered -> cancelled; cancelling an already-cancelled registration is
 // rejected (ErrIllegalStatusTransition) rather than silently accepted,
 // mirroring booking.Booking.Cancel()/Game.Cancel().
+//
+// actorPlayerID is a verified principal as of T12.8, and — as of T29.2,
+// closing the Social Play third of #164 — a resolved **User.ID** (uuid), the
+// same identifier space r.PlayerID holds (both resolved once by the grpcapi
+// handler's actor() funnel: PlayerID at RegisterForGame/JoinWaitlist time,
+// actorPlayerID at CancelRegistration time). This method's comparison logic
+// is unchanged by that migration — see domain.Game.EnsureHost's doc comment
+// for the identical reasoning applied to Game.HostID.
 func (r *Registration) Cancel(actorPlayerID string) error {
 	if actorPlayerID != r.PlayerID {
 		return ErrNotRegistrationOwner

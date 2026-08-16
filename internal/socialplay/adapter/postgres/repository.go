@@ -77,8 +77,14 @@ func NewGameRepository(pool *pgxpool.Pool) *GameRepository {
 
 func (r *GameRepository) Create(ctx context.Context, g domain.Game) (domain.Game, error) {
 	row, err := r.q.CreateGame(ctx, socialplaydb.CreateGameParams{
-		ID:              mustUUID(g.ID),
-		HostID:          g.HostID,
+		ID: mustUUID(g.ID),
+		// HostID (T29.2, closing the Social Play third of #164): games.host_id
+		// is now `uuid NOT NULL REFERENCES identity_users (id)`
+		// (db/migrations/0026_socialplay_identity_conformance.sql), converted
+		// via mustUUID like every other Game id in this package — safe because
+		// app.Service's callers only ever hand this a resolved User.ID (the
+		// grpcapi handler's actor() funnel), never an unresolved subject.
+		HostID:          mustUUID(g.HostID),
 		FacilityID:      g.FacilityID,
 		VenueFacilityID: nullableUUID(g.VenueFacilityID),
 		CourtIds:        mustUUIDs(g.CourtIDs),
@@ -192,14 +198,22 @@ func translateGameErr(err error) error {
 // GetGameByIDRow, ...) rather than reusing socialplaydb.Game, mirroring the
 // fromFields pattern in internal/booking/adapter/postgres/repository.go
 // (CLAUDE.md gotcha: sqlc emits a distinct ...Row type per query).
-func gameFromFields(id pgtype.UUID, hostID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32, entryFeeCents int64, entryFeeCurrency string) domain.Game {
+//
+// hostID is pgtype.UUID, not string, as of T29.2 (closing the Social Play
+// third of #164): games.host_id is now
+// `uuid NOT NULL REFERENCES identity_users (id)`
+// (db/migrations/0026_socialplay_identity_conformance.sql). Converted back to
+// a Go string via .String() — domain.Game.HostID stays a Go string (a uuid
+// string, not a Go UUID type), per ADR-0017's own stated scope: a storage/
+// identifier-space change, not a Go representation change.
+func gameFromFields(id, hostID pgtype.UUID, facilityID string, venueFacilityID pgtype.UUID, courtIDs []pgtype.UUID, startsAt, endsAt pgtype.Timestamptz, capacity int32, status, paymentMethod string, guestAllowance int32, entryFeeCents int64, entryFeeCurrency string) domain.Game {
 	ids := make([]string, 0, len(courtIDs))
 	for _, c := range courtIDs {
 		ids = append(ids, c.String())
 	}
 	return domain.Game{
 		ID:              id.String(),
-		HostID:          hostID,
+		HostID:          hostID.String(),
 		FacilityID:      facilityID,
 		VenueFacilityID: fromNullableUUID(venueFacilityID),
 		CourtIDs:        ids,
@@ -229,9 +243,15 @@ func NewRegistrationRepository(pool *pgxpool.Pool) *RegistrationRepository {
 
 func (r *RegistrationRepository) Create(ctx context.Context, reg domain.Registration) (domain.Registration, error) {
 	row, err := r.q.CreateRegistration(ctx, socialplaydb.CreateRegistrationParams{
-		ID:            mustUUID(reg.ID),
-		GameID:        mustUUID(reg.GameID),
-		PlayerID:      reg.PlayerID,
+		ID:     mustUUID(reg.ID),
+		GameID: mustUUID(reg.GameID),
+		// PlayerID (T29.2, closing the Social Play third of #164):
+		// registrations.player_id is now
+		// `uuid NOT NULL REFERENCES identity_users (id)`
+		// (db/migrations/0026_socialplay_identity_conformance.sql) — safe via
+		// mustUUID because app.Service's callers only ever hand this a
+		// resolved User.ID (the grpcapi handler's actor() funnel).
+		PlayerID:      mustUUID(reg.PlayerID),
 		Source:        string(reg.Source),
 		Status:        string(reg.Status),
 		PaymentStatus: string(reg.PaymentStatus),
@@ -354,11 +374,18 @@ func translateRegistrationErr(err error) error {
 // registrationFromFields builds a domain.Registration from the 7 columns
 // every registrations query selects (6 pre-T8.7 + guest_count, T8.7) — see
 // gameFromFields's doc comment for why this pattern exists.
-func registrationFromFields(id, gameID pgtype.UUID, playerID, source, status, paymentStatus string, guestCount int32) domain.Registration {
+//
+// playerID is pgtype.UUID, not string, as of T29.2 (closing the Social Play
+// third of #164): registrations.player_id is now
+// `uuid NOT NULL REFERENCES identity_users (id)`
+// (db/migrations/0026_socialplay_identity_conformance.sql). Converted back to
+// a Go string via .String() — mirrors gameFromFields' identical HostID
+// conversion.
+func registrationFromFields(id, gameID, playerID pgtype.UUID, source, status, paymentStatus string, guestCount int32) domain.Registration {
 	return domain.Registration{
 		ID:            id.String(),
 		GameID:        gameID.String(),
-		PlayerID:      playerID,
+		PlayerID:      playerID.String(),
 		Source:        domain.RegistrationSource(source),
 		Status:        domain.RegistrationStatus(status),
 		PaymentStatus: domain.PaymentStatus(paymentStatus),

@@ -32,6 +32,7 @@ func gameAdminFixture(t *testing.T) (*app.Service, *fakeGameAdminRepository, dom
 	games := newFakeGameRepository()
 	admins := newFakeGameAdminRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),

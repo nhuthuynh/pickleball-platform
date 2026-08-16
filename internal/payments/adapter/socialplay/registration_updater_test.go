@@ -187,6 +187,7 @@ func TestUpdatePaymentStatus_Succeeds(t *testing.T) {
 		PaymentStatus: socialplaydomain.PaymentStatusUnpaid,
 	})
 	svc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		Identity:      fakeSocialplayIdentityLookup{},
 		IDs:           fakeIDs{},
 		Games:         fakeGames{},
 		Registrations: regs,
@@ -217,6 +218,7 @@ func TestUpdatePaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
 	svc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		Identity:      fakeSocialplayIdentityLookup{},
 		IDs:           fakeIDs{},
 		Games:         fakeGames{},
 		Registrations: newFakeRegistrations(),

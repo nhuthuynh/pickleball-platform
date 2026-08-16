@@ -130,6 +130,7 @@ func TestRecordOfflinePayment_RealSocialPlaySeam_HostSucceeds_AdminAssignThenRev
 		socialplaydomain.Registration{ID: boundaryReg3ID, GameID: boundaryGameID, PlayerID: "player-c", Status: socialplaydomain.RegistrationStatusRegistered, PaymentStatus: socialplaydomain.PaymentStatusUnpaid},
 	)
 	socialplaySvc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		Identity:      fakeSocialplayIdentityLookup{},
 		IDs:           fakeIDs{},
 		Games:         games,
 		Registrations: regs,

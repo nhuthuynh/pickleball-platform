@@ -28,9 +28,16 @@ import (
 // both per-call (T5.3's original design for CourtReservation — see
 // app.Service.ScheduleGame's doc comment; T8.3 gives FacilityLookup the
 // same treatment) rather than storing them on Service itself.
-// actor resolves the acting identity for an authenticated RPC (T12.8).
 //
-// This one function is the whole of A11 Ruling 3 for this context: the
+// actor resolves the acting identity for an authenticated RPC (T12.8), and
+// since T29.2 it is also ADR-0014/ADR-0017's translation seam for this
+// context — mirroring internal/booking/adapter/grpcapi/handler.go's,
+// internal/facilities/adapter/grpcapi/handler.go's, and
+// internal/payments/adapter/grpcapi/handler.go's identical funnels
+// (T13.2/T13.3/T28.1), the reference implementations this ticket followed
+// (the fourth instance of this exact pattern).
+//
+// This one method is the whole of A11 Ruling 3 for this context: the
 // Principal is translated into the plain actor string app.Service and
 // domain.Game.EnsureHost/domain.Registration.Cancel already take, here at the
 // grpcapi boundary, so internal/socialplay/{domain,app} keep their existing
@@ -44,6 +51,37 @@ import (
 // codes.Unauthenticated ("I do not know who you are"), never PermissionDenied
 // (ADR-0013 §5).
 //
+// **It returns a User.ID (uuid), not the subject, as of T29.2.** That is
+// ADR-0014/ADR-0017's ruling and the fix for #164's Social Play third — and,
+// as a side effect, Social Play's half of #237 (internal/payments'
+// authorizeGameRecording was comparing a resolved actor against this
+// context's still-subject-shaped HostID/admin UserID reads; once this
+// context's own stored values are backfilled to User.ID-shaped uuids
+// (db/migrations/0026_socialplay_identity_conformance.sql) and this funnel
+// resolves too, both sides of that Payments-side comparison are in the same
+// space again). Two steps, in this order, identical to Booking's/
+// Facilities'/Payments' funnel:
+//
+//  1. auth.RequireSubject — who is calling? A missing or unverified principal
+//     is codes.Unauthenticated, never PermissionDenied (ADR-0013 §5).
+//  2. app.Service.ResolveActorUserID — which User is that? A subject
+//     registered to no User is codes.PermissionDenied, never NotFound
+//     (ADR-0014 §6).
+//
+// **This is why the funnel change and the backfill migration
+// (db/migrations/0026_socialplay_identity_conformance.sql) land in the same
+// PR, not two.** Every actor-taking RPC on this service calls this one
+// method. The instant it starts returning a uuid instead of a subject, every
+// comparison against a *stored* Game.HostID/GameAdmin.UserID/
+// Registration.PlayerID/WaitlistEntry.PlayerID is only correct if the stored
+// side is also a uuid — landing this method's change without the migration
+// (or vice versa) would create exactly the identifier-space-mismatch window
+// CLAUDE.md rule 9 and this ticket's own instructions forbid.
+//
+// It is a method rather than a package function only because it needs the
+// service to reach port.IdentityLookup (via Service.ResolveActorUserID) —
+// NewHandler's own signature is unchanged.
+//
 // # One subject, two field names
 //
 // Social Play is the context where actor_player_id and actor_user_id meet:
@@ -51,10 +89,60 @@ import (
 // RecordMatchResult names it a *user*, and RecordMatchResult's actor and
 // CancelGame's actor are both compared against the same stored Game.HostID.
 // They were never two identifier spaces — see this ticket's PR body and the
-// tracked issue for the finding — so both resolve to the same verified subject
-// here rather than through an invented mapping.
-func actor(ctx context.Context) (string, error) {
-	return auth.RequireSubject(ctx)
+// tracked issue for the finding — so both resolve through this same one
+// funnel rather than through an invented mapping. Unchanged by T29.2.
+func (h *Handler) actor(ctx context.Context) (string, error) {
+	subject, err := auth.RequireSubject(ctx)
+	if err != nil {
+		return "", err
+	}
+	return h.resolveUserID(ctx, subject)
+}
+
+// resolveUserID is actor's shared translation step (subject -> User.ID),
+// factored out so a SECOND kind of caller-supplied subject — the ADMIN
+// TARGET named on AssignGameAdmin/RevokeGameAdmin's user_id field, which
+// identifies someone OTHER than the acting principal — can go through the
+// identical resolution and error-mapping without duplicating actor's own
+// auth.RequireSubject step (which only applies to the CALLING principal, not
+// to a subject the caller supplies about a third party).
+//
+// # Why AssignGameAdmin/RevokeGameAdmin need this too (a consequence of the
+// migration this ticket's own instructions do not spell out by name)
+//
+// AssignGameAdminRequest.user_id/RevokeGameAdminRequest.user_id are
+// documented on the wire (proto/pickleball/socialplay/v1/socialplay.proto)
+// as "the subject to grant/revoke authority to/from" — a caller-supplied
+// identifier for a DIFFERENT user than the one calling, which this codebase
+// has never had to resolve before (Booking/Facilities/Payments' identical
+// T13.2/T13.3/T28.1 migrations only ever had the ACTOR's own subject to
+// translate). As of this ticket, game_admins.user_id is a
+// `uuid REFERENCES identity_users (id)` column
+// (db/migrations/0026_socialplay_identity_conformance.sql): a real client
+// still sending a subject string (e.g. "auth0|target-user") straight through
+// to app.Service.AssignGameAdmin, unresolved, would reach
+// internal/socialplay/adapter/postgres's mustUUID() and PANIC on every real
+// assignment — the identical column-shape hazard ADR-0014 §4 walks through
+// for Booking, now on a field none of the three reference implementations
+// had to handle. Resolving it here, at the SAME boundary the acting
+// principal's own subject already resolves at, keeps the proto's wire
+// contract unchanged (a client still sends a subject) while making
+// everything below this handler see only User.ID-shaped uuids, per ADR-0014's
+// "nothing below the grpcapi boundary ever holds a subject" invariant.
+//
+// A blank subject is deliberately NOT passed through this method by its
+// callers below — see AssignGameAdmin's/RevokeGameAdmin's own bodies for why
+// an empty user_id skips resolution and flows straight through unresolved,
+// preserving domain.AssignGameAdmin's own ErrEmptyGameAdminUserID
+// (InvalidArgument) and app.Service.RevokeGameAdmin's mirroring guard, rather
+// than resolveUserID's own ErrUserNotFound (PermissionDenied) shadowing a
+// more specific, already-correct answer.
+func (h *Handler) resolveUserID(ctx context.Context, subject string) (string, error) {
+	userID, err := h.svc.ResolveActorUserID(ctx, subject)
+	if err != nil {
+		return "", toStatus(err)
+	}
+	return userID, nil
 }
 
 type Handler struct {
@@ -79,7 +167,7 @@ func NewHandler(svc *app.Service, reservation port.CourtReservation, facilities 
 // their own Games, or a caller hands Host-ship to a subject that is not
 // theirs.
 func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRequest) (*socialplayv1.CreateGameResponse, error) {
-	hostID, err := actor(ctx)
+	hostID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +201,7 @@ func (h *Handler) CreateGame(ctx context.Context, req *socialplayv1.CreateGameRe
 // minted for a claimed player_id could never be cancelled by the human it
 // names.
 func (h *Handler) RegisterForGame(ctx context.Context, req *socialplayv1.RegisterForGameRequest) (*socialplayv1.RegisterForGameResponse, error) {
-	playerID, err := actor(ctx)
+	playerID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +222,7 @@ func (h *Handler) RegisterForGame(ctx context.Context, req *socialplayv1.Registe
 // changed here is that the actor it compares against is verified rather than
 // claimed.
 func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.CancelRegistrationRequest) (*socialplayv1.CancelRegistrationResponse, error) {
-	actorPlayerID, err := actor(ctx)
+	actorPlayerID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +247,7 @@ func (h *Handler) CancelRegistration(ctx context.Context, req *socialplayv1.Canc
 // RPC most likely to be missed — and the most costly to miss, since cancelling
 // is destructive, irreversible, and deliberately not delegated to Game Admins.
 func (h *Handler) CancelGame(ctx context.Context, req *socialplayv1.CancelGameRequest) (*socialplayv1.CancelGameResponse, error) {
-	actorPlayerID, err := actor(ctx)
+	actorPlayerID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +265,7 @@ func (h *Handler) CancelGame(ctx context.Context, req *socialplayv1.CancelGameRe
 // player on promotion, so a claimed value here propagates into the aggregate
 // CancelRegistration guards.
 func (h *Handler) JoinWaitlist(ctx context.Context, req *socialplayv1.JoinWaitlistRequest) (*socialplayv1.JoinWaitlistResponse, error) {
-	playerID, err := actor(ctx)
+	playerID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +330,7 @@ func (h *Handler) ListGames(ctx context.Context, req *socialplayv1.ListGamesRequ
 // domain.ErrNotGameHostOrAdmin rather than domain.ErrNotGameHost — both of
 // which toStatus maps to codes.PermissionDenied, never Internal.
 func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv1.ListRegistrationsForGameRequest) (*socialplayv1.ListRegistrationsForGameResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +366,7 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 // themselves. Mutation-checked, exactly as T12.8 checked its own deprecated
 // fields; see match_admin_store_test.go.
 func (h *Handler) RecordMatchResult(ctx context.Context, req *socialplayv1.RecordMatchResultRequest) (*socialplayv1.RecordMatchResultResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -328,17 +416,35 @@ func (h *Handler) ListMatchesForGame(ctx context.Context, req *socialplayv1.List
 // The actor is the verified principal, never the wire — the request has no
 // actor field at all. A missing principal is codes.Unauthenticated ("I do not
 // know who you are"), never PermissionDenied (ADR-0013 §5), which is what
-// actor(ctx) returns on its own.
+// h.actor(ctx) returns on its own.
+//
+// req.GetUserId() (T29.2) — the SUBJECT of the user being granted authority,
+// per the proto's own doc comment — is resolved to a User.ID via
+// h.resolveUserID before it reaches app.Service, unless it is blank: see
+// resolveUserID's own doc comment for why this handler exists at all (a
+// non-actor subject this codebase never had to translate before) and why a
+// blank value is deliberately passed through unresolved rather than
+// resolved-and-rejected, so domain.AssignGameAdmin's own
+// ErrEmptyGameAdminUserID (InvalidArgument) still answers a blank user_id,
+// not resolveUserID's ErrUserNotFound (PermissionDenied).
 func (h *Handler) AssignGameAdmin(ctx context.Context, req *socialplayv1.AssignGameAdminRequest) (*socialplayv1.AssignGameAdminResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	adminUserID := req.GetUserId()
+	if adminUserID != "" {
+		adminUserID, err = h.resolveUserID(ctx, adminUserID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	admin, err := h.svc.AssignGameAdmin(ctx, app.AssignGameAdminInput{
 		GameID:      req.GetGameId(),
 		ActorUserID: actorUserID,
-		AdminUserID: req.GetUserId(),
+		AdminUserID: adminUserID,
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -357,16 +463,37 @@ func (h *Handler) AssignGameAdmin(ctx context.Context, req *socialplayv1.AssignG
 // caller who is not the Host never reaches either: the authorization check
 // runs before the store is consulted, so neither answer can be used to
 // enumerate a Game's admins.
+//
+// req.GetUserId() (T29.2) is resolved the same way AssignGameAdmin's is —
+// see that handler's and resolveUserID's own doc comments — and for the same
+// reason: game_admins.user_id is now a uuid column, and an unresolved
+// subject reaching the repository would panic mustUUID(). A blank value is
+// passed through unresolved rather than resolved-and-rejected: neither this
+// handler's own AdminUserID nor app.Service.RevokeGameAdmin ever validates
+// it against an empty-string rule the way AssignGameAdmin's domain
+// constructor does, so app.Service.RevokeGameAdmin itself gained a blank
+// guard (returning domain.ErrGameAdminNotFound directly, matching what a
+// blank user_id already answered pre-migration — the old text column's own
+// CHECK (user_id <> ”) meant no row could ever match one) rather than
+// leaving this handler to invent that fallback on its own.
 func (h *Handler) RevokeGameAdmin(ctx context.Context, req *socialplayv1.RevokeGameAdminRequest) (*socialplayv1.RevokeGameAdminResponse, error) {
-	actorUserID, err := actor(ctx)
+	actorUserID, err := h.actor(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	adminUserID := req.GetUserId()
+	if adminUserID != "" {
+		adminUserID, err = h.resolveUserID(ctx, adminUserID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if err := h.svc.RevokeGameAdmin(ctx, app.RevokeGameAdminInput{
 		GameID:      req.GetGameId(),
 		ActorUserID: actorUserID,
-		AdminUserID: req.GetUserId(),
+		AdminUserID: adminUserID,
 	}); err != nil {
 		return nil, toStatus(err)
 	}
@@ -448,7 +575,18 @@ func toStatus(err error) error {
 		// distinct sentinel: the two gate different permitted-actor sets
 		// (Host-only vs Host-or-Game-Admin). A shared status code is not a
 		// reason to share a sentinel — see domain/errors.go.
-		errors.Is(err, domain.ErrNotGameHost):
+		errors.Is(err, domain.ErrNotGameHost),
+		// T29.2 (closes the Social Play third of #164): actor()/
+		// resolveUserID resolve a subject to no User. PermissionDenied, not
+		// NotFound (ADR-0014 §6, restated by ADR-0017) — the caller is known
+		// (a verified principal for the acting subject, or at least a
+		// well-formed subject for an AssignGameAdmin/RevokeGameAdmin
+		// target), so this is not Unauthenticated either; they are simply
+		// not registered, and answering NotFound would turn every
+		// actor-taking RPC into a user-enumeration oracle. Mirrors
+		// booking/facilities/payments' identical mapping for their own
+		// ErrUserNotFound.
+		errors.Is(err, domain.ErrUserNotFound):
 		return status.Error(codes.PermissionDenied, err.Error())
 	case errors.Is(err, domain.ErrGameNotFound),
 		errors.Is(err, domain.ErrRegistrationNotFound),

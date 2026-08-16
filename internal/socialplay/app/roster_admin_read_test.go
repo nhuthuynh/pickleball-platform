@@ -48,6 +48,7 @@ func rosterFixture(t *testing.T) (*app.Service, domain.Game) {
 	t.Helper()
 
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),

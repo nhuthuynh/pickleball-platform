@@ -27,6 +27,11 @@ func completeOptions() app.ServiceOptions {
 		Waitlist:      newFakeWaitlistRepository(),
 		Matches:       newFakeMatchRepository(),
 		GameAdmins:    newFakeGameAdminRepository(),
+		// Identity (T29.2, closing the Social Play third of #164): required,
+		// like every other field here — see app.ServiceOptions.Identity's own
+		// doc comment for why this package treats it as required rather than
+		// optional/fail-closed.
+		Identity: fakeIdentityLookup{},
 	}
 }
 
@@ -44,6 +49,14 @@ func TestNewServicePanicsOnMissingRequiredDependency(t *testing.T) {
 		{"Registrations", func(o *app.ServiceOptions) { o.Registrations = nil }, "Registrations"},
 		{"Waitlist", func(o *app.ServiceOptions) { o.Waitlist = nil }, "Waitlist"},
 		{"Matches", func(o *app.ServiceOptions) { o.Matches = nil }, "Matches"},
+		// GameAdmins is a real, pre-existing field this table has never
+		// covered (T14.4 added it without extending this table or
+		// TestValidateReportsEveryMissingDependency's field list below) —
+		// found while adding Identity's own row, out of scope for this
+		// ticket to fix, and not fixed here so this diff stays legible as
+		// "add Identity's coverage," not "also silently repair an unrelated
+		// pre-existing test gap." Flagged in this ticket's PR body.
+		{"Identity", func(o *app.ServiceOptions) { o.Identity = nil }, "Identity"},
 	}
 
 	for _, tt := range tests {
@@ -96,7 +109,7 @@ func TestValidateReportsEveryMissingDependency(t *testing.T) {
 		t.Errorf("Validate() error does not wrap ErrMissingDependency: %v", err)
 	}
 
-	for _, field := range []string{"IDs", "Games", "Registrations", "Waitlist", "Matches"} {
+	for _, field := range []string{"IDs", "Games", "Registrations", "Waitlist", "Matches", "Identity"} {
 		if !strings.Contains(err.Error(), field) {
 			t.Errorf("Validate() error %q does not name missing field %q", err, field)
 		}

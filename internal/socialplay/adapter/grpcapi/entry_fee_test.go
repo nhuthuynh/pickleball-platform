@@ -28,6 +28,7 @@ func (f *fakeReservation) ReleaseCourt(_ context.Context, _ string) error { retu
 
 func newEntryFeeHandler() *grpcapi.Handler {
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &fakeIDs{},
 		Games:         newFakeGameRepo(),
 		Registrations: newFakeRegistrationRepo(),

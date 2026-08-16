@@ -55,6 +55,7 @@ func TestListRegistrationsForGame_MalformedIDIsEmptyNotAPanic(t *testing.T) {
 			t.Parallel()
 
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         newFakeGameRepository(),
 				Registrations: newFakeRegistrationRepository(),
@@ -88,6 +89,7 @@ func TestListRegistrationsForGame_WellFormedIDStillReads(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -145,6 +147,7 @@ func TestRegisterForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *t
 
 			games := newFakeGameRepository()
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         games,
 				Registrations: newFakeRegistrationRepository(),
@@ -182,6 +185,7 @@ func TestJoinWaitlist_MalformedGameIDIsNotFoundAndNeverReachesRepository(t *test
 
 			games := newFakeGameRepository()
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         games,
 				Registrations: newFakeRegistrationRepository(),
@@ -222,6 +226,7 @@ func TestCancelRegistration_MalformedRegistrationIDIsNotFoundAndNeverReachesRepo
 
 			registrations := newFakeRegistrationRepository()
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         newFakeGameRepository(),
 				Registrations: registrations,
@@ -255,6 +260,7 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 		t.Parallel()
 		games := newFakeGameRepository()
 		svc := app.NewService(app.ServiceOptions{
+			Identity:      fakeIdentityLookup{},
 			IDs:           &sequentialIDs{},
 			Games:         games,
 			Registrations: newFakeRegistrationRepository(),
@@ -276,6 +282,7 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 		t.Parallel()
 		games := newFakeGameRepository()
 		svc := app.NewService(app.ServiceOptions{
+			Identity:      fakeIdentityLookup{},
 			IDs:           &sequentialIDs{},
 			Games:         games,
 			Registrations: newFakeRegistrationRepository(),
@@ -297,6 +304,7 @@ func TestRegisterForGameAndJoinWaitlistAndCancelRegistration_WellFormedUnknownID
 		t.Parallel()
 		registrations := newFakeRegistrationRepository()
 		svc := app.NewService(app.ServiceOptions{
+			Identity:      fakeIdentityLookup{},
 			IDs:           &sequentialIDs{},
 			Games:         newFakeGameRepository(),
 			Registrations: registrations,
@@ -346,6 +354,7 @@ func TestRecordMatchResult_MalformedGameIDIsNotFoundAndNeverReachesRepository(t 
 			games := newFakeGameRepository()
 			matches := newFakeMatchRepository()
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         games,
 				Registrations: newFakeRegistrationRepository(),
@@ -392,6 +401,7 @@ func TestListMatchesForGame_MalformedGameIDIsNotFoundAndNeverReachesRepository(t
 
 			games := newFakeGameRepository()
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         games,
 				Registrations: newFakeRegistrationRepository(),
@@ -424,6 +434,7 @@ func TestRecordMatchResultAndListMatchesForGame_WellFormedUnknownIDsStillReachTh
 		t.Parallel()
 		games := newFakeGameRepository()
 		svc := app.NewService(app.ServiceOptions{
+			Identity:      fakeIdentityLookup{},
 			IDs:           &sequentialIDs{},
 			Games:         games,
 			Registrations: newFakeRegistrationRepository(),
@@ -450,6 +461,7 @@ func TestRecordMatchResultAndListMatchesForGame_WellFormedUnknownIDsStillReachTh
 		t.Parallel()
 		games := newFakeGameRepository()
 		svc := app.NewService(app.ServiceOptions{
+			Identity:      fakeIdentityLookup{},
 			IDs:           &sequentialIDs{},
 			Games:         games,
 			Registrations: newFakeRegistrationRepository(),

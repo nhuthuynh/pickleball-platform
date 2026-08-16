@@ -87,6 +87,7 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	waitlistRepo := socialplaypg.NewWaitlistRepository(pool)
 	matchRepo := socialplaypg.NewMatchRepository(pool)
 	socialplaySvc := socialplayapp.NewService(socialplayapp.ServiceOptions{
+		Identity:      fakeSocialplayIdentityLookup{},
 		IDs:           idgen.UUID{},
 		Games:         gameRepo,
 		Registrations: regRepo,

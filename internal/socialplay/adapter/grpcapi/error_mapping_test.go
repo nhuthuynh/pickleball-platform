@@ -281,6 +281,24 @@ func errorMappingCases() []errorMappingCase {
 			},
 		},
 		{
+			name:     "assigning game admin authority to an unregistered subject",
+			sentinel: "ErrUserNotFound",
+			err:      domain.ErrUserNotFound,
+			wantCode: codes.PermissionDenied,
+			why: "T29.2 (closes the Social Play third of #164): AssignGameAdminRequest.user_id names a well-formed subject " +
+				"the Identity service has never seen. PermissionDenied, not NotFound (ADR-0014 §6) — this field must not " +
+				"become a subject-enumeration oracle for an authenticated, authorized Host",
+			invoke: func(t *testing.T) error {
+				h, gameRepo, _ := newTestHandler()
+				game := seedGameWithHost(t, gameRepo, "map-assign-unregistered", mapHostID)
+				_, err := h.AssignGameAdmin(ctxAs(mapHostID), &socialplayv1.AssignGameAdminRequest{
+					GameId: game.ID,
+					UserId: unregisteredSubject,
+				})
+				return err
+			},
+		},
+		{
 			name:     "unknown venue facility id",
 			sentinel: "ErrFacilityNotFound",
 			err:      domain.ErrFacilityNotFound,

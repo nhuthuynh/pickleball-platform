@@ -559,6 +559,98 @@ func TestRecordOfflinePayment_RegistrationPayable_GameHostSucceeds(t *testing.T)
 	}
 }
 
+// TestRecordOfflinePayment_RegistrationPayable_ResolvedIdentifierSpaces_GameHostSucceeds
+// and its MismatchedActorRejected sibling below guard against issue #237
+// (T28.1 sprint plan §B1/§B2; docs/process/t29-sprint-plan.md §B1-B3):
+// authorizeGameRecording now compares Payments' own resolved ActorUserID
+// against Social Play's HostIDForGame/ListGameAdmins reads, and every
+// EXISTING test above (TestRecordOfflinePayment_RegistrationPayable_
+// GameHostSucceeds and its neighbours) builds both sides of that comparison
+// from the SAME short literal string ("host-1", "admin-1", ...) reused at
+// both call sites — which is exactly the shape #237's own "why existing
+// tests didn't catch it" section names: a test that cannot tell a
+// resolved-uuid identifier space from a still-subject one, because nothing
+// about the fixture distinguishes them.
+//
+// These two tests use independently-defined, realistic uuid-shaped literal
+// constants instead — gameHostUserID and mismatchedActorUserID are each
+// their own named const, never derived from one another or typed twice by
+// hand for "the same" meaning — so a future change that resolved one side of
+// this comparison through a different identifier-space transform than the
+// other (the precise shape of #237: Payments' actor resolved, Social Play's
+// stored value not) would break the success case's equality (both sides
+// stop being literally the same value) without needing the failure case to
+// coincidentally also start passing. Both are required to catch the
+// regression: a change that broke ONLY equality would fail the success
+// test; a change that made the check accept everything (fail open) would
+// fail the rejection test instead.
+func TestRecordOfflinePayment_RegistrationPayable_ResolvedIdentifierSpaces_GameHostSucceeds(t *testing.T) {
+	t.Parallel()
+
+	const gameHostUserID = "8f14e45f-ceea-467e-bd9f-2a1f7e5b1a10"
+
+	regs, games, admins := newGameAuthzFixtures(gameHostUserID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+
+	p, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: gameHostUserID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if p.RecordedByUserID != gameHostUserID {
+		t.Fatalf("RecordedByUserID = %q, want %q", p.RecordedByUserID, gameHostUserID)
+	}
+}
+
+// TestRecordOfflinePayment_RegistrationPayable_ResolvedIdentifierSpaces_MismatchedActorRejected
+// is the failure half of the pair above — see that test's doc comment for
+// the full #237 reasoning. gameHostUserID and mismatchedActorUserID are two
+// DISTINCT literal uuids, neither derived from the other, both equally
+// well-formed: this proves the comparison denies on any genuine mismatch
+// (the shape a resolved-vs-still-subject #237-style bug would actually
+// produce — two different-looking, individually plausible values), not
+// merely on an empty-string or short-placeholder-string case the way the
+// pre-existing UnassignedActorRejected test above does. This also covers
+// PayableTypeNoShowFee, not just PayableTypeRegistration: both payable
+// types delegate to this exact same authorizeGameRecording function (see
+// that method's own doc comment in internal/payments/app/service.go), so one
+// test proves the comparison for both.
+func TestRecordOfflinePayment_RegistrationPayable_ResolvedIdentifierSpaces_MismatchedActorRejected(t *testing.T) {
+	t.Parallel()
+
+	const gameHostUserID = "8f14e45f-ceea-467e-bd9f-2a1f7e5b1a10"
+	const mismatchedActorUserID = "3c2fa8b2-5a91-4e3d-9d0a-6f0d1c8e2b44"
+
+	regs, games, admins := newGameAuthzFixtures(gameHostUserID)
+	svc := app.NewService(app.ServiceOptions{
+		Payments:           newFakeRepository(),
+		IDs:                &fixedIDs{ids: []string{"pay-1"}},
+		RegistrationLookup: regs,
+		GameLookup:         games,
+		GameAdminReader:    admins,
+	})
+
+	_, err := svc.RecordOfflinePayment(context.Background(), app.RecordOfflinePaymentInput{
+		PayableType: domain.PayableTypeRegistration,
+		PayableID:   fixtureRegistrationID,
+		Amount:      offlineFixtureAmount(),
+		ActorUserID: mismatchedActorUserID,
+	})
+	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
+		t.Fatalf("got err %v, want %v", err, domain.ErrNotPaymentRecorder)
+	}
+}
+
 // TestRecordOfflinePayment_RegistrationPayable_AssignedGameAdminSucceeds
 // proves the glossary's Game Admin scope (agent-operating-handbook.md
 // A2): a Game Admin assigned to the specific Game may record an offline

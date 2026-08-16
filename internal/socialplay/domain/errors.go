@@ -327,4 +327,22 @@ var (
 	ErrHostCannotBeGameAdmin = errors.New("socialplay: a game's host cannot also be one of its game admins")
 	ErrAlreadyGameAdmin      = errors.New("socialplay: user is already a game admin for this game")
 	ErrGameAdminNotFound     = errors.New("socialplay: game admin assignment not found")
+
+	// ErrUserNotFound is Social Play's own, context-local sentinel (T29.2,
+	// closing the Social Play third of #164) for
+	// app.Service.ResolveActorUserID: a verified IdP subject that resolves to
+	// no registered User, including when the subject is empty. Mirrors
+	// booking.domain.ErrUserNotFound/facilities.domain.ErrUserNotFound/
+	// payments.domain.ErrUserNotFound exactly — one sentinel name reused per
+	// context rather than shared, so this package never imports
+	// internal/identity/domain (CLAUDE.md rule 2) and adapter/identity
+	// translates identitydomain.ErrUserNotFound into this one rather than let
+	// it cross the boundary as itself (CLAUDE.md rule 5).
+	//
+	// grpcapi.toStatus maps this to codes.PermissionDenied, not NotFound
+	// (ADR-0014 §6): the caller's token verified, so this is not
+	// Unauthenticated either — they are simply not registered, and answering
+	// NotFound would turn every actor-taking RPC into a user-enumeration
+	// oracle.
+	ErrUserNotFound = errors.New("socialplay: user not found")
 )

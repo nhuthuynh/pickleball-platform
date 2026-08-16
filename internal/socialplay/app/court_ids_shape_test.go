@@ -75,6 +75,7 @@ func TestScheduleGame_MalformedCourtIDRejectedBeforeReservingCourts(t *testing.T
 			reservation := newFakeReservation()
 			games := newFakeGameRepository()
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         games,
 				Registrations: newFakeRegistrationRepository(),
@@ -109,6 +110,7 @@ func TestScheduleGame_MalformedCourtIDInFirstPositionRejected(t *testing.T) {
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -147,6 +149,7 @@ func TestScheduleGame_EmptyCourtIDsStillReportsEmptyNotMalformed(t *testing.T) {
 			t.Parallel()
 
 			svc := app.NewService(app.ServiceOptions{
+				Identity:      fakeIdentityLookup{},
 				IDs:           &sequentialIDs{},
 				Games:         newFakeGameRepository(),
 				Registrations: newFakeRegistrationRepository(),
@@ -174,6 +177,7 @@ func TestScheduleGame_WellFormedCourtIDsStillReserve(t *testing.T) {
 
 	reservation := newFakeReservation()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),

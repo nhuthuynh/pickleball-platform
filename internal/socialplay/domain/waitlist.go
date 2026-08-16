@@ -160,6 +160,12 @@ func (w *WaitlistEntry) Expire() error {
 // waiting or promoted (a player can withdraw even after being promoted, not
 // just while still queued); cancelling an already-terminal entry (expired or
 // cancelled) is rejected via ErrIllegalStatusTransition.
+//
+// actorPlayerID is a verified principal as of T12.8, and — as of T29.2,
+// closing the Social Play third of #164 — a resolved **User.ID** (uuid), the
+// same identifier space w.PlayerID holds. This method's comparison logic is
+// unchanged by that migration — see domain.Registration.Cancel's identical
+// note.
 func (w *WaitlistEntry) Cancel(actorPlayerID string) error {
 	if actorPlayerID != w.PlayerID {
 		return ErrNotWaitlistEntryOwner

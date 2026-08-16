@@ -437,13 +437,16 @@ message CancelGameResponse {
 //
 // # Read user_id and assigned_by carefully before comparing them to anything
 //
-// Both hold the caller's verified **subject** (an IdP `sub` such as
-// "auth0|abc123"), the same identifier space Game.host_id holds, NOT a uuid
-// and NOT an identity_users.id. That is ADR-0014 §5a's ruling for this
-// context, with conformance to the platform's uuid convention deferred to
-// #164; db/migrations/0020_socialplay_game_admins.sql records the same note
-// on the columns themselves. A client comparing these against a User id from
-// the Identity service will match nothing.
+// Both hold the platform's own **User.ID** (uuid, an identity_users.id) as
+// of T29.2, closing the Social Play third of #164 — the same identifier
+// space Game.host_id holds. BEFORE T29.2 both held the caller's verified
+// **subject** (an IdP `sub` such as "auth0|abc123") instead, per ADR-0014
+// §5a's original deferral for this context; that history is kept here,
+// dated, rather than deleted (see db/migrations/
+// 0026_socialplay_identity_conformance.sql for the backfill, and
+// internal/socialplay/domain.GameAdmin's own doc comment for the fuller
+// account). A client comparing these against a raw subject rather than a
+// User.ID from the Identity service will now match nothing.
 //
 // There is no `id` field: an assignment's identity IS (game_id, user_id) —
 // the table's composite primary key — and nothing references one by any other
@@ -453,11 +456,13 @@ message GameAdmin {
   // Games: this is what CLAUDE.md's locked "per-game Game Admins" decision
   // means.
   string game_id = 1;
-  // user_id is the subject holding Game-Admin authority over game_id.
+  // user_id is the User.ID (uuid) holding Game-Admin authority over game_id,
+  // as of T29.2 — see this message's own doc comment for the identifier-space
+  // history.
   string user_id = 2;
-  // assigned_by is the subject of the Host who granted it. Recorded rather
-  // than inferred from the Game's current host_id, which can only answer who
-  // hosts the Game now.
+  // assigned_by is the User.ID (uuid) of the Host who granted it, as of
+  // T29.2. Recorded rather than inferred from the Game's current host_id,
+  // which can only answer who hosts the Game now.
   string assigned_by = 3;
   google.protobuf.Timestamp assigned_at = 4;
 }
@@ -474,9 +479,17 @@ message GameAdmin {
 // token, and who holds Game-Admin authority becomes a fact the server stores.
 message AssignGameAdminRequest {
   string game_id = 1;
-  // user_id is the subject to grant authority to — a subject, not a uuid; see
-  // GameAdmin's doc comment. Must not be blank, and must not be the Game's own
-  // Host (INVALID_ARGUMENT either way).
+  // user_id is the SUBJECT of the user to grant authority to — an IdP `sub`,
+  // not a uuid, unchanged on the wire by T29.2: the server resolves it to a
+  // User.ID via the same Identity lookup the acting principal's own subject
+  // resolves through, before it is compared against or stored against
+  // anything (see internal/socialplay/adapter/grpcapi.Handler.resolveUserID's
+  // doc comment for why this field specifically needed that extra step, and
+  // GameAdmin's own doc comment for what the STORED value now holds). Must
+  // not be blank, and must not be the Game's own Host (INVALID_ARGUMENT
+  // either way); must name a subject registered to a real User
+  // (PERMISSION_DENIED otherwise, ADR-0014 §6 — not NOT_FOUND, so this field
+  // cannot be used to enumerate which subjects are registered).
   string user_id = 2;
 }
 
@@ -486,7 +499,9 @@ message AssignGameAdminResponse {
 
 // RevokeGameAdminRequest names the Game and the user whose assignment is being
 // withdrawn (T14.4). Both fields are path parameters on the REST mapping. Same
-// no-actor-field rule as AssignGameAdminRequest above.
+// no-actor-field rule as AssignGameAdminRequest above, and the same
+// subject-in/User.ID-resolved-before-storage treatment of user_id (T29.2) —
+// see AssignGameAdminRequest.user_id's own doc comment.
 message RevokeGameAdminRequest {
   string game_id = 1;
   string user_id = 2;
@@ -634,10 +649,13 @@ service SocialPlayService {
   //
   // Other answers: an unknown or malformed game_id is codes.NOT_FOUND; a
   // user_id already assigned to this Game is codes.ALREADY_EXISTS; a blank
-  // user_id, or the Host's own subject, is codes.INVALID_ARGUMENT (a Host is
-  // already entitled to everything an admin is, so the row would grant
-  // nothing while making a later revoke look like it stripped Host
-  // authority).
+  // user_id, or a user_id naming the Host's own subject, is
+  // codes.INVALID_ARGUMENT (a Host is already entitled to everything an
+  // admin is, so the row would grant nothing while making a later revoke
+  // look like it stripped Host authority); a well-formed but unregistered
+  // user_id (a subject the Identity service has never seen — T29.2) is
+  // codes.PERMISSION_DENIED, not codes.NOT_FOUND (ADR-0014 §6 — this field
+  // must not become a subject-enumeration oracle).
   //
   // A POST to a sub-collection rather than a verb-suffixed path, because
   // this genuinely creates a new sub-resource — unlike CancelGame above,
