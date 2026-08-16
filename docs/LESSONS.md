@@ -1733,3 +1733,36 @@ healthy" engagement question was not re-derived from scratch — this retro's
 own sixth live check of the two named reopening conditions found neither
 fired, changing nothing about the conclusion T23 retro already reached, and
 states that in one sentence rather than a fresh analysis.
+
+## T26 sprint retro
+
+Held as `docs/process/t26-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17/T18/T19/T20/T21/T22/T23/T24/T25 set
+and CLAUDE.md's **Docs index & naming convention**.
+
+T26 was this project's seventh 0-ticket sprint (PR #230). This retro found no
+incident and no shipped code to mutation-test; its work was independently
+re-verifying, live rather than from the plan's own prose, that all 8 open
+issues' blockers held for the whole sprint (matching T26's plan's own
+live-fetched table field-for-field), that the `golang-migrate`/`goose`
+roadmap-debt classification stayed correctly unticketed on a fresh grep and
+the ADR/migration directory listings (still ending at `0016`/`0023`), and
+that neither D1 nor D2 was answered — both ADRs' `## Status` sections and
+#144's comment body re-fetched and read directly. No precision correction
+was owed this sprint: the `## Status`-heading-vs-frontmatter-bullet
+correction T24 retro established was already carried forward by T26's own
+Ceremony 1, and this retro's own re-read confirmed the corrected citation
+form holds throughout, with nothing left to fix a second time. DoD (d) —
+whether either of T21 retro's two named reopening conditions fired
+mid-sprint — was checked live for the seventh time by a seventh distinct
+ceremony, with an identical "neither fired" result each time. Two running
+counts were carried forward: the backlog's consecutive-static-check count
+(a per-ceremony counter) increments to **twelve**; DECISION D1's
+consecutive-sprint-silence count (a per-sprint counter) holds at
+**thirteen** (T14 through T26), unchanged within this same sprint rather
+than double-incremented. Per the task's own instruction and T23 retro's
+finding 7, the "is a 0-ticket sprint healthy" engagement question was not
+re-derived from scratch — this retro's own seventh live check of the two
+named reopening conditions found neither fired, changing nothing about the
+conclusion T23 retro already reached, and states that in one sentence
+rather than a fresh analysis.
