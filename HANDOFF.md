@@ -40,7 +40,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T17 | `docs/process/t17-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean for the second sprint running, verifies T16's own row-correction was accurate rather than re-touching it, lands two `sprint-process.md` amendments — the same-wave shared-interface verification rule and the dependency-completeness check's transcription clause — takes **#195**'s four per-context tickets now that its T16-plan scoring condition has fired, and takes the corrected/labelled **#198**; Ceremony 2 tickets 5 items, 17 points) | `docs/process/t17-retro.md` (5 findings; most consequentially, Ceremony 1's own ticket text carried forward a wrong bounded-context assignment for `discount_rules.facility_id` from #195's own filing a sprint earlier, caught by implementation-time diligence rather than the planning-time check that should have caught it, zero shipped harm) | PRs #202 (Ceremony 1/2 doc) → #203 (T17.2) → #204 (T17.5) → #205 (T17.3) → #206 (T17.1) → #207 (T17.4), in that merge order (verified against each PR's `merged_at` per this project's standing convention) — all merged, all reviewed via GitHub review comments, see naming convention | none new | — |
 | T18 | `docs/process/t18-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean for the third sprint running, applies T17 retro's new migration-header-ownership check for real, takes the one genuinely unblocked issue on the backlog — **#167**, a Stripe webhook receiver for online-payment capture; Ceremony 2 tickets 1 item, 8 points) | `docs/process/t18-retro.md` (mutation checks independently reproduced against the merged tree; one narrow "byte-for-byte" overclaim caught in the PR's own summary prose, zero shipped consequence) | PRs #209 (Ceremony 1/2 doc) → #210 (T18.1) → #211 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention) — all merged, all reviewed via GitHub review comments, see naming convention | none new | — |
 | T19 | `docs/process/t19-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean for the fifth sprint running, re-verifies all 8 open issues' blockers live and finds every one still genuinely blocked, then finds and files two disclosed-but-never-issued gaps from `HANDOFF.md`'s own Cross-cutting section as **#212**/**#213** and takes both rather than manufacture a ticket against a blocked issue or scope a 0-ticket sprint; Ceremony 2 tickets 2 items, 8 points) | `docs/process/t19-retro.md` (no incident-grade finding; two mutation checks and a fourth, independently-authored concurrency reproduction re-performed against the merged tree; names T19.2's status precisely as "manually proven, CI-unexecuted"; 5 recommendations for T20) | PRs #214 (Ceremony 1/2 doc) → #215 (T19.2) → #216 (T19.1) → #217 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention — T19.2 merged before T19.1 despite the opposite dispatch order, checked not presumed) — all merged, all reviewed via GitHub review comments, see naming convention | none new | — |
-| T20 | `docs/process/t20-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean for the sixth sprint running, re-verifies all 8 open issues' blockers live and finds every one still genuinely blocked, re-scans `HANDOFF.md`'s Cross-cutting section a third time and finds the one promising-looking candidate — the `golang-migrate`/`goose` migration-tooling swap — already settled as roadmap debt, not a disclosed gap, by four separate prior ceremonies; takes zero tickets rather than manufacture one or reopen that settled classification on no new fact; Ceremony 2 sprint goal is confirm-and-report) | not yet written | not yet opened | none new | — |
+| T20 | `docs/process/t20-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean for the sixth sprint running, re-verifies all 8 open issues' blockers live and finds every one still genuinely blocked, re-scans `HANDOFF.md`'s Cross-cutting section a third time and finds the one promising-looking candidate — the `golang-migrate`/`goose` migration-tooling swap — already settled as roadmap debt, not a disclosed gap, by four separate prior ceremonies; takes zero tickets rather than manufacture one or reopen that settled classification on no new fact; Ceremony 2 sprint goal is confirm-and-report) | `docs/process/t20-retro.md` (no incident-grade finding; independently re-verified live, issue by issue, that all 8 open issues' blockers held for the whole sprint and that the migration-tooling classification stayed correctly unticketed; engaged PM's carried-forward stalled-backlog concern directly rather than mechanically, and sharpened it into its more accurate and more actionable form — D1's eight-sprint silence with no escalation beyond the original ADR comment, not the shrinking-sprint-size trend, which has an ordinary explanation; 4 recommendations for T21) | PRs #218 (Ceremony 1/2 doc) → #219 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `19:46:10Z` → `19:52:17Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
+| T21 | `docs/process/t21-sprint-plan.md` (Ceremony 1 corrects T20's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean for the seventh sprint running, re-verifies all 8 open issues' blockers live — unchanged for the tenth consecutive sprint running (T12 through T21) — re-scans `HANDOFF.md`'s Cross-cutting section a fourth time and finds nothing new, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged; dispositions all four of T20 retro's recommendations, including closing the loop on D1's escalation question — put to the user directly outside this repository, who chose continued deferral of both D1 and D2 — rather than leaving it open or proposing a new mechanism; takes zero tickets, the second 0-ticket sprint in this project's history) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -984,6 +985,68 @@ debt per four separate prior ceremonies (T11–T14), not a disclosed gap,
 and reopening that classification on no new fact would itself be
 manufactured scope. D1 and D2 both remain unanswered by the user — put to
 the user again as their own items, neither implemented nor guessed at.
+
+**Outcome: 0 tickets, 0 points, confirmed rather than assumed** (PR #218 for
+the Ceremony 1/2 doc, plus #219 for the retro). Retro: `docs/process/
+t20-retro.md` — no incident-grade finding, 4 recommendations that bind T21's
+Ceremony 1 and 2 (`docs/process/t21-sprint-plan.md` gives each one a
+disposition).
+
+**State the outcome in this form, not a stronger one.** This is the retro's
+own agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires the
+retro's form, not a stronger one).
+
+> T20 shipped zero tickets, the first 0-ticket sprint in this project's
+> history, and this retro independently re-verified rather than trusted
+> that the reason was real: all 8 tracked issues' blockers were re-checked
+> live, issue by issue, and every one's `updated_at` timestamp predates the
+> sprint plan's own merge — none moved. The `golang-migrate`/`goose`
+> migration-tooling classification (settled roadmap debt per four prior
+> ceremonies, T11–T14) is unchanged, re-checked against a fresh grep and a
+> fresh full read of `HANDOFF.md`'s Cross-cutting section rather than
+> assumed. Neither D1 nor D2 was answered; D2 recorded its sixth sprint
+> with nothing to score, but of a structurally different and weaker kind
+> than T15–T19's five instances — no PR existed this sprint to test the
+> interim rule against, not a PR that needed no fix. On PM's carried-forward
+> stalled-backlog concern, this retro independently re-examined rather than
+> restated the plan's defense and reaches the same operational conclusion
+> (proceed, don't manufacture scope) for a sharper reason: the
+> shrinking-sprint-size trend (T17: 5 tickets, T18: 1, T19: 2, T20: 0) has
+> an ordinary explanation — a one-time FK-translation cleanup burst at T17
+> followed by a genuinely finite pool of small disclosed-but-unfiled gaps
+> running low by T19 — and the part of the backlog that actually resembles
+> a stalled process is not sprint size, it is D1 sitting with a single
+> unchanging ADR comment for eight sprints running with no escalation
+> beyond that comment. This retro recommends T21 raise D1's silence to the
+> user directly, on its own terms, rather than folding it into a general
+> "sprints are getting smaller" framing that has an ordinary explanation
+> and would misdirect the actual signal.
+
+**T21 — Correct T20's row, re-verify the backlog is still genuinely
+blocked, and close the loop on T20 retro's D1-escalation recommendation.**
+Ceremony 1/2 complete; full reasoning, the sweep re-run a seventh sprint
+running, the live re-verification of all 8 open issues (unchanged for the
+tenth consecutive sprint, T12 through T21), the Cross-cutting re-scan (fourth
+sprint running, T18–T21), and a disposition for each of T20 retro's four
+recommendations: `docs/process/t21-sprint-plan.md`. 0 tickets, 0 points —
+the second 0-ticket sprint in this project's history, for the identical
+reason as T20's: every tracked issue is still exactly as blocked as it was,
+and the `golang-migrate`/`goose` migration-tooling swap remains settled
+roadmap debt, not a disclosed gap, on no new fact. **T20 retro's
+most-consequential recommendation — whether D1's eight-sprint silence
+changes the cost-benefit of escalating harder than another ADR comment — is
+closed, not left open or re-escalated by this ceremony itself**: the
+coordinating session put that exact question to the user directly, outside
+this repository, ahead of this ceremony, and the user's explicit answer was
+to keep the sprint loop running and let both D1 and D2 continue to be
+re-deferred each sprint rather than escalate further. This ceremony
+accordingly proposes no new escalation mechanism and does not implement or
+guess at D1/D2 — it names D1's ninth deferral plainly (the same way every
+prior ceremony has) and records, once, that the user was asked and chose
+continued deferral, discharging the recommendation honestly rather than
+repeating it. D1 and D2 both remain formally open per ADR-0015/ADR-0016 —
+this ceremony's disposition of the *recommendation* is not a resolution of
+the *decisions themselves*, which stay exactly where they were.
 
 **Outcome: not yet executed as of this entry.**
 
