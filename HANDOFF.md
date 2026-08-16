@@ -50,7 +50,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T26 | `docs/process/t26-sprint-plan.md` (Ceremony 1 corrects T25's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a ninth time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live in the abbreviated form T23/T24/T25 retro established) | `docs/process/t26-retro.md` (no incident-grade finding and no precision correction either; independently re-verified live, issue by issue, that all 8 open issues' blockers held for the whole sprint, byte-for-byte against the plan's own live-fetched table; re-confirmed the `golang-migrate`/`goose` migration-tooling classification unchanged; confirmed D1/D2 unanswered as formal ADR decisions, reading both ADRs' `## Status` sections and #144's comment body directly; scored DoD (d) live for the seventh time running with an identical result; carried forward two running counters — the backlog's consecutive-static-check count to twelve, D1's consecutive-sprint-silence count held at thirteen within the same sprint; 4 recommendations for T27) | PRs #230 (Ceremony 1/2 doc) → #231 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:16:20Z` → `11:21:00Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 
 | T27 | `docs/process/t27-sprint-plan.md` (Ceremony 1 corrects T26's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a tenth time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live in the abbreviated form T23–T26 retro established) | `docs/process/t27-retro.md` (no incident-grade finding and no precision correction either; independently re-verified live, issue by issue, that all 8 open issues' blockers held for the whole sprint, byte-for-byte against the plan's own live-fetched table; re-confirmed the `golang-migrate`/`goose` migration-tooling classification unchanged; confirmed D1/D2 unanswered as formal ADR decisions, reading both ADRs' `## Status` sections and #144's comment body directly; scored DoD (d) live for the eighth time running with an identical result; carried forward two running counters — the backlog's consecutive-static-check count to fourteen, D1's consecutive-sprint-silence count held at fourteen within the same sprint; 4 recommendations for T28) | PR #232 (Ceremony 1/2 doc) → retro doc, in that merge order (verified against each PR's `merged_at` per this project's standing convention) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
-| T28 | `docs/process/t28-sprint-plan.md` (Ceremony 1 re-examines issue #164's fourteen-sprint "blocked on a real IdP tenant" classification against its own issue text, ADR-0014 §5/§5a, and the current codebase — independently confirms the classification was wrong, reclassifies #164 as genuinely unblocked scoped engineering work following the T13.2/T13.3 precedent, and takes the smallest of its three per-context slices (Payments) as Wave 1, explicitly deferring Social Play/Competitions to T29 rather than forcing all three into one sprint on unproven backfill-migration cost; also re-verifies the other 7 issues' blockers live, including re-confirming #145 remains genuinely IdP-blocked despite its superficial similarity to #164; Ceremony 2 tickets 1 item, 8 points — the project's first non-zero sprint since T19) | not yet written | not yet opened | `adr/0017` (extends ADR-0014's ruling to Social Play/Competitions/Payments: translate-not-widen still applies, these columns become real `uuid` FKs once backfilled, and states the orphaned-subject-row ruling the backfill migration follows) | — |
+| T28 | `docs/process/t28-sprint-plan.md` (Ceremony 1 re-examines issue #164's fourteen-sprint "blocked on a real IdP tenant" classification against its own issue text, ADR-0014 §5/§5a, and the current codebase — independently confirms the classification was wrong, reclassifies #164 as genuinely unblocked scoped engineering work following the T13.2/T13.3 precedent, and takes the smallest of its three per-context slices (Payments) as Wave 1, explicitly deferring Social Play/Competitions to T29 rather than forcing all three into one sprint on unproven backfill-migration cost; also re-verifies the other 7 issues' blockers live, including re-confirming #145 remains genuinely IdP-blocked despite its superficial similarity to #164; Ceremony 2 tickets 1 item, 8 points — the project's first non-zero sprint since T19) | `docs/process/t28-retro.md` (independently re-verified, against the actual merged commit rather than the PR's own account, that the funnel change and the backfill/column-type migration landed as one commit with no window `authorizeOnlineConfirmation` could silently break on; mutation-checked the backfill four independent ways, incl. its own separate DB reproduction and its own separate Go-level fail-closed mutation; re-confirmed the other 7 issues' blockers live and D1/D2 both still unanswered; scored this sprint's real PR review as D2's "exercised, no fix needed" shape, the first since T19; retired the old backlog-static-check counter correctly, incremented D1's silence count to fifteen, and proposed a new post-T28.1 composition counter starting at one) | PR #234 (Ceremony 1/2 doc) → PR #235 (T28.1, "partial fix for #164") → PR (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `13:19:47Z` → `13:59:00Z` → retro doc's own merge) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0017` (extends ADR-0014's ruling to Social Play/Competitions/Payments: translate-not-widen still applies, these columns become real `uuid` FKs once backfilled, and states the orphaned-subject-row ruling the backfill migration follows) | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -1399,6 +1399,83 @@ plan's §B), so "the tracked backlog remains unchanged" is no longer an
 accurate description of T28's own ceremony, and the counter that measures
 exactly that claim correctly stops rather than being carried forward on a
 sprint that broke its own premise.
+
+**T28 — Re-examine #164's fourteen-sprint "blocked on a real IdP tenant"
+classification, take Payments' conformance as the reference implementation,
+and re-verify the rest of the backlog live.** Ceremony 1/2 complete;
+Ceremony 1 independently re-derived #164's blocker status from the issue's
+own text, ADR-0014 §5/§5a, and the current codebase rather than fourteen
+sprints of restated classification, found the "real IdP tenant" premise
+unsupported, and scoped the smallest of #164's three per-context slices
+(Payments) as this sprint's one ticket — full reasoning:
+`docs/process/t28-sprint-plan.md` §B. T28.1 shipped as PR #235 ("partial fix
+for #164: Payments identity conformance"): a new `internal/payments/port.IdentityLookup` +
+`internal/payments/adapter/identity`, the grpcapi `actor()` funnel resolving
+through it, and `db/migrations/0024_payments_recorded_by_user_id_uuid.sql`
+converting `payments.recorded_by_user_id` to a real `uuid REFERENCES
+identity_users(id)` — landed as one commit, per new **ADR-0017**'s ruling
+(extends ADR-0014 to Social Play/Competitions/Payments; rules the target
+`uuid`-FK shape and the orphaned-subject-row policy for all three, so T29
+does not re-litigate either). Social Play and Competitions remain
+non-conformant, explicitly deferred to T29, not silently dropped (§B8/§B9).
+1 ticket, 8 points — the project's first non-zero sprint since T19.
+
+**Outcome: 1 ticket, 8 points, independently re-verified rather than
+trusted** (PR #234 for the Ceremony 1/2 doc, PR #235 for T28.1, plus the
+retro doc's own PR). Retro: `docs/process/t28-retro.md` — re-verified,
+against the actual merged commit, that the funnel change and the
+backfill/column-type migration landed together with no window the
+authorization comparison could silently break in; mutation-checked the
+backfill four independent ways (a committed-but-CI-unexecuted integration
+test, the reviewing session's own DB reproduction, the retro's own separate
+third DB reproduction, and the retro's own independent Go-level
+fail-closed mutation); confirmed #164 was narrowed — not closed — by a
+comment actually posted 11 seconds after merge; confirmed the other 7
+issues' blockers unchanged; confirmed neither D1 nor D2 was answered as a
+formal decision, establishing ADR-0017's correct citation form (frontmatter
+only, no separate `## Status` section, since it is Accepted rather than
+escalated) for the first time; and scored this sprint's real PR review as
+DECISION D2's "exercised, no fix needed" shape — the sixth such instance,
+the first since T19. 5 recommendations for T29.
+
+**State the outcome in this form, not a stronger one.** This is the
+retro's own agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires
+the retro's form, not a stronger one).
+
+> T28 shipped one ticket, T28.1, 8 points — the first non-zero sprint since
+> T19, ending the eight-sprint 0-ticket run (T20 through T27). It closed the
+> Payments third of issue #164 (partial fix, PR #235, merged
+> `2026-08-16T13:59:00Z`, squash sha `c975f219ea5571c863453021ae277961abf72218`)
+> after independently re-deriving, at Ceremony 1, that #164's fourteen-sprint
+> "blocked on a real IdP tenant" classification was never supported by the
+> issue's own text or by ADR-0014's own ruling. This retro independently
+> re-verified — not trusted — every load-bearing claim: the funnel change
+> and the backfill/column-type migration landed in exactly one commit with
+> no window where `authorizeOnlineConfirmation`'s comparison could silently
+> break; the backfill was mutation-checked against both the orphaned and
+> resolvable cases by four independent layers (a committed but
+> CI-unexecuted integration test, the reviewing session's own DB
+> reproduction, this retro's own separate third DB reproduction with its
+> own seed data, and this retro's own independent Go-level fail-closed
+> mutation); the other 7 backlog issues' blockers are unchanged,
+> byte-for-byte against the live API; #164 was correctly narrowed rather
+> than closed, with the narrowing comment actually posted 11 seconds after
+> merge rather than only promised; neither D1 nor D2 was answered as a
+> formal ADR decision this sprint, both ADRs' status sections read directly
+> (and ADR-0017's own correct citation form — frontmatter-only, no separate
+> `## Status` section, since it is Accepted rather than escalated —
+> established for the first time); and this sprint's real PR review scores
+> as D2's "exercised, no fix needed" shape, the sixth such instance and the
+> first since T19, with review depth noted as a separate axis from the D2
+> question itself. The backlog's old consecutive-static-check counter was
+> correctly retired at fourteen rather than extended (T28 plan §A3.1); D1's
+> consecutive-sprint-silence counter holds at fifteen (T14 through T28,
+> unchanged within this same sprint); a new post-T28.1 backlog-composition
+> counter is proposed, starting at one, established by this retro. One
+> process-hygiene observation (not an incident) was recorded: PR #235's
+> disclosed interaction with issue #149's caller-supplied `booking_host_id`
+> field was not also posted as a comment on #149 itself, though nothing
+> #149 already states was falsified by it.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args

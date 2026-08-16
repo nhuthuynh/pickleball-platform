@@ -1799,3 +1799,50 @@ re-derived from scratch — this retro's own eighth live check of the two
 named reopening conditions found neither fired, changing nothing about the
 conclusion T23 retro already reached, and states that in one sentence
 rather than a fresh analysis.
+
+## T28 sprint retro
+
+Held as `docs/process/t28-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17/T18/T19/T20/T21/T22/T23/T24/T25/T26/T27
+set and CLAUDE.md's **Docs index & naming convention**.
+
+T28 was this project's first non-zero sprint since T19, ending the
+eight-sprint 0-ticket run T20–T27 (PR #235, T28.1 — "partial fix for #164:
+Payments identity conformance"). This retro independently re-verified,
+against the actual merged commit rather than the PR's own account, that the
+grpcapi funnel resolution and the `payments.recorded_by_user_id`
+backfill/column-type migration landed in exactly one commit with no window
+where `authorizeOnlineConfirmation`'s comparison could silently compare a
+resolved uuid against a stale subject. The backfill was mutation-checked
+against both the orphaned and resolvable subject cases by four independent
+layers: a committed integration test (sound by design, compile-checked but
+never itself executed in this environment — Docker registry pulls remain
+network-policy-blocked, the same gap every `-tags=integration` file already
+discloses), the reviewing session's own DB-level reproduction, this retro's
+own separate third DB-level reproduction against a real local Postgres with
+its own independently seeded data, and this retro's own independent
+Go-level mutation of `ResolveActorUserID`'s fail-closed nil-identity branch
+(reproduced the exact claimed test failure, then cleanly restored). Issue
+#164 was confirmed narrowed — not closed — with the narrowing comment
+actually posted 11 seconds after merge rather than only promised. The other
+7 backlog issues' blockers were re-verified live and are unchanged, and
+neither D1 nor D2 was answered as a formal ADR decision this sprint — both
+ADRs' status sections were read directly, and new ADR-0017's correct
+citation form (frontmatter-only, no separate `## Status` section, since it
+is Accepted rather than escalated) was established for the first time.
+This sprint's real PR review was scored against DECISION D2's two named
+shapes, per the task's own instruction: it lands as "exercised, no fix
+needed" — the sixth such instance and the first since T19, with review
+depth noted explicitly as a separate axis from the D2 question itself. The
+backlog's old consecutive-static-check counter was correctly retired at
+fourteen rather than extended, since #164's reclassification broke the
+counter's own premise; DECISION D1's consecutive-sprint-silence counter
+(a per-sprint counter) holds at **fifteen** (T14 through T28), unchanged
+within this same sprint; a new post-T28.1 backlog-composition counter is
+proposed, starting at **one**, established by this retro. One
+process-hygiene observation was recorded and not scored as an incident:
+PR #235's disclosed interaction with issue #149's caller-supplied
+`booking_host_id` field (its expected shape changes from subject to
+`User.ID`) was not also posted as a comment on #149 itself, though nothing
+#149 already states was falsified by it — left as a recommendation for
+T29's Ceremony 1 rather than escalated.
