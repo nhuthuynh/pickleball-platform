@@ -1574,3 +1574,34 @@ that comment**. This retro recommends T21 raise D1's silence to the user by
 name, rather than folding it into a general "sprints are getting smaller"
 framing that has an ordinary explanation and would misdirect the actual
 signal.
+
+## T21 sprint retro
+
+Held as `docs/process/t21-retro.md`, following the convention
+T5/T9/T10/T11/T12/T13/T14/T15/T16/T17/T18/T19/T20 set and CLAUDE.md's **Docs
+index & naming convention**.
+
+T21 was this project's second 0-ticket sprint (PR #220). This retro found no
+incident and no shipped code to mutation-test; its central piece of work was
+DoD (c) — scrutinizing, with the ADR files and the issue tracker read
+directly rather than trusted from the plan's own account, whether T21's
+plan's careful distinction between "the D1-escalation *mechanism* question
+is closed by the user's direct answer" and "D1/D2 remain formally open ADR
+decisions" actually held in practice. It did: both ADR-0015's and
+ADR-0016's `## Status` fields are unchanged, explicitly unresolved, and
+#144 still carries only its original T14.3 comment — no artifact anywhere
+treats the user's "keep re-deferring" answer as an answer to either D1 or
+D2 themselves. All 8 open issues' blockers held for the whole sprint,
+matching T21's plan's own live-fetched table field-for-field, and the
+`golang-migrate`/`goose` roadmap-debt classification stayed correctly
+unticketed on a fresh grep and a fresh full read of `HANDOFF.md`'s
+Cross-cutting section. **The one genuinely new question this retro asked
+itself** — now that this is a *second* consecutive 0-ticket sprint and the
+user has explicitly chosen to keep the loop running, is there anything left
+for a retro to usefully add on "is this healthy"? — got an honest answer
+rather than a third mechanical re-run of T20 retro's finding-4 analysis:
+the question is genuinely closed by the user's own direct answer, and this
+retro instead names the specific conditions (a materially different
+blocker profile, or the backlog running dry entirely) that would reopen it,
+rather than padding the record with a repeat finding that has nothing new
+to add.
