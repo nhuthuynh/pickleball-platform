@@ -52,7 +52,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T27 | `docs/process/t27-sprint-plan.md` (Ceremony 1 corrects T26's Docs-index row and Task-backlog outcome sentence as its first job, re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, re-scans `HANDOFF.md`'s Cross-cutting section a tenth time, re-confirms the `golang-migrate`/`goose` roadmap-debt classification unchanged, scores DoD (d) live in the abbreviated form T23–T26 retro established) | `docs/process/t27-retro.md` (no incident-grade finding and no precision correction either; independently re-verified live, issue by issue, that all 8 open issues' blockers held for the whole sprint, byte-for-byte against the plan's own live-fetched table; re-confirmed the `golang-migrate`/`goose` migration-tooling classification unchanged; confirmed D1/D2 unanswered as formal ADR decisions, reading both ADRs' `## Status` sections and #144's comment body directly; scored DoD (d) live for the eighth time running with an identical result; carried forward two running counters — the backlog's consecutive-static-check count to fourteen, D1's consecutive-sprint-silence count held at fourteen within the same sprint; 4 recommendations for T28) | PR #232 (Ceremony 1/2 doc) → PR #233 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:25:54Z` → `11:30:25Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T28 | `docs/process/t28-sprint-plan.md` (Ceremony 1 re-examines issue #164's fourteen-sprint "blocked on a real IdP tenant" classification against its own issue text, ADR-0014 §5/§5a, and the current codebase — independently confirms the classification was wrong, reclassifies #164 as genuinely unblocked scoped engineering work following the T13.2/T13.3 precedent, and takes the smallest of its three per-context slices (Payments) as Wave 1, explicitly deferring Social Play/Competitions to T29 rather than forcing all three into one sprint on unproven backfill-migration cost; also re-verifies the other 7 issues' blockers live, including re-confirming #145 remains genuinely IdP-blocked despite its superficial similarity to #164; Ceremony 2 tickets 1 item, 8 points — the project's first non-zero sprint since T19) | `docs/process/t28-retro.md` (independently re-verified, against the actual merged commit rather than the PR's own account, that the funnel change and the backfill/column-type migration landed as one commit with no window `authorizeOnlineConfirmation` could silently break on; mutation-checked the backfill four independent ways, incl. its own separate DB reproduction and its own separate Go-level fail-closed mutation; re-confirmed the other 7 issues' blockers live and D1/D2 both still unanswered; scored this sprint's real PR review as D2's "exercised, no fix needed" shape, the first since T19; retired the old backlog-static-check counter correctly, incremented D1's silence count to fifteen, and proposed a new post-T28.1 composition counter starting at one) | PR #234 (Ceremony 1/2 doc) → PR #235 (T28.1, "partial fix for #164") → PR #236 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `13:19:47Z` → `13:59:00Z` → `14:12:15Z`) — all merged, all reviewed via GitHub review comments, see naming convention | `adr/0017` (extends ADR-0014's ruling to Social Play/Competitions/Payments: translate-not-widen still applies, these columns become real `uuid` FKs once backfilled, and states the orphaned-subject-row ruling the backfill migration follows) | — |
 | T29 | `docs/process/t29-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean, re-verifies all 8 open issues' blockers live, finds and files **#237** — a live regression T28.1 introduced in `authorizeGameRecording`/`authorizeCompetitionEntryRecording`, where Payments' now-resolved actor is compared against Social Play's/Competitions' still-subject-shaped reads — and takes both remaining thirds of #164 (Social Play, Competitions) as two tickets, both closing #237 as a side effect; Ceremony 2 tickets 2 items, 34 points) | `docs/process/t29-retro.md` (independently re-verified, against the actual merged commits, that both tickets' funnel changes and backfill migrations landed together with no window either comparison could break in; mutation-checked both backfills per CLAUDE.md rule 10 by two legitimately different verification shapes — re-reproduced a third time against a real local Postgres with its own seed data; confirmed both migrations' `NOT NULL`/nullable branches correct for two different, independently-verified reasons; confirmed both Payments-side regression tests use genuinely non-matching fixtures that would have caught #237; corrected the backlog's "other issues" count to **7**, not the 6 the plan's own DoD line assumed — a drafting gap in the plan's §A5 table traced to its source; confirmed neither D1 nor D2 answered as a formal decision; scored T29.1's review as D2's "exercised, no fix needed" shape and T29.2's as a genuinely new, fourth shape — a real gap found, changes requested, the fix authored by a separately-dispatched party rather than the reviewer itself — reported as evidence for ADR-0016's own "changed circumstance" clause, not a resolution; scored the shared-checkout collision as a near-miss but found and logged a real process-institutionalization gap underneath it (T9's dispatch-isolation remedy was never written into `sprint-process.md` itself); scored the empty-PR-body incident as caught cleanly by existing review process; corrected a live label-taxonomy gap on #237) | PR #238 (Ceremony 1/2 doc) → PR #239 (T29.1, "partial fix for #164": Competitions) → PR #240 (T29.2, "partial fix for #164": Social Play, closes #164 and #237 in full) → PR #241 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `14:28:18Z` → `15:04:23Z` → `15:23:09Z` → `15:43:19Z`) — all merged, all reviewed via GitHub review comments, see naming convention | — | — |
-| T30 | `docs/process/t30-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T29's retro — re-verifies all 7 open issues' blockers live via a fresh `issue_read` on each and finds every one unchanged; corrects `HANDOFF.md`'s T29 row, which still cited an unfilled retro-PR number; executes T29 retro's recommendation 2 in full by giving dispatch isolation its own named `sprint-process.md` section (the `docs/LESSONS.md` entry itself was already written by T29's own retro); adopts recommendation 3's PR-body self-verification safeguard into `sprint-process.md`; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets** — all 7 open issues are genuinely blocked on a product decision (#124, #126, #130), D1 (#144, #149), a real IdP tenant this environment cannot provide (#145), or assistive-technology hardware this environment cannot provide (#134), matching the T20–T27 precedent) | not yet written | not yet opened | — | — |
+| T30 | `docs/process/t30-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T29's retro — re-verifies all 7 open issues' blockers live via a fresh `issue_read` on each and finds every one unchanged; corrects `HANDOFF.md`'s T29 row, which still cited an unfilled retro-PR number; executes T29 retro's recommendation 2 in full by giving dispatch isolation its own named `sprint-process.md` section (the `docs/LESSONS.md` entry itself was already written by T29's own retro); adopts recommendation 3's PR-body self-verification safeguard into `sprint-process.md`; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets** — all 7 open issues are genuinely blocked on a product decision (#124, #126, #130), D1 (#144, #149), a real IdP tenant this environment cannot provide (#145), or assistive-technology hardware this environment cannot provide (#134), matching the T20–T27 precedent) | `docs/process/t30-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; scored both new `sprint-process.md` sections — "Dispatch isolation", "PR-body self-verification" — sound under real editorial scrutiny, with one soft observation recorded, not a defect; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; carried the post-T29 backlog-composition counter to three and confirmed D1's silence counter at seventeen; found and named a real, twice-repeated process mistake — T28's and T29's own retros each wrongly claimed to correct their own `HANDOFF.md` Docs-index row in their own PR — and deliberately did not repeat it a third time, leaving T30's own row/narrative correction to T31's Ceremony 1; 6 recommendations for T31) | PR #242 (Ceremony 1/2 doc) → PR #243 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `15:53:47Z` → `16:03:40Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
+| T31 | `docs/process/t31-sprint-plan.md` (Ceremony 1 re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T30's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; corrects `HANDOFF.md`'s T30 row and Task-backlog narrative, deliberately left undone by T30's own retro; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; corrects T30 retro recommendation 6's "tenth consecutive" imprecision (this is the tenth 0-ticket sprint by total count, the second of a fresh consecutive run since T28 broke the T20–T27 streak); takes **zero tickets** — all 7 open issues remain genuinely blocked on a product decision (#124, #126, #130), D1 (#144, #149), a real IdP tenant this environment cannot provide (#145), or assistive-technology hardware this environment cannot provide (#134)) | not yet written | not yet opened | — | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -1626,7 +1627,113 @@ recommendation 3 into `sprint-process.md` as a new **"PR-body
 self-verification"** subsection. Post-T29 backlog-composition counter
 increments to **two** (this ceremony's own live sweep re-confirms the
 identical 7-issue set). No new GitHub issue opened — nothing in the
-backlog changed and no new gap was found. Retro not yet written.
+backlog changed and no new gap was found.
+
+**Outcome: 0 tickets, the ninth 0-ticket sprint in this project's history
+(the first since T28 broke the T20–T27 run), plus two `sprint-process.md`
+process-institutionalization sections landed** (PR #242 for the Ceremony
+1/2 doc, plus PR #243 for the retro doc). Retro: `docs/process/
+t30-retro.md` — re-verified, against the live GitHub API rather than
+trusted from the plan's own account, that the merged-fix sweep's live
+`totalCount: 7` matches the plan's own count exactly (`7 − 0 + 0 = 7`);
+re-read all 7 open issues' full bodies, not just cached fields, and found
+every one unchanged; gave both new `sprint-process.md` sections real
+editorial scrutiny — "Dispatch isolation" and "PR-body self-verification"
+both scored sound, faithful to the incidents they cite, correctly and
+narrowly scoped, and genuinely non-duplicative of "Same-wave
+shared-interface verification" — with one soft observation recorded (who
+audits that a dispatched wave's text actually named its isolation
+mechanism) for the first real multi-implementer wave to resolve by
+example, not a defect; confirmed DECISION D2 correctly not exercised this
+sprint (zero tickets, zero PRs beyond the planning doc, landing in the
+structurally weaker "no PR existed" shape); confirmed neither D1 nor D2
+answered as a formal ADR decision, both ADR files' `## Status` sections and
+git history read directly; found and named a real, twice-repeated process
+mistake — T28's and T29's own retros each incorrectly claimed, in their own
+closing paragraph, to have corrected their own `HANDOFF.md` Docs-index row,
+which is structurally impossible before that PR's own merge number and
+`merged_at` are known — and this retro deliberately did not repeat that
+mistake a third time, leaving T30's own row and Task-backlog narrative for
+**T31's Ceremony 1** to correct. 6 recommendations for T31.
+
+**State the outcome in this form, not a stronger one.** This is the
+retro's own agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires
+the retro's form, not a stronger one).
+
+> T30 shipped zero tickets, the ninth 0-ticket sprint in this project's
+> history (the first since T28 broke the T20–T27 run), plus real process
+> work executing two of T29 retro's recommendations. This retro
+> independently re-verified — not trusted — every load-bearing claim: the
+> merged-fix sweep's live `totalCount: 7` matches T30 plan's own count
+> exactly, arithmetically reconciled (`7 − 0 + 0 = 7`); all 7 open issues'
+> blockers were re-checked live down to their full bodies, not just cached
+> `updated_at`/comment-count fields, and every one is unchanged — #124,
+> #126, #130 need Product Owner input the team cannot supply unilaterally;
+> #144 and #149 are blocked on D1; #145 needs a real, non-uuid IdP `sub`
+> claim this environment cannot produce; #134 needs real assistive-
+> technology hardware this environment does not have. The two new
+> `sprint-process.md` sections — "Dispatch isolation" (executing T29 retro
+> recommendation 2) and "PR-body self-verification" (executing recommendation
+> 3) — were read in full and checked against T29 retro §8/§9's own text
+> rather than trusted from the plan's paraphrase: both are faithful to the
+> incidents they cite, correctly and narrowly scoped, and non-duplicative of
+> existing sections (in particular, "Dispatch isolation" is confirmed
+> genuinely orthogonal to "Same-wave shared-interface verification" rather
+> than a restatement of it), with one soft observation recorded for the next
+> multi-implementer wave to resolve by example rather than a defect found
+> in either. DECISION D2 was correctly not exercised this sprint — zero
+> tickets means zero PRs beyond the planning doc, landing in the
+> structurally weaker "no PR existed" shape rather than either of D2's
+> exercised shapes. Neither D1 nor D2 was answered mid-sprint as a formal
+> ADR decision, both ADR files' `## Status` sections and git history read
+> directly, and #144's single T14.3 comment re-fetched and confirmed
+> unchanged. The post-T29 backlog-composition counter increments to
+> **three** (T29 retro, T30 Ceremony 1, this retro — three consecutive live
+> checks finding the identical 7-issue set unchanged); D1's
+> consecutive-sprint-silence counter holds at **seventeen** (T14 through
+> T30, confirmed rather than incremented a second time within this sprint —
+> it becomes eighteen only if T31 opens with #144 still uncommented). This
+> retro also found and named a real, twice-repeated process mistake: T28's
+> and T29's own retros both incorrectly claimed to correct their own
+> `HANDOFF.md` Docs-index row in their own PR, which is structurally
+> impossible before that PR's own merge PR number and `merged_at` are
+> known — both mistakes were caught only by the *following* sprint's
+> Ceremony 1. This retro does not repeat that mistake: `HANDOFF.md`'s T30
+> row and Task-backlog narrative are left for **T31's Ceremony 1** to
+> correct, per the actually-correct convention T27's own retro and T30's own
+> plan both already state.
+
+**T31 — Ceremony 1/2 only; zero tickets, the tenth 0-ticket sprint in this
+project's history by total count, and the second sprint of a fresh
+consecutive run (T30, T31) since T28 broke the earlier T20–T27
+eight-sprint streak.** Full sweep, per-issue re-verification, and the §A0
+bookkeeping corrections: `docs/process/t31-sprint-plan.md`. Re-ran the
+merged-fix issue sweep live (`totalCount: 7`, arithmetically reconciled:
+`7 − 0 + 0 = 7`, matching exactly — nothing merged or opened since T30's
+retro) and re-verified all 7 open issues' blockers live down to their full
+bodies: unchanged. #124, #126, #130 need Product Owner input the team
+cannot supply unilaterally; #144 and #149 are blocked on D1 (eighteenth
+consecutive sprint of silence on #144, T14 through T31); #145 needs a
+real, non-uuid IdP `sub` claim this environment has never been able to
+produce; #134 needs real assistive-technology hardware this environment
+does not have. Re-scanned `HANDOFF.md`'s own Cross-cutting section for
+anything newly actionable: no new candidate found (identical hit set to
+T30's own scan, since no source file changed between the two ceremonies).
+Corrected `HANDOFF.md`'s T30 row and Task-backlog narrative — the two
+bookkeeping items T30's own retro deliberately left undone, since a retro
+PR cannot cite its own merge number — filling in **PR #243**,
+`merged_at: 2026-08-16T16:03:40Z`, and carrying T30 retro's agreed
+honest-form sentence forward verbatim (above). Corrected an imprecision in
+T30 retro's recommendation 6 ("tenth consecutive 0-ticket sprint"): T31 is
+the tenth 0-ticket sprint by total count, but only the second of an
+unbroken consecutive run since T28's break — not a resumption of the
+earlier ten-sprint framing. Post-T29 backlog-composition counter increments
+to **four** (this ceremony's own live sweep re-confirms the identical
+7-issue set). D1's consecutive-sprint-silence counter increments to
+**eighteen** (T31 opened with #144 still uncommented, the trigger T30
+retro named for this ceremony's own increment). No new GitHub issue
+opened — nothing in the backlog changed and no new gap was found. Retro not
+yet written.
 
 ## Cross-cutting / later
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args
