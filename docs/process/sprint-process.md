@@ -227,6 +227,71 @@ refined tickets together and:
    thinks a ticket is a one-way door PM wants to ship fast) is recorded in
    the sprint's kickoff note, not smoothed over.
 
+### Dispatch isolation
+
+Adopted at T30's Ceremony 1, executing the plan T29's retro recommended
+(`docs/process/t29-retro.md` §8, recommendation 2) rather than let T9's
+original remedy erode a further sprint. The `docs/LESSONS.md` entry for the
+underlying gap was already written by T29's own retro (`## T29
+(2026-08-16)` — read it for the full incident trace); this section is the
+durable process-document fix that entry called for and did not itself
+supply.
+
+**The remedy this section durably adopts.** T9's own retro
+(`docs/process/t9-retro.md` finding 1) found five implementers working
+concurrently in one unisolated shared checkout, genuinely colliding
+("stepped on each other"), and recovering only after the fact — self-
+corrected, but written down only when the retro asked. Its adopted fix:
+*"dispatch isolation becomes an explicit Ceremony 2 checklist item."* That
+fix was never written into this document. It survived only as a habit some
+sprint plans happened to repeat in their own prose — T13's plan labelled
+its parallel wave *"(parallel, ≤5 implementers, worktree-isolated)"* — and
+others did not: T29's own plan carried no such annotation anywhere
+(`grep -ni "isolat" docs/process/t29-sprint-plan.md` returns zero matches).
+Thirteen sprints after T9, a near-identical shared-checkout collision
+recurred between T29.1 and T29.2 — both implementers self-detected and
+self-isolated *before* any state was actually lost, and both disclosed it
+unprompted in their own PR bodies, which is why it is scored a near-miss
+rather than a repeat T9-grade incident — but it was prevented that time by
+the implementers' own diligence, not by anything Ceremony 2 had written
+down. A remedy that lives only in a retro document, or only in whichever
+sprint plans happen to repeat it in their own prose, is exactly as durable
+as the next ceremony's memory of it — measured here at thirteen sprints.
+This section exists so dispatch isolation no longer has to be
+re-remembered.
+
+**The rule.** Whenever Ceremony 2 dispatches more than one implementer into
+the same wave — two or more tickets with no functional dependency on each
+other, intended to be worked concurrently — each implementer works in its
+own isolated environment: a disposable `git worktree` per implementer, a
+fresh clone, or a branch cut via raw git plumbing that never writes to the
+shared checkout's working tree. No two concurrently-dispatched implementers
+share one local checkout's working directory at the same time.
+
+**What Ceremony 2 must do, concretely, for every wave containing more than
+one ticket:**
+
+1. **Name the isolation mechanism in the wave's own text** — a `git
+   worktree` per implementer, or the specific equivalent each implementer
+   will use — not merely state that the tickets are "dispatched together."
+   From T30 onward, a wave description that names which tickets are
+   concurrent but never names how they stay isolated is incomplete per this
+   section.
+2. **Isolation and the same-wave shared-interface verification rule
+   (below) are independent checks and both apply when both conditions
+   hold.** They guard different hazards — a live collision in a shared
+   *working tree* during implementation, versus a semantic conflict in the
+   *merged tree* discovered at review time — and satisfying one does not
+   satisfy the other. A wave where two tickets carry both a working-tree
+   hazard and a shared-interface blast-radius overlap names both mechanisms
+   explicitly, not just one.
+
+**What this does not require.** A solo-implementer wave, or a wave whose
+tickets are genuinely dispatched sequentially (the next ticket's branch is
+cut, and its worktree begun, only after the previous ticket's own worktree
+has stopped being written to), has no shared-checkout hazard to isolate
+against, and this section adds no obligation to either case.
+
 ## Execution
 
 Each ticket is implemented TDD-first (CLAUDE.md rule 1), on its own branch,
@@ -346,6 +411,29 @@ A ticket is only "done" when:
    #147 per instruction 5"*, then did). This changes what a "closes #N"
    review must record; it does not reopen the optional-early-close treatment
    for "partial fix for #N" titles, which is unchanged.
+
+### PR-body self-verification
+
+Adopted at T30's Ceremony 1 from `docs/process/t29-retro.md` §9
+(recommendation 3), following a real incident: PR #240's own first review
+found the PR's description was, at review time, essentially empty (only the
+attribution footer) despite the implementing session's own final chat
+report describing substantial content — the chat-session account and the
+PR API's actual stored `body` had silently diverged. The gap was caught
+cleanly by that review, before merge, by process this document already had
+(Execution's per-ticket DoD step 2) — this is not a new failure class the
+project had no guard against. It is adopted anyway, as a cheap prevention
+rather than something left to review alone, because catching a gap at
+review time is strictly more expensive than never creating it.
+
+**The rule.** Before an implementer session reports a ticket "done" and
+hands off to review, it performs one fresh `pull_request_read(get)` (or
+equivalent) against its own just-opened PR and confirms the returned `body`
+field is non-empty and matches what it intended to post. This is a single
+read call, not a new process stage or a new review gate — targeted
+narrowly at the one failure class observed here (an agent's own belief
+about what it wrote and the API's actual record of it silently diverging),
+not a general instruction to re-verify every field of every PR.
 
 ### Same-wave shared-interface verification
 
