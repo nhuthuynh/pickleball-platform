@@ -31,18 +31,26 @@ func NewGameAdminRepository(pool *pgxpool.Pool) *GameAdminRepository {
 // rule 4) — and translateGameAdminErr turns its violation into the same
 // domain.ErrAlreadyGameAdmin that pre-check returns.
 //
-// Note which values are NOT passed through mustUUID: UserID and AssignedBy.
-// They are subjects held in `text` columns per ADR-0014 §5a (see
-// db/migrations/0020_socialplay_game_admins.sql), not uuids, so parsing them
-// as uuids would panic on every real IdP subject. GameID is a real uuid and is
-// converted the same way every other Game id in this package is — app.Service
-// applies its uuidShape guard before this method is ever reached, so mustUUID
-// cannot be handed a malformed value from the wire.
+// UserID and AssignedBy are NOW (T29.2, closing the Social Play third of
+// #164) passed through mustUUID too — game_admins.user_id/assigned_by are
+// `uuid NOT NULL REFERENCES identity_users (id)`
+// (db/migrations/0026_socialplay_identity_conformance.sql), no longer the
+// `text` subjects ADR-0014 §5a originally ruled for this table. Safe because
+// every caller of app.Service.AssignGameAdmin now hands this a resolved
+// User.ID on both fields: ActorUserID via the grpcapi handler's actor()
+// funnel (which becomes AssignedBy), and AdminUserID via that same handler's
+// resolveUserID step on the caller-supplied target subject (see
+// adapter/grpcapi.Handler.resolveUserID's doc comment for why that second
+// resolution step exists — this table's target-user field is the one place
+// in this migration that needed it). GameID is a real uuid and is converted
+// the same way every other Game id in this package is — app.Service applies
+// its uuidShape guard before this method is ever reached, so mustUUID cannot
+// be handed a malformed value from the wire.
 func (r *GameAdminRepository) Assign(ctx context.Context, a domain.GameAdmin) (domain.GameAdmin, error) {
 	row, err := r.q.AssignGameAdmin(ctx, socialplaydb.AssignGameAdminParams{
 		GameID:     mustUUID(a.GameID),
-		UserID:     a.UserID,
-		AssignedBy: a.AssignedBy,
+		UserID:     mustUUID(a.UserID),
+		AssignedBy: mustUUID(a.AssignedBy),
 		AssignedAt: toTimestamptz(a.AssignedAt),
 	})
 	if err != nil {
@@ -61,9 +69,13 @@ func (r *GameAdminRepository) Assign(ctx context.Context, a domain.GameAdmin) (d
 // port.GameAdminRepository.Revoke's doc comment). pgx.ErrNoRows is the shape
 // "deleted nothing" arrives in for a `:one` query.
 func (r *GameAdminRepository) Revoke(ctx context.Context, gameID, userID string) error {
+	// userID (T29.2): also now mustUUID, for the same reason Assign's does.
+	// app.Service.RevokeGameAdmin guards against a blank userID before this
+	// method is ever reached (see that method's own doc comment), so mustUUID
+	// here is never handed the one value that would otherwise panic it.
 	_, err := r.q.RevokeGameAdmin(ctx, socialplaydb.RevokeGameAdminParams{
 		GameID: mustUUID(gameID),
-		UserID: userID,
+		UserID: mustUUID(userID),
 	})
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -124,11 +136,18 @@ func translateGameAdminErr(err error) error {
 // (CLAUDE.md gotcha: sqlc emits a distinct ...Row type per query, not a shared
 // table model, so this converts from the shared columns rather than from one
 // row struct).
-func gameAdminFromFields(gameID pgtype.UUID, userID, assignedBy string, assignedAt pgtype.Timestamptz) domain.GameAdmin {
+//
+// userID/assignedBy are pgtype.UUID, not string, as of T29.2 (closing the
+// Social Play third of #164): game_admins.user_id/assigned_by are now
+// `uuid NOT NULL REFERENCES identity_users (id)`
+// (db/migrations/0026_socialplay_identity_conformance.sql). Converted back to
+// Go strings via .String() — mirrors gameFromFields'/registrationFromFields'
+// identical conversion.
+func gameAdminFromFields(gameID, userID, assignedBy pgtype.UUID, assignedAt pgtype.Timestamptz) domain.GameAdmin {
 	return domain.GameAdmin{
 		GameID:     gameID.String(),
-		UserID:     userID,
-		AssignedBy: assignedBy,
+		UserID:     userID.String(),
+		AssignedBy: assignedBy.String(),
 		AssignedAt: assignedAt.Time,
 	}
 }

@@ -198,6 +198,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 
 	gameRepo := newFakeGameRepo()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &fakeIDs{},
 		Games:         gameRepo,
 		Registrations: newFakeRegistrationRepo(),

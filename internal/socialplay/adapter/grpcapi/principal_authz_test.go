@@ -57,6 +57,46 @@ func ctxAs(subject string) context.Context {
 // untouched in both cases, so they are indistinguishable here by design.
 func anonymous() context.Context { return context.Background() }
 
+// fakeIdentityLookup implements port.IdentityLookup for every test in this
+// package (T29.2, closing the Social Play third of #164): a deterministic
+// subject == User.ID passthrough. This is deliberately NOT a no-op stand-in
+// the way internal/socialplay/app's own package-private fake is (that
+// package's tests never reach the funnel at all) — every test file in THIS
+// package drives real Handler.actor()/resolveUserID calls through ctxAs, so
+// this fake's resolution rule is genuinely exercised on every RPC call, not
+// merely present to satisfy construction. Passthrough is what keeps every
+// existing fixture's ownership comparisons (Game.HostID seeded as the raw
+// literal "host-1", compared against ctxAs("host-1")'s resolved actor) true
+// exactly as they were before T29.2 — see internal/socialplay/domain.Game.
+// EnsureHost's own doc comment for why the comparison logic itself is
+// unchanged by this ticket, only what feeds both sides.
+//
+// An empty subject, or unregisteredSubject specifically, resolves to
+// domain.ErrUserNotFound — mirroring the real adapter/identity.Lookup's
+// documented behaviour for an unregistered/empty subject (see that package's
+// own doc comment). The blank case is needed by anonymous()-shaped tests
+// that reach resolveUserID with a blank caller-supplied admin target
+// (AssignGameAdmin/RevokeGameAdmin's own blank-skips-resolution guard means
+// this path is normally unreached, but a correct fake should not silently
+// accept blank as a real identity either). unregisteredSubject exists so
+// error_mapping_test.go's mutation-check table (every domain sentinel must
+// have a mapping row) has a real, well-formed-but-unresolvable subject to
+// drive AssignGameAdmin/RevokeGameAdmin's target-user resolution through —
+// see that file's own ErrUserNotFound case.
+type fakeIdentityLookup struct{}
+
+// unregisteredSubject is a well-formed subject fakeIdentityLookup never
+// resolves — the "asked to grant/revoke Game-Admin authority for a subject
+// nobody has ever registered" case (T29.2).
+const unregisteredSubject = "auth0|never-registered"
+
+func (fakeIdentityLookup) UserIDBySubject(_ context.Context, subject string) (string, error) {
+	if subject == "" || subject == unregisteredSubject {
+		return "", domain.ErrUserNotFound
+	}
+	return subject, nil
+}
+
 // newPrincipalTestHandler wires the real app.Service and the real
 // grpcapi.Handler against this package's in-memory fakes, plus the
 // fakeReservation entry_fee_test.go already defines — unlike
@@ -66,6 +106,7 @@ func newPrincipalTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrati
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &fakeIDs{},
 		Games:         gameRepo,
 		Registrations: regRepo,

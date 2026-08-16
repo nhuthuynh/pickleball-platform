@@ -14,6 +14,27 @@ import (
 	"github.com/nhuthuynh/white-label/internal/socialplay/port"
 )
 
+// fakeIdentityLookup implements port.IdentityLookup for every test in this
+// package that does NOT itself exercise the identifier-space resolution
+// seam (T29.2, closing the Social Play third of #164). It exists solely to
+// satisfy NewService's now-required Identity dependency (see
+// app.ServiceOptions.Identity's own doc comment for why this package treats
+// Identity as required rather than optional/fail-closed, unlike Payments'
+// identical-looking field) — no test in this file calls
+// app.Service.ResolveActorUserID directly (that seam is exercised by
+// internal/socialplay/adapter/grpcapi's own tests, against the real
+// adapter/identity.Lookup), so this fake's own resolution rule (a
+// deterministic subject == User.ID passthrough) is never actually invoked
+// by anything below; it only needs to exist so construction succeeds.
+type fakeIdentityLookup struct{}
+
+func (fakeIdentityLookup) UserIDBySubject(_ context.Context, subject string) (string, error) {
+	if subject == "" {
+		return "", domain.ErrUserNotFound
+	}
+	return subject, nil
+}
+
 // fakeReservation is a minimal in-memory port.CourtReservation fake — no
 // real Booking context involved (T5.3 is deliberately app-layer-only, no
 // Postgres/proto, mirroring how Booking's own cross-source overlap test was
@@ -491,6 +512,7 @@ func TestScheduleGame_ReservesEveryCourt(t *testing.T) {
 
 	reservation := newFakeReservation()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -527,6 +549,7 @@ func TestScheduleGame_RejectsCourtAlreadyReserved(t *testing.T) {
 
 	reservation := newFakeReservation(courtID(1))
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -554,6 +577,7 @@ func TestScheduleGame_RollsBackEarlierCourtsOnConflict(t *testing.T) {
 
 	reservation := newFakeReservation(courtID(2))
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -586,6 +610,7 @@ func TestScheduleGame_RollbackFailureDoesNotMaskOriginalError(t *testing.T) {
 	reservation := newFakeReservation(courtID(2))
 	reservation.releaseErr = errors.New("release: boom")
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -614,6 +639,7 @@ func TestScheduleGame_InvalidInputRejectedBeforeTouchingPort(t *testing.T) {
 
 	reservation := newFakeReservation()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -647,6 +673,7 @@ func TestScheduleGame_UnknownVenueFacilityRejectedBeforeReservingCourts(t *testi
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -678,6 +705,7 @@ func TestScheduleGame_KnownVenueFacilityAccepted(t *testing.T) {
 
 	reservation := newFakeReservation()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -709,6 +737,7 @@ func TestScheduleGame_EmptyVenueFacilitySkipsLookup(t *testing.T) {
 
 	reservation := newFakeReservation()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -741,6 +770,7 @@ func TestScheduleGame_PersistsGame(t *testing.T) {
 	reservation := newFakeReservation()
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -776,6 +806,7 @@ func TestScheduleGame_RollsBackReservationsWhenPersistFails(t *testing.T) {
 	games := newFakeGameRepository()
 	games.createErr = errors.New("persist: boom")
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -807,6 +838,7 @@ func TestRegisterForGame_Valid(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -852,6 +884,7 @@ func TestRegisterForGame_GameFull(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -885,6 +918,7 @@ func TestRegisterForGame_GameNotFound(t *testing.T) {
 	t.Parallel()
 
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -908,6 +942,7 @@ func TestRegisterForGame_RejectsCancelledGame(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -942,6 +977,7 @@ func TestCancelRegistration_OwnerSucceeds(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -990,6 +1026,7 @@ func TestCancelRegistration_WrongActorRejected(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1038,6 +1075,7 @@ func TestMarkRegistrationPaymentStatus_Succeeds(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1081,6 +1119,7 @@ func TestMarkRegistrationPaymentStatus_NotFound(t *testing.T) {
 	t.Parallel()
 
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         newFakeGameRepository(),
 		Registrations: newFakeRegistrationRepository(),
@@ -1104,6 +1143,7 @@ func TestMarkRegistrationPaymentStatus_InvalidStatusRejected(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1170,6 +1210,7 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1210,6 +1251,7 @@ func TestJoinWaitlist_GameNotFull(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -1242,6 +1284,7 @@ func TestJoinWaitlist_RejectsCancelledGame(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -1278,6 +1321,7 @@ func TestCancelRegistration_PromotesOldestWaiting(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1343,6 +1387,7 @@ func TestCancelRegistration_NoWaitlistIsNotAnError(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1381,6 +1426,7 @@ func TestRegisterForGame_UnexpiredPromotionReservesSlot(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1440,6 +1486,7 @@ func TestRegisterForGame_ExpiredPromotionDoesNotBlock(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1494,6 +1541,7 @@ func TestExpireWaitlistPromotion_CascadesToNext(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1561,6 +1609,7 @@ func TestExpireWaitlistPromotion_RejectsPremature(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1609,6 +1658,7 @@ func TestListGames_FiltersByVenueFacility(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -1640,6 +1690,7 @@ func TestListGames_FiltersByDateRange(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -1677,6 +1728,7 @@ func TestListGames_ExcludesCancelled(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -1714,6 +1766,7 @@ func TestListGames_ComputesSpotsLeft(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -1781,6 +1834,7 @@ func TestListRegistrationsForGame_ReturnsActiveOnly(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -1845,6 +1899,7 @@ func newMatchTestService(t *testing.T) (*app.Service, domain.Game, *fakeGameRepo
 	games := newFakeGameRepository()
 	matches := newFakeMatchRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -2075,6 +2130,7 @@ func TestRecordMatchResult_UnknownGameRejected(t *testing.T) {
 	games := newFakeGameRepository()
 	matches := newFakeMatchRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -2133,6 +2189,7 @@ func TestListMatchesForGame_UnknownGameRejected(t *testing.T) {
 	games := newFakeGameRepository()
 	matches := newFakeMatchRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -2263,6 +2320,7 @@ func TestCancelGame_UnknownGameNotFound(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -2288,6 +2346,7 @@ func TestCancelGame_MalformedGameIDNotFound(t *testing.T) {
 
 	games := newFakeGameRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrationRepository(),
@@ -2360,6 +2419,7 @@ func TestCancelGame_CancelsActiveRegistrations(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -2409,6 +2469,7 @@ func TestCancelGame_LeavesRegistrationPaymentStatusAlone(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -2458,6 +2519,7 @@ func TestCancelGame_AlreadyCancelledRegistrationNotRecancelled(t *testing.T) {
 	games := newFakeGameRepository()
 	registrations := newFakeRegistrationRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,
@@ -2505,6 +2567,7 @@ func TestCancelGame_DoesNotPromoteWaitlist(t *testing.T) {
 	registrations := newFakeRegistrationRepository()
 	waitlist := newFakeWaitlistRepository()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &sequentialIDs{},
 		Games:         games,
 		Registrations: registrations,

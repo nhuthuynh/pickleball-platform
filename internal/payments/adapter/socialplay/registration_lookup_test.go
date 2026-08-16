@@ -24,6 +24,7 @@ const (
 
 func newRegistrationLookupTestService(regs *fakeRegistrations) *socialplayapp.Service {
 	return socialplayapp.NewService(socialplayapp.ServiceOptions{
+		Identity:      fakeSocialplayIdentityLookup{},
 		IDs:           fakeIDs{},
 		Games:         fakeGames{},
 		Registrations: regs,

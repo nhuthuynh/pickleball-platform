@@ -75,6 +75,7 @@ import (
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
 	socialplayfacilities "github.com/nhuthuynh/white-label/internal/socialplay/adapter/facilities"
 	socialplaygrpc "github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
+	socialplayidentity "github.com/nhuthuynh/white-label/internal/socialplay/adapter/identity"
 	socialplaypg "github.com/nhuthuynh/white-label/internal/socialplay/adapter/postgres"
 	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
 )
@@ -200,6 +201,20 @@ func run(logger *slog.Logger) error {
 	gameAdminRepo := socialplaypg.NewGameAdminRepository(pool)
 	reservation := socialplaybooking.NewReservation(bookingSvc)
 	facilityLookup := socialplayfacilities.NewLookup(facilitiesSvc)
+	// socialplayIdentityLookup (T29.2, closes the Social Play third of #164)
+	// is Social Play's first outbound call into Identity, built against the
+	// SAME real identitySvc instance Booking's/Facilities'/Payments' own
+	// lookups use above (bookingIdentityLookup, facilitiesIdentityLookup,
+	// paymentsIdentityLookup below) — not a second/separate Identity stack.
+	// That shared instance is what makes ADR-0014's invariant hold across
+	// contexts rather than per-context: a given subject resolves to one
+	// User.ID everywhere, so the uuid Social Play now stores in
+	// games.host_id/registrations.player_id/waitlist_entries.player_id/
+	// game_admins.user_id is the same uuid Payments' authorizeGameRecording
+	// compares it against (closing Social Play's half of #237 as a side
+	// effect — see internal/payments/app/service.go's own doc comment, which
+	// this ticket does not modify).
+	socialplayIdentityLookup := socialplayidentity.NewLookup(identitySvc)
 	socialplaySvc := socialplayapp.NewService(socialplayapp.ServiceOptions{
 		IDs:           idgen.UUID{},
 		Games:         gameRepo,
@@ -207,6 +222,7 @@ func run(logger *slog.Logger) error {
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
 		GameAdmins:    gameAdminRepo,
+		Identity:      socialplayIdentityLookup,
 	})
 	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
 

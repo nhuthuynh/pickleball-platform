@@ -93,8 +93,31 @@ func (r *adminFakeGameAdmins) ListGameAdmins(_ context.Context, gameID string) (
 	return out, nil
 }
 
+// fakeSocialplayIdentityLookup implements socialplayport.IdentityLookup for
+// every real socialplayapp.Service this package constructs (T29.2, closing
+// the Social Play third of #164, applied here as a necessary consequence:
+// socialplayapp.ServiceOptions now requires Identity — see that package's
+// own doc comment for why it is required rather than optional/fail-closed).
+// A deterministic subject == User.ID passthrough, mirroring the identical
+// fake internal/socialplay/app's and internal/socialplay/adapter/grpcapi's
+// own test packages each define independently (this package cannot see
+// either, being outside internal/socialplay). This is a test-only fixture
+// added because upstream construction now requires it; it changes no
+// behavior of internal/payments' own authorization logic (CLAUDE.md rule 9's
+// "no non-test file under internal/payments/**" boundary this ticket
+// otherwise holds).
+type fakeSocialplayIdentityLookup struct{}
+
+func (fakeSocialplayIdentityLookup) UserIDBySubject(_ context.Context, subject string) (string, error) {
+	if subject == "" {
+		return "", socialplaydomain.ErrUserNotFound
+	}
+	return subject, nil
+}
+
 func newAdminTestService(games *adminFakeGames, admins *adminFakeGameAdmins) *socialplayapp.Service {
 	return socialplayapp.NewService(socialplayapp.ServiceOptions{
+		Identity:      fakeSocialplayIdentityLookup{},
 		IDs:           fakeIDs{},
 		Games:         games,
 		Registrations: newFakeRegistrations(),

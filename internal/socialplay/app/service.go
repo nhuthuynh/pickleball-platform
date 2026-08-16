@@ -51,6 +51,11 @@ type Service struct {
 	waitlist      port.WaitlistRepository
 	matches       port.MatchRepository
 	gameAdmins    port.GameAdminRepository
+	// identity backs ResolveActorUserID (T29.2, ADR-0014/ADR-0017's
+	// resolution seam, closing the Social Play third of #164) — see
+	// ServiceOptions' own doc comment for why this field is required rather
+	// than optional/fail-closed, unlike Payments' identical-looking field.
+	identity port.IdentityLookup
 }
 
 // ServiceOptions is the dependency bundle for NewService (T13.8, closing
@@ -64,7 +69,9 @@ type Service struct {
 // **No field here is optional.** Every one is dereferenced unconditionally by
 // at least one use case and no method in this package nil-guards any of them,
 // which is why NewService validates rather than documenting which fields a
-// caller may skip: there are none.
+// caller may skip: there are none — Identity (T29.2, added below) keeps that
+// property rather than introducing this package's first optional/fail-closed
+// category.
 type ServiceOptions struct {
 	// IDs mints every Game, Registration, WaitlistEntry and Match ID.
 	IDs port.IDGenerator
@@ -81,6 +88,26 @@ type ServiceOptions struct {
 	// entitled admin set from. Required like every other field here — the
 	// three methods that use it dereference it unconditionally.
 	GameAdmins port.GameAdminRepository
+	// Identity backs ResolveActorUserID (T29.2, ADR-0014/ADR-0017's
+	// resolution seam, closing the Social Play third of #164) —
+	// grpcapi.Handler.actor calls it once per authenticated RPC, mirroring
+	// Booking's/Facilities' identical single call site (T13.2/T13.3).
+	//
+	// **Required, not optional-and-fail-closed** — a deliberate divergence
+	// from internal/payments/app.ServiceOptions.Identity, which IS optional
+	// (nil-safe, fails ResolveActorUserID closed with domain.ErrUserNotFound
+	// rather than panicking at construction). Payments' ServiceOptions
+	// already had two categories of field (skip-safe reconciliation hooks vs.
+	// fail-closed resolvers) before Identity was added to it, so Identity fit
+	// the existing fail-closed category naturally. This package's
+	// ServiceOptions has never had an optional category at all — this
+	// struct's own top-of-block doc comment states "there are none," and
+	// Validate below panics on any missing field with no exception — so
+	// making Identity the first exception here would be the inconsistent
+	// choice, not the consistent one. A missing Identity is therefore a
+	// construction-time panic (see NewService), exactly like a missing Games
+	// or GameAdmins, not a deferred-to-request-time fail-closed error.
+	Identity port.IdentityLookup
 }
 
 // ErrMissingDependency reports that a ServiceOptions left at least one
@@ -109,6 +136,7 @@ func (o ServiceOptions) Validate() error {
 		{"Waitlist", o.Waitlist},
 		{"Matches", o.Matches},
 		{"GameAdmins", o.GameAdmins},
+		{"Identity", o.Identity},
 	} {
 		if isUnusable(dep.value) {
 			missing = append(missing, dep.name)
@@ -161,7 +189,45 @@ func NewService(opts ServiceOptions) *Service {
 		waitlist:      opts.Waitlist,
 		matches:       opts.Matches,
 		gameAdmins:    opts.GameAdmins,
+		identity:      opts.Identity,
 	}
+}
+
+// ResolveActorUserID translates a verified IdP subject into the caller's
+// User.ID (uuid) — ADR-0014/ADR-0017's resolution seam applied to Social
+// Play (T29.2, closes the Social Play third of #164).
+//
+// **This is the only method in internal/socialplay/app whose parameter is a
+// subject, and the name says so deliberately** — mirroring
+// internal/booking/app.Service.ResolveActorUserID,
+// internal/facilities/app.Service.ResolveActorUserID, and
+// internal/payments/app.Service.ResolveActorUserID exactly. ADR-0014's
+// invariant is that below the grpcapi boundary an actor value is always a
+// User.ID; this method is the one place that invariant is established for
+// Social Play rather than assumed. Every other actor-taking method here —
+// ScheduleGame, RegisterForGame, CancelRegistration, CancelGame,
+// JoinWaitlist, ListRegistrationsForGame, RecordMatchResult,
+// AssignGameAdmin, RevokeGameAdmin — takes the resolved uuid, via the
+// handler's actor() funnel calling this method exactly once per
+// authenticated RPC.
+//
+// It takes a plain string rather than an auth.Principal on purpose: this
+// package still imports nothing from internal/platform/auth (mirrors
+// Booking's/Facilities'/Payments' identical posture), so the app layer keeps
+// no opinion about how the caller was authenticated — only that somebody
+// upstream did.
+//
+// Does NOT nil-guard s.identity, unlike Payments' identical-looking method:
+// NewService already panics at construction if Identity is left unset (see
+// ServiceOptions' own doc comment for why this package treats Identity as
+// required rather than optional-and-fail-closed), so by the time this method
+// can run, s.identity is guaranteed non-nil. An unregistered subject is still
+// domain.ErrUserNotFound, which grpcapi maps to PermissionDenied rather than
+// NotFound (ADR-0014 §6): the caller is known, they simply may not act, and
+// answering NotFound would turn every actor-taking endpoint into a
+// user-enumeration oracle.
+func (s *Service) ResolveActorUserID(ctx context.Context, subject string) (string, error) {
+	return s.identity.UserIDBySubject(ctx, subject)
 }
 
 // ScheduleGameInput is the use-case input for scheduling a Game.
@@ -683,14 +749,19 @@ func (s *Service) ListGames(ctx context.Context, filter port.GameListingFilter) 
 // deliberately leaves that open as a product question, so until it is answered
 // they may not — unchanged from T13.6, and asserted rather than assumed.
 //
-// **No identifier resolution happens here, on purpose** (ADR-0014 §5a).
-// Game.HostID and GameAdmin.UserID are `text` holding the subject minted from
-// the verified principal, and actorUserID is the value actor(ctx) returns — the
-// same subject space on all sides. ADR-0014 rules explicitly that this
-// comparison stays unchanged and that no Identity port is added to this
-// context: doing so would put a uuid on one side of a comparison whose other
-// side is a subject, turning a working check into one that silently denies
-// everybody.
+// **No identifier resolution happens HERE, in this method** — that is
+// unchanged by T29.2, but WHY it's unchanged is not: until T29.2,
+// Game.HostID and GameAdmin.UserID were `text` holding the subject minted
+// from the verified principal, and actorUserID was the value actor(ctx)
+// returned unresolved — the same subject space on all sides, correct by
+// ADR-0014 §5a's coincidence rather than by design. As of T29.2 (closing the
+// Social Play third of #164), both sides are User.ID (uuid): actorUserID is
+// resolved by grpcapi.Handler.actor before this method is ever called (via
+// app.Service.ResolveActorUserID), and Game.HostID/GameAdmin.UserID are
+// resolved once, at write time (CreateGame/AssignGameAdmin), by the same
+// funnel — not re-resolved here. This method's own job is unchanged: it
+// still performs no resolution of its own, because there is nothing left to
+// resolve by the time either value reaches it.
 func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUserID string) ([]domain.Registration, error) {
 	// A malformed gameID is answered exactly like an unknown one. This read is
 	// list-shaped — an unknown Game yields an empty roster rather than an
@@ -1096,6 +1167,27 @@ func (s *Service) AssignGameAdmin(ctx context.Context, in AssignGameAdminInput) 
 // belief about who holds authority. The authorization check still runs first,
 // so an unauthorized caller cannot use the distinction between "not assigned"
 // and "revoked" to enumerate a Game's admins.
+//
+// A blank in.AdminUserID answers domain.ErrGameAdminNotFound directly, without
+// reaching the repository (T29.2). Before this ticket game_admins.user_id was
+// `text NOT NULL CHECK (user_id <> ”)`, so a blank value could never match a
+// stored row and Revoke's own pgx.ErrNoRows -> ErrGameAdminNotFound mapping
+// answered it correctly by construction. Now that the column is
+// `uuid NOT NULL REFERENCES identity_users (id)`
+// (db/migrations/0026_socialplay_identity_conformance.sql), the same blank
+// value reaching the Postgres adapter's mustUUID() would PANIC rather than
+// answer "not found" — this guard preserves the pre-migration behaviour
+// explicitly rather than relying on grpcapi's own blank-skips-resolution
+// handling (see adapter/grpcapi.resolveUserID's doc comment) to keep every
+// blank value out of this method by coincidence.
+//
+// Checked AFTER domain.EnsureMayRevokeGameAdmin, not before: this package's
+// standing ordering rule (see AssignGameAdmin's own doc comment, "Host-only
+// authorization, first") is that the authorization check runs ahead of every
+// other check so an unauthorized caller learns nothing about whether the
+// rest of the request would otherwise have been valid — a blank AdminUserID
+// is no exception, even though a blank value could never name a real
+// assignment either way.
 func (s *Service) RevokeGameAdmin(ctx context.Context, in RevokeGameAdminInput) error {
 	if !uuidShape.MatchString(in.GameID) {
 		return domain.ErrGameNotFound
@@ -1108,6 +1200,10 @@ func (s *Service) RevokeGameAdmin(ctx context.Context, in RevokeGameAdminInput) 
 
 	if err := domain.EnsureMayRevokeGameAdmin(game, in.ActorUserID); err != nil {
 		return err
+	}
+
+	if in.AdminUserID == "" {
+		return domain.ErrGameAdminNotFound
 	}
 
 	return s.gameAdmins.Revoke(ctx, in.GameID, in.AdminUserID)

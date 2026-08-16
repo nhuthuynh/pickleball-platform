@@ -61,6 +61,7 @@ func newTestHandlerWithMatches() (*grpcapi.Handler, *fakeGameRepo, *fakeMatchRep
 	gameRepo := newFakeGameRepo()
 	matchRepo := newFakeMatchRepo()
 	svc := app.NewService(app.ServiceOptions{
+		Identity:      fakeIdentityLookup{},
 		IDs:           &fakeIDs{},
 		Games:         gameRepo,
 		Registrations: newFakeRegistrationRepo(),

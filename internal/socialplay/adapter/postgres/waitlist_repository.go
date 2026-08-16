@@ -38,9 +38,16 @@ func NewWaitlistRepository(pool *pgxpool.Pool) *WaitlistRepository {
 // trigger).
 func (r *WaitlistRepository) Create(ctx context.Context, e domain.WaitlistEntry) (domain.WaitlistEntry, error) {
 	row, err := r.q.JoinWaitlistEntry(ctx, socialplaydb.JoinWaitlistEntryParams{
-		PID:       mustUUID(e.ID),
-		PGameID:   mustUUID(e.GameID),
-		PPlayerID: e.PlayerID,
+		PID:     mustUUID(e.ID),
+		PGameID: mustUUID(e.GameID),
+		// PPlayerID (T29.2, closing the Social Play third of #164):
+		// waitlist_entries.player_id is now
+		// `uuid NOT NULL REFERENCES identity_users (id)`
+		// (db/migrations/0026_socialplay_identity_conformance.sql), and
+		// join_waitlist_entry's own p_player_id parameter is now `uuid` too
+		// (that migration recreates the function) — safe via mustUUID because
+		// app.Service's callers only ever hand this a resolved User.ID.
+		PPlayerID: mustUUID(e.PlayerID),
 	})
 	if err != nil {
 		return domain.WaitlistEntry{}, translateWaitlistErr(err)
@@ -136,11 +143,18 @@ func translateWaitlistErr(err error) error {
 // every waitlist_entries query selects — see gameFromFields's doc comment
 // in repository.go for why this pattern exists (sqlc emits a distinct Row
 // type per query).
-func waitlistEntryFromFields(id, gameID pgtype.UUID, playerID string, position int32, status string, promotedAt pgtype.Timestamptz) domain.WaitlistEntry {
+//
+// playerID is pgtype.UUID, not string, as of T29.2 (closing the Social Play
+// third of #164): waitlist_entries.player_id is now
+// `uuid NOT NULL REFERENCES identity_users (id)`
+// (db/migrations/0026_socialplay_identity_conformance.sql). Converted back to
+// a Go string via .String() — mirrors gameFromFields'/registrationFromFields'
+// identical conversion.
+func waitlistEntryFromFields(id, gameID, playerID pgtype.UUID, position int32, status string, promotedAt pgtype.Timestamptz) domain.WaitlistEntry {
 	e := domain.WaitlistEntry{
 		ID:       id.String(),
 		GameID:   gameID.String(),
-		PlayerID: playerID,
+		PlayerID: playerID.String(),
 		Position: int(position),
 		Status:   domain.WaitlistStatus(status),
 	}
