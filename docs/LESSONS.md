@@ -2262,3 +2262,34 @@ sprint — a genuinely routine confirm-and-report retro. `HANDOFF.md`'s T37
 row and Task-backlog narrative are deliberately left for T38's Ceremony 1
 to correct, per the same convention, with the agreed honest-form sentence
 supplied in the retro document for that ceremony to carry forward.
+
+## T38 sprint retro
+
+Held as `docs/process/t38-retro.md`, following the convention
+T5/T9/T10/…/T36/T37 set and CLAUDE.md's **Docs index & naming convention**.
+
+T38 shipped zero tickets, the seventeenth 0-ticket sprint in this project's
+history by total count and the ninth sprint of the fresh consecutive run
+(T30, T31, T32, T33, T34, T35, T36, T37, T38) since T28 broke the T20–T27
+streak, plus the T37 §A0 bookkeeping corrections T37's own retro
+deliberately left undone. This retro independently re-verified every
+load-bearing claim rather than trusting T38's plan's own account: the live
+merged-fix sweep matches the plan's own count exactly (`totalCount: 7`,
+reconciled `7 − 0 + 0 = 7`); all 7 open issues' blockers were re-checked
+live, individually, down to their full bodies and are unchanged; neither D1
+nor D2 was answered as a formal decision, both ADR files' `## Status`
+sections and git history read directly, #144's single comment re-confirmed
+unchanged; DECISION D2 was correctly not exercised this sprint (zero
+tickets, zero PRs beyond the planning doc); `HANDOFF.md`'s T37 row
+correction, performed by T38's own Ceremony 1, was independently
+re-verified against freshly re-fetched `pull_request_read` data on
+#256/#257 and found accurate; a stale GitHub repo-metadata artifact was
+re-checked and remains present but functionally inert. The post-T29
+backlog-composition counter increments to **nineteen**; D1's silence
+counter holds at **twenty-five** (confirmed, not incremented a second time
+within this sprint). `make generate` then `make test-domain` re-run against
+the unmodified tree: 12/12 packages green. No incident-grade finding this
+sprint — a genuinely routine confirm-and-report retro. `HANDOFF.md`'s T38
+row and Task-backlog narrative are deliberately left for T39's Ceremony 1
+to correct, per the same convention, with the agreed honest-form sentence
+supplied in the retro document for that ceremony to carry forward.
