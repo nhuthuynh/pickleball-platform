@@ -2489,3 +2489,37 @@ confirm-and-report retro. `HANDOFF.md`'s T44 row and Task-backlog narrative
 are deliberately left for T45's Ceremony 1 to correct, per the same
 convention, with the agreed honest-form sentence supplied in the retro
 document for that ceremony to carry forward.
+
+## T45 sprint retro
+
+Held as `docs/process/t45-retro.md`, following the convention
+T5/T9/T10/…/T43/T44 set and CLAUDE.md's **Docs index & naming convention**.
+
+T45 shipped zero tickets, the twenty-fourth 0-ticket sprint in this
+project's history by total count and the sixteenth sprint of the fresh
+consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40,
+T41, T42, T43, T44, T45) since T28 broke the T20–T27 streak, plus the T44
+§A0 bookkeeping corrections T44's own retro deliberately left undone. This
+retro independently re-verified every load-bearing claim rather than
+trusting T45's plan's own account: the live merged-fix sweep matches the
+plan's own count exactly (`totalCount: 7`, reconciled `7 − 0 + 0 = 7`); all
+7 open issues' blockers were re-checked live, individually, down to their
+full bodies and are unchanged; neither D1 nor D2 was answered as a formal
+decision, both ADR files' `## Status` sections and git history read
+directly, #144's single comment re-confirmed unchanged; DECISION D2 was
+correctly not exercised this sprint (zero tickets, zero PRs beyond the
+planning doc); `HANDOFF.md`'s T44 row correction, performed by T45's own
+Ceremony 1, was independently re-verified against freshly re-fetched
+`pull_request_read` data on #270/#271 and found accurate; a stale GitHub
+repo-metadata artifact was re-checked and remains present but functionally
+inert, including the previously-named `list_pull_requests`-vs-`get`
+`merged`-field discrepancy (not chased further, same class as the existing
+artifact). The post-T29 backlog-composition counter increments to
+**thirty-three**; D1's silence counter holds at **thirty-two** (confirmed,
+not incremented a second time within this sprint). `make generate` then
+`make test-domain` re-run against the unmodified tree: 12/12 packages
+green. No incident-grade finding this sprint — a genuinely routine
+confirm-and-report retro. `HANDOFF.md`'s T45 row and Task-backlog narrative
+are deliberately left for T46's Ceremony 1 to correct, per the same
+convention, with the agreed honest-form sentence supplied in the retro
+document for that ceremony to carry forward.
