@@ -72,7 +72,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T47 | `docs/process/t47-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T46 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T46's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the twenty-sixth 0-ticket sprint in this project's history by total count and the eighteenth sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47) since T28 broke the T20–T27 streak) | `docs/process/t47-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T46 row correction, landed by T47's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to thirty-seven and confirmed D1's silence counter at thirty-four (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T47 row/narrative, per the now-settled convention, leaving it for T48's Ceremony 1; 7 recommendations for T48) | PR #276 (Ceremony 1/2 doc) → PR #277 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `07:54:06Z` → `11:34:56Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T48 | `docs/process/t48-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T47 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T47's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the twenty-seventh 0-ticket sprint in this project's history by total count and the nineteenth sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48) since T28 broke the T20–T27 streak) | `docs/process/t48-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T47 row correction, landed by T48's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to thirty-nine and confirmed D1's silence counter at thirty-five (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T48 row/narrative, per the now-settled convention, leaving it for T49's Ceremony 1; 7 recommendations for T49) | PR #278 (Ceremony 1/2 doc) → PR #279 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:40:45Z` → `11:45:22Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T49 | `docs/process/t49-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T48 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T48's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the twenty-eighth 0-ticket sprint in this project's history by total count and the twentieth sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49) since T28 broke the T20–T27 streak) | `docs/process/t49-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T48 row correction, landed by T49's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-one and confirmed D1's silence counter at thirty-six (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T49 row/narrative, per the now-settled convention, leaving it for T50's Ceremony 1; 7 recommendations for T50) | PR #280 (Ceremony 1/2 doc) → PR #281 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:56:56Z` → `12:01:55Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
-| T50 | `docs/process/t50-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T49 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep) | not yet written | not yet opened | — | — |
+| T50 | `docs/process/t50-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T49 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T49's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the twenty-ninth 0-ticket sprint in this project's history by total count and the twenty-first sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50) since T28 broke the T20–T27 streak) | `docs/process/t50-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T49 row correction, landed by T50's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-three and confirmed D1's silence counter at thirty-seven (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T50 row/narrative, per the now-settled convention, leaving it for T51's Ceremony 1; 7 recommendations for T51) | PR #282 (Ceremony 1/2 doc) → PR #283 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `12:07:52Z` → `12:12:21Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
+| T51 | `docs/process/t51-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T50 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep) | not yet written | not yet opened | — | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -3401,6 +3402,89 @@ the retro's form, not a stronger one).
 > retros/plans all already state.
 
 **T50 — Ceremony 1/2 only.** See `docs/process/t50-sprint-plan.md` for the
+live sweep, per-issue re-verification, and this sprint's disposition.
+
+**Outcome: 0 tickets, the twenty-ninth 0-ticket sprint in this project's
+history by total count, the twenty-first of a fresh consecutive run (T30,
+T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45,
+T46, T47, T48, T49, T50) since T28 broke the T20–T27 streak, plus the two
+§A0 bookkeeping corrections landed in this same PR.** Retro:
+`docs/process/t50-retro.md` — re-verified, against the live GitHub API
+rather than trusted from the plan's own account, that the merged-fix
+sweep's live `totalCount: 7` matches the plan's own count exactly
+(`7 − 0 + 0 = 7`); re-read all 7 open issues' full bodies, not just cached
+fields, and found every one unchanged; confirmed DECISION D2 correctly not
+exercised this sprint (zero tickets, zero PRs beyond the planning doc,
+landing in the structurally weaker "no PR existed" shape); confirmed
+neither D1 nor D2 answered as a formal ADR decision, both ADR files' `##
+Status` sections and git history read directly, #144's single T14.3
+comment re-fetched and confirmed unchanged; independently re-verified
+`HANDOFF.md`'s T49 row correction, performed by T50's own Ceremony 1,
+accurate against freshly re-fetched `pull_request_read` data on #280 and
+#281; carried the post-T29 backlog-composition counter to **forty-three**
+and confirmed D1's silence counter holds at **thirty-seven** (not
+incremented a second time within the sprint); re-checked the stale GitHub
+repo-metadata artifact — still present, still confirmed functionally
+inert, including the `list_pull_requests`-vs-`get` `merged`-field
+discrepancy. No incident-grade finding this sprint. Per the now-settled
+convention (T27's, T30's through T49's own retros; T28's and T29's own
+retros got this wrong), this retro deliberately did **not** touch
+`HANDOFF.md`'s own T50 Docs-index row or Task-backlog narrative — left for
+**T51's Ceremony 1** to correct, with the agreed honest-form sentence
+supplied for that purpose. 7 recommendations for T51.
+
+**State the outcome in this form, not a stronger one.** This is the
+retro's own agreed sentence (`sprint-process.md` Ceremony 1 item 3 requires
+the retro's form, not a stronger one).
+
+> T50 shipped zero tickets, the twenty-ninth 0-ticket sprint in this
+> project's history by total count and the twenty-first sprint of the fresh
+> consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40,
+> T41, T42, T43, T44, T45, T46, T47, T48, T49, T50) since T28 broke the
+> T20–T27 streak, plus the T49 §A0 bookkeeping corrections T49's own retro
+> deliberately left undone. This retro independently re-verified — not
+> trusted — every load-bearing claim: the merged-fix sweep's live
+> `totalCount: 7` matches T50 plan's own count exactly, arithmetically
+> reconciled (`7 − 0 + 0 = 7`); all 7 open issues' blockers were re-checked
+> live, down to full bodies, and every one is unchanged; #124, #126, #130
+> need Product Owner input the team cannot supply unilaterally; #144 and
+> #149 are blocked on D1; #145 needs a real, non-uuid IdP `sub` claim this
+> environment cannot produce; #134 needs real assistive-technology hardware
+> this environment does not have. DECISION D2 was correctly not exercised
+> this sprint — zero tickets means zero PRs beyond the planning doc,
+> landing in the structurally weaker "no PR existed" shape. Neither D1 nor
+> D2 was answered mid-sprint as a formal ADR decision, both ADR files' `##
+> Status` sections and git history read directly, and #144's single T14.3
+> comment re-fetched and confirmed unchanged. `HANDOFF.md`'s T49
+> Docs-index row and Task-backlog narrative correction, performed by T50's
+> own Ceremony 1, was independently re-verified against freshly re-fetched
+> `pull_request_read` data on #280 and #281 and found accurate. The
+> post-T29 backlog-composition counter increments to **forty-three** (T29
+> retro, T30 Ceremony 1, T30 retro, T31 Ceremony 1, T31 retro, T32
+> Ceremony 1, T32 retro, T33 Ceremony 1, T33 retro, T34 Ceremony 1, T34
+> retro, T35 Ceremony 1, T35 retro, T36 Ceremony 1, T36 retro, T37
+> Ceremony 1, T37 retro, T38 Ceremony 1, T38 retro, T39 Ceremony 1, T39
+> retro, T40 Ceremony 1, T40 retro, T41 Ceremony 1, T41 retro, T42
+> Ceremony 1, T42 retro, T43 Ceremony 1, T43 retro, T44 Ceremony 1, T44
+> retro, T45 Ceremony 1, T45 retro, T46 Ceremony 1, T46 retro, T47
+> Ceremony 1, T47 retro, T48 Ceremony 1, T48 retro, T49 Ceremony 1, T49
+> retro, T50 Ceremony 1, this retro — forty-three consecutive live checks
+> finding the identical 7-issue set unchanged); D1's consecutive-sprint-
+> silence counter holds at **thirty-seven** (T14 through T50, confirmed
+> rather than incremented a second time within this sprint — it becomes
+> thirty-eight only if T51 opens with #144 still uncommented). A stale
+> GitHub repo-metadata artifact (API-reported `full_name`/`description`
+> mismatch, plus `list_pull_requests`'s `merged` field reporting `false` on
+> already-merged PRs that `pull_request_read(get)` correctly reports `true`
+> for) was re-checked and is still present but still confirmed functionally
+> inert — local git operations against `nhuthuynh/white-label` ran clean
+> throughout, and every substantive merge claim in this retro relied on
+> `get`, not `list`. No incident-grade finding this sprint. `HANDOFF.md`'s
+> T50 row and Task-backlog narrative are left for **T51's Ceremony 1** to
+> correct, per the convention T27's own retro and T30's–T50's own
+> retros/plans all already state.
+
+**T51 — Ceremony 1/2 only.** See `docs/process/t51-sprint-plan.md` for the
 live sweep, per-issue re-verification, and this sprint's disposition.
 Retro not yet written.
 
