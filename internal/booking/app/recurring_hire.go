@@ -231,6 +231,16 @@ func (s *Service) bookOccurrence(ctx context.Context, template domain.RecurringH
 		// The template is the Booking's reference, which is what makes the
 		// generated Bookings traceable back to the request that created them.
 		ReferenceID: template.ID,
+		// DECISION D1 (ADR-0015 option (a)): the occurrence is owned by the
+		// Club that requested the standing slot, NOT by the Facility Owner
+		// whose approval minted it. Both are verified users and either would
+		// satisfy the NOT NULL column, so the choice is a real one: the
+		// requester is the party who books the court, turns up to it, and
+		// would cancel a week they no longer want, which is exactly what
+		// EnsureOwner gates. An approving owner who needs to cancel acts as
+		// the Facility, through the Facility-owner path, not as the booking's
+		// owner.
+		OwnerUserID: template.RequestedByUserID,
 	})
 	switch {
 	case err == nil:

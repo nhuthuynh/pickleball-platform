@@ -30,14 +30,14 @@ func TestListCourtBookings_ReturnsIntersectingBookings(t *testing.T) {
 	// courtID(1): a morning booking and an evening booking.
 	morning := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 	evening := mustTimeRange(t, "2026-08-03T18:00:00Z", "2026-08-03T19:00:00Z")
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: morning}); err != nil {
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceIndividual, Range: morning}); err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceGame, Range: evening, ReferenceID: "game-1"}); err != nil {
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceGame, Range: evening, ReferenceID: "game-1"}); err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
 	// courtID(2): overlaps the same window but is a different court.
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(2), Source: domain.SourceIndividual, Range: morning}); err != nil {
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(2), Source: domain.SourceIndividual, Range: morning}); err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
 
@@ -83,7 +83,7 @@ func TestListCourtBookings_ExcludesCancelled(t *testing.T) {
 	ctx := context.Background()
 
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	created, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
+	created, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
 	if err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}

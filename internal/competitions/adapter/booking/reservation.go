@@ -49,7 +49,7 @@ func NewReservation(bookingSvc *bookingapp.Service) *Reservation {
 // domain.EnsureNoConflict) is source-agnostic — so a Competition's
 // reservations conflict with games, recurring hires, individual bookings,
 // and other competitions automatically.
-func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, end time.Time, referenceID string) (string, error) {
+func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, end time.Time, referenceID, ownerUserID string) (string, error) {
 	rng, err := bookingdomain.NewTimeRange(start, end)
 	if err != nil {
 		// Competitions' own domain.NewCompetition already validated every
@@ -65,6 +65,7 @@ func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, e
 		Source:      bookingdomain.SourceCompetition,
 		Range:       rng,
 		ReferenceID: referenceID,
+		OwnerUserID: ownerUserID,
 	})
 	if err != nil {
 		if errors.Is(err, bookingdomain.ErrCourtDoubleBooked) {
@@ -104,8 +105,8 @@ func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, e
 // the underlying Booking; best-effort per port.CourtReservation's doc
 // comment, so its own failure is returned but the caller is expected not to
 // let it mask the original error that triggered the rollback.
-func (r *Reservation) ReleaseCourt(ctx context.Context, bookingID string) error {
-	if _, err := r.bookingSvc.CancelBooking(ctx, bookingID); err != nil {
+func (r *Reservation) ReleaseCourt(ctx context.Context, bookingID, ownerUserID string) error {
+	if _, err := r.bookingSvc.CancelBooking(ctx, bookingID, ownerUserID); err != nil {
 		return fmt.Errorf("competitions booking adapter: release booking %s: %s", bookingID, err)
 	}
 	return nil

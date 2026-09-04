@@ -89,10 +89,10 @@ const seedCourtID = "11111111-1111-1111-1111-111111111111"
 
 type stubReservation struct{}
 
-func (stubReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Time, _ string) (string, error) {
+func (stubReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Time, _, _ string) (string, error) {
 	return "", nil
 }
-func (stubReservation) ReleaseCourt(_ context.Context, _ string) error { return nil }
+func (stubReservation) ReleaseCourt(_ context.Context, _, _ string) error { return nil }
 
 type stubFacilities struct{}
 

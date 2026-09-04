@@ -3740,9 +3740,78 @@ the retro's form, not a stronger one).
 
 **T54 — Ceremony 1/2 only.** See `docs/process/t54-sprint-plan.md` for the
 live sweep, per-issue re-verification, and this sprint's disposition.
+
+**Outcome: T54 was planned as the thirty-third 0-ticket sprint and did not
+become one.** Retro: `docs/process/t54-retro.md`.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 requires the retro's own agreed sentence):
+
+> T54 was planned as the thirty-third 0-ticket sprint and did not become
+> one. DECISION D1 (ADR-0015) and DECISION D2 (ADR-0016) were both put to
+> the user directly and both answered — D1 as option (a), "authenticate the
+> flow"; D2 as option (b), the bounded carve-out, adopted verbatim and
+> unrelaxed. PR #290's planning document merged as written, and T55.1
+> implemented D1's answer end to end: `domain.Booking` gained a required
+> `OwnerUserID`, `bookings.owner_user_id` became
+> `uuid NOT NULL REFERENCES identity_users (id)` (migration 0027),
+> `CreateBooking` and `CancelBooking` moved from `PublicMethods()` to
+> `AuthenticatedMethods()`, and #144 — open since T13, the sharpest
+> object-level authorization hole in the codebase — was closed. The
+> accepted cost is the one ADR-0015 option (a) states: the shipped T7.6
+> public quote-and-book flow now requires an account at its confirm step,
+> a conversion call the Product Owner made with the cost in front of them.
+> This retro's substantive finding is not about the ticket but about the
+> process that preceded it: a correctly-formed escalation sat unanswered
+> for 41 sprints and 24 consecutive 0-ticket ceremonies, because the team
+> had an excellent mechanism for *asking* the Product Owner a question and
+> none at all for *delivering* it or for noticing it had gone unanswered.
+> Five process recommendations are adopted in response; the sixth
+> candidate — shortening the ceremony documents — was considered and
+> deliberately rejected as fixing the wrong thing.
+
+**T55 — DECISIONS D1 and D2 answered; T55.1 implements D1 and closes #144.**
+
+- **D1 (ADR-0015) → option (a), "authenticate the flow."** Implemented in
+  T55.1. See ADR-0015's `## Resolution` section for the full change list.
+- **D2 (ADR-0016) → option (b), "a bounded carve-out," verbatim and
+  unrelaxed.** The five-condition text is now appended to `CLAUDE.md`
+  rule 9. Note the consequence ADR-0016 itself records: (b) as specified
+  does **not** retroactively bless #179, which fails condition 3.
+- **Open issues: 7 → 6.** #144 closed. Still open: #124, #126, #130
+  (Product Owner input), #134 (needs real assistive-technology hardware),
+  #145 (needs a real non-uuid IdP `sub` claim), #149 (needs the
+  Game-Admin/Competition-Admin durable store; its D1 half is now unblocked).
+
+**T55 backlog — carried from T54's retro recommendations:**
+
+1. **Put #124, #126 and #130 to the user as explicit questions, in
+   ADR-0015's format** (recommendation 5). These are the three remaining
+   Product-Owner-blocked issues and they have been "blocked" without being
+   *asked* for the same reason D1 was.
+2. **Adopt recommendations 1–4 into `sprint-process.md`**: escalations must
+   name a delivery mechanism, not just a trigger; consecutive 0-ticket
+   sprints cap at two; counters carry thresholds and actions or are
+   dropped; `HANDOFF.md` tracks answerable-now blockers separately from
+   indefinitely-blocked ones.
+3. **Client follow-up for D1** — see the Cross-cutting entry below.
 Retro not yet written.
 
 ## Cross-cutting / later
+- **The Vue booking client needs a sign-in step before its confirm call
+  (T55.1 / DECISION D1).** `CreateBooking` and `CancelBooking` are
+  authenticated RPCs as of T55.1, which is the accepted cost of ADR-0015
+  option (a). `web/src/components/booking/CourtBookingFlow.vue` (with
+  `web/src/composables/useCourtBooking.ts` and
+  `web/src/api/bookingClient.ts`) still calls the confirm step
+  anonymously and will now receive `Unauthenticated`. `GetQuote` and
+  `ListCourtBookings` stay public, so the browse half of the flow is
+  unaffected and only the final step needs the token. This is client work,
+  deliberately not absorbed into T55.1's backend PR.
+- **`bookings` has no "my bookings" read.** D1's answer makes one
+  newly askable, and migration 0027 already adds
+  `bookings_owner_user_id_idx` to serve it. No RPC exists yet; worth a
+  ticket when a player-facing account view is built.
 - ~~`app.Service.NewService`'s constructor has grown to 3 positional args
   (repo, pricingRepo, ids) after T1; Principal Engineer review flagged this
   as fine for now but worth revisiting (options struct or split services)

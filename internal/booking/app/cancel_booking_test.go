@@ -31,18 +31,18 @@ func TestCancelBooking_FreesTheSlotForRebooking(t *testing.T) {
 	ctx := context.Background()
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	first, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
+	first, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
 	if err != nil {
 		t.Fatalf("unexpected err creating first booking: %v", err)
 	}
 
 	// Before cancelling, the slot is genuinely taken.
-	_, err = svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceGame, Range: rng, ReferenceID: "game-1"})
+	_, err = svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceGame, Range: rng, ReferenceID: "game-1"})
 	if !errors.Is(err, domain.ErrCourtDoubleBooked) {
 		t.Fatalf("got err %v, want %v (slot should still be taken)", err, domain.ErrCourtDoubleBooked)
 	}
 
-	cancelled, err := svc.CancelBooking(ctx, first.ID)
+	cancelled, err := svc.CancelBooking(ctx, first.ID, ownerA)
 	if err != nil {
 		t.Fatalf("unexpected err cancelling: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestCancelBooking_FreesTheSlotForRebooking(t *testing.T) {
 	}
 
 	// After cancelling, the same slot can be re-booked.
-	rebooked, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceGame, Range: rng, ReferenceID: "game-1"})
+	rebooked, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceGame, Range: rng, ReferenceID: "game-1"})
 	if err != nil {
 		t.Fatalf("re-booking the freed slot should succeed, got %v", err)
 	}
@@ -75,7 +75,7 @@ func TestCancelBooking_UnknownBookingReturnsNotFound(t *testing.T) {
 	})
 	ctx := context.Background()
 
-	_, err := svc.CancelBooking(ctx, "does-not-exist")
+	_, err := svc.CancelBooking(ctx, "does-not-exist", ownerA)
 	if !errors.Is(err, domain.ErrBookingNotFound) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrBookingNotFound)
 	}
@@ -97,15 +97,15 @@ func TestCancelBooking_AlreadyCancelledIsRejected(t *testing.T) {
 	ctx := context.Background()
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	b, err := svc.CreateBooking(ctx, app.CreateBookingInput{CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
+	b, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA, CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng})
 	if err != nil {
 		t.Fatalf("unexpected err creating fixture: %v", err)
 	}
-	if _, err := svc.CancelBooking(ctx, b.ID); err != nil {
+	if _, err := svc.CancelBooking(ctx, b.ID, ownerA); err != nil {
 		t.Fatalf("first cancel should succeed, got %v", err)
 	}
 
-	if _, err := svc.CancelBooking(ctx, b.ID); !errors.Is(err, domain.ErrIllegalStatusTransition) {
+	if _, err := svc.CancelBooking(ctx, b.ID, ownerA); !errors.Is(err, domain.ErrIllegalStatusTransition) {
 		t.Fatalf("double-cancel should be rejected, got %v", err)
 	}
 }

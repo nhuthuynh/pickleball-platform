@@ -56,7 +56,7 @@ func TestCreateBooking_UnknownCourtIsNotFoundNotInternal(t *testing.T) {
 
 	req := mapCreateBookingRequest()
 	req.CourtId = unknownCourt
-	_, err := h.CreateBooking(anonymous(), req)
+	_, err := h.CreateBooking(bookerCtx(), req)
 
 	if got := status.Code(err); got == codes.Internal {
 		t.Fatalf("CreateBooking(unknown court) still answers Internal — issue #185 is not fixed (err: %v)", err)
@@ -83,11 +83,11 @@ func TestCreateBooking_MalformedAndUnknownCourtAnswerAlike(t *testing.T) {
 
 	malformedReq := mapCreateBookingRequest()
 	malformedReq.CourtId = "not-a-uuid"
-	_, malformedErr := h.CreateBooking(anonymous(), malformedReq)
+	_, malformedErr := h.CreateBooking(bookerCtx(), malformedReq)
 
 	unknownReq := mapCreateBookingRequest()
 	unknownReq.CourtId = unknownCourt
-	_, unknownErr := h.CreateBooking(anonymous(), unknownReq)
+	_, unknownErr := h.CreateBooking(bookerCtx(), unknownReq)
 
 	if status.Code(malformedErr) != status.Code(unknownErr) {
 		t.Fatalf("malformed court id -> %v but unknown court id -> %v; one sentinel must give one code",
@@ -106,7 +106,7 @@ func TestCreateBooking_KnownCourtStillSucceeds(t *testing.T) {
 
 	h, repo := newFKHandler()
 
-	if _, err := h.CreateBooking(anonymous(), mapCreateBookingRequest()); err != nil {
+	if _, err := h.CreateBooking(bookerCtx(), mapCreateBookingRequest()); err != nil {
 		t.Fatalf("CreateBooking(known court) = %v, want success", err)
 	}
 	if n := len(repo.bookings); n != 1 {

@@ -35,11 +35,24 @@ const (
 // ReferenceID optionally links a Booking to the Game, Competition, or Club
 // recurring-hire template it belongs to. Empty for a plain individual booking.
 type Booking struct {
-	ID          string
-	CourtID     string
-	Source      Source
-	Status      Status
-	Range       TimeRange
+	ID      string
+	CourtID string
+	Source  Source
+	Status  Status
+	Range   TimeRange
+	// OwnerUserID is the User.ID (uuid — never an IdP subject, ADR-0014) of
+	// whoever this Booking belongs to. It is required: DECISION D1
+	// (ADR-0015, option (a)) settled that every Booking is owned by a
+	// verified user, so there is no such thing as an anonymous Booking any
+	// more. Which user it is depends on the Source — the booker for
+	// `individual`, the Game's host for `game`, the Competition's host for
+	// `competition`, the template's requester for `recurring_hire` — but
+	// there is always exactly one, and EnsureOwner below is what it is for.
+	//
+	// Mirrored in Postgres as bookings.owner_user_id, declared
+	// `uuid NOT NULL REFERENCES identity_users (id)` (migration 0027),
+	// following RecurringHireTemplate.RequestedByUserID's established shape.
+	OwnerUserID string
 	ReferenceID string
 }
 
@@ -48,12 +61,20 @@ type Booking struct {
 // validity). Conflict checking against existing bookings is a separate step
 // (EnsureNoConflict) because it needs the court's other bookings, which the
 // domain doesn't hold — that's the app layer's job via the repository port.
-func NewBooking(id, courtID string, source Source, r TimeRange, referenceID string) (Booking, error) {
+func NewBooking(id, courtID string, source Source, r TimeRange, referenceID, ownerUserID string) (Booking, error) {
 	if courtID == "" {
 		return Booking{}, ErrEmptyCourtID
 	}
 	if !source.IsValid() {
 		return Booking{}, ErrInvalidSource
+	}
+	// Rejected here rather than left to the FK, for the same reason
+	// NewRecurringHireTemplate rejects an empty RequestedByUserID: an
+	// unowned Booking is precisely the hole #144 reported, and the domain
+	// should refuse to construct one even in a test or an in-memory
+	// repository that never reaches Postgres.
+	if ownerUserID == "" {
+		return Booking{}, ErrEmptyOwnerUserID
 	}
 	return Booking{
 		ID:          id,
@@ -61,8 +82,26 @@ func NewBooking(id, courtID string, source Source, r TimeRange, referenceID stri
 		Source:      source,
 		Status:      StatusConfirmed,
 		Range:       r,
+		OwnerUserID: ownerUserID,
 		ReferenceID: referenceID,
 	}, nil
+}
+
+// EnsureOwner returns ErrNotBookingOwner unless actorUserID is exactly this
+// Booking's owner. Both sides are User.IDs (uuids), never IdP subjects —
+// ADR-0014's seam translates the subject once, at the grpcapi boundary.
+//
+// An empty actorUserID never matches, even against a Booking whose
+// OwnerUserID is somehow also empty (a hand-built zero value; NewBooking
+// cannot produce one). That guard is the same one Game.EnsureHost and
+// Facility.EnsureOwner carry, and it is load-bearing rather than defensive:
+// without it an unauthenticated caller and an unowned row would authorize
+// each other, which is the exact shape of the bug D1 was raised to close.
+func (b *Booking) EnsureOwner(actorUserID string) error {
+	if actorUserID == "" || actorUserID != b.OwnerUserID {
+		return ErrNotBookingOwner
+	}
+	return nil
 }
 
 // Cancel transitions a Booking to cancelled. The only legal transition is
