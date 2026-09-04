@@ -1,9 +1,11 @@
 # ADR-0015: What owns a Booking made through the public quote-and-book flow — escalated to the Product Owner, not decided here
 
-- **Status:** **Escalated — awaiting product decision (D1).** Deliberately
-  **not** Accepted, and no option below is chosen. See `## Status` for why
-  this ADR records a question rather than an answer, and how that differs
-  from ADR-0012's Q1/Q2.
+- **Status:** **Accepted — D1 answered on 2026-09-04: option (a),
+  "Authenticate the flow".** Implemented in T55.1; #144 closed. The
+  question, the options and the reasoning below are preserved unedited as
+  the record of what was decided and against what alternatives — read
+  `## Resolution` (immediately after `## Status`) first, then treat the
+  rest of this ADR as history rather than as an open question.
 - **Date:** 2026-08-15
 - **Ticket:** T14.3 (`docs/process/t14-sprint-plan.md`, §A6 and the T14.3
   ticket text)
@@ -20,7 +22,66 @@
   implements #144 consumes it — which cannot be scheduled until D1 is
   answered.
 
+## Resolution — D1, answered 2026-09-04
+
+**The Product Owner chose option (a): authenticate the flow.**
+
+Concretely, and as implemented in T55.1:
+
+- `domain.Booking` gains `OwnerUserID`, a **User.ID** uuid (never an IdP
+  subject — ADR-0014), required by `domain.NewBooking`.
+- `bookings.owner_user_id` is `uuid NOT NULL REFERENCES identity_users (id)`
+  (migration `0027_booking_owner_user_id.sql`), following
+  `recurring_hire_templates.requested_by_user_id`'s shape exactly, as the
+  "A precedent already in this context" section below anticipated.
+- `domain.Booking.EnsureOwner` is the rule; `ErrNotBookingOwner` maps to
+  `PermissionDenied`, `ErrEmptyOwnerUserID` to `InvalidArgument`.
+- `CreateBooking` and `CancelBooking` move from `PublicMethods()` to
+  `AuthenticatedMethods()`. The owner is resolved from the verified token
+  through `Handler.actor`, and is **not** a request field — `Booking` gained
+  a read-only `owner_user_id` in the proto, but `CreateBookingRequest`
+  deliberately did not.
+- Every other Booking source supplies the owner from a fact it already
+  holds: Social Play from `Game.HostID`, Competitions from
+  `Competition.HostID`, `ApproveRecurringHire` from the template's
+  `RequestedByUserID`. The two `port.CourtReservation` interfaces gained an
+  `ownerUserID` parameter on both `ReserveCourt` and `ReleaseCourt` — the
+  rollback path needs it, since a compensating cancel must now be performed
+  by the booking's owner.
+
+**The accepted cost, stated as plainly as the option table states it.**
+Option (a)'s cost is that it *"breaks the shipped T7.6 public booking flow —
+a player must register before booking"*, and that this is *"a
+conversion/product call, not an engineering one"*. The Product Owner made
+that call with the cost in front of them. `GetQuote` and
+`ListCourtBookings` deliberately stay public, so the browse half of T7.6
+(see a price, see availability) is unaffected and only the final confirm
+step now requires an account. The Vue client at
+`web/src/components/booking/CourtBookingFlow.vue` needs a sign-in step
+before its confirm call; that is follow-up client work, not backend work,
+and is recorded in `HANDOFF.md`'s Cross-cutting section rather than being
+silently absorbed here.
+
+**What this ADR's own trigger condition demanded, and whether it was met.**
+The trigger below says *"the sprint immediately following the user's answer
+to D1 must implement that answer ... and close #144"*. The answer arrived
+during T55 and was implemented in that same sprint, so the trigger is
+satisfied rather than deferred.
+
+**Why the deferral history below still matters.** #144 was deferred twice
+(T13 in prose, T14 as this ADR) and then sat unanswered for 41 consecutive
+sprints — T14 through T54 — during which the backlog produced zero tickets
+because this and D2 blocked everything in it. That is the finding this ADR
+warned about in its own words: *"a third deferral without an answer is a
+finding, not a decision."* The finding is recorded in
+`docs/process/t54-retro.md`; the mechanism that let an escalation sit
+unanswered for 41 sprints is a process defect, not a product one, and is
+where the retro directs attention.
+
 ## Status
+
+**Superseded by `## Resolution` above. Preserved verbatim as the record of
+the question as it stood before D1 was answered.**
 
 **Escalated — awaiting product decision. This ADR decides nothing.**
 

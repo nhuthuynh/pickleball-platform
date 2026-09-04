@@ -252,6 +252,12 @@ func seedBooking(repo *inMemoryRepo, id string, rng bookingdomain.TimeRange) {
 		Status:      bookingdomain.StatusConfirmed,
 		Range:       rng,
 		ReferenceID: "",
+		// Since DECISION D1 (ADR-0015 option (a)) a Booking has an owner and
+		// only its owner may cancel it, so a seeded fixture must carry the
+		// same owner the release path acts as — otherwise ReleaseCourt is
+		// correctly refused and the test fails for a reason that has nothing
+		// to do with what it is testing.
+		OwnerUserID: testBookingOwner,
 	}
 }
 
@@ -269,7 +275,7 @@ func TestReserveCourt_WritesAGameSourcedBooking(t *testing.T) {
 	res, repo := newReservation(t)
 	rng := slot(t, 10, 11)
 
-	id, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID)
+	id, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID, testBookingOwner)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -321,7 +327,7 @@ func TestReserveCourt_ConflictIsTranslated(t *testing.T) {
 			res, repo := newReservation(t)
 			seedBooking(repo, seededBookingID, tt.existing)
 
-			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, tt.want.Start, tt.want.End, fixtureGameID)
+			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, tt.want.Start, tt.want.End, fixtureGameID, testBookingOwner)
 
 			if !tt.conflict {
 				if err != nil {
@@ -363,7 +369,7 @@ func TestReserveCourt_ConflictFromTheRepositoryIsTranslated(t *testing.T) {
 	repo.createFailsWith = bookingdomain.ErrCourtDoubleBooked
 	rng := slot(t, 10, 11)
 
-	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID)
+	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID, testBookingOwner)
 
 	if !errors.Is(err, domain.ErrCourtUnavailable) {
 		t.Fatalf("ReserveCourt = %v, want socialplay domain.ErrCourtUnavailable", err)
@@ -399,7 +405,7 @@ func TestReserveCourt_NeverLeaksBookingSentinels(t *testing.T) {
 			repo.createFailsWith = up.err
 			rng := slot(t, 10, 11)
 
-			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID)
+			_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID, testBookingOwner)
 			if err == nil {
 				t.Fatal("want an error when the upstream fails")
 			}
@@ -426,7 +432,7 @@ func TestReserveCourt_MalformedCourtIDDoesNotLeak(t *testing.T) {
 	res, repo := newReservation(t)
 	rng := slot(t, 10, 11)
 
-	_, err := res.ReserveCourt(context.Background(), "not-a-uuid", rng.Start, rng.End, fixtureGameID)
+	_, err := res.ReserveCourt(context.Background(), "not-a-uuid", rng.Start, rng.End, fixtureGameID, testBookingOwner)
 	if err == nil {
 		t.Fatal("want an error for a malformed court id")
 	}
@@ -449,7 +455,7 @@ func TestReserveCourt_InvalidRangeDoesNotLeak(t *testing.T) {
 	rng := slot(t, 10, 11)
 
 	// end before start.
-	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.End, rng.Start, fixtureGameID)
+	_, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.End, rng.Start, fixtureGameID, testBookingOwner)
 	if err == nil {
 		t.Fatal("want an error for an inverted range")
 	}
@@ -467,7 +473,7 @@ func TestReleaseCourt_CancelsTheBooking(t *testing.T) {
 	rng := slot(t, 10, 11)
 	seedBooking(repo, seededBookingID, rng)
 
-	if err := res.ReleaseCourt(context.Background(), seededBookingID); err != nil {
+	if err := res.ReleaseCourt(context.Background(), seededBookingID, testBookingOwner); err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
 
@@ -477,7 +483,7 @@ func TestReleaseCourt_CancelsTheBooking(t *testing.T) {
 
 	// And the released slot is genuinely free again — the T3 standard for this
 	// assertion: prove the slot can be re-booked, not just that a field flipped.
-	if _, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID); err != nil {
+	if _, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureGameID, testBookingOwner); err != nil {
 		t.Fatalf("re-reserving the released slot = %v, want nil", err)
 	}
 }
@@ -507,7 +513,7 @@ func TestReleaseCourt_NeverLeaksBookingSentinels(t *testing.T) {
 			seedBooking(repo, seededBookingID, slot(t, 10, 11))
 			repo.getFailsWith = tt.failWith
 
-			err := res.ReleaseCourt(context.Background(), tt.bookingID)
+			err := res.ReleaseCourt(context.Background(), tt.bookingID, testBookingOwner)
 			if err == nil {
 				t.Fatal("want an error")
 			}
@@ -520,3 +526,10 @@ func TestReleaseCourt_NeverLeaksBookingSentinels(t *testing.T) {
 		})
 	}
 }
+
+// testBookingOwner is the User.ID these tests reserve courts as. Since
+// DECISION D1 (ADR-0015 option (a)) every Booking has an owner, and the
+// reservation ports carry it so the rollback path can cancel what it made.
+// These tests are about reservation and rollback, not about ownership, so
+// they use one fixed owner throughout.
+const testBookingOwner = "11111111-1111-1111-1111-111111111111"

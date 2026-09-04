@@ -1,0 +1,79 @@
+-- T55.1 (DECISION D1, ADR-0015 option (a); closes #144) — every Booking
+-- records the verified user who owns it, and only that user may cancel it.
+--
+-- 0027 is the next free number: db/migrations ended at 0026
+-- (0026_socialplay_identity_conformance.sql), confirmed by listing the
+-- directory before naming this file rather than assuming a sprint plan's
+-- number was still free.
+--
+-- WHY THIS COLUMN EXISTS
+--
+-- #144 reported that CancelBooking (and CreateBooking) had no authorization
+-- check of any kind: `bookings` identified no person, so anyone who knew or
+-- guessed a booking id could cancel it. ADR-0015 escalated the product half
+-- of that question — whether booking without an account should remain
+-- possible at all — because the storage *shape* was what the question was
+-- about, and no engineering answer could be chosen without it.
+--
+-- The Product Owner answered D1 with option (a): authenticate the flow. A
+-- Booking is owned by a verified user; CreateBooking requires a principal;
+-- CancelBooking requires the principal to match the owner. This column is
+-- the storage half of that answer, and internal/booking/domain's
+-- Booking.OwnerUserID / Booking.EnsureOwner are the domain half — the two
+-- must stay in sync, per CLAUDE.md rule 4, exactly as the no-double-booking
+-- EXCLUDE constraint and domain.EnsureNoConflict do.
+--
+-- WHY uuid REFERENCES identity_users, AND NOT text
+--
+-- ADR-0014's ruling: an IdP **subject** is translated to a **User.ID** once,
+-- at the grpcapi boundary, and nothing below that boundary ever holds a
+-- subject. Every actor column in every other context is therefore
+-- `uuid REFERENCES identity_users (id)` — payments.recorded_by_user_id
+-- (0024), competitions' admin columns (0025), socialplay's (0026) — and this
+-- column follows that settled shape rather than inventing a third one.
+--
+-- The immediate precedent inside this very context is
+-- recurring_hire_templates.requested_by_user_id
+-- (0018_booking_recurring_hire_templates.sql:32), declared exactly this way.
+-- ADR-0015's own "A precedent already in this context" section names it and
+-- observes that the mechanics of adding an owner to Booking were already a
+-- solved, copyable pattern here — only the product decision was missing.
+--
+-- WHY NOT NULL, AND WHY NO BACKFILL CLAUSE
+--
+-- NOT NULL is the point: a nullable owner would be option (c)
+-- ("owner-when-known, open-when-not"), which ADR-0015 records as explicitly
+-- NOT closing #144 because it leaves the hole open for exactly the anonymous
+-- bookings that have it today. The Product Owner chose (a), not (c), so the
+-- column admits no unowned row.
+--
+-- There is deliberately no backfill: `bookings` is seeded by no migration
+-- (db/queries/booking.sql's CreateBooking is the only INSERT against it in
+-- this repository, and it is application code, not seed data), so on the
+-- only path by which this migration ever runs the table is empty. That path
+-- is docker-compose initdb.d on a FRESH volume — see CLAUDE.md's migration
+-- gotcha: `make down` (which drops the volume) then `make up` applies
+-- 0001..0027 in order against an empty database, so no existing row can
+-- violate the constraint.
+--
+-- This is prototype-only migration tooling. Against a real deployment with
+-- live rows, this same change would need an expand/contract split (add
+-- nullable, backfill each booking's owner from an application-level source,
+-- verify zero nulls, then SET NOT NULL) and there would be a genuine
+-- product question about what to backfill pre-D1 anonymous bookings *with* —
+-- the answer to which is not derivable from the data, since those rows
+-- record no person by construction. Adopt golang-migrate/goose before
+-- production, at which point this reasoning stops applying.
+
+ALTER TABLE bookings
+    ADD COLUMN owner_user_id uuid NOT NULL REFERENCES identity_users (id);
+
+-- CancelBooking's authorization check reads the owner of one booking by id
+-- (the primary key), so that path needs no index of its own. This index
+-- serves the other direction — "which bookings does this user own" — which
+-- is the read a "my bookings" view performs and which D1's answer makes
+-- newly askable. No such RPC exists yet; the index is added here with the
+-- column rather than left for that ticket because it is the obvious access
+-- path the column creates, and adding it later against a populated table is
+-- strictly more expensive than adding it now against an empty one.
+CREATE INDEX bookings_owner_user_id_idx ON bookings (owner_user_id);

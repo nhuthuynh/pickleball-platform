@@ -224,12 +224,12 @@ func (r *fakeRepo) ListCompetitions(_ context.Context, filter port.CompetitionLi
 // are about, and a fake that failed would only obscure the check under test.
 type fakeReservation struct{ n int }
 
-func (f *fakeReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Time, _ string) (string, error) {
+func (f *fakeReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Time, _, _ string) (string, error) {
 	f.n++
 	return fmt.Sprintf("booking-%d", f.n), nil
 }
 
-func (f *fakeReservation) ReleaseCourt(_ context.Context, _ string) error { return nil }
+func (f *fakeReservation) ReleaseCourt(_ context.Context, _, _ string) error { return nil }
 
 // fakeFacilities accepts every ID: these tests never set a venue, so the
 // lookup is never even called (app.Service skips it for an empty

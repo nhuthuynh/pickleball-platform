@@ -98,10 +98,10 @@ func (fakeIDs) NewID() string { return "unused" }
 
 type fakeReservation struct{}
 
-func (fakeReservation) ReserveCourt(context.Context, string, time.Time, time.Time, string) (string, error) {
+func (fakeReservation) ReserveCourt(context.Context, string, time.Time, time.Time, string, string) (string, error) {
 	return "", nil
 }
-func (fakeReservation) ReleaseCourt(context.Context, string) error { return nil }
+func (fakeReservation) ReleaseCourt(context.Context, string, string) error { return nil }
 
 type fakeFacilityLookup struct{}
 

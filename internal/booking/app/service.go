@@ -219,9 +219,21 @@ func (s *Service) ResolveActorUserID(ctx context.Context, subject string) (strin
 // Game reserving its courts, a Competition reserving its courts, and a Club
 // recurring-hire occurrence, differing only in Source/ReferenceID.
 type CreateBookingInput struct {
-	CourtID     string
-	Source      domain.Source
-	Range       domain.TimeRange
+	CourtID string
+	Source  domain.Source
+	Range   domain.TimeRange
+	// OwnerUserID is the User.ID (uuid, never a subject — ADR-0014) the new
+	// Booking belongs to. Required since DECISION D1 (ADR-0015 option (a));
+	// domain.NewBooking rejects an empty one.
+	//
+	// Every caller supplies it from a fact it already holds rather than from
+	// anything the requester sent: the grpcapi handler from the verified
+	// principal via Handler.actor, Social Play from the Game's HostID,
+	// Competitions from the Competition's HostID, and ApproveRecurringHire
+	// from the template's RequestedByUserID. There is deliberately no path
+	// by which a caller names the owner of a booking it is not making — that
+	// would re-open #144 through the front door.
+	OwnerUserID string
 	ReferenceID string
 }
 
@@ -232,7 +244,7 @@ type CreateBookingInput struct {
 // HANDOFF.md T4); this pre-check exists to fail fast and give a clear domain
 // error without waiting on a round trip that's doomed to be rejected.
 func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (domain.Booking, error) {
-	candidate, err := domain.NewBooking(s.ids.NewID(), in.CourtID, in.Source, in.Range, in.ReferenceID)
+	candidate, err := domain.NewBooking(s.ids.NewID(), in.CourtID, in.Source, in.Range, in.ReferenceID, in.OwnerUserID)
 	if err != nil {
 		return domain.Booking{}, err
 	}
@@ -294,7 +306,7 @@ func (s *Service) ListCourtBookings(ctx context.Context, courtID string, r domai
 // cancelled, the slot it held is free — domain.EnsureNoConflict already
 // ignores cancelled bookings (T0), so no separate "free the slot" step is
 // needed here beyond persisting the status change itself.
-func (s *Service) CancelBooking(ctx context.Context, bookingID string) (domain.Booking, error) {
+func (s *Service) CancelBooking(ctx context.Context, bookingID, actorUserID string) (domain.Booking, error) {
 	// A malformed bookingID is answered exactly like an unknown one (T10.7,
 	// closing issue #97): this method already calls GetByID first and
 	// already returns the bare domain.ErrBookingNotFound for a miss —
@@ -307,6 +319,22 @@ func (s *Service) CancelBooking(ctx context.Context, bookingID string) (domain.B
 
 	b, err := s.repo.GetByID(ctx, bookingID)
 	if err != nil {
+		return domain.Booking{}, err
+	}
+
+	// DECISION D1 (ADR-0015 option (a); closes #144). The existence check
+	// above runs FIRST and the ownership check second, deliberately: an
+	// unknown id answers NotFound for everybody, and a known id answers
+	// PermissionDenied only to a caller who is not its owner.
+	//
+	// That ordering does leak one bit — whether a given booking id exists —
+	// to an authenticated caller who guesses one. It is the same bit
+	// ErrNotFacilityOwner already leaks for Facilities, and it is the lesser
+	// of the two evils available: the alternative (answer NotFound to
+	// non-owners) would mean a legitimate owner hitting a transient
+	// repository miss cannot tell "your booking is gone" from "you may not
+	// touch it". ADR-0014 §6 settled the same trade the same way.
+	if err := b.EnsureOwner(actorUserID); err != nil {
 		return domain.Booking{}, err
 	}
 

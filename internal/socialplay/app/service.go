@@ -356,9 +356,9 @@ func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reserv
 
 	reservedBookingIDs := make([]string, 0, len(game.CourtIDs))
 	for _, courtID := range game.CourtIDs {
-		bookingID, err := reservation.ReserveCourt(ctx, courtID, game.Range.Start, game.Range.End, game.ID)
+		bookingID, err := reservation.ReserveCourt(ctx, courtID, game.Range.Start, game.Range.End, game.ID, game.HostID)
 		if err != nil {
-			releaseAll(ctx, reservation, reservedBookingIDs)
+			releaseAll(ctx, reservation, reservedBookingIDs, game.HostID)
 			return domain.Game{}, fmt.Errorf("socialplay: reserving court %s for game %s: %w", courtID, game.ID, err)
 		}
 		reservedBookingIDs = append(reservedBookingIDs, bookingID)
@@ -366,7 +366,7 @@ func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reserv
 
 	persisted, err := s.games.Create(ctx, game)
 	if err != nil {
-		releaseAll(ctx, reservation, reservedBookingIDs)
+		releaseAll(ctx, reservation, reservedBookingIDs, game.HostID)
 		return domain.Game{}, fmt.Errorf("socialplay: persisting game %s: %w", game.ID, err)
 	}
 
@@ -377,9 +377,9 @@ func (s *Service) ScheduleGame(ctx context.Context, in ScheduleGameInput, reserv
 // two failure points (a later court conflicting, or persistence itself
 // failing after every court already reserved) — see the method's doc
 // comment on why rollback is best-effort and doesn't mask the original error.
-func releaseAll(ctx context.Context, reservation port.CourtReservation, bookingIDs []string) {
+func releaseAll(ctx context.Context, reservation port.CourtReservation, bookingIDs []string, ownerUserID string) {
 	for _, id := range bookingIDs {
-		_ = reservation.ReleaseCourt(ctx, id)
+		_ = reservation.ReleaseCourt(ctx, id, ownerUserID)
 	}
 }
 

@@ -19,12 +19,12 @@ import (
 // integration tests already cover).
 type fakeReservation struct{ n int }
 
-func (f *fakeReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Time, _ string) (string, error) {
+func (f *fakeReservation) ReserveCourt(_ context.Context, _ string, _, _ time.Time, _, _ string) (string, error) {
 	f.n++
 	return "booking-1", nil
 }
 
-func (f *fakeReservation) ReleaseCourt(_ context.Context, _ string) error { return nil }
+func (f *fakeReservation) ReleaseCourt(_ context.Context, _, _ string) error { return nil }
 
 func newEntryFeeHandler() *grpcapi.Handler {
 	svc := app.NewService(app.ServiceOptions{

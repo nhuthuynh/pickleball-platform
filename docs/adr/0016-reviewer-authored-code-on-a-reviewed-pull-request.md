@@ -1,9 +1,10 @@
 # ADR-0016: May a session that reviews and merges a pull request also write code on it — escalated to the user, not decided here
 
-- **Status:** **Escalated — awaiting decision (D2).** Deliberately **not**
-  Accepted, and no option below is chosen. See `## Status` for why this ADR
-  records a question rather than an answer, and why this particular question
-  is one this team may not answer for itself.
+- **Status:** **Accepted — D2 answered on 2026-09-04: option (b), "a bounded
+  carve-out", as specified.** Applied to `CLAUDE.md` rule 9 in T55. The
+  question, the options and the reasoning below are preserved unedited as
+  the record of what was decided and against what alternatives — read
+  `## Resolution` first, then treat the rest as history.
 - **Date:** 2026-08-15
 - **Ticket:** T15.2 (`docs/process/t15-sprint-plan.md`, §A6 and the T15.2
   ticket text)
@@ -19,7 +20,30 @@
   answered implements it — in `CLAUDE.md` and/or `sprint-process.md`, as the
   answer directs.
 
+## Resolution — D2, answered 2026-09-04
+
+**The user chose option (b): the bounded carve-out, as PE specified it.**
+
+The five-condition text written out in full under *"Option (b), written out
+in full so it can be approved as-is"* below was adopted **verbatim and
+unrelaxed** — all five conditions, condition 3 ("single-file") included —
+and appended to `CLAUDE.md` rule 9 in T55.
+
+**One consequence, restated here so it is not lost.** As this ADR itself
+records, option (b) as specified does **not** retroactively bless #179, the
+instance that prompted the question: #179's fix added one table row per
+bounded context, so it fails condition 3 and would still be prohibited. The
+user approved (b) as written rather than with condition 3 relaxed, so that
+consequence stands.
+
+**What is unchanged.** `sprint-process.md`'s worktree-recovery practice
+(T15.1) is untouched — D2 decides whether a reviewing session may *author*,
+not how a recovery is detected or disclosed.
+
 ## Status
+
+**Superseded by `## Resolution` above. Preserved verbatim as the record of
+the question as it stood before D2 was answered.**
 
 **Escalated — awaiting the user's decision. This ADR decides nothing.**
 
