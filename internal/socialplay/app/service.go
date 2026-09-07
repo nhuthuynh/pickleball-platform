@@ -1016,22 +1016,29 @@ func (s *Service) ListMatchesForGame(ctx context.Context, gameID string) ([]doma
 // Game is still live and the freed slot is real; a cancelled Game has no
 // slot left to offer anyone.
 //
-// STILL A KNOWN GAP, narrower than before: cancelling a Game does NOT
-// cascade to the court Bookings it reserved (issue #124's other half).
-// This is left deliberately undone, not merely deferred by omission — see
-// this method's own package-level PR/#124 comment for why: the cascade
-// would call booking's app.Service.CancelBooking, whose signature
-// ADR-0015's still-open D1 may yet change (adding an actor parameter is
-// one of D1's four options), and building against a signature under
-// active escalation means either guessing D1 or shipping code that may
-// need rewriting.
+// COURT BOOKINGS ARE NOW RELEASED (T55.2, issue #124's other half). This
+// used to be a disclosed gap: the cascade would call booking's
+// app.Service.CancelBooking, whose signature ADR-0015's then-open DECISION
+// D1 might change, so building it meant guessing D1 or shipping code that
+// would need rewriting. D1 was answered as option (a), which settled the
+// signature and made the fit clean rather than awkward — game-source
+// Bookings are owned by Game.HostID, and this method is host-only
+// (EnsureHost above), so the actor cascading is by construction the owner
+// of the Bookings being cascaded. No new port, no widened permission.
 //
-// Also DELIBERATELY UNTOUCHED: refunds. #124's own "why this needs a
-// decision" list names whether a cancelled Registration's Payment gets
-// refunded as its own open sub-question (now sharper given T12.3's
-// RefundPayment) — this method cancels the Registration only; it never
-// calls RefundPayment and does not answer whether a future ticket should.
-func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string) (domain.Game, error) {
+// The release runs LAST, after both the parent status write and the
+// Registration cascade, and its failure is surfaced rather than swallowed —
+// same reasoning as the Registration cascade's ordering above. A failure
+// here leaves courts held for a Game already cancelled, which is visible,
+// repairable by re-running (ReleaseCourtsForReference is idempotent), and
+// strictly better than the reverse ordering's failure mode.
+//
+// Still DELIBERATELY UNTOUCHED here: refunds. #124's refund half was
+// answered at the same time as its court half (refund automatically on
+// host-initiated cancellation) but is a separate change — it crosses into
+// Payments, needs its own port, and needs a partial-failure rule. It is
+// tracked on #124 and is not silently half-done here.
+func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string, reservation port.CourtReservation) (domain.Game, error) {
 	// Same T10.7-shaped boundary guard the methods above apply, for the
 	// identical reason: this method calls GetByID(gameID) next, and a
 	// malformed id must answer exactly what an unknown-but-well-formed one
@@ -1070,6 +1077,13 @@ func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string) 
 	// active Game with cancelled Registrations.
 	if _, err := s.registrations.CancelAllActiveForGame(ctx, cancelled.ID); err != nil {
 		return cancelled, fmt.Errorf("socialplay: cancelling active registrations for game %s: %w", cancelled.ID, err)
+	}
+
+	// T55.2 cascade (#124's court half): release the courts this Game was
+	// holding. The host is passed as the owner because that is who owns
+	// game-source Bookings — see the doc comment above.
+	if _, err := reservation.ReleaseCourtsForReference(ctx, cancelled.ID, cancelled.HostID); err != nil {
+		return cancelled, fmt.Errorf("socialplay: releasing courts for game %s: %w", cancelled.ID, err)
 	}
 
 	return cancelled, nil

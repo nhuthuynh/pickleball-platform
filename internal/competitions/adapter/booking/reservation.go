@@ -111,3 +111,19 @@ func (r *Reservation) ReleaseCourt(ctx context.Context, bookingID, ownerUserID s
 	}
 	return nil
 }
+
+// ReleaseCourtsForReference implements port.CourtReservation's #124 cascade
+// by delegating to Booking's own CancelBookingsForReference, which does the
+// per-booking ownership check (DECISION D1) and the all-or-nothing ownership
+// pre-check.
+//
+// The bookingdomain error type is stripped at this boundary (%s, not %w —
+// CLAUDE.md rule 5) exactly as every other method here does, so no Booking
+// sentinel leaks into competitions's error space.
+func (r *Reservation) ReleaseCourtsForReference(ctx context.Context, referenceID, ownerUserID string) (int, error) {
+	released, err := r.bookingSvc.CancelBookingsForReference(ctx, referenceID, ownerUserID)
+	if err != nil {
+		return released, fmt.Errorf("competitions booking adapter: releasing courts for reference %s: %s", referenceID, err)
+	}
+	return released, nil
+}

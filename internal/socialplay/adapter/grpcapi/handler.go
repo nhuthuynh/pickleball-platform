@@ -252,7 +252,7 @@ func (h *Handler) CancelGame(ctx context.Context, req *socialplayv1.CancelGameRe
 		return nil, err
 	}
 
-	game, err := h.svc.CancelGame(ctx, req.GetGameId(), actorPlayerID)
+	game, err := h.svc.CancelGame(ctx, req.GetGameId(), actorPlayerID, h.reservation)
 	if err != nil {
 		return nil, toStatus(err)
 	}
