@@ -42,6 +42,12 @@ type fakeReservation struct {
 	reserveCalls []string          // courtIDs ReserveCourt was called for, in order
 	releaseErr   error             // optional: simulate a rollback call itself failing
 
+	// T55.2 (#124's court half): what CancelCompetition's cascade asked to
+	// release, and as whom.
+	releasedForReference   []string
+	releaseOwners          []string
+	releaseForReferenceErr error
+
 	n int
 }
 
@@ -1110,4 +1116,24 @@ func TestMarkCompetitionEntryPaymentStatus_InvalidStatusRejected(t *testing.T) {
 	if !errors.Is(err, domain.ErrInvalidPaymentStatus) {
 		t.Fatalf("got err %v, want ErrInvalidPaymentStatus", err)
 	}
+}
+
+// ReleaseCourtsForReference records the T55.2 court-release cascade (#124)
+// so a test can assert CancelCompetition invokes it with the right reference
+// and owner — the two things that would silently break if the cascade were
+// wired to the wrong values.
+func (f *fakeReservation) ReleaseCourtsForReference(_ context.Context, referenceID, ownerUserID string) (int, error) {
+	f.releasedForReference = append(f.releasedForReference, referenceID)
+	f.releaseOwners = append(f.releaseOwners, ownerUserID)
+	if f.releaseForReferenceErr != nil {
+		return 0, f.releaseForReferenceErr
+	}
+	return len(f.releasedForReference), nil
+}
+
+// ReleaseCourtsForReference delegates like the two methods above, so the
+// recorder stays a transparent wrapper rather than diverging from the
+// reservation it wraps.
+func (r *orderRecordingReservation) ReleaseCourtsForReference(ctx context.Context, referenceID, ownerUserID string) (int, error) {
+	return r.inner.ReleaseCourtsForReference(ctx, referenceID, ownerUserID)
 }

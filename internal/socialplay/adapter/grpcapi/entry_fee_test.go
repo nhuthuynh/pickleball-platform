@@ -139,3 +139,12 @@ func TestCreateGame_InvalidEntryFeeIsInvalidArgument(t *testing.T) {
 		})
 	}
 }
+
+// ReleaseCourtsForReference implements port.CourtReservation for T55.2's
+// #124 cascade. This fake records nothing: the tests that exercise the
+// cascade drive it through a real Reservation over an in-memory booking
+// repository, so a counting stub here would only assert that a call
+// happened, not that a court was actually freed.
+func (f *fakeReservation) ReleaseCourtsForReference(context.Context, string, string) (int, error) {
+	return 0, nil
+}

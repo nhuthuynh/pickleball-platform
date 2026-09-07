@@ -747,6 +747,23 @@ func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUse
 		return cancelled, fmt.Errorf("competitions: cancelling active entries for competition %s: %w", cancelled.ID, err)
 	}
 
+	// T55.2 cascade (#124's court half, mirrored onto Competitions): release
+	// the courts this Competition was holding. The host is passed as the
+	// owner because competition-source Bookings are owned by
+	// Competition.HostID (ScheduleCompetition passes it through
+	// port.CourtReservation.ReserveCourt), and CancelCompetition is
+	// host-only (EnsureHost above) — so the actor cascading is by
+	// construction the owner of the Bookings being cascaded.
+	//
+	// Runs last, after both the parent status write and the entry cascade,
+	// and its failure is surfaced rather than swallowed: courts still held
+	// for an already-cancelled Competition is visible and repairable by
+	// re-running (ReleaseCourtsForReference is idempotent), which the
+	// reverse ordering could not say.
+	if _, err := s.reservation.ReleaseCourtsForReference(ctx, cancelled.ID, cancelled.HostID); err != nil {
+		return cancelled, fmt.Errorf("competitions: releasing courts for competition %s: %w", cancelled.ID, err)
+	}
+
 	return cancelled, nil
 }
 

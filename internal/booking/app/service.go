@@ -345,6 +345,90 @@ func (s *Service) CancelBooking(ctx context.Context, bookingID, actorUserID stri
 	return s.repo.Update(ctx, b)
 }
 
+// CancelBookingsForReference cancels every active Booking made against
+// referenceID, and returns how many it cancelled.
+//
+// This is the Booking-side half of issue #124: a cancelled Game or
+// Competition must release the courts its Bookings were holding, because
+// only a cancelled Booking frees a slot (domain.EnsureNoConflict and the
+// Postgres EXCLUDE constraint both ignore cancelled rows, and count
+// everything else). Social Play and Competitions reach it through their own
+// port.CourtReservation adapters; nothing outside this context calls it
+// directly.
+//
+// # Why it is owner-checked, one booking at a time
+//
+// actorUserID must own every Booking it cancels, exactly as CancelBooking
+// requires (DECISION D1, ADR-0015 option (a)). This method is deliberately
+// NOT a privileged bulk path that skips the check: a cascade that could
+// cancel bookings its caller does not own would be a way around D1's answer,
+// reachable by anyone who could guess a reference id.
+//
+// The check passes for the legitimate caller without anything being widened.
+// A game-source Booking is owned by the Game's HostID (socialplay's
+// ScheduleGame passes it through port.CourtReservation.ReserveCourt), and
+// CancelGame is host-only (it calls Game.EnsureHost). So the actor
+// cascading is by construction the owner of what is being cascaded. The
+// same holds for Competitions via Competition.HostID and
+// Competition.EnsureHost.
+//
+// # Why it is all-or-nothing on ownership
+//
+// Ownership is checked across the whole set BEFORE anything is written, so a
+// caller who owns some but not all of a reference's bookings cancels none of
+// them rather than leaving a Game half-released. That situation should not
+// arise — every booking under one reference is created with the same owner —
+// but if it ever does, it is a data-integrity problem, and a partial cascade
+// would make it worse and harder to see. This is a pre-check, not a
+// transaction: the writes below are still individual, so a failure partway
+// through the write loop can still leave a partial cascade. That residue is
+// repairable by re-running (this method is idempotent) and is surfaced as an
+// error rather than swallowed; making it genuinely atomic would need a
+// repository-level transactional bulk update, which is worth doing if this
+// ever runs against Games holding many courts.
+//
+// An empty referenceID matches nothing and returns (0, nil). That guard is
+// load-bearing rather than defensive: reference_id is empty for every plain
+// individual booking, so a cascade keyed on "" would cancel all of them. It
+// is enforced here AND in the SQL (see ListActiveForReference), because this
+// is the one bug in this method that would be catastrophic and silent.
+func (s *Service) CancelBookingsForReference(ctx context.Context, referenceID, actorUserID string) (int, error) {
+	if referenceID == "" {
+		return 0, nil
+	}
+
+	active, err := s.repo.ListActiveForReference(ctx, referenceID)
+	if err != nil {
+		return 0, err
+	}
+
+	// Ownership first, across the whole set, before any write.
+	for _, b := range active {
+		if err := b.EnsureOwner(actorUserID); err != nil {
+			return 0, err
+		}
+	}
+
+	cancelled := 0
+	for _, b := range active {
+		if err := b.Cancel(); err != nil {
+			// ListActiveForReference returned it, so it was not cancelled
+			// when read; losing that race means somebody else cancelled it
+			// concurrently, which is the outcome we wanted anyway.
+			if errors.Is(err, domain.ErrIllegalStatusTransition) {
+				continue
+			}
+			return cancelled, err
+		}
+		if _, err := s.repo.Update(ctx, b); err != nil {
+			return cancelled, err
+		}
+		cancelled++
+	}
+
+	return cancelled, nil
+}
+
 // GetQuoteInput is GetQuote's use-case input. It became a struct in T11.2
 // when Source joined CourtID/Range — the same threshold CreateBookingInput
 // crossed, and the same reason: a 4-argument positional call is where the

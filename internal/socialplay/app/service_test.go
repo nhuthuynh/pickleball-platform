@@ -48,6 +48,12 @@ type fakeReservation struct {
 	released     []string // bookingIDs ReleaseCourt was called for, in order
 	releaseErr   error    // optional: simulate a rollback call itself failing
 
+	// T55.2 (#124's court half): what CancelGame's cascade asked to
+	// release, and as whom.
+	releasedForReference   []string
+	releaseOwners          []string
+	releaseForReferenceErr error
+
 	n int
 }
 
@@ -958,7 +964,7 @@ func TestRegisterForGame_RejectsCancelledGame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
-	if _, err := svc.CancelGame(ctx, g.ID, "host-1"); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, "host-1", &fakeReservation{}); err != nil {
 		t.Fatalf("fixture game should cancel, got %v", err)
 	}
 
@@ -1300,7 +1306,7 @@ func TestJoinWaitlist_RejectsCancelledGame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fixture game should schedule, got %v", err)
 	}
-	if _, err := svc.CancelGame(ctx, g.ID, "host-1"); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, "host-1", &fakeReservation{}); err != nil {
 		t.Fatalf("fixture game should cancel, got %v", err)
 	}
 
@@ -2224,7 +2230,7 @@ func TestCancelGame_HostSucceeds(t *testing.T) {
 	svc, g, games, _ := newMatchTestService(t)
 	ctx := context.Background()
 
-	cancelled, err := svc.CancelGame(ctx, g.ID, g.HostID)
+	cancelled, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -2253,7 +2259,7 @@ func TestCancelGame_NonHostRejected(t *testing.T) {
 	svc, g, games, _ := newMatchTestService(t)
 	ctx := context.Background()
 
-	_, err := svc.CancelGame(ctx, g.ID, "not-the-host")
+	_, err := svc.CancelGame(ctx, g.ID, "not-the-host", &fakeReservation{})
 	if !errors.Is(err, domain.ErrNotGameHost) {
 		t.Fatalf("got err %v, want ErrNotGameHost specifically", err)
 	}
@@ -2295,7 +2301,7 @@ func TestCancelGame_AssignedGameAdminRejected(t *testing.T) {
 		t.Fatalf("fixture precondition: %q must be a legitimate game admin, got %v", gameAdmin, err)
 	}
 
-	if _, err := svc.CancelGame(ctx, g.ID, gameAdmin); !errors.Is(err, domain.ErrNotGameHost) {
+	if _, err := svc.CancelGame(ctx, g.ID, gameAdmin, &fakeReservation{}); !errors.Is(err, domain.ErrNotGameHost) {
 		t.Fatalf("a game admin must not be able to cancel the game: got err %v, want ErrNotGameHost", err)
 	}
 }
@@ -2307,7 +2313,7 @@ func TestCancelGame_EmptyActorRejected(t *testing.T) {
 
 	svc, g, _, _ := newMatchTestService(t)
 
-	if _, err := svc.CancelGame(context.Background(), g.ID, ""); !errors.Is(err, domain.ErrNotGameHost) {
+	if _, err := svc.CancelGame(context.Background(), g.ID, "", &fakeReservation{}); !errors.Is(err, domain.ErrNotGameHost) {
 		t.Fatalf("got err %v, want ErrNotGameHost", err)
 	}
 }
@@ -2329,7 +2335,7 @@ func TestCancelGame_UnknownGameNotFound(t *testing.T) {
 		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
-	if _, err := svc.CancelGame(context.Background(), gameID(9101), "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
+	if _, err := svc.CancelGame(context.Background(), gameID(9101), "host-1", &fakeReservation{}); !errors.Is(err, domain.ErrGameNotFound) {
 		t.Fatalf("got err %v, want ErrGameNotFound", err)
 	}
 	if games.getByIDCalls.Load() != 1 {
@@ -2355,7 +2361,7 @@ func TestCancelGame_MalformedGameIDNotFound(t *testing.T) {
 		GameAdmins:    newFakeGameAdminRepository(),
 	})
 
-	if _, err := svc.CancelGame(context.Background(), "not-a-uuid", "host-1"); !errors.Is(err, domain.ErrGameNotFound) {
+	if _, err := svc.CancelGame(context.Background(), "not-a-uuid", "host-1", &fakeReservation{}); !errors.Is(err, domain.ErrGameNotFound) {
 		t.Fatalf("got err %v, want ErrGameNotFound", err)
 	}
 	if games.getByIDCalls.Load() != 0 {
@@ -2376,10 +2382,10 @@ func TestCancelGame_AlreadyCancelledRejected(t *testing.T) {
 	svc, g, _, _ := newMatchTestService(t)
 	ctx := context.Background()
 
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{}); err != nil {
 		t.Fatalf("first cancel failed: %v", err)
 	}
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); !errors.Is(err, domain.ErrGameCancelled) {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{}); !errors.Is(err, domain.ErrGameCancelled) {
 		t.Fatalf("got err %v, want ErrGameCancelled", err)
 	}
 }
@@ -2397,10 +2403,10 @@ func TestCancelGame_AuthorizationPrecedesStatusCheck(t *testing.T) {
 	svc, g, _, _ := newMatchTestService(t)
 	ctx := context.Background()
 
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{}); err != nil {
 		t.Fatalf("fixture precondition: first cancel failed: %v", err)
 	}
-	if _, err := svc.CancelGame(ctx, g.ID, "not-the-host"); !errors.Is(err, domain.ErrNotGameHost) {
+	if _, err := svc.CancelGame(ctx, g.ID, "not-the-host", &fakeReservation{}); !errors.Is(err, domain.ErrNotGameHost) {
 		t.Fatalf("got err %v, want ErrNotGameHost (authorization must be checked before status)", err)
 	}
 }
@@ -2445,7 +2451,7 @@ func TestCancelGame_CancelsActiveRegistrations(t *testing.T) {
 		t.Fatalf("fixture registration 2 failed: %v", err)
 	}
 
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{}); err != nil {
 		t.Fatalf("CancelGame failed: %v", err)
 	}
 
@@ -2494,7 +2500,7 @@ func TestCancelGame_LeavesRegistrationPaymentStatusAlone(t *testing.T) {
 		t.Fatalf("fixture MarkRegistrationPaymentStatus failed: %v", err)
 	}
 
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{}); err != nil {
 		t.Fatalf("CancelGame failed: %v", err)
 	}
 
@@ -2587,7 +2593,7 @@ func TestCancelGame_DoesNotPromoteWaitlist(t *testing.T) {
 		t.Fatalf("fixture precondition: entry.Status = %q, want waiting", entry.Status)
 	}
 
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, &fakeReservation{}); err != nil {
 		t.Fatalf("CancelGame failed: %v", err)
 	}
 
@@ -2598,4 +2604,17 @@ func TestCancelGame_DoesNotPromoteWaitlist(t *testing.T) {
 	if stored.Status != domain.WaitlistStatusWaiting {
 		t.Fatalf("waitlist entry Status = %q after cancelling its Game, want waiting (unchanged) — a cancelled Game must not promote anyone", stored.Status)
 	}
+}
+
+// ReleaseCourtsForReference records the T55.2 court-release cascade (#124)
+// so a test can assert CancelGame actually invokes it, with which reference
+// and as which owner — the two things that would silently break if the
+// cascade were wired to the wrong values.
+func (f *fakeReservation) ReleaseCourtsForReference(_ context.Context, referenceID, ownerUserID string) (int, error) {
+	f.releasedForReference = append(f.releasedForReference, referenceID)
+	f.releaseOwners = append(f.releaseOwners, ownerUserID)
+	if f.releaseForReferenceErr != nil {
+		return 0, f.releaseForReferenceErr
+	}
+	return len(f.releasedForReference), nil
 }
