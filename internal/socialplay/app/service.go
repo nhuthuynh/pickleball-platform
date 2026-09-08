@@ -1033,12 +1033,25 @@ func (s *Service) ListMatchesForGame(ctx context.Context, gameID string) ([]doma
 // repairable by re-running (ReleaseCourtsForReference is idempotent), and
 // strictly better than the reverse ordering's failure mode.
 //
-// Still DELIBERATELY UNTOUCHED here: refunds. #124's refund half was
-// answered at the same time as its court half (refund automatically on
-// host-initiated cancellation) but is a separate change — it crosses into
-// Payments, needs its own port, and needs a partial-failure rule. It is
-// tracked on #124 and is not silently half-done here.
-func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string, reservation port.CourtReservation) (domain.Game, error) {
+// REFUNDS ARE NOW ISSUED (T55.3, #124's refund half). The Product Owner
+// decided on 2026-09-04 that a host-initiated cancellation refunds every
+// paid Registration automatically: the players did nothing wrong, so making
+// them chase a refund is the wrong default. The accepted cost, stated when
+// the decision was made, is that money moves without a human confirming
+// each refund, and against a live processor the payment fees are typically
+// not returned.
+//
+// The refund pass reads the roster BEFORE the bulk-cancel, because
+// CancelAllActiveForGame reports only a count and the refunds need the ids.
+//
+// PARTIAL FAILURE, stated rather than left to fall out of the code: refunds
+// do NOT stop at the first error. Each Registration is attempted, failures
+// are collected, and the joined error is returned at the end. Stopping early
+// would leave the remaining players unrefunded because somebody else's
+// refund failed, which is the worse outcome when the thing being distributed
+// is money. Re-running repairs the residue, since an already-refunded
+// Registration is a no-op.
+func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string, reservation port.CourtReservation, refunds port.PaymentRefunder) (domain.Game, error) {
 	// Same T10.7-shaped boundary guard the methods above apply, for the
 	// identical reason: this method calls GetByID(gameID) next, and a
 	// malformed id must answer exactly what an unknown-but-well-formed one
@@ -1070,6 +1083,15 @@ func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string, 
 		return domain.Game{}, err
 	}
 
+	// Read the roster BEFORE cancelling it: CancelAllActiveForGame reports
+	// a count, not ids, and the refund pass below needs the ids. Read
+	// failures are surfaced rather than skipped — silently refunding nobody
+	// because a read failed is exactly the outcome #124 exists to prevent.
+	toRefund, err := s.registrations.ListActiveForGame(ctx, cancelled.ID)
+	if err != nil {
+		return cancelled, fmt.Errorf("socialplay: reading registrations to refund for game %s: %w", cancelled.ID, err)
+	}
+
 	// T16.3 cascade: the parent's status write above has already
 	// committed, so this bulk-cancel runs strictly after it — see the
 	// doc comment above for why that ordering (parent first, children
@@ -1084,6 +1106,21 @@ func (s *Service) CancelGame(ctx context.Context, gameID, actorPlayerID string, 
 	// game-source Bookings — see the doc comment above.
 	if _, err := reservation.ReleaseCourtsForReference(ctx, cancelled.ID, cancelled.HostID); err != nil {
 		return cancelled, fmt.Errorf("socialplay: releasing courts for game %s: %w", cancelled.ID, err)
+	}
+
+	// T55.3 cascade (#124's refund half). Every Registration is attempted
+	// even if an earlier one fails — see the doc comment's partial-failure
+	// paragraph. Payments decides refundability, so an unpaid or
+	// already-refunded Registration costs one no-op call rather than
+	// needing a payment-status filter here that would duplicate that rule.
+	var refundErrs []error
+	for _, reg := range toRefund {
+		if _, err := refunds.RefundForRegistration(ctx, reg.ID, cancelled.HostID); err != nil {
+			refundErrs = append(refundErrs, fmt.Errorf("registration %s: %w", reg.ID, err))
+		}
+	}
+	if len(refundErrs) > 0 {
+		return cancelled, fmt.Errorf("socialplay: refunding registrations for game %s: %w", cancelled.ID, errors.Join(refundErrs...))
 	}
 
 	return cancelled, nil

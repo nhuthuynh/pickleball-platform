@@ -171,7 +171,7 @@ func TestGetCompetitionByShareToken_CancelledCompetitionStillResolves(t *testing
 
 	// GIVEN: the Host posts the link, then cancels.
 	sharedLinkToken := c.ShareToken
-	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID, &fakeEntryRefunder{}); err != nil {
 		t.Fatalf("fixture cancel failed: %v", err)
 	}
 

@@ -33,10 +33,15 @@ import (
 type Handler struct {
 	competitionsv1.UnimplementedCompetitionsServiceServer
 	svc *app.Service
+	// refunds backs CancelCompetition's T55.3 refund cascade (#124). Held
+	// here rather than on app.ServiceOptions because constructor-injecting
+	// it would close a dependency cycle in cmd/server — see
+	// app.Service.CancelCompetition's doc comment for the full reasoning.
+	refunds port.EntryRefunder
 }
 
-func NewHandler(svc *app.Service) *Handler {
-	return &Handler{svc: svc}
+func NewHandler(svc *app.Service, refunds port.EntryRefunder) *Handler {
+	return &Handler{svc: svc, refunds: refunds}
 }
 
 // actor resolves the acting user for an authenticated RPC (T12.8), and since
@@ -266,7 +271,7 @@ func (h *Handler) CancelCompetition(ctx context.Context, req *competitionsv1.Can
 		return nil, err
 	}
 
-	competition, err := h.svc.CancelCompetition(ctx, req.GetCompetitionId(), actorUserID)
+	competition, err := h.svc.CancelCompetition(ctx, req.GetCompetitionId(), actorUserID, h.refunds)
 	if err != nil {
 		return nil, toStatus(err)
 	}

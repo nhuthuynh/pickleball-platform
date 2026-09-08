@@ -211,3 +211,10 @@ func TestRecordOfflinePayment_RealSocialPlaySeam_HostSucceeds_AdminAssignThenRev
 		t.Fatalf("after revocation: got err %v, want %v", err, paymentsdomain.ErrNotPaymentRecorder)
 	}
 }
+
+// GetByPayable implements port.Repository for T55.3's #124 refund cascade.
+// This fake reaches no cascade path, so it answers "no payment" rather than
+// pretending to hold one.
+func (r *boundaryFakePaymentsRepo) GetByPayable(context.Context, paymentsdomain.PayableType, string) (paymentsdomain.Payment, error) {
+	return paymentsdomain.Payment{}, paymentsdomain.ErrPaymentNotFound
+}

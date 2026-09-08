@@ -306,7 +306,7 @@ func newTestHandler() (*grpcapi.Handler, *fakeRepo) {
 		// explicit subjects map.
 		Identity: newFakeIdentityLookup(),
 	})
-	return grpcapi.NewHandler(svc), repo
+	return grpcapi.NewHandler(svc, noopEntryRefunder{}), repo
 }
 
 func protoSession(start, end string, courtIDs ...string) *competitionsv1.CompetitionSession {
@@ -592,7 +592,7 @@ func TestErrorMapping_FacilityNotFound(t *testing.T) {
 		ShareTokens:  &fakeShareTokens{},
 		Identity:     newFakeIdentityLookup(),
 	})
-	h := grpcapi.NewHandler(svc)
+	h := grpcapi.NewHandler(svc, noopEntryRefunder{})
 
 	_, err := h.CreateCompetition(ctxAs("host-1"), &competitionsv1.CreateCompetitionRequest{
 		Name:            "Bad Venue Open",
@@ -827,4 +827,13 @@ func stringsContains(haystack, needle string) bool {
 // happened, not that a court was actually freed.
 func (f *fakeReservation) ReleaseCourtsForReference(context.Context, string, string) (int, error) {
 	return 0, nil
+}
+
+// noopEntryRefunder satisfies port.EntryRefunder for this file's tests,
+// which are not about money. The refund cascade's behaviour is proven in
+// internal/competitions/app/cancel_competition_refunds_test.go.
+type noopEntryRefunder struct{}
+
+func (noopEntryRefunder) RefundForEntry(context.Context, string, string) (bool, error) {
+	return false, nil
 }

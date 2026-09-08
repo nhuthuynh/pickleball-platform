@@ -695,24 +695,42 @@ func (s *Service) MarkCompetitionEntryPaymentStatus(ctx context.Context, entryID
 // would create exactly that inconsistency. A cascade failure is surfaced
 // as an error from this call rather than swallowed.
 //
-// STILL A KNOWN GAP, narrower than before: cancelling a Competition does
-// NOT release the court Bookings its sessions reserved (the other half of
-// this ticket's namesake issue, #124, for Social Play — Competitions never
-// had its own issue, since the gap was only found this ceremony). The
-// Bookings its sessions hold stay held. Releasing them would call
-// booking's app.Service.CancelBooking, whose signature ADR-0015's still-open
-// D1 may yet change (adding an actor parameter is one of D1's four
-// options); building against a signature under active escalation means
-// either guessing D1 or shipping code that may need rewriting. Entering a
-// cancelled Competition is already blocked (domain.Enter), so the
-// remaining gap is "courts stay reserved", not "a cancelled Competition
-// still takes entries" — the entries themselves are now cancelled too.
+// COURT BOOKINGS ARE NOW RELEASED (T55.2, the other half of this ticket's
+// namesake issue #124 — raised against Social Play, but the identical gap
+// was found here and both halves are fixed in lockstep). This used to be a
+// disclosed gap: releasing them calls booking's app.Service.CancelBooking,
+// whose signature ADR-0015's then-open DECISION D1 might change. D1 was
+// answered as option (a), which settled the signature and made the fit
+// clean — competition-source Bookings are owned by Competition.HostID, and
+// this method is host-only (EnsureHost above), so the actor cascading is by
+// construction the owner of the Bookings being cascaded.
 //
-// Also DELIBERATELY UNTOUCHED: refunds. This method cancels the
-// CompetitionEntry only; it never calls RefundPayment and does not answer
-// whether a future ticket should (mirrors CancelGame's identical scoping
-// note).
-func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUserID string) (domain.Competition, error) {
+// REFUNDS ARE NOW ISSUED (T55.3, #124's refund half). The Product Owner
+// decided on 2026-09-04 that a host-initiated cancellation refunds every
+// paid entry automatically: the entrants did nothing wrong, so making them
+// chase a refund is the wrong default. The accepted cost, stated when the
+// decision was made, is that money moves without a human confirming each
+// refund, and against a live processor the payment fees are typically not
+// returned.
+//
+// The refund pass reads the entrants BEFORE the bulk-cancel, because
+// CancelAllActiveForCompetition reports only a count and the refunds need
+// the ids. Refunds do NOT stop at the first failure — see the loop's own
+// comment for why.
+//
+// # Why the refunder is a PARAMETER, against this package's own convention
+//
+// Every other outbound port here is constructor-injected (see Service's own
+// doc comment arguing for exactly that). port.EntryRefunder cannot be,
+// because it would close a dependency cycle in cmd/server: Payments'
+// app.Service is built with a CompetitionEntryUpdater built over THIS
+// Service, so this Service cannot in turn be built over Payments'. Passing
+// the refunder per call breaks the cycle at the one method that needs it,
+// and matches how Social Play passes its own CourtReservation and
+// PaymentRefunder. The alternative — a settable field wired after both
+// services exist — would trade a visible parameter for an invisible
+// initialisation order, which is worse.
+func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUserID string, refunds port.EntryRefunder) (domain.Competition, error) {
 	// Same T10.7 guard as EnterCompetition above, for the same reason: this
 	// method calls GetByID(competitionID) first, before EnsureHost even
 	// runs, and already returns the bare domain.ErrCompetitionNotFound for
@@ -740,6 +758,13 @@ func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUse
 		return domain.Competition{}, err
 	}
 
+	// Read the entrants BEFORE cancelling them: CancelAllActiveForCompetition
+	// reports a count, not ids, and the refund pass below needs the ids.
+	toRefund, err := s.competitions.ListActiveEntriesForCompetition(ctx, cancelled.ID)
+	if err != nil {
+		return cancelled, fmt.Errorf("competitions: reading entries to refund for competition %s: %w", cancelled.ID, err)
+	}
+
 	// T16.3 cascade: the parent's status write above has already
 	// committed, so this bulk-cancel runs strictly after it — see the doc
 	// comment above for the ordering rationale.
@@ -762,6 +787,22 @@ func (s *Service) CancelCompetition(ctx context.Context, competitionID, actorUse
 	// reverse ordering could not say.
 	if _, err := s.reservation.ReleaseCourtsForReference(ctx, cancelled.ID, cancelled.HostID); err != nil {
 		return cancelled, fmt.Errorf("competitions: releasing courts for competition %s: %w", cancelled.ID, err)
+	}
+
+	// T55.3 cascade (#124's refund half, mirrored onto Competitions). Every
+	// entry is attempted even if an earlier one fails: stopping early would
+	// leave the remaining entrants unrefunded because somebody else's refund
+	// failed, which is the worse outcome when what is being distributed is
+	// money. Re-running repairs the residue, since an already-refunded entry
+	// is a no-op.
+	var refundErrs []error
+	for _, e := range toRefund {
+		if _, err := refunds.RefundForEntry(ctx, e.ID, cancelled.HostID); err != nil {
+			refundErrs = append(refundErrs, fmt.Errorf("entry %s: %w", e.ID, err))
+		}
+	}
+	if len(refundErrs) > 0 {
+		return cancelled, fmt.Errorf("competitions: refunding entries for competition %s: %w", cancelled.ID, errors.Join(refundErrs...))
 	}
 
 	return cancelled, nil

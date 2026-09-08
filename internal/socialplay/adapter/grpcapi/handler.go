@@ -150,10 +150,15 @@ type Handler struct {
 	svc         *app.Service
 	reservation port.CourtReservation
 	facilities  port.FacilityLookup
+	// refunds backs CancelGame's T55.3 refund cascade (#124). Held here
+	// rather than on app.ServiceOptions for the same reason reservation is:
+	// this package passes cross-context outbound ports per call, and
+	// ServiceOptions has no optional category (see its own doc comment).
+	refunds port.PaymentRefunder
 }
 
-func NewHandler(svc *app.Service, reservation port.CourtReservation, facilities port.FacilityLookup) *Handler {
-	return &Handler{svc: svc, reservation: reservation, facilities: facilities}
+func NewHandler(svc *app.Service, reservation port.CourtReservation, facilities port.FacilityLookup, refunds port.PaymentRefunder) *Handler {
+	return &Handler{svc: svc, reservation: reservation, facilities: facilities, refunds: refunds}
 }
 
 // CreateGame schedules a Game hosted by the verified caller (T12.8).
@@ -252,7 +257,7 @@ func (h *Handler) CancelGame(ctx context.Context, req *socialplayv1.CancelGameRe
 		return nil, err
 	}
 
-	game, err := h.svc.CancelGame(ctx, req.GetGameId(), actorPlayerID, h.reservation)
+	game, err := h.svc.CancelGame(ctx, req.GetGameId(), actorPlayerID, h.reservation, h.refunds)
 	if err != nil {
 		return nil, toStatus(err)
 	}

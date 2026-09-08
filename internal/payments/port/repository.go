@@ -34,6 +34,18 @@ type Repository interface {
 	// GetByID's shape exactly.
 	GetByStripeReference(ctx context.Context, ref string) (domain.Payment, error)
 
+	// GetByPayable returns the Payment recorded against a (payableType,
+	// payableID) pair, or domain.ErrPaymentNotFound when the payable has
+	// none — which is an ordinary, expected answer, not a fault: plenty of
+	// Registrations are never paid for.
+	//
+	// At most one Payment can exist per pair; that is
+	// domain.EnsureOnePaymentPerPayable's invariant, enforced
+	// authoritatively by a UNIQUE index (CLAUDE.md rule 4's shape). Added
+	// in T55.3 for the cancellation-refund cascade (#124), which knows the
+	// payable it just cancelled and not the Payment that paid for it.
+	GetByPayable(ctx context.Context, payableType domain.PayableType, payableID string) (domain.Payment, error)
+
 	// Update persists changes to an existing Payment (e.g. a status
 	// transition from MarkPaid or Refund).
 	Update(ctx context.Context, p domain.Payment) (domain.Payment, error)
