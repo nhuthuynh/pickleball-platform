@@ -195,7 +195,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeRepo, *shapeBookingRepo) 
 		ShareTokens:  &fakeShareTokens{},
 		Identity:     newFakeIdentityLookup(),
 	})
-	return grpcapi.NewHandler(svc), repo, bookingRepo
+	return grpcapi.NewHandler(svc, noopEntryRefunder{}), repo, bookingRepo
 }
 
 func shapeCreateCompetitionReq(sessions ...*competitionsv1.CompetitionSession) *competitionsv1.CreateCompetitionRequest {

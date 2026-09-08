@@ -24,7 +24,7 @@ func TestCancelGame_ReleasesTheCourtsItHeld(t *testing.T) {
 	svc, g, _, _ := newMatchTestService(t)
 	reservation := newFakeReservation()
 
-	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, reservation); err != nil {
+	if _, err := svc.CancelGame(ctx, g.ID, g.HostID, reservation, &fakeRefunder{}); err != nil {
 		t.Fatalf("CancelGame: %v", err)
 	}
 
@@ -54,7 +54,7 @@ func TestCancelGame_CourtReleaseFailureIsSurfaced(t *testing.T) {
 	boom := errors.New("booking service unavailable")
 	reservation.releaseForReferenceErr = boom
 
-	cancelled, err := svc.CancelGame(ctx, g.ID, g.HostID, reservation)
+	cancelled, err := svc.CancelGame(ctx, g.ID, g.HostID, reservation, &fakeRefunder{})
 	if !errors.Is(err, boom) {
 		t.Fatalf("CancelGame with a failing cascade = %v, want it to wrap %v", err, boom)
 	}
@@ -77,7 +77,7 @@ func TestCancelGame_NonHostNeverReachesTheCascade(t *testing.T) {
 	svc, g, _, _ := newMatchTestService(t)
 	reservation := newFakeReservation()
 
-	if _, err := svc.CancelGame(ctx, g.ID, "not-the-host", reservation); !errors.Is(err, domain.ErrNotGameHost) {
+	if _, err := svc.CancelGame(ctx, g.ID, "not-the-host", reservation, &fakeRefunder{}); !errors.Is(err, domain.ErrNotGameHost) {
 		t.Fatalf("CancelGame(non-host) = %v, want %v", err, domain.ErrNotGameHost)
 	}
 	if len(reservation.releasedForReference) != 0 {

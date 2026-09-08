@@ -843,7 +843,7 @@ func TestEnterCompetition_CancelledCompetitionRejected(t *testing.T) {
 	_, svc, c := scheduleFixture(t, 16, 0)
 	ctx := context.Background()
 
-	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID, &fakeEntryRefunder{}); err != nil {
 		t.Fatalf("fixture cancel failed: %v", err)
 	}
 
@@ -864,7 +864,7 @@ func TestCancelCompetition_HostSucceeds(t *testing.T) {
 
 	repo, svc, c := scheduleFixture(t, 16, 0)
 
-	cancelled, err := svc.CancelCompetition(context.Background(), c.ID, c.HostID)
+	cancelled, err := svc.CancelCompetition(context.Background(), c.ID, c.HostID, &fakeEntryRefunder{})
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -887,7 +887,7 @@ func TestCancelCompetition_NonHostRejected(t *testing.T) {
 
 	repo, svc, c := scheduleFixture(t, 16, 0)
 
-	_, err := svc.CancelCompetition(context.Background(), c.ID, "not-the-host")
+	_, err := svc.CancelCompetition(context.Background(), c.ID, "not-the-host", &fakeEntryRefunder{})
 	if !errors.Is(err, domain.ErrNotCompetitionHost) {
 		t.Fatalf("got err %v, want ErrNotCompetitionHost specifically", err)
 	}
@@ -903,7 +903,7 @@ func TestCancelCompetition_EmptyActorRejected(t *testing.T) {
 
 	_, svc, c := scheduleFixture(t, 16, 0)
 
-	if _, err := svc.CancelCompetition(context.Background(), c.ID, ""); !errors.Is(err, domain.ErrNotCompetitionHost) {
+	if _, err := svc.CancelCompetition(context.Background(), c.ID, "", &fakeEntryRefunder{}); !errors.Is(err, domain.ErrNotCompetitionHost) {
 		t.Fatalf("got err %v, want ErrNotCompetitionHost", err)
 	}
 }
@@ -913,7 +913,7 @@ func TestCancelCompetition_NotFound(t *testing.T) {
 
 	svc := newTestService(newFakeRepository(), newFakeReservation(), newFakeFacilityLookup(), &fakeShareTokens{})
 
-	if _, err := svc.CancelCompetition(context.Background(), "no-such-competition", "host-1"); !errors.Is(err, domain.ErrCompetitionNotFound) {
+	if _, err := svc.CancelCompetition(context.Background(), "no-such-competition", "host-1", &fakeEntryRefunder{}); !errors.Is(err, domain.ErrCompetitionNotFound) {
 		t.Fatalf("got err %v, want ErrCompetitionNotFound", err)
 	}
 }
@@ -927,10 +927,10 @@ func TestCancelCompetition_AlreadyCancelledRejected(t *testing.T) {
 	_, svc, c := scheduleFixture(t, 16, 0)
 	ctx := context.Background()
 
-	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID, &fakeEntryRefunder{}); err != nil {
 		t.Fatalf("first cancel failed: %v", err)
 	}
-	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); !errors.Is(err, domain.ErrIllegalStatusTransition) {
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID, &fakeEntryRefunder{}); !errors.Is(err, domain.ErrIllegalStatusTransition) {
 		t.Fatalf("got err %v, want ErrIllegalStatusTransition", err)
 	}
 }
@@ -959,7 +959,7 @@ func TestCancelCompetition_CancelsActiveEntries(t *testing.T) {
 		t.Fatalf("fixture entry 2 failed: %v", err)
 	}
 
-	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID, &fakeEntryRefunder{}); err != nil {
 		t.Fatalf("CancelCompetition failed: %v", err)
 	}
 
@@ -993,7 +993,7 @@ func TestCancelCompetition_LeavesEntryPaymentStatusAlone(t *testing.T) {
 		t.Fatalf("fixture MarkCompetitionEntryPaymentStatus failed: %v", err)
 	}
 
-	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID); err != nil {
+	if _, err := svc.CancelCompetition(ctx, c.ID, c.HostID, &fakeEntryRefunder{}); err != nil {
 		t.Fatalf("CancelCompetition failed: %v", err)
 	}
 
@@ -1136,4 +1136,22 @@ func (f *fakeReservation) ReleaseCourtsForReference(_ context.Context, reference
 // reservation it wraps.
 func (r *orderRecordingReservation) ReleaseCourtsForReference(ctx context.Context, referenceID, ownerUserID string) (int, error) {
 	return r.inner.ReleaseCourtsForReference(ctx, referenceID, ownerUserID)
+}
+
+// fakeEntryRefunder records CancelCompetition's T55.3 refund cascade (#124)
+// so a test can assert which entries were refunded and as whom, and can make
+// an individual refund fail to exercise the partial-failure rule.
+type fakeEntryRefunder struct {
+	refunded []string
+	actors   []string
+	failFor  map[string]error
+}
+
+func (f *fakeEntryRefunder) RefundForEntry(_ context.Context, entryID, actorUserID string) (bool, error) {
+	f.refunded = append(f.refunded, entryID)
+	f.actors = append(f.actors, actorUserID)
+	if err, ok := f.failFor[entryID]; ok {
+		return false, err
+	}
+	return true, nil
 }

@@ -44,7 +44,7 @@ func newTestHandlerWithWaitlist() (*fakeGameRepo, *fakeRegistrationRepo, *fakeWa
 func TestJoinWaitlist_Valid(t *testing.T) {
 	ctx := context.Background()
 	gameRepo, _, waitlistRepo, svc := newTestHandlerWithWaitlist()
-	h := grpcapi.NewHandler(svc, nil, nil)
+	h := grpcapi.NewHandler(svc, nil, nil, noopRefunder{})
 
 	game := seedGame(t, gameRepo, "game-wl-1", 1)
 	if _, err := h.RegisterForGame(ctxAs("player-a"), &socialplayv1.RegisterForGameRequest{GameId: game.ID}); err != nil {
@@ -72,7 +72,7 @@ func TestJoinWaitlist_Valid(t *testing.T) {
 // 500 and not a silent success.
 func TestJoinWaitlist_GameNotFull_MapsToInvalidArgument(t *testing.T) {
 	gameRepo, _, _, svc := newTestHandlerWithWaitlist()
-	h := grpcapi.NewHandler(svc, nil, nil)
+	h := grpcapi.NewHandler(svc, nil, nil, noopRefunder{})
 
 	game := seedGame(t, gameRepo, "game-wl-2", 4)
 
@@ -94,7 +94,7 @@ func TestJoinWaitlist_GameNotFull_MapsToInvalidArgument(t *testing.T) {
 // ErrAlreadyRegistered's own mapping.
 func TestJoinWaitlist_AlreadyOnWaitlist_MapsToAlreadyExists(t *testing.T) {
 	gameRepo, _, _, svc := newTestHandlerWithWaitlist()
-	h := grpcapi.NewHandler(svc, nil, nil)
+	h := grpcapi.NewHandler(svc, nil, nil, noopRefunder{})
 
 	game := seedGame(t, gameRepo, "game-wl-3", 1)
 	if _, err := h.RegisterForGame(ctxAs("player-a"), &socialplayv1.RegisterForGameRequest{GameId: game.ID}); err != nil {

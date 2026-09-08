@@ -44,6 +44,7 @@ import (
 	competitionsfacilities "github.com/nhuthuynh/white-label/internal/competitions/adapter/facilities"
 	competitionsgrpc "github.com/nhuthuynh/white-label/internal/competitions/adapter/grpcapi"
 	competitionsidentity "github.com/nhuthuynh/white-label/internal/competitions/adapter/identity"
+	competitionspayments "github.com/nhuthuynh/white-label/internal/competitions/adapter/payments"
 	competitionspg "github.com/nhuthuynh/white-label/internal/competitions/adapter/postgres"
 	"github.com/nhuthuynh/white-label/internal/competitions/adapter/sharetoken"
 	competitionsapp "github.com/nhuthuynh/white-label/internal/competitions/app"
@@ -77,6 +78,7 @@ import (
 	socialplayfacilities "github.com/nhuthuynh/white-label/internal/socialplay/adapter/facilities"
 	socialplaygrpc "github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
 	socialplayidentity "github.com/nhuthuynh/white-label/internal/socialplay/adapter/identity"
+	socialplaypayments "github.com/nhuthuynh/white-label/internal/socialplay/adapter/payments"
 	socialplaypg "github.com/nhuthuynh/white-label/internal/socialplay/adapter/postgres"
 	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
 )
@@ -225,7 +227,12 @@ func run(logger *slog.Logger) error {
 		GameAdmins:    gameAdminRepo,
 		Identity:      socialplayIdentityLookup,
 	})
-	socialplayHandler := socialplaygrpc.NewHandler(socialplaySvc, reservation, facilityLookup)
+	// socialplayHandler is constructed AFTER paymentsSvc below, because
+	// CancelGame's T55.3 refund cascade (#124) needs a port.PaymentRefunder
+	// built over the real Payments service. Nothing between here and there
+	// uses the handler — it is only registered on the gRPC server further
+	// down — so deferring its construction costs nothing and avoids either
+	// a second Payments stack or a lazily-populated field.
 
 	// Competitions (T9.4). Same shape as Social Play's wiring above, one
 	// level deeper: its Repository is Postgres-backed, its CourtReservation
@@ -276,7 +283,6 @@ func run(logger *slog.Logger) error {
 		CompetitionAdmins: competitionAdminRepo,
 		Identity:          competitionsIdentityLookup,
 	})
-	competitionsHandler := competitionsgrpc.NewHandler(competitionsSvc)
 
 	// Payments (T6.4). stripestub stands in for a real Stripe adapter
 	// (internal/payments/adapter/stripe, not yet built — T6.2's ACL is
@@ -344,6 +350,27 @@ func run(logger *slog.Logger) error {
 		Identity:                paymentsIdentityLookup,
 	})
 	paymentsHandler := paymentsgrpc.NewHandler(paymentsSvc)
+
+	// Competitions' handler, deferred here for the same reason Social Play's
+	// is: its refunder is built over the real paymentsSvc, which in turn is
+	// built over a CompetitionEntryUpdater over competitionsSvc — so the
+	// refunder cannot be a constructor argument to competitionsSvc without
+	// closing that cycle. See app.Service.CancelCompetition's doc comment.
+	competitionsHandler := competitionsgrpc.NewHandler(
+		competitionsSvc,
+		competitionspayments.NewRefunder(paymentsSvc),
+	)
+
+	// Social Play's handler, deferred from above: its refunder is built over
+	// the same, real paymentsSvc instance every other Payments consumer
+	// uses — not a second stack — mirroring how socialplayIdentityLookup is
+	// built over the one real identitySvc.
+	socialplayHandler := socialplaygrpc.NewHandler(
+		socialplaySvc,
+		reservation,
+		facilityLookup,
+		socialplaypayments.NewRefunder(paymentsSvc),
+	)
 
 	// The recovery interceptors are the process's panic safety net and must
 	// stay installed. grpc, unlike net/http, installs no recover() of its own:

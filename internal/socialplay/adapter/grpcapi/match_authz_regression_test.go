@@ -69,7 +69,7 @@ func newTestHandlerWithMatches() (*grpcapi.Handler, *fakeGameRepo, *fakeMatchRep
 		Matches:       matchRepo,
 		GameAdmins:    newFakeGameAdminRepo(),
 	})
-	return grpcapi.NewHandler(svc, nil, nil), gameRepo, matchRepo
+	return grpcapi.NewHandler(svc, nil, nil, noopRefunder{}), gameRepo, matchRepo
 }
 
 // --- RecordMatchResult: object-level (BOLA) regression ---------------------

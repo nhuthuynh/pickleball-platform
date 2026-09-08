@@ -36,7 +36,7 @@ func newEntryFeeHandler() *grpcapi.Handler {
 		Matches:       newFakeMatchRepo(),
 		GameAdmins:    newFakeGameAdminRepo(),
 	})
-	return grpcapi.NewHandler(svc, &fakeReservation{}, nil)
+	return grpcapi.NewHandler(svc, &fakeReservation{}, nil, noopRefunder{})
 }
 
 func createGameReq(fee *socialplayv1.Money) *socialplayv1.CreateGameRequest {

@@ -45,7 +45,7 @@ func TestCancelCompetition_ReleasesTheCourtsItHeld(t *testing.T) {
 
 	svc, c, reservation := cancelCourtsFixture(t)
 
-	if _, err := svc.CancelCompetition(context.Background(), c.ID, c.HostID); err != nil {
+	if _, err := svc.CancelCompetition(context.Background(), c.ID, c.HostID, &fakeEntryRefunder{}); err != nil {
 		t.Fatalf("CancelCompetition: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestCancelCompetition_CourtReleaseFailureIsSurfaced(t *testing.T) {
 	boom := errors.New("booking service unavailable")
 	reservation.releaseForReferenceErr = boom
 
-	cancelled, err := svc.CancelCompetition(context.Background(), c.ID, c.HostID)
+	cancelled, err := svc.CancelCompetition(context.Background(), c.ID, c.HostID, &fakeEntryRefunder{})
 	if !errors.Is(err, boom) {
 		t.Fatalf("CancelCompetition with a failing cascade = %v, want it to wrap %v", err, boom)
 	}
@@ -95,7 +95,7 @@ func TestCancelCompetition_NonHostNeverReachesTheCascade(t *testing.T) {
 
 	svc, c, reservation := cancelCourtsFixture(t)
 
-	if _, err := svc.CancelCompetition(context.Background(), c.ID, "not-the-host"); !errors.Is(err, domain.ErrNotCompetitionHost) {
+	if _, err := svc.CancelCompetition(context.Background(), c.ID, "not-the-host", &fakeEntryRefunder{}); !errors.Is(err, domain.ErrNotCompetitionHost) {
 		t.Fatalf("CancelCompetition(non-host) = %v, want %v", err, domain.ErrNotCompetitionHost)
 	}
 	if len(reservation.releasedForReference) != 0 {

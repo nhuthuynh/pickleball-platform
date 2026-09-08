@@ -207,7 +207,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 		GameAdmins:    newFakeGameAdminRepo(),
 	})
 
-	return grpcapi.NewHandler(svc, socialplaybooking.NewReservation(bookingSvc), nil), gameRepo, bookingRepo
+	return grpcapi.NewHandler(svc, socialplaybooking.NewReservation(bookingSvc), nil, noopRefunder{}), gameRepo, bookingRepo
 }
 
 func shapeCreateGameReq(courtIDs ...string) *socialplayv1.CreateGameRequest {
