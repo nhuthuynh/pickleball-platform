@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"regexp"
 
 	competitionsdomain "github.com/nhuthuynh/white-label/internal/competitions/domain"
@@ -872,6 +873,69 @@ func (s *Service) RefundPayment(ctx context.Context, in RefundPaymentInput) (dom
 		return updated, err
 	}
 	return updated, nil
+}
+
+// RefundForPayableInput is RefundForPayable's use-case input. It names the
+// *payable* rather than the Payment, because that is what a cancellation
+// cascade knows: Social Play has just cancelled a Registration and wants
+// whatever paid for it reversed.
+type RefundForPayableInput struct {
+	PayableType domain.PayableType
+	PayableID   string
+	ActorUserID string
+}
+
+// RefundForPayable refunds the Payment recorded against a payable, if there
+// is one and it is refundable. It reports whether a refund actually
+// happened.
+//
+// T55.3, issue #124's refund half: the Product Owner decided on 2026-09-04
+// that a host-initiated cancellation refunds every paid Registration
+// automatically, on the reasoning that the players did nothing wrong and
+// making them chase a refund is the wrong default.
+//
+// # Why "not refundable" is (false, nil) and not an error
+//
+// A cancelled Game's roster is a mix: some players paid, some never did,
+// some were already refunded. The cascade must reverse the first group and
+// step over the other two — so the two ordinary "nothing to do" answers are
+// successes here, not failures:
+//
+//   - the payable has no Payment at all (domain.ErrPaymentNotFound from the
+//     repository) — an unpaid Registration, which is normal;
+//   - the Payment exists but is not in StatusPaid — already refunded, or
+//     never paid.
+//
+// Deciding that here rather than in the caller is deliberate: refundability
+// is Payments' concept, and a caller left to infer it from a sentinel would
+// end up reimplementing this state machine. Everything else — an
+// authorization failure, a processor failure, a write failure — is a real
+// error and is returned as one.
+//
+// Authorization is NOT relaxed: this delegates to RefundPayment, so the same
+// authorizeOfflineRecording check applies. A Game's Host passes it for that
+// Game's registration payables, which is exactly who CancelGame lets
+// through; nobody gains a capability they did not already have.
+func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput) (bool, error) {
+	p, err := s.payments.GetByPayable(ctx, in.PayableType, in.PayableID)
+	if err != nil {
+		if errors.Is(err, domain.ErrPaymentNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if p.Status != domain.StatusPaid {
+		return false, nil
+	}
+
+	if _, err := s.RefundPayment(ctx, RefundPaymentInput{
+		PaymentID:   p.ID,
+		ActorUserID: in.ActorUserID,
+	}); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // reconcileRegistrationPaymentStatus pushes a successfully-paid Payment's

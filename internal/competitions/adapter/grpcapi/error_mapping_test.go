@@ -76,7 +76,7 @@ func newUnregisteredSubjectHandler(unregistered ...string) (*grpcapi.Handler, *f
 		CompetitionAdmins: newFakeCompetitionAdminRepo(),
 		Identity:          newFakeIdentityLookup(unregistered...),
 	})
-	return grpcapi.NewHandler(svc), repo
+	return grpcapi.NewHandler(svc, noopEntryRefunder{}), repo
 }
 
 func cancelCompetitionTwice(t *testing.T) error {

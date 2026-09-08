@@ -24,3 +24,21 @@ UPDATE bookings
 SET status = $2
 WHERE id = $1
 RETURNING id, court_id, source, status, starts_at, ends_at, reference_id, owner_user_id;
+
+-- name: ListActiveForReference :many
+-- Active (non-cancelled) bookings made against reference_id — a Game's,
+-- Competition's, or RecurringHireTemplate's id. Serves the cancellation
+-- cascade (#124): when a Game is cancelled, the courts its `game`-source
+-- Bookings hold must be released, and this is how those Bookings are found.
+--
+-- An empty reference_id deliberately matches nothing rather than matching
+-- every unreferenced booking: reference_id is nullable and empty for plain
+-- individual bookings, so `WHERE reference_id = ''` without this guard would
+-- be a cascade that cancels the whole table. The app layer also refuses an
+-- empty reference before reaching here; both halves are deliberate.
+SELECT id, court_id, source, status, starts_at, ends_at, reference_id, owner_user_id
+FROM bookings
+WHERE reference_id = sqlc.arg(reference_id)
+  AND sqlc.arg(reference_id) <> ''
+  AND status <> 'cancelled'
+ORDER BY starts_at;

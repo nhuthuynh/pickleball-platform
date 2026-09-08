@@ -84,4 +84,28 @@ type CourtReservation interface {
 	// rollback that supplied a different actor would be refused and the
 	// court would stay held.
 	ReleaseCourt(ctx context.Context, bookingID, ownerUserID string) error
+
+	// ReleaseCourtsForReference cancels every active Booking held against
+	// referenceID (this Competition's id), releasing the courts, and returns how
+	// many it released.
+	//
+	// This is the cascade issue #124 asked for: a cancelled Competition must not
+	// keep holding courts, because only a cancelled Booking frees a slot.
+	// It is distinct from ReleaseCourt above — that one compensates a
+	// half-finished reservation whose booking ids the caller still has in
+	// hand, whereas this one is called long afterwards by CancelCompetition,
+	// which knows the Competition's id and nothing about the Bookings.
+	//
+	// ownerUserID must own the Bookings being released. Since DECISION D1
+	// (ADR-0015 option (a)) cancelling a Booking requires being its owner,
+	// and Competition-source Bookings are owned by the Competition's host — so the
+	// host performing the cancellation is by construction the owner. An
+	// actor who owns none of them releases nothing and gets an error, rather
+	// than partially cascading.
+	//
+	// An unknown or empty referenceID is not an error: it simply releases
+	// nothing. Implementations must be idempotent, because CancelCompetition
+	// surfaces a cascade failure to its caller and a retry must not then
+	// look like a second failure.
+	ReleaseCourtsForReference(ctx context.Context, referenceID, ownerUserID string) (released int, err error)
 }

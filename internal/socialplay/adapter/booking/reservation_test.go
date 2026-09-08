@@ -533,3 +533,19 @@ func TestReleaseCourt_NeverLeaksBookingSentinels(t *testing.T) {
 // These tests are about reservation and rollback, not about ownership, so
 // they use one fixed owner throughout.
 const testBookingOwner = "11111111-1111-1111-1111-111111111111"
+
+// ListActiveForReference implements port.Repository for T55.2's #124
+// cascade. Real here, not a stub: this fake holds actual bookings, so the
+// release-by-reference path could not otherwise be exercised through it.
+func (r *inMemoryRepo) ListActiveForReference(_ context.Context, referenceID string) ([]bookingdomain.Booking, error) {
+	if referenceID == "" {
+		return nil, nil
+	}
+	var out []bookingdomain.Booking
+	for _, b := range r.bookings {
+		if b.ReferenceID == referenceID && b.Status != bookingdomain.StatusCancelled {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}

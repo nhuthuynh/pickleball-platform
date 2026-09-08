@@ -207,7 +207,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 		GameAdmins:    newFakeGameAdminRepo(),
 	})
 
-	return grpcapi.NewHandler(svc, socialplaybooking.NewReservation(bookingSvc), nil), gameRepo, bookingRepo
+	return grpcapi.NewHandler(svc, socialplaybooking.NewReservation(bookingSvc), nil, noopRefunder{}), gameRepo, bookingRepo
 }
 
 func shapeCreateGameReq(courtIDs ...string) *socialplayv1.CreateGameRequest {
@@ -281,4 +281,11 @@ func TestCreateGame_WellFormedCourtIDsStillReserveThroughRealBooking(t *testing.
 	if len(games.games) != 1 {
 		t.Fatalf("persisted %d games, want 1", len(games.games))
 	}
+}
+
+// ListActiveForReference implements port.Repository for T55.2's #124
+// cascade. This fake reaches no cascade path, so it fails closed rather
+// than returning a plausible empty result that could hide a wiring mistake.
+func (r *shapeBookingRepo) ListActiveForReference(context.Context, string) ([]bookingdomain.Booking, error) {
+	panic("ListActiveForReference: not expected in this test")
 }

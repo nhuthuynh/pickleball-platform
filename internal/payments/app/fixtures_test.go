@@ -338,3 +338,15 @@ func (f *fakeWebhookEventStore) ClaimEvent(_ context.Context, eventID string) (b
 // unset; now an online Payment without an owner is one nobody may capture,
 // which is the point.
 const fixtureOnlinePayerID = "payer-online-1"
+
+// GetByPayable implements port.Repository for T55.3's #124 refund cascade,
+// through the byPayable index Create already maintains — the same index
+// that models the UNIQUE(payable_type, payable_id) constraint, so this fake
+// answers the cascade's lookup exactly as Postgres would.
+func (r *fakeRepository) GetByPayable(_ context.Context, payableType domain.PayableType, payableID string) (domain.Payment, error) {
+	id, ok := r.byPayable[payableKey(payableType, payableID)]
+	if !ok {
+		return domain.Payment{}, domain.ErrPaymentNotFound
+	}
+	return r.byID[id], nil
+}
