@@ -751,14 +751,31 @@ type RefundPaymentInput struct {
 // the transition, and pushes `refunded` through to Social Play for a
 // registration payable.
 //
-// Scope: `booking`, `registration`, and — as of T16.4, closing the
-// corrected #125 — `competition_entry` payables. `no_show_fee`, which no
-// version of this ticket's scope sentence has ever named, is still left out
-// rather than silently included (issue #130, which unlike #125 carries a
-// genuinely open product question — see RefundPayment's own instruction 3
-// history in docs/process/t16-sprint-plan.md). It is rejected with the
-// existing ErrInvalidPayableType rather than a new sentinel invented for a
-// scope boundary.
+// Scope: every recognised payable type — `booking`, `registration`,
+// `competition_entry` (T16.4, closing the corrected #125) and, as of T55.4,
+// `no_show_fee` (closing #130). An unrecognised type is still rejected with
+// the existing ErrInvalidPayableType rather than a new sentinel invented
+// for a scope boundary; see the gate itself for why it stays an explicit
+// whitelist now that all four are listed.
+//
+// `no_show_fee` was the last holdout because it carried a product question
+// #125 did not: a no-show fee is a separate charge from the Registration's
+// own seat, so what a refund of one should *project* was not derivable from
+// the code. The Product Owner answered it on 2026-09-04 — it projects
+// NOTHING, and the alternative that would also clear the no-show mark was
+// rejected because it would couple payment state to attendance state, which
+// this design deliberately keeps apart. That is not a new branch here:
+// reconcileRegistrationPaymentStatus has always excluded PayableTypeNoShowFee
+// (see its own doc comment), so admitting the type to this gate gives the
+// decided behaviour without further change — and
+// TestRefundPayment_NoShowFeeRefundProjectsNothing pins it so a later
+// refactor cannot quietly start projecting.
+//
+// Authorization needed no new work either: authorizeOfflineRecording
+// already routes PayableTypeNoShowFee through authorizeGameRecording, the
+// same Host-or-assigned-Game-Admin rule a registration payable uses — so a
+// Game Admin who can charge a no-show fee can now reverse one they charged
+// in error, which is exactly the dead end #130 reported.
 //
 // `competition_entry` was out of scope from T12.3 through T16.3: Payments
 // had no live join to Competitions' Competition-Admin/entrant facts to
@@ -814,9 +831,19 @@ func (s *Service) RefundPayment(ctx context.Context, in RefundPaymentInput) (dom
 		return domain.Payment{}, err
 	}
 
+	// Every recognised payable type is now in scope (T55.4 admitted the
+	// last one, no_show_fee, closing #130). This stays an explicit
+	// whitelist rather than collapsing to !p.PayableType.IsValid(),
+	// deliberately: the two types added since T12.3 each had to be admitted
+	// by a decision (competition_entry needed Payments' join to
+	// Competitions' entrant facts; no_show_fee needed a product answer on
+	// what the refund projects), and IsValid() would silently admit a fifth
+	// one the day it is declared. A new payable type should have to opt in
+	// here, in a diff somebody reviews.
 	if p.PayableType != domain.PayableTypeBooking &&
 		p.PayableType != domain.PayableTypeRegistration &&
-		p.PayableType != domain.PayableTypeCompetitionEntry {
+		p.PayableType != domain.PayableTypeCompetitionEntry &&
+		p.PayableType != domain.PayableTypeNoShowFee {
 		return domain.Payment{}, domain.ErrInvalidPayableType
 	}
 
