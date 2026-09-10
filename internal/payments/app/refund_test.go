@@ -737,86 +737,34 @@ func TestRefundPayment_NilRegistrationUpdater_DoesNotPanic(t *testing.T) {
 
 // --- scope boundary -------------------------------------------------------
 
-// TestRefundPayment_OutOfScopePayableTypesRejected pins the remaining scope
-// boundary as a test rather than a paragraph: `no_show_fee` is out of scope
-// — named in neither half of T12.3's original scope sentence, and unlike
-// `competition_entry` (below) it carries a genuinely open product question
-// (issue #130), so it stays out rather than silently included.
+// TestRefundPayment_OutOfScopePayableTypesRejected is RETIRED (T55.4,
+// closing #130) — recorded here rather than deleted silently, following the
+// same move-don't-delete discipline it applied to `competition_entry` at
+// T16.4 (see its own note, preserved in the counterpart tests below).
 //
-// `competition_entry` moved OUT of this table at T16.4 (closes the
-// corrected #125) — see
-// TestRefundPayment_OfflineCompetitionEntryPayable_EntrantSucceeds below for
-// its accepted-case counterpart. Moved, not deleted: a case that simply
-// vanished here would prove nothing had been checked, per this ticket's own
-// instruction 5.
+// It existed to pin RefundPayment's scope boundary as a test rather than a
+// paragraph, and shrank each time a payable type was admitted: T16.4 moved
+// `competition_entry` out, leaving `no_show_fee` as the single remaining
+// case. T55.4 admits `no_show_fee` too, which empties the table — and a
+// table-driven test over zero cases asserts nothing while still reporting
+// green, which is worse than no test at all.
 //
-// The remaining case answers with the existing ErrInvalidPayableType
-// sentinel (no new domain error invented for a scope boundary), and never
-// reaches the authorization check or the domain transition.
-func TestRefundPayment_OutOfScopePayableTypesRejected(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name        string
-		paymentID   string
-		payableType domain.PayableType
-		payableID   string
-		in          app.RecordOfflinePaymentInput
-	}{
-		{
-			name:        "no_show_fee is out of scope (issue #130)",
-			paymentID:   fixtureNoShowFeePaymentID,
-			payableType: domain.PayableTypeNoShowFee,
-			payableID:   fixtureRegistrationID,
-			in: app.RecordOfflinePaymentInput{
-				PayableType: domain.PayableTypeNoShowFee,
-				PayableID:   fixtureRegistrationID,
-				ActorUserID: fixtureGameHostID,
-			},
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			repo := newFakeRepository()
-			regs, games, gameAdmins := newGameAuthzFixtures(fixtureGameHostID)
-			entries, compAdmins := newEntryAuthzFixtures(fixtureEntrantPlayer, fixtureCompAdminUser)
-			svc := app.NewService(app.ServiceOptions{
-				Payments:               repo,
-				IDs:                    &fixedIDs{ids: []string{tc.paymentID}},
-				RegistrationLookup:     regs,
-				GameLookup:             games,
-				GameAdminReader:        gameAdmins,
-				EntryLookup:            entries,
-				CompetitionAdminReader: compAdmins,
-			})
-
-			seed := tc.in
-			seed.Amount = offlineFixtureAmount()
-			if _, err := svc.RecordOfflinePayment(context.Background(), seed); err != nil {
-				t.Fatalf("seed: RecordOfflinePayment: %v", err)
-			}
-
-			_, err := svc.RefundPayment(context.Background(), app.RefundPaymentInput{
-				PaymentID:   tc.paymentID,
-				ActorUserID: fixtureGameHostID,
-			})
-			if !errors.Is(err, domain.ErrInvalidPayableType) {
-				t.Fatalf("got err %v, want %v", err, domain.ErrInvalidPayableType)
-			}
-
-			stored, getErr := repo.GetByID(context.Background(), tc.paymentID)
-			if getErr != nil {
-				t.Fatalf("unexpected err: %v", getErr)
-			}
-			if stored.Status != domain.StatusPaid {
-				t.Fatalf("persisted Status = %v, want paid — an out-of-scope refund must have no side effect", stored.Status)
-			}
-		})
-	}
-}
+// Its two jobs were split rather than dropped:
+//
+//   - the accepted-case counterpart for `no_show_fee` is
+//     TestRefundPayment_OfflineNoShowFeePayable_GameHostSucceeds
+//     (refund_no_show_fee_test.go), mirroring exactly how
+//     TestRefundPayment_OfflineCompetitionEntryPayable_EntrantSucceeds below
+//     replaced the `competition_entry` case;
+//   - the property this table actually protected — that the gate is a
+//     WHITELIST and not a passthrough, so a payable type added later cannot
+//     become refundable without a reviewed diff — is now pinned by
+//     TestRefundPayment_UnrecognisedPayableTypeStillRejected, which is the
+//     stronger form: it survives the next payable type being admitted,
+//     which this table did not.
+//
+// At the wire, ErrInvalidPayableType -> InvalidArgument remains pinned by
+// internal/payments/adapter/grpcapi/error_mapping_test.go's sentinel table.
 
 // --- competition_entry (T16.4, closes the corrected #125) -----------------
 

@@ -391,47 +391,52 @@ func TestRefundPayment_Handler_ProcessorFailureUnavailableAndNotRefunded(t *test
 	}
 }
 
-// TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument pins the
-// remaining scope boundary at the wire: no_show_fee (issue #130, which
-// carries a genuinely open product question, unlike #125) is rejected
-// rather than silently refunded.
+// TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument is RETIRED
+// (T55.4, closing #130) — recorded rather than deleted silently, following
+// the same move-don't-delete discipline it applied to `competition_entry`
+// at T16.4.
 //
-// competition_entry moved OUT of this table at T16.4 (closes the corrected
-// #125) — see TestRefundPayment_Handler_CompetitionEntryPayable_EntrantSucceeds
-// below for its accepted-case counterpart. Moved, not deleted: a case that
-// simply vanished here would prove nothing had been checked.
-func TestRefundPayment_Handler_OutOfScopePayableTypeInvalidArgument(t *testing.T) {
+// It pinned the scope boundary at the wire and shrank each time a payable
+// type was admitted; T55.4 admits the last one, which empties its table, and
+// a table-driven test over zero cases asserts nothing while still reporting
+// green. Its two jobs were split rather than dropped:
+//
+//   - the accepted-case counterpart is
+//     TestRefundPayment_Handler_NoShowFeePayable_GameHostSucceeds below;
+//   - ErrInvalidPayableType -> InvalidArgument at the wire, for a type the
+//     gate does not recognise, is pinned by error_mapping_test.go's
+//     "unrecognised payable type for refund" row — which, unlike this test,
+//     survives the next payable type being admitted.
+
+// TestRefundPayment_Handler_NoShowFeePayable_GameHostSucceeds is
+// no_show_fee's accepted-case counterpart, run through the real handler:
+// a Game Host may now reverse a no-show fee they charged in error, which is
+// the dead end issue #130 reported. Authorization is unchanged —
+// authorizeOfflineRecording already routed PayableTypeNoShowFee through the
+// same Host-or-assigned-Game-Admin rule a registration payable uses.
+func TestRefundPayment_Handler_NoShowFeePayable_GameHostSucceeds(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name        string
-		payableType domain.PayableType
-		payableID   string
-	}{
-		{name: "no_show_fee (#130)", payableType: domain.PayableTypeNoShowFee, payableID: fixtureRegistrationID},
+	h, repo, proc := newRefundTestHandler()
+	seedPaidOnline(t, repo, proc, refundNoShowPaymentID, domain.PayableTypeNoShowFee, fixtureRegistrationID)
+
+	resp, err := h.RefundPayment(ctxAs(refundGameHostID), &paymentsv1.RefundPaymentRequest{
+		PaymentId:  refundNoShowPaymentID,
+		GameHostId: refundGameHostID,
+	})
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	if got := resp.GetPayment().GetStatus(); got != paymentsv1.PaymentStatus_PAYMENT_STATUS_REFUNDED {
+		t.Fatalf("status = %v, want PAYMENT_STATUS_REFUNDED", got)
 	}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			h, repo, proc := newRefundTestHandler()
-			seedPaidOnline(t, repo, proc, refundNoShowPaymentID, tc.payableType, tc.payableID)
-
-			_, err := h.RefundPayment(ctxAs(refundGameHostID), &paymentsv1.RefundPaymentRequest{
-				PaymentId:  refundNoShowPaymentID,
-				GameHostId: refundGameHostID,
-			})
-			wantCode(t, err, codes.InvalidArgument)
-
-			stored, getErr := repo.GetByID(context.Background(), refundNoShowPaymentID)
-			if getErr != nil {
-				t.Fatalf("unexpected err: %v", getErr)
-			}
-			if stored.Status != domain.StatusPaid {
-				t.Fatalf("persisted status = %v, want paid", stored.Status)
-			}
-		})
+	stored, getErr := repo.GetByID(context.Background(), refundNoShowPaymentID)
+	if getErr != nil {
+		t.Fatalf("unexpected err: %v", getErr)
+	}
+	if stored.Status != domain.StatusRefunded {
+		t.Fatalf("persisted status = %v, want refunded", stored.Status)
 	}
 }
 
