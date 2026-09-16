@@ -3757,7 +3757,10 @@ Ceremony 1 item 3 requires the retro's own agreed sentence):
 > `uuid NOT NULL REFERENCES identity_users (id)` (migration 0027),
 > `CreateBooking` and `CancelBooking` moved from `PublicMethods()` to
 > `AuthenticatedMethods()`, and #144 — open since T13, the sharpest
-> object-level authorization hole in the codebase — was closed. The
+> object-level authorization hole in the codebase — is **resolved pending
+> merge**, not closed: on this project an issue closes only when its PR
+> merges, and always manually, since `Closes #N` cannot auto-fire against a
+> non-default base branch. The
 > accepted cost is the one ADR-0015 option (a) states: the shipped T7.6
 > public quote-and-book flow now requires an account at its confirm step,
 > a conversion call the Product Owner made with the cost in front of them.
@@ -3778,10 +3781,15 @@ Ceremony 1 item 3 requires the retro's own agreed sentence):
   unrelaxed.** The five-condition text is now appended to `CLAUDE.md`
   rule 9. Note the consequence ADR-0016 itself records: (b) as specified
   does **not** retroactively bless #179, which fails condition 3.
-- **Open issues: 7 → 6.** #144 closed. Still open: #124, #126, #130
-  (Product Owner input), #134 (needs real assistive-technology hardware),
-  #145 (needs a real non-uuid IdP `sub` claim), #149 (needs the
-  Game-Admin/Competition-Admin durable store; its D1 half is now unblocked).
+- **Open issues: 7 → 7.** An earlier draft of this entry said "7 → 6, #144
+  closed". That was overstated, and is corrected here rather than carried:
+  T55.1 **resolves** #144, but nothing closes until its PR merges — on this
+  project always a manual step, since `Closes #N` cannot auto-fire against a
+  non-default base branch. **#144 is resolved pending merge.** Still open
+  and untouched by T55.1: #124, #126, #130 (Product Owner input), #134
+  (needs real assistive-technology hardware), #145 (needs a real non-uuid
+  IdP `sub` claim), #149 (needs the Game-Admin/Competition-Admin durable
+  store; its D1 half is now unblocked).
 
 **T55 backlog — carried from T54's retro recommendations:**
 

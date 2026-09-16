@@ -134,11 +134,21 @@ have — D1's answer had been one question away for 41 sprints.
 
 - **Open issues at T54's start:** 7 (#124, #126, #130, #134, #144, #145,
   #149) — matching T54's plan §A1 and T53's retro.
-- **Closed during T54/T55.1:** **#144**, by the D1 implementation. First
-  issue closed since T29.
-- **Open at close:** 6.
-- **PRs merged:** #290 (T54 Ceremony 1/2 doc), plus T55.1's implementation
-  PR.
+- **Closed during T54/T55.1:** **none.** An earlier draft of this retro
+  recorded #144 as closed by the D1 implementation. That was wrong, and is
+  corrected here rather than carried: T55.1 *resolves* #144, but an issue on
+  this project closes only when its PR merges, and always as a manual step —
+  `Closes #N` structurally cannot auto-fire, because every PR merges into
+  `claude/go-backend-pickleball-7up34j` rather than the default branch (see
+  `sprint-process.md`'s Board-of-record section, which records that it
+  silently never fired for any ticket from T5 through T10).
+- **Resolved pending merge:** **#144**, by T55.1. It becomes the first issue
+  closed since T29 *when that PR merges*, not before.
+- **Open at close:** **7** — unchanged. Verified live rather than carried
+  from the count above.
+- **PRs merged:** **#290 only** (the T54 Ceremony 1/2 doc). T55.1's
+  implementation PR is open and unmerged at the time of writing, as are
+  every other PR this sprint produced.
 - **D1 silence counter:** ended at **forty-one**, and is now **retired** —
   D1 is answered, and per recommendation 3 a counter with nothing left to
   count is dropped rather than carried.
@@ -164,7 +174,10 @@ For `HANDOFF.md`'s T54 row, to be carried verbatim rather than strengthened:
 > `uuid NOT NULL REFERENCES identity_users (id)` (migration 0027),
 > `CreateBooking` and `CancelBooking` moved from `PublicMethods()` to
 > `AuthenticatedMethods()`, and #144 — open since T13, the sharpest
-> object-level authorization hole in the codebase — was closed. The
+> object-level authorization hole in the codebase — is **resolved pending
+> merge**, not closed: on this project an issue closes only when its PR
+> merges, and always manually, since `Closes #N` cannot auto-fire against a
+> non-default base branch. The
 > accepted cost is the one ADR-0015 option (a) states: the shipped T7.6
 > public quote-and-book flow now requires an account at its confirm step,
 > a conversion call the Product Owner made with the cost in front of them.
