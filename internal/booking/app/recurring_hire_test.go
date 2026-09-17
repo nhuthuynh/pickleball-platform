@@ -420,7 +420,7 @@ func TestApproveRecurringHire_PartialConflictStillApproves(t *testing.T) {
 		Start: time.Date(2026, 1, 19, 9, 0, 0, 0, time.UTC),
 		End:   time.Date(2026, 1, 19, 10, 0, 0, 0, time.UTC),
 	}
-	if _, err := f.svc.CreateBooking(ctx, app.CreateBookingInput{
+	if _, err := f.svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA,
 		CourtID: courtID(1), Source: domain.SourceIndividual, Range: conflicted,
 	}); err != nil {
 		t.Fatalf("fixture CreateBooking: %v", err)

@@ -76,7 +76,27 @@ func NewHandler(svc *app.Service) *Handler {
 	return &Handler{svc: svc}
 }
 
+// CreateBooking mints an individual court Booking owned by the verified
+// caller.
+//
+// DECISION D1 (ADR-0015 option (a); closes #144) made this an authenticated
+// RPC. The owner is resolved from the token via h.actor and is NOT read off
+// the request — CreateBookingRequest carries no owner field, deliberately,
+// because a caller able to name the owner could mint bookings in somebody
+// else's name, which is the same class of hole D1 was raised to close.
+//
+// This is the change that breaks the shipped T7.6 public quote-and-book
+// flow: a player must now hold an account to book. That cost was stated in
+// ADR-0015 option (a) and accepted by the Product Owner when D1 was
+// answered; GetQuote and ListCourtBookings stay public, so the browse half
+// of that flow (see a price, see availability) still works without a token
+// and only the final confirm step now requires one.
 func (h *Handler) CreateBooking(ctx context.Context, req *bookingv1.CreateBookingRequest) (*bookingv1.CreateBookingResponse, error) {
+	actorUserID, err := h.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	source, err := fromProtoSource(req.GetSource())
 	if err != nil {
 		return nil, status.Error(codes.InvalidArgument, err.Error())
@@ -92,6 +112,7 @@ func (h *Handler) CreateBooking(ctx context.Context, req *bookingv1.CreateBookin
 		Source:      source,
 		Range:       rng,
 		ReferenceID: req.GetReferenceId(),
+		OwnerUserID: actorUserID,
 	})
 	if err != nil {
 		return nil, toStatus(err)
@@ -220,8 +241,22 @@ func (h *Handler) ListCourtBookings(ctx context.Context, req *bookingv1.ListCour
 	return &bookingv1.ListCourtBookingsResponse{Bookings: out}, nil
 }
 
+// CancelBooking cancels a Booking on behalf of its owner.
+//
+// This is the sharp half of #144: before DECISION D1 this RPC was public and
+// took no actor, so anyone who knew or guessed a booking id could cancel it.
+// The actor now comes from the verified token via h.actor, and
+// app.Service.CancelBooking refuses any caller who is not the booking's
+// owner (domain.ErrNotBookingOwner -> PermissionDenied).
+//
+// As with CreateBooking, no actor is read off the request.
 func (h *Handler) CancelBooking(ctx context.Context, req *bookingv1.CancelBookingRequest) (*bookingv1.CancelBookingResponse, error) {
-	b, err := h.svc.CancelBooking(ctx, req.GetBookingId())
+	actorUserID, err := h.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := h.svc.CancelBooking(ctx, req.GetBookingId(), actorUserID)
 	if err != nil {
 		return nil, toStatus(err)
 	}
@@ -401,6 +436,13 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrInvalidCourtReference):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrNotFacilityOwner),
+		// DECISION D1 (ADR-0015 option (a); closes #144). A caller who holds
+		// a real booking id but does not own it. PermissionDenied, not
+		// NotFound, for exactly the reason the arm below states for the
+		// Identity sentinels, and matching ErrNotFacilityOwner's own
+		// treatment: answering NotFound here would make CancelBooking an
+		// oracle for which booking ids exist.
+		errors.Is(err, domain.ErrNotBookingOwner),
 		// T11.5's two Identity answers. Both are PermissionDenied rather than
 		// NotFound, deliberately: an actor who cannot be resolved to a real
 		// User has not proven the `club` role any more than a resolved
@@ -474,6 +516,13 @@ func toStatus(err error) error {
 		// server fault. ErrEmptyCourtID above already covers a template with
 		// no court.
 		errors.Is(err, domain.ErrEmptyRequestedByUserID),
+		// DECISION D1: a Booking built with no owner. InvalidArgument, not
+		// PermissionDenied — this is a malformed construction rather than a
+		// refused actor, and the two are deliberately separate sentinels;
+		// see domain/errors.go. Unreachable through the gRPC handlers, which
+		// always pass a resolved actor, but reachable through the app layer
+		// by any other caller, so it is mapped rather than left to Internal.
+		errors.Is(err, domain.ErrEmptyOwnerUserID),
 		errors.Is(err, domain.ErrInvalidClockTime),
 		errors.Is(err, domain.ErrInvalidRecurringHireTimeRange),
 		errors.Is(err, domain.ErrInvalidRecurringHireEndAfterOccurrences):
@@ -733,5 +782,6 @@ func toProto(b domain.Booking) *bookingv1.Booking {
 		StartsAt:    timestamppb.New(b.Range.Start),
 		EndsAt:      timestamppb.New(b.Range.End),
 		ReferenceId: b.ReferenceID,
+		OwnerUserId: b.OwnerUserID,
 	}
 }

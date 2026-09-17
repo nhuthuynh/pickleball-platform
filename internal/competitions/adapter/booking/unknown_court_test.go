@@ -27,7 +27,7 @@ func TestReserveCourt_UnknownCourtIsTranslated(t *testing.T) {
 	res, repo := newReservation(t)
 	rng := slot(t, 10, 11)
 
-	_, err := res.ReserveCourt(context.Background(), unknownCourtID, rng.Start, rng.End, fixtureCompetitionID)
+	_, err := res.ReserveCourt(context.Background(), unknownCourtID, rng.Start, rng.End, fixtureCompetitionID, testBookingOwner)
 
 	if !errors.Is(err, domain.ErrCourtNotFound) {
 		t.Fatalf("ReserveCourt(unknown court) = %v, want competitions domain.ErrCourtNotFound", err)
@@ -53,7 +53,7 @@ func TestReserveCourt_KnownCourtStillSucceeds(t *testing.T) {
 	res, repo := newReservation(t)
 	rng := slot(t, 10, 11)
 
-	bookingID, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureCompetitionID)
+	bookingID, err := res.ReserveCourt(context.Background(), fixtureCourtID, rng.Start, rng.End, fixtureCompetitionID, testBookingOwner)
 	if err != nil {
 		t.Fatalf("ReserveCourt(known court) = %v, want success", err)
 	}

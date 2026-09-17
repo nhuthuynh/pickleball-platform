@@ -36,7 +36,7 @@ func NewReservation(bookingSvc *bookingapp.Service) *Reservation {
 // underlying value, "game" — confirmed against
 // internal/booking/domain/booking.go, per port.CourtReservation's doc
 // comment).
-func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, end time.Time, referenceID string) (string, error) {
+func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, end time.Time, referenceID, ownerUserID string) (string, error) {
 	rng, err := bookingdomain.NewTimeRange(start, end)
 	if err != nil {
 		// Social Play's own domain.NewGame already validated this range
@@ -51,6 +51,7 @@ func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, e
 		Source:      bookingdomain.SourceGame,
 		Range:       rng,
 		ReferenceID: referenceID,
+		OwnerUserID: ownerUserID,
 	})
 	if err != nil {
 		if errors.Is(err, bookingdomain.ErrCourtDoubleBooked) {
@@ -86,8 +87,8 @@ func (r *Reservation) ReserveCourt(ctx context.Context, courtID string, start, e
 // underlying Booking; best-effort per port.CourtReservation's doc comment,
 // so its own failure is returned but callers are expected to not let it
 // mask the original error that triggered the rollback.
-func (r *Reservation) ReleaseCourt(ctx context.Context, bookingID string) error {
-	if _, err := r.bookingSvc.CancelBooking(ctx, bookingID); err != nil {
+func (r *Reservation) ReleaseCourt(ctx context.Context, bookingID, ownerUserID string) error {
+	if _, err := r.bookingSvc.CancelBooking(ctx, bookingID, ownerUserID); err != nil {
 		return fmt.Errorf("socialplay booking adapter: release booking %s: %s", bookingID, err)
 	}
 	return nil

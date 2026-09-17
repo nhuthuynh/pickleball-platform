@@ -38,7 +38,7 @@ func TestNewBooking_SourceValidation(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := domain.NewBooking("b1", "court-1", tt.source, r, "")
+			_, err := domain.NewBooking("b1", "court-1", tt.source, r, "", testOwner)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("got err %v, want %v", err, tt.wantErr)
 			}
@@ -49,7 +49,7 @@ func TestNewBooking_SourceValidation(t *testing.T) {
 func TestNewBooking_RequiresCourtID(t *testing.T) {
 	t.Parallel()
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	_, err := domain.NewBooking("b1", "", domain.SourceIndividual, r, "")
+	_, err := domain.NewBooking("b1", "", domain.SourceIndividual, r, "", testOwner)
 	if !errors.Is(err, domain.ErrEmptyCourtID) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrEmptyCourtID)
 	}
@@ -59,7 +59,7 @@ func TestBooking_Cancel(t *testing.T) {
 	t.Parallel()
 
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	b, err := domain.NewBooking("b1", "court-1", domain.SourceIndividual, r, "")
+	b, err := domain.NewBooking("b1", "court-1", domain.SourceIndividual, r, "", testOwner)
 	if err != nil {
 		t.Fatalf("unexpected err building fixture: %v", err)
 	}
@@ -161,13 +161,13 @@ func TestEnsureNoConflict_CrossSource(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			existing, err := domain.NewBooking("existing", tt.existingCourt, tt.existingSrc, tt.existingRange, "")
+			existing, err := domain.NewBooking("existing", tt.existingCourt, tt.existingSrc, tt.existingRange, "", testOwner)
 			if err != nil {
 				t.Fatalf("unexpected err building fixture: %v", err)
 			}
 			existing.Status = tt.existingStatus
 
-			candidate, err := domain.NewBooking("candidate", tt.candidateCourt, tt.candidateSrc, overlapping, "")
+			candidate, err := domain.NewBooking("candidate", tt.candidateCourt, tt.candidateSrc, overlapping, "", testOwner)
 			if err != nil {
 				t.Fatalf("unexpected err building fixture: %v", err)
 			}
@@ -187,7 +187,7 @@ func TestEnsureNoConflict_CrossSource(t *testing.T) {
 func TestEnsureNoConflict_IgnoresSelf(t *testing.T) {
 	t.Parallel()
 	r := mustRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	b, err := domain.NewBooking("b1", "court-1", domain.SourceIndividual, r, "")
+	b, err := domain.NewBooking("b1", "court-1", domain.SourceIndividual, r, "", testOwner)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

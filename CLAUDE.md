@@ -41,6 +41,41 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
    docs after a stretch of sprint plans/retros/design docs landing via
    direct push on the reasoning that they were "just docs" — see
    `docs/LESSONS.md`'s "Direct-push-for-docs" entry.)
+
+   **Reviewer-authored fixes — the narrow exception.** (DECISION D2,
+   ADR-0016 option (b), answered 2026-09-04.) A session that reviews a
+   pull request may commit a fix to that pull request's source branch
+   **only when every one of the following five conditions holds.** If any
+   one fails, the reviewer requests changes and does not commit.
+
+   1. **Mechanical.** The fix applies an existing, already-decided
+      convention that is visible in the file being edited — e.g. adding a
+      row to an exhaustive table, or a missing case to a switch whose
+      other cases settle the shape. It introduces **no new decision**: no
+      new domain rule, no new error mapping not already established
+      elsewhere, no schema change, no API or proto change, and no change
+      to a test's assertions.
+   2. **Compiler- or test-caught.** The gap was surfaced by a failing
+      build or a failing test — not by the reviewer's own reading, taste,
+      or judgement. The reviewer must quote the actual failure in the
+      review.
+   3. **Single-file.** The fix touches one file. (A change that must be
+      repeated across bounded contexts is **not** single-file and does not
+      qualify, even when each edit is individually trivial.)
+   4. **Disclosed.** The review states, in its own text: that the reviewer
+      authored the fix, what the fix was, the failure that prompted it,
+      and the branch it was pushed to. A reviewer-authored fix that is not
+      disclosed in the review is a rule-9 violation regardless of its
+      content.
+   5. **Re-verified.** After the fix, the reviewer re-runs the full gate
+      on the fixed tree and reports the result. A fix that is not itself
+      re-verified does not qualify.
+
+   This exception covers **fixes to a branch under review**. It does not
+   permit a reviewing session to author a feature, and it does not by
+   itself settle the separate question of recovering an interrupted
+   session's work, which is governed by `sprint-process.md`'s
+   worktree-recovery clauses.
 10. **A single successful run is not proof of reliability**, especially for
     concurrency claims. Re-run non-deterministic tests (cold start + several
     repeats) before writing "proven" or "reliable" anywhere.

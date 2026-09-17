@@ -33,7 +33,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/nhuthuynh/white-label/internal/platform/auth"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	bookinggrpc "github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
@@ -113,13 +115,16 @@ func newBookingService(pool *pgxpool.Pool) *bookingapp.Service {
 // sentinel — not a raw, wrapped infra error.
 func TestCreateBooking_UnknownCourtIsTranslatedByRealPostgres(t *testing.T) {
 	ctx := context.Background()
-	svc := newBookingService(startPostgres(t, ctx))
+	pool := startPostgres(t, ctx)
+	svc := newBookingService(pool)
+	owner := seedBookingOwner(t, ctx, pool)
 	rng := mustRange(t, "2026-09-02T09:00:00Z", "2026-09-02T10:00:00Z")
 
 	_, err := svc.CreateBooking(ctx, bookingapp.CreateBookingInput{
-		CourtID: unknownCourtID,
-		Source:  domain.SourceIndividual,
-		Range:   rng,
+		CourtID:     unknownCourtID,
+		Source:      domain.SourceIndividual,
+		Range:       rng,
+		OwnerUserID: owner,
 	})
 
 	if !errors.Is(err, domain.ErrInvalidCourtReference) {
@@ -138,13 +143,16 @@ func TestCreateBooking_UnknownCourtIsTranslatedByRealPostgres(t *testing.T) {
 // above.
 func TestCreateBooking_KnownCourtStillSucceedsAgainstRealPostgres(t *testing.T) {
 	ctx := context.Background()
-	svc := newBookingService(startPostgres(t, ctx))
+	pool := startPostgres(t, ctx)
+	svc := newBookingService(pool)
+	owner := seedBookingOwner(t, ctx, pool)
 	rng := mustRange(t, "2026-09-02T09:00:00Z", "2026-09-02T10:00:00Z")
 
 	b, err := svc.CreateBooking(ctx, bookingapp.CreateBookingInput{
-		CourtID: seedCourtID,
-		Source:  domain.SourceIndividual,
-		Range:   rng,
+		CourtID:     seedCourtID,
+		Source:      domain.SourceIndividual,
+		Range:       rng,
+		OwnerUserID: owner,
 	})
 	if err != nil {
 		t.Fatalf("CreateBooking(seeded court) = %v, want success", err)
@@ -161,10 +169,32 @@ func TestCreateBooking_KnownCourtStillSucceedsAgainstRealPostgres(t *testing.T) 
 // end-to-end statement of what #185 asked for on Booking's own RPC.
 func TestCreateBookingRPC_UnknownCourtIsNotFoundAgainstRealPostgres(t *testing.T) {
 	ctx := context.Background()
-	h := bookinggrpc.NewHandler(newBookingService(startPostgres(t, ctx)))
+	pool := startPostgres(t, ctx)
+	owner := seedBookingOwner(t, ctx, pool)
+
+	// CreateBooking became an authenticated RPC in T55.1 (DECISION D1), so
+	// this end-to-end walk now needs both halves of ADR-0014's seam: a
+	// principal on the context, and an IdentityLookup that resolves its
+	// subject to the seeded User.ID. unusedIdentityLookup (which fails closed)
+	// cannot serve that, so this one test builds its service with a lookup
+	// that can. The court-resolution behaviour under test is unchanged.
+	h := bookinggrpc.NewHandler(bookingapp.NewService(bookingapp.ServiceOptions{
+		Bookings:       bookingpg.NewRepository(pool),
+		PricingRules:   bookingpg.NewPricingRuleRepository(pool),
+		DiscountRules:  bookingpg.NewDiscountRuleRepository(pool),
+		RecurringHires: unusedRecurringHireRepository{},
+		Facilities:     unusedFacilityLookup{},
+		Identity:       fixedIdentityLookup{userID: owner},
+		IDs:            idgen.UUID{},
+	}))
 	rng := mustRange(t, "2026-09-02T09:00:00Z", "2026-09-02T10:00:00Z")
 
-	_, err := h.CreateBooking(ctx, &bookingv1.CreateBookingRequest{
+	authed := auth.ContextWithPrincipal(ctx, auth.Principal{
+		Subject: "auth0|t55-booking-owner",
+		Issuer:  "https://issuer.test/",
+	})
+
+	_, err := h.CreateBooking(authed, &bookingv1.CreateBookingRequest{
 		CourtId:  unknownCourtID,
 		Source:   bookingv1.Source_SOURCE_INDIVIDUAL,
 		StartsAt: timestamppb.New(rng.Start),
@@ -193,13 +223,15 @@ func TestCreateBookingRPC_UnknownCourtIsNotFoundAgainstRealPostgres(t *testing.T
 // than this FK.
 func TestCrossContextReservations_UnknownCourtAgainstRealPostgres(t *testing.T) {
 	ctx := context.Background()
-	svc := newBookingService(startPostgres(t, ctx))
+	pool := startPostgres(t, ctx)
+	svc := newBookingService(pool)
+	owner := seedBookingOwner(t, ctx, pool)
 	rng := mustRange(t, "2026-09-02T11:00:00Z", "2026-09-02T12:00:00Z")
 
 	t.Run("social play", func(t *testing.T) {
 		res := socialplaybooking.NewReservation(svc)
 
-		_, err := res.ReserveCourt(ctx, unknownCourtID, rng.Start, rng.End, "game-ref")
+		_, err := res.ReserveCourt(ctx, unknownCourtID, rng.Start, rng.End, "game-ref", owner)
 		if !errors.Is(err, socialplaydomain.ErrCourtNotFound) {
 			t.Fatalf("ReserveCourt(unknown court) = %v, want socialplay ErrCourtNotFound", err)
 		}
@@ -210,7 +242,7 @@ func TestCrossContextReservations_UnknownCourtAgainstRealPostgres(t *testing.T) 
 		// Control: the seeded court still reserves cleanly through the same
 		// adapter, so the assertion above is about this court id and not
 		// about the adapter refusing everything.
-		if _, err := res.ReserveCourt(ctx, seedCourtID, rng.Start, rng.End, "game-ref"); err != nil {
+		if _, err := res.ReserveCourt(ctx, seedCourtID, rng.Start, rng.End, "game-ref", owner); err != nil {
 			t.Fatalf("ReserveCourt(seeded court) = %v, want success", err)
 		}
 	})
@@ -222,7 +254,7 @@ func TestCrossContextReservations_UnknownCourtAgainstRealPostgres(t *testing.T) 
 		// than by the EXCLUDE constraint.
 		compRng := mustRange(t, "2026-09-02T13:00:00Z", "2026-09-02T14:00:00Z")
 
-		_, err := res.ReserveCourt(ctx, unknownCourtID, compRng.Start, compRng.End, "comp-ref")
+		_, err := res.ReserveCourt(ctx, unknownCourtID, compRng.Start, compRng.End, "comp-ref", owner)
 		if !errors.Is(err, competitionsdomain.ErrCourtNotFound) {
 			t.Fatalf("ReserveCourt(unknown court) = %v, want competitions ErrCourtNotFound", err)
 		}
@@ -230,8 +262,50 @@ func TestCrossContextReservations_UnknownCourtAgainstRealPostgres(t *testing.T) 
 			t.Fatalf("leaked the bookingdomain sentinel across the boundary: %v", err)
 		}
 
-		if _, err := res.ReserveCourt(ctx, seedCourtID, compRng.Start, compRng.End, "comp-ref"); err != nil {
+		if _, err := res.ReserveCourt(ctx, seedCourtID, compRng.Start, compRng.End, "comp-ref", owner); err != nil {
 			t.Fatalf("ReserveCourt(seeded court) = %v, want success", err)
 		}
 	})
+}
+
+// seedBookingOwner inserts an identity_users row and returns its id, for use
+// as a Booking's OwnerUserID.
+//
+// Required since DECISION D1 (ADR-0015 option (a)): bookings.owner_user_id is
+// `uuid NOT NULL REFERENCES identity_users (id)` (migration 0027), so an
+// integration test that creates a Booking must have a real user row to point
+// at — an invented uuid fails the FK, which is the constraint doing its job
+// rather than a test-harness inconvenience to route around.
+//
+// It mints its own id rather than reusing the package's other user fixture so
+// that tests using both do not collide on the primary key.
+func seedBookingOwner(t *testing.T, ctx context.Context, pool *pgxpool.Pool) string {
+	t.Helper()
+
+	id := uuid.NewString()
+	_, err := pool.Exec(ctx,
+		`INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level) VALUES ($1, $2, $3, $4)`,
+		id, "T55.1 booking owner", []string{"player"}, 3)
+	if err != nil {
+		t.Fatalf("seed booking owner: %v", err)
+	}
+	return id
+}
+
+// fixedIdentityLookup resolves any subject to one fixed User.ID.
+//
+// It exists for the single RPC-level test above, which needs ADR-0014's
+// subject -> User.ID translation to actually succeed. unusedIdentityLookup
+// deliberately fails closed and is still what every other test here uses;
+// this one is scoped to the one case that genuinely walks the actor path, so
+// a wiring mistake elsewhere still surfaces rather than being absorbed by a
+// permissive stub.
+type fixedIdentityLookup struct{ userID string }
+
+func (l fixedIdentityLookup) UserIDBySubject(_ context.Context, _ string) (string, error) {
+	return l.userID, nil
+}
+
+func (fixedIdentityLookup) EnsureClubRole(_ context.Context, _ string) error {
+	return domain.ErrNotClub
 }

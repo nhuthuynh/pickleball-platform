@@ -71,13 +71,21 @@ func (r *Repository) Create(ctx context.Context, b domain.Booking) (domain.Booki
 		StartsAt:    toTimestamptz(b.Range.Start),
 		EndsAt:      toTimestamptz(b.Range.End),
 		ReferenceID: toText(b.ReferenceID),
+		// DECISION D1 (ADR-0015 option (a)). mustUUID, not toText: the
+		// column is `uuid NOT NULL REFERENCES identity_users (id)` and the
+		// value is a User.ID resolved at the grpcapi boundary, never an IdP
+		// subject (ADR-0014). A subject reaching here panics rather than
+		// silently violating the FK — the same guard requested_by_user_id
+		// already relies on, and the reason issue #152 insisted the fix was
+		// a translation rather than the removal of this guard.
+		OwnerUserID: mustUUID(b.OwnerUserID),
 	}
 
 	var lastErr error
 	for attempt := 1; attempt <= createBookingMaxAttempts; attempt++ {
 		row, err := r.q.CreateBooking(ctx, params)
 		if err == nil {
-			return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID), nil
+			return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID, row.OwnerUserID), nil
 		}
 		lastErr = err
 		if attempt == createBookingMaxAttempts || !isRetryableConflict(err) {
@@ -118,7 +126,7 @@ func (r *Repository) ListActiveForCourt(ctx context.Context, courtID string, rng
 	}
 	out := make([]domain.Booking, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID))
+		out = append(out, fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID, row.OwnerUserID))
 	}
 	return out, nil
 }
@@ -128,7 +136,7 @@ func (r *Repository) GetByID(ctx context.Context, id string) (domain.Booking, er
 	if err != nil {
 		return domain.Booking{}, translateErr(err)
 	}
-	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID), nil
+	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID, row.OwnerUserID), nil
 }
 
 func (r *Repository) Update(ctx context.Context, b domain.Booking) (domain.Booking, error) {
@@ -139,7 +147,7 @@ func (r *Repository) Update(ctx context.Context, b domain.Booking) (domain.Booki
 	if err != nil {
 		return domain.Booking{}, translateErr(err)
 	}
-	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID), nil
+	return fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID, row.OwnerUserID), nil
 }
 
 // translateErr maps infrastructure failures onto domain errors — the only
@@ -177,7 +185,7 @@ func translateErr(err error) error {
 // model, because none of the queries select the generated `during` column —
 // see the CLAUDE.md gotcha on why they can't. A shared field-level converter
 // avoids duplicating this mapping four times.
-func fromFields(id, courtID pgtype.UUID, source, status string, startsAt, endsAt pgtype.Timestamptz, referenceID pgtype.Text) domain.Booking {
+func fromFields(id, courtID pgtype.UUID, source, status string, startsAt, endsAt pgtype.Timestamptz, referenceID pgtype.Text, ownerUserID pgtype.UUID) domain.Booking {
 	return domain.Booking{
 		ID:      id.String(),
 		CourtID: courtID.String(),
@@ -188,6 +196,7 @@ func fromFields(id, courtID pgtype.UUID, source, status string, startsAt, endsAt
 			End:   endsAt.Time,
 		},
 		ReferenceID: referenceID.String,
+		OwnerUserID: ownerUserID.String(),
 	}
 }
 

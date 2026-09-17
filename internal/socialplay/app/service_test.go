@@ -59,7 +59,7 @@ func newFakeReservation(unavailableCourts ...string) *fakeReservation {
 	return f
 }
 
-func (f *fakeReservation) ReserveCourt(_ context.Context, courtID string, _, _ time.Time, _ string) (string, error) {
+func (f *fakeReservation) ReserveCourt(_ context.Context, courtID string, _, _ time.Time, _, _ string) (string, error) {
 	f.reserveCalls = append(f.reserveCalls, courtID)
 	if f.unavailable[courtID] {
 		return "", domain.ErrCourtUnavailable
@@ -68,7 +68,7 @@ func (f *fakeReservation) ReserveCourt(_ context.Context, courtID string, _, _ t
 	return fmt.Sprintf("booking-%d", f.n), nil
 }
 
-func (f *fakeReservation) ReleaseCourt(_ context.Context, bookingID string) error {
+func (f *fakeReservation) ReleaseCourt(_ context.Context, bookingID string, _ string) error {
 	f.released = append(f.released, bookingID)
 	return f.releaseErr
 }

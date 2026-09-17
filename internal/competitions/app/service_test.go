@@ -56,7 +56,7 @@ func newFakeReservation(unavailableCourts ...string) *fakeReservation {
 	return f
 }
 
-func (f *fakeReservation) ReserveCourt(_ context.Context, courtID string, _, _ time.Time, _ string) (string, error) {
+func (f *fakeReservation) ReserveCourt(_ context.Context, courtID string, _, _ time.Time, _, _ string) (string, error) {
 	f.reserveCalls = append(f.reserveCalls, courtID)
 	if f.unavailable[courtID] {
 		return "", domain.ErrCourtUnavailable
@@ -67,7 +67,7 @@ func (f *fakeReservation) ReserveCourt(_ context.Context, courtID string, _, _ t
 	return bookingID, nil
 }
 
-func (f *fakeReservation) ReleaseCourt(_ context.Context, bookingID string) error {
+func (f *fakeReservation) ReleaseCourt(_ context.Context, bookingID string, _ string) error {
 	if f.releaseErr != nil {
 		// A failing release leaves the booking held — which is exactly the
 		// dangling-Booking residue port.CourtReservation's doc comment calls
@@ -486,13 +486,13 @@ type orderRecordingReservation struct {
 	order *[]string
 }
 
-func (r *orderRecordingReservation) ReserveCourt(ctx context.Context, courtID string, start, end time.Time, referenceID string) (string, error) {
-	return r.inner.ReserveCourt(ctx, courtID, start, end, referenceID)
+func (r *orderRecordingReservation) ReserveCourt(ctx context.Context, courtID string, start, end time.Time, referenceID, ownerUserID string) (string, error) {
+	return r.inner.ReserveCourt(ctx, courtID, start, end, referenceID, ownerUserID)
 }
 
-func (r *orderRecordingReservation) ReleaseCourt(ctx context.Context, bookingID string) error {
+func (r *orderRecordingReservation) ReleaseCourt(ctx context.Context, bookingID, ownerUserID string) error {
 	*r.order = append(*r.order, bookingID)
-	return r.inner.ReleaseCourt(ctx, bookingID)
+	return r.inner.ReleaseCourt(ctx, bookingID, ownerUserID)
 }
 
 // TestScheduleCompetition_RollbackFailureDoesNotMaskOriginalError proves the

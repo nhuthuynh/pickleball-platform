@@ -95,6 +95,14 @@ func TestCreateBooking_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 
 	rng := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 
+	// Since DECISION D1 (ADR-0015 option (a)) a Booking needs an owner that
+	// satisfies bookings.owner_user_id's FK into identity_users. Every one of
+	// the concurrent attempts uses the SAME owner deliberately: the race under
+	// test is over the court/time slot, and giving each goroutine its own
+	// owner would leave the test passing for a reason unrelated to the EXCLUDE
+	// constraint if ownership ever started scoping the conflict check.
+	owner := seedBookingOwner(t, ctx, pool)
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	successes, conflicts, unexpected := 0, 0, 0
@@ -104,9 +112,10 @@ func TestCreateBooking_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_, err := svc.CreateBooking(ctx, bookingapp.CreateBookingInput{
-				CourtID: seedCourtID,
-				Source:  domain.SourceIndividual,
-				Range:   rng,
+				CourtID:     seedCourtID,
+				Source:      domain.SourceIndividual,
+				Range:       rng,
+				OwnerUserID: owner,
 			})
 			mu.Lock()
 			defer mu.Unlock()

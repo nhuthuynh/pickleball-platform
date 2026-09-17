@@ -88,7 +88,7 @@ func mapCreateBookingRequest() *bookingv1.CreateBookingRequest {
 func mustCreateBooking(t *testing.T, h *recurringHarness) string {
 	t.Helper()
 
-	resp, err := h.handler.CreateBooking(anonymous(), mapCreateBookingRequest())
+	resp, err := h.handler.CreateBooking(bookerCtx(), mapCreateBookingRequest())
 	if err != nil {
 		t.Fatalf("seed CreateBooking: %v", err)
 	}
@@ -103,10 +103,10 @@ func cancelTwice(t *testing.T) error {
 
 	h := newRecurringHandler()
 	id := mustCreateBooking(t, h)
-	if _, err := h.handler.CancelBooking(anonymous(), &bookingv1.CancelBookingRequest{BookingId: id}); err != nil {
+	if _, err := h.handler.CancelBooking(bookerCtx(), &bookingv1.CancelBookingRequest{BookingId: id}); err != nil {
 		t.Fatalf("seed CancelBooking: %v", err)
 	}
-	_, err := h.handler.CancelBooking(anonymous(), &bookingv1.CancelBookingRequest{BookingId: id})
+	_, err := h.handler.CancelBooking(bookerCtx(), &bookingv1.CancelBookingRequest{BookingId: id})
 	return err
 }
 
@@ -189,7 +189,39 @@ func errorMappingCases() []errorMappingCase {
 			invoke: func(t *testing.T) error {
 				h := newRecurringHandler()
 				mustCreateBooking(t, h)
-				_, err := h.handler.CreateBooking(anonymous(), mapCreateBookingRequest())
+				_, err := h.handler.CreateBooking(bookerCtx(), mapCreateBookingRequest())
+				return err
+			},
+		},
+
+		{
+			name:     "a booking constructed with no owner",
+			sentinel: "ErrEmptyOwnerUserID",
+			err:      domain.ErrEmptyOwnerUserID,
+			wantCode: codes.InvalidArgument,
+			why: "DECISION D1 (ADR-0015 option (a)). A malformed construction, not a refused actor — which is " +
+				"why it is a separate sentinel from ErrNotBookingOwner above and carries a different code. " +
+				"invoke is nil deliberately: no RPC can reach it, because CreateBooking resolves the owner " +
+				"from the verified token and CreateBookingRequest has no owner field to leave blank. It is " +
+				"pinned here anyway so that a future RPC which *can* raise it inherits a considered code " +
+				"rather than falling through to Internal",
+			invoke: nil,
+		},
+		{
+			name:     "a stranger cancelling somebody else's booking",
+			sentinel: "ErrNotBookingOwner",
+			err:      domain.ErrNotBookingOwner,
+			wantCode: codes.PermissionDenied,
+			why: "DECISION D1 (ADR-0015 option (a); closes #144). PermissionDenied and NOT NotFound, " +
+				"matching ErrNotFacilityOwner's own row and ADR-0014 §6: answering NotFound to a non-owner " +
+				"would turn CancelBooking into an oracle for which booking ids exist, which is the " +
+				"enumeration half of the very hole #144 reported",
+			invoke: func(t *testing.T) error {
+				h := newRecurringHandler()
+				createdID := mustCreateBooking(t, h)
+				_, err := h.handler.CancelBooking(ctxAs(subjectOf(attackerUser)), &bookingv1.CancelBookingRequest{
+					BookingId: createdID,
+				})
 				return err
 			},
 		},
@@ -202,7 +234,7 @@ func errorMappingCases() []errorMappingCase {
 			wantCode: codes.NotFound,
 			invoke: func(t *testing.T) error {
 				h := newRecurringHandler()
-				_, err := h.handler.CancelBooking(anonymous(), &bookingv1.CancelBookingRequest{
+				_, err := h.handler.CancelBooking(bookerCtx(), &bookingv1.CancelBookingRequest{
 					BookingId: "00000000-0000-4000-a000-000000009999",
 				})
 				return err
@@ -317,7 +349,7 @@ func errorMappingCases() []errorMappingCase {
 				h := newRecurringHandler()
 				req := mapCreateBookingRequest()
 				req.CourtId = ""
-				_, err := h.handler.CreateBooking(anonymous(), req)
+				_, err := h.handler.CreateBooking(bookerCtx(), req)
 				return err
 			},
 		},
@@ -456,7 +488,7 @@ func errorMappingCases() []errorMappingCase {
 				h := newRecurringHandler()
 				req := mapCreateBookingRequest()
 				req.CourtId = "not-a-uuid"
-				_, err := h.handler.CreateBooking(anonymous(), req)
+				_, err := h.handler.CreateBooking(bookerCtx(), req)
 				return err
 			},
 		},

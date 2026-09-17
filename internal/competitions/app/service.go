@@ -304,9 +304,9 @@ func (s *Service) ScheduleCompetition(ctx context.Context, in ScheduleCompetitio
 	var reservedBookingIDs []string
 	for _, sess := range competition.Sessions {
 		for _, courtID := range sess.CourtIDs {
-			bookingID, err := s.reservation.ReserveCourt(ctx, courtID, sess.Range.Start, sess.Range.End, competition.ID)
+			bookingID, err := s.reservation.ReserveCourt(ctx, courtID, sess.Range.Start, sess.Range.End, competition.ID, competition.HostID)
 			if err != nil {
-				s.releaseAll(ctx, reservedBookingIDs)
+				s.releaseAll(ctx, reservedBookingIDs, competition.HostID)
 				return domain.Competition{}, fmt.Errorf("competitions: reserving court %s from %s for competition %s: %w", courtID, sess.Range.Start.Format("2006-01-02T15:04:05Z07:00"), competition.ID, err)
 			}
 			reservedBookingIDs = append(reservedBookingIDs, bookingID)
@@ -315,7 +315,7 @@ func (s *Service) ScheduleCompetition(ctx context.Context, in ScheduleCompetitio
 
 	persisted, err := s.competitions.Create(ctx, competition)
 	if err != nil {
-		s.releaseAll(ctx, reservedBookingIDs)
+		s.releaseAll(ctx, reservedBookingIDs, competition.HostID)
 		return domain.Competition{}, fmt.Errorf("competitions: persisting competition %s: %w", competition.ID, err)
 	}
 
@@ -337,9 +337,9 @@ func (s *Service) ScheduleCompetition(ctx context.Context, in ScheduleCompetitio
 // returns the original failure regardless (see ScheduleCompetition's doc
 // comment), so there is no decision a returned rollback error could inform
 // here. The real adapter is the right place to log the residue.
-func (s *Service) releaseAll(ctx context.Context, bookingIDs []string) {
+func (s *Service) releaseAll(ctx context.Context, bookingIDs []string, ownerUserID string) {
 	for i := len(bookingIDs) - 1; i >= 0; i-- {
-		_ = s.reservation.ReleaseCourt(ctx, bookingIDs[i])
+		_ = s.reservation.ReleaseCourt(ctx, bookingIDs[i], ownerUserID)
 	}
 }
 

@@ -32,6 +32,17 @@ message Booking {
   google.protobuf.Timestamp starts_at = 5;
   google.protobuf.Timestamp ends_at = 6;
   string reference_id = 7;
+
+  // The User.ID (uuid) that owns this Booking. Added by DECISION D1
+  // (ADR-0015 option (a); closes #144): every Booking is owned by a verified
+  // user, and only that user may cancel it.
+  //
+  // Read-only, and deliberately absent from CreateBookingRequest: the server
+  // takes the owner from the verified token, never from the request. A
+  // create request able to name its own owner would let a caller mint
+  // bookings in somebody else's name, which is the same class of hole D1 was
+  // raised to close.
+  string owner_user_id = 8;
 }
 
 message CreateBookingRequest {

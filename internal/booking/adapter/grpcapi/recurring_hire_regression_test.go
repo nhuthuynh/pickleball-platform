@@ -498,7 +498,11 @@ func TestApproveRecurringHire_PartialConflictIsReportedNotFatal(t *testing.T) {
 
 	// Occupy the third occurrence (Monday 2026-01-19 09:00-10:00) with an
 	// ordinary individual booking, through the real CreateBooking RPC.
-	if _, err := h.handler.CreateBooking(ctx, &bookingv1.CreateBookingRequest{
+	// bookerCtx, not the bare ctx above: CreateBooking became an
+	// authenticated RPC in T55.1 (DECISION D1). Who books the conflicting
+	// slot is immaterial to this test — it only needs the slot occupied —
+	// so an ordinary player does it.
+	if _, err := h.handler.CreateBooking(bookerCtx(), &bookingv1.CreateBookingRequest{
 		CourtId:  courtID(1),
 		Source:   bookingv1.Source_SOURCE_INDIVIDUAL,
 		StartsAt: timestamppb.New(time.Date(2026, 1, 19, 9, 0, 0, 0, time.UTC)),

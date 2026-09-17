@@ -168,7 +168,7 @@ func TestListCourtBookings_WellFormedCourtIDStillReads(t *testing.T) {
 	ctx := context.Background()
 
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
-	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{
+	if _, err := svc.CreateBooking(ctx, app.CreateBookingInput{OwnerUserID: ownerA,
 		CourtID: courtID(1),
 		Source:  "individual",
 		Range:   rng,
@@ -378,7 +378,7 @@ func TestCancelBooking_MalformedBookingIDIsNotFoundAndNeverReachesRepository(t *
 				IDs:            &sequentialIDs{},
 			})
 
-			_, err := svc.CancelBooking(context.Background(), id)
+			_, err := svc.CancelBooking(context.Background(), id, ownerA)
 			if !errors.Is(err, domain.ErrBookingNotFound) {
 				t.Fatalf("CancelBooking(%q) error = %v, want %v", id, err, domain.ErrBookingNotFound)
 			}
@@ -408,7 +408,7 @@ func TestCancelBooking_WellFormedUnknownBookingIDStillReachesRepository(t *testi
 	})
 
 	unknown := "6ba7b810-9dad-11d1-80b4-00c04fd430c8"
-	_, err := svc.CancelBooking(context.Background(), unknown)
+	_, err := svc.CancelBooking(context.Background(), unknown, ownerA)
 	if !errors.Is(err, domain.ErrBookingNotFound) {
 		t.Fatalf("CancelBooking(%q) error = %v, want %v", unknown, err, domain.ErrBookingNotFound)
 	}
@@ -471,7 +471,7 @@ func TestCreateBooking_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 				IDs:            &sequentialIDs{},
 			})
 
-			_, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{
+			_, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{OwnerUserID: ownerA,
 				CourtID: id, Source: domain.SourceIndividual, Range: rng,
 			})
 			if !errors.Is(err, domain.ErrInvalidCourtReference) {
@@ -497,7 +497,7 @@ func TestCreateBooking_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 			IDs:            &sequentialIDs{},
 		})
 
-		_, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{
+		_, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{OwnerUserID: ownerA,
 			CourtID: "", Source: domain.SourceIndividual, Range: rng,
 		})
 		if !errors.Is(err, domain.ErrEmptyCourtID) {
@@ -529,7 +529,7 @@ func TestCreateBooking_WellFormedCourtIDStillReachesRepository(t *testing.T) {
 	})
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
 
-	if _, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{
+	if _, err := svc.CreateBooking(context.Background(), app.CreateBookingInput{OwnerUserID: ownerA,
 		CourtID: courtID(1), Source: domain.SourceIndividual, Range: rng,
 	}); err != nil {
 		t.Fatalf("CreateBooking on a well-formed CourtID: %v", err)

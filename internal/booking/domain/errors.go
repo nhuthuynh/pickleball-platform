@@ -17,6 +17,26 @@ var (
 	ErrAmbiguousPricingRule         = errors.New("booking: more than one pricing rule matches the requested slot")
 	ErrPricingSlotSpansMultipleDays = errors.New("booking: pricing slot must fall within a single calendar day")
 
+	// ErrEmptyOwnerUserID and ErrNotBookingOwner implement DECISION D1
+	// (ADR-0015, option (a)): every Booking is owned by a verified user, and
+	// only that user may cancel it. Together they close #144.
+	//
+	// They are deliberately two sentinels rather than one, because they
+	// answer two different questions and map to two different gRPC codes:
+	// ErrEmptyOwnerUserID is a malformed *construction* (InvalidArgument —
+	// the caller built a Booking with no owner, which is a programming
+	// error, not a permission answer), while ErrNotBookingOwner is an
+	// *authorization* answer (PermissionDenied).
+	//
+	// ErrNotBookingOwner maps to PermissionDenied and NOT NotFound, matching
+	// ErrNotFacilityOwner's existing treatment and ADR-0014 §6's ruling: a
+	// caller who holds a booking id either owns it or does not, and
+	// answering NotFound for the second case would turn CancelBooking into
+	// an oracle for which booking ids exist — the enumeration half of the
+	// very hole #144 reported.
+	ErrEmptyOwnerUserID = errors.New("booking: owner user id is required")
+	ErrNotBookingOwner  = errors.New("booking: actor is not the owner of this booking")
+
 	// ErrInvalidCourtReference is the single answer to "this CourtID does not
 	// name a court this context can use", raised from BOTH of the two places
 	// that can discover it:
