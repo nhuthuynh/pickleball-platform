@@ -112,6 +112,114 @@ Concretely, the Ceremony 1 output PR carries:
 3. The previous sprint's narrative entry in the Task backlog, stating its
    outcome **in the form its own retro agreed**, not a stronger one.
 
+### Unanswered escalations are raised before the sprint is planned
+
+Adopted at T55 from `docs/process/t54-retro.md` recommendation 1. Like the
+Docs-index correction above, this runs **before any ticket is refined** — but
+it goes further than bookkeeping: it decides whether there is a sprint to
+plan at all.
+
+**The rule.** Ceremony 1 opens by listing every open escalation — every ADR
+whose `## Status` is `Escalated`, and every issue labelled
+`role:product-owner`. For each one that is still unanswered, the ceremony
+**puts the question to the user before planning anything else**, in the form
+the escalating ADR already states it. It does not open the sprint, refine
+tickets, or record another deferral until it has done so.
+
+**Why this exists, stated plainly because the number is the argument.**
+DECISION D1 was escalated at T14 in ADR-0015 and answered at T54 — **41
+sprints later**. ADR-0015 is a genuinely good escalation: one sentence a
+non-engineer can answer, four options with honest costs, a cost corrected
+against the code, a fifth option added because that correction made it
+available, and an explicit refusal to express a preference. It was not
+ignored through carelessness either — every ceremony in that span
+re-verified it, re-read its `## Status`, and correctly recorded that it was
+still open.
+
+**The defect was that nobody was required to hand it to anyone.** The
+project had an excellent mechanism for *asking* the Product Owner a question
+and none at all for *delivering* it. When D1 was finally put to the user
+directly, it was answered in a single exchange, and its answer required no
+information the user had not had for 41 sprints.
+
+**Why a trigger condition is not enough, and this is the load-bearing
+point.** ADR-0015 already carried one: *"the sprint immediately following
+the user's answer to D1 must implement that answer."* That trigger is
+conditioned on an event **no ceremony can cause**. A rule that fires on the
+answer arriving cannot make the answer arrive. Every escalation from here on
+must therefore record, alongside its trigger, **how and when the question
+reaches the person who can answer it** — and that mechanism is this
+ceremony.
+
+**What this does not mean.** Raising a question is not answering it, and a
+ceremony must still never guess on the user's behalf. An escalation that is
+raised and still unanswered is handled by the 0-ticket cap below, not by
+inventing a disposition for it.
+
+### The 0-ticket sprint cap — two consecutive, then stop
+
+Adopted at T55 from `docs/process/t54-retro.md` recommendation 2.
+
+**The rule.** **A third consecutive 0-ticket sprint is not held.** When two
+consecutive sprints have taken zero tickets and the backlog is still
+blocked, the correct response is to escalate to the user (per the section
+above) and **stop running ceremonies until something is answered** — not to
+open a third planning document that can only conclude what the previous two
+concluded.
+
+**Why.** T30 through T53 were **24 consecutive 0-ticket sprints** — 32 by
+this project's total count — during which the backlog produced nothing
+because D1 and D2 blocked all of it, and roughly fifty ceremony documents
+were written. The last application code to merge before T55 was T29.2, on
+2026-08-17.
+
+Every one of those ceremonies did what this document told it to do, and did
+it honestly: none manufactured a ticket against a blocked issue, none
+guessed at a product decision, and the bookkeeping was accurate throughout.
+That is exactly why a cap is needed rather than better judgement — **the
+judgement was already correct.** Holding a ceremony whose conclusion is
+knowable in advance consumes real effort to confirm what the previous one
+confirmed.
+
+**Why T21's reopening conditions did not catch it.** T21's retro defined
+two: the blocker profile changing, and the backlog running dry. Both are
+keyed on **change** — and this situation's defining property was that
+**nothing changed, for 41 sprints**. Every ceremony correctly evaluated both
+conditions, correctly found neither had fired, and correctly recorded
+another 0-ticket sprint. A condition that detects movement cannot detect
+being stuck. This cap counts sprints instead, because that is the quantity
+that was actually growing.
+
+**Scope.** The cap governs the *ceremonies*, not the project: work continues
+on anything unblocked, and a sprint that takes even one ticket resets the
+count.
+
+### Counters carry a threshold and an action, or they are dropped
+
+Adopted at T55 from `docs/process/t54-retro.md` recommendation 3.
+
+**The rule.** Every counter this project maintains must record, next to it,
+**the value at which something happens and what that something is.** A
+counter with no threshold is bookkeeping, not instrumentation, and must be
+dropped rather than carried.
+
+**Why.** D1's consecutive-sprint-silence counter reached **forty-one**, and
+the post-T29 backlog-composition counter reached **fifty**. Both were
+maintained accurately, incremented honestly, and re-verified every ceremony.
+Neither was attached to anything that could act on the number. They were not
+a warning system; they were a meticulous record of one going unheeded — the
+clearest possible evidence that a number nobody is empowered to act on is
+not monitoring.
+
+**Applied retroactively.** Both counters named above are **retired**: D1 is
+answered, and the backlog composition they tracked changed at T55 for the
+first time since T29. A counter whose subject is resolved has nothing left
+to count, and carrying it would be the same defect in a new form.
+
+**The counter this section creates** — consecutive 0-ticket sprints — is
+compliant by construction: its threshold is two and its action is the
+section above.
+
 ### Board of record — split by lifetime
 
 Resolved at T12's Ceremony 1 (`docs/process/t12-sprint-plan.md` §A7),
@@ -164,6 +272,50 @@ tickets that do — a cross-sprint follow-up filed as an issue in an earlier
 sprint and resolved now — the merging party (or a follow-up chore ticket)
 must close it explicitly after merge. See the Execution section's DoD step 5
 for exactly how.
+
+#### "Blocked" is two different states — `HANDOFF.md` tracks them apart
+
+Adopted at T55 from `docs/process/t54-retro.md` recommendation 4.
+
+**The rule.** `HANDOFF.md` records every blocked item under one of two
+headings, and a ceremony that lists blockers states which:
+
+- **Answerable now** — blocked on nothing but someone's attention. These are
+  what the escalation rule in Ceremony 1 acts on, every sprint, until
+  answered.
+- **Indefinitely blocked** — blocked on something the project cannot
+  produce or may not be entitled to decide: hardware this environment does
+  not have, a fact only a real external system can supply, or a judgement
+  with a legal or ethical dimension that is not the team's to make.
+
+**Why the distinction is load-bearing rather than tidy.** ADR-0015 went out
+of its way to warn about exactly this, under a heading that reads *"read
+this before filing D1 in the same drawer"*: D1 is *"an ordinary product
+decision ... waiting on nothing but the Product Owner's attention"*, whereas
+ADR-0012's Q1 and Q2 carry a legal/ethical dimension and are blocked
+**indefinitely** — Q2 turns on whether this platform should collect and
+algorithmically act on a protected attribute. The ADR drew the distinction
+because both escalations otherwise read identically, and it was right to.
+
+**It was drawn, published, and then effectively ignored** — D1 sat in the
+same undifferentiated "blocked" bucket for 41 sprints anyway. A warning in
+the body of one ADR is not a mechanism; a heading in the document every
+ceremony reads is. That is the whole of this rule.
+
+**Worked example, the state at T55:**
+
+| Item | State | Why |
+|---|---|---|
+| #124, #126, #130 | Answerable now | Needed Product Owner input; put to the user at T55 and answered the same day |
+| #149 | Answerable now (partly) | Its D1 half is unblocked; the Game-Admin/Competition-Admin durable store is ordinary unbuilt work, not a blocker |
+| #134 | Indefinitely blocked | Needs real assistive-technology hardware this environment does not have |
+| #145 | Indefinitely blocked | Needs a real, non-uuid IdP `sub` claim this environment cannot produce |
+| ADR-0012 Q1/Q2 | Indefinitely blocked | Legal/ethical dimension; may never be this project's to answer |
+
+The three in the first row had been "blocked" for the same reason D1 was:
+**nobody had asked.** They were answered within one exchange of being put to
+the user. That is the pattern this split exists to make visible before it
+costs another 24 sprints.
 
 ### The dependency-completeness check
 
@@ -787,6 +939,30 @@ removing ceremony **executes a plan rather than re-making a judgement**.
 Adding a row here is the price of adopting a temporary practice: if a
 ceremony cannot state the condition under which a new question goes away, it
 is proposing a permanent one and should say so.
+
+**T55's four practices are permanent, and this section is where that is
+said** — per the sentence immediately above, which requires a ceremony
+adopting a practice with no expiry condition to declare it rather than leave
+it ambiguous. The four adopted from `docs/process/t54-retro.md`
+(the escalation-delivery rule, the 0-ticket cap, the counter-threshold rule,
+and the answerable-now/indefinitely-blocked split) get **no row in this
+table**, deliberately.
+
+The reasoning is the one this section already encodes, applied in the
+opposite direction. A stopgap earns an expiry because a mechanical gate is
+coming to replace it — the dual coverage question went away because
+`make gate-coverage` computes the same answer at run time. **Nothing
+mechanical can replace these four**, because none of them is a question
+about the code: they are about whether a question reaches a human, and how
+long the project is willing to wait in the meantime. There is no gate that
+notices nobody has asked the Product Owner anything.
+
+They are also cheap in the way a stopgap is not. Three of the four cost a
+ceremony one list and one comparison; the fourth is a heading in a file that
+is read every sprint anyway. The failure mode this section exists to prevent
+— two shapes of one fix, carried forever because nobody wrote down that the
+first was temporary — does not apply to a practice that has no second
+shape.
 
 **Removed rows stay in this table as history; they are not deleted.** The
 table's value is that a reader can see a temporary practice was actually
