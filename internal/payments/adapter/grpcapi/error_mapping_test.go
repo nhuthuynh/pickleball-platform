@@ -238,15 +238,22 @@ func errorMappingCases() []errorMappingCase {
 			},
 		},
 		{
-			name:     "payable type out of scope for refund",
+			name:     "unrecognised payable type for refund",
 			sentinel: "ErrInvalidPayableType",
 			wantCode: codes.InvalidArgument,
-			why: "no_show_fee (issue #130) is the one remaining out-of-scope payable type for RefundPayment " +
-				"as of T16.4 — competition_entry moved into scope (closes the corrected #125), so this row now " +
-				"exercises no_show_fee instead, mirroring refund_test.go's own OutOfScopePayableTypesRejected move",
+			why: "every RECOGNISED payable type is in scope for RefundPayment as of T55.4, which admitted the " +
+				"last one, no_show_fee (closes #130) — competition_entry having moved in at T16.4 (closes the " +
+				"corrected #125). This row therefore exercises an unrecognised type instead of cycling through " +
+				"whichever recognised one happened to be excluded that sprint, which is what it did twice before " +
+				"and what made it need rewriting each time. In this form it survives the next payable type being " +
+				"admitted, and it pins the property that actually matters: the refund gate is a whitelist, so a " +
+				"type nobody has reviewed cannot become refundable",
 			invoke: func(t *testing.T) error {
 				h, repo, proc := newMappingHandler()
-				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableTypeNoShowFee, fixtureRegistrationID)
+				// Written straight into the repository: domain.NewPayment
+				// would reject this type, which is the point — the gate
+				// under test is RefundPayment's, not the constructor's.
+				seedPaidOnline(t, repo, proc, mapPaymentID, domain.PayableType("season_pass"), fixtureRegistrationID)
 				_, err := h.RefundPayment(ctxAs(refundGameHostID), &paymentsv1.RefundPaymentRequest{
 					PaymentId:  mapPaymentID,
 					GameHostId: refundGameHostID,

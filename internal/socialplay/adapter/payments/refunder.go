@@ -43,7 +43,13 @@ func NewRefunder(paymentsSvc *paymentsapp.Service) *Refunder {
 // it also targets a Registration's Game. A no-show fee is a separate charge
 // from the Registration's own seat, and cancelling a Game does not obviously
 // mean forgiving the fees of players who failed to turn up to earlier ones.
-// Whether it should is issue #130's question, not this ticket's.
+//
+// Note this is NOT the same question as #130, which asked whether a no-show
+// fee is refundable at all and was answered yes (T55.4 — a Game Admin who
+// charged one in error can now reverse it deliberately). What stays
+// unanswered is whether a Game CANCELLATION should forgive them
+// automatically, which nobody has asked for and which this adapter
+// therefore does not assume.
 func (r *Refunder) RefundForRegistration(ctx context.Context, registrationID, actorUserID string) (bool, error) {
 	refunded, err := r.paymentsSvc.RefundForPayable(ctx, paymentsapp.RefundForPayableInput{
 		PayableType: paymentsdomain.PayableTypeRegistration,
