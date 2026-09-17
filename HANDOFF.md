@@ -77,6 +77,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T52 | `docs/process/t52-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T51 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T51's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the thirty-first 0-ticket sprint in this project's history by total count and the twenty-third sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52) since T28 broke the T20–T27 streak) | `docs/process/t52-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T51 row correction, landed by T52's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-seven and confirmed D1's silence counter at thirty-nine (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T52 row/narrative, per the now-settled convention, leaving it for T53's Ceremony 1; 7 recommendations for T53) | PR #286 (Ceremony 1/2 doc) → PR #287 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:21:49Z` → `11:26:33Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T53 | `docs/process/t53-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T52 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T52's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the thirty-second 0-ticket sprint in this project's history by total count and the twenty-fourth sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T53) since T28 broke the T20–T27 streak) | `docs/process/t53-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T52 row correction, landed by T53's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-nine and confirmed D1's silence counter at forty (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T53 row/narrative, per the now-settled convention, leaving it for T54's Ceremony 1; 7 recommendations for T54) | PR #288 (Ceremony 1/2 doc) → PR #289 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:32:31Z` → `11:37:45Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T54 | `docs/process/t54-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T53 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep) | not yet written | not yet opened | — | — |
+| T55 | **No sprint-plan document — deliberately.** T55 held no planning ceremony: it resumed an interrupted T54 session and its first act was to put the two standing escalations (D1, D2) to the user rather than open a third consecutive 0-ticket plan. That is now the behaviour `sprint-process.md`'s escalation rule requires of every Ceremony 1, adopted this sprint from T54's retro | not yet written | PR #291 (T55.1, `442bc68`) → #292 (T55.2+T55.3, `797e6b3`) → #293 (T55.4, `9e039ab`) → #294 (process, `725ac72`), in that merge order — **verified by merging in that sequence**, not inferred from numbering. #292 and #293 were each rebased onto the shared branch before merge, because each was stacked on its predecessor's pre-squash branch. All four reviewed via GitHub PR reviews (PE + QA passes), each disclosing that the reviewing session also authored the code and that the Docker-backed integration tests were never executed | `adr/0015` and `adr/0016` both moved **Escalated → Accepted** — D1 = option (a) authenticate the flow; D2 = option (b) the bounded carve-out, verbatim and unrelaxed. Neither is a new ADR; both are resolutions of existing ones, with their original questions and option tables preserved | `docs/process/t54-retro.md` recommendations 1–4 applied to `docs/process/sprint-process.md`; `CLAUDE.md` rule 9 gains D2's five-condition reviewer-authorship carve-out |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -3773,37 +3774,104 @@ Ceremony 1 item 3 requires the retro's own agreed sentence):
 > candidate — shortening the ceremony documents — was considered and
 > deliberately rejected as fixing the wrong thing.
 
-**T55 — DECISIONS D1 and D2 answered; T55.1 implements D1 and closes #144.**
+**T55 — the sprint that ended the T30–T53 0-ticket run. Five decisions
+answered, four tickets built and merged, three issues closed.**
 
-- **D1 (ADR-0015) → option (a), "authenticate the flow."** Implemented in
-  T55.1. See ADR-0015's `## Resolution` section for the full change list.
+T55 held no planning ceremony. It resumed an interrupted T54 session and its
+first act was to put the two standing escalations to the user rather than
+open a third consecutive 0-ticket plan — which is the behaviour
+`sprint-process.md`'s new escalation rule now *requires* of every Ceremony 1.
+
+**Decisions answered (2026-09-04).** The first answers either escalation had
+received since T14/T15 respectively, and all five were given within a single
+exchange of being asked:
+
+- **D1 (ADR-0015) → option (a), "authenticate the flow."** See ADR-0015's
+  `## Resolution` for the change list and the accepted cost.
 - **D2 (ADR-0016) → option (b), "a bounded carve-out," verbatim and
-  unrelaxed.** The five-condition text is now appended to `CLAUDE.md`
-  rule 9. Note the consequence ADR-0016 itself records: (b) as specified
-  does **not** retroactively bless #179, which fails condition 3.
-- **Open issues: 7 → 7.** An earlier draft of this entry said "7 → 6, #144
-  closed". That was overstated, and is corrected here rather than carried:
-  T55.1 **resolves** #144, but nothing closes until its PR merges — on this
-  project always a manual step, since `Closes #N` cannot auto-fire against a
-  non-default base branch. **#144 is resolved pending merge.** Still open
-  and untouched by T55.1: #124, #126, #130 (Product Owner input), #134
-  (needs real assistive-technology hardware), #145 (needs a real non-uuid
-  IdP `sub` claim), #149 (needs the Game-Admin/Competition-Admin durable
-  store; its D1 half is now unblocked).
+  unrelaxed.** Its five-condition text is appended to `CLAUDE.md` rule 9.
+  Note the consequence ADR-0016 itself records: (b) as specified does **not**
+  retroactively bless #179, which fails condition 3.
+- **#124's two product questions** → courts freed automatically on
+  cancellation; paid registrations refunded automatically on host-initiated
+  cancellation.
+- **#126's pricing question** → per head, including guests. *Answered but
+  not yet built* — see below.
+- **#130's projection question** → a no-show-fee refund projects **nothing**.
+
+D1 had been unanswered for **41 sprints**. That is the finding
+`docs/process/t54-retro.md` exists to record, and recommendations 1–4 in
+`sprint-process.md` are the mechanism adopted so it cannot recur.
+
+**Tickets, all merged:**
+
+| Ticket | What | PR | Merged as | Closed |
+|---|---|---|---|---|
+| **T55.1** | `domain.Booking` gains a required `OwnerUserID`; migration 0027; `CreateBooking`/`CancelBooking` become authenticated | #291 | `442bc68` | #144 |
+| **T55.2** | Cancelling a Game or Competition releases the courts it held | #292 | `797e6b3` | #124 (court half) |
+| **T55.3** | Cancelling a Game or Competition refunds who paid | #292 | `797e6b3` | #124 (refund half) |
+| **T55.4** | `RefundPayment` admits `no_show_fee`, projecting nothing | #293 | `9e039ab` | #130 |
+| (process) | T54 retro recommendations 1–4 → `sprint-process.md` | #294 | `725ac72` | — |
+
+Merge order was #291 → #292 → #293 → #294, verified by merging them in that
+sequence rather than inferred from numbering. #292 and #293 were rebased onto
+the shared branch before merge, because each had been stacked on the
+*pre-squash* branch of its predecessor.
+
+**Issue count: 7 → 5.** Closed: **#144, #124, #130** — all three closed
+manually, since `Closes #N` structurally cannot auto-fire on this project
+(every PR merges into `claude/go-backend-pickleball-7up34j`, not the default
+branch). Opened: **#296**, from T55.1's merge review. #144 is the first issue
+closed since T29.
+
+**A gap that merging did NOT close, recorded because a reader of this file is
+exactly who needs it.** The Docker-backed integration tests were updated by
+T55.1–T55.3 and **compile** under `-tags=integration`, but were **never
+executed** — no Docker daemon in the authoring environment, re-checked at
+merge time. That includes the 20-way concurrency proof of the
+no-double-booking `EXCLUDE` invariant, which T55.1 altered (new FK, seeded
+`identity_users` owner) and T55.2 added a new write path against
+(`CancelBookingsForReference`). Per CLAUDE.md rule 10, **nothing in T55
+describes that invariant as re-proven**, and the merge reviews say so
+explicitly. `make ci-integration` on a Docker-capable machine is still owed
+and should be run before anything depends on that invariant holding.
 
 **T55 backlog — carried from T54's retro recommendations:**
 
-1. **Put #124, #126 and #130 to the user as explicit questions, in
-   ADR-0015's format** (recommendation 5). These are the three remaining
-   Product-Owner-blocked issues and they have been "blocked" without being
-   *asked* for the same reason D1 was.
-2. **Adopt recommendations 1–4 into `sprint-process.md`**: escalations must
-   name a delivery mechanism, not just a trigger; consecutive 0-ticket
-   sprints cap at two; counters carry thresholds and actions or are
-   dropped; `HANDOFF.md` tracks answerable-now blockers separately from
-   indefinitely-blocked ones.
-3. **Client follow-up for D1** — see the Cross-cutting entry below.
+1. ~~Put #124, #126 and #130 to the user as explicit questions
+   (recommendation 5).~~ **DONE** — all three asked in ADR-0015's format and
+   answered the same day; decisions and rejected alternatives recorded as
+   comments on each issue.
+2. ~~Adopt recommendations 1–4 into `sprint-process.md`.~~ **DONE**, merged
+   as `725ac72`.
+3. **Client follow-up for D1** — still open; see the Cross-cutting entry
+   below.
+
 Retro not yet written.
+
+### Open issues, split by whether anyone can act (per `sprint-process.md`)
+
+Recommendation 4 of `docs/process/t54-retro.md`, applied here because this
+file is where it was asked for. **Five open**, verified live at the time of
+writing rather than carried from an earlier count.
+
+**Answerable now** — blocked on nothing but attention or ordinary unbuilt
+work:
+
+| Issue | State |
+|---|---|
+| #126 | Question **answered** (per head, including guests); not yet built. The largest remaining item: domain field, migration, proto and UI, plus a decision on what happens when `GuestCount` changes after payment. |
+| #149 | Its D1 half is unblocked by T55.1. What remains is the Game-Admin/Competition-Admin durable store — ordinary unbuilt work, not a blocker. |
+| #296 | New, from T55.1's merge review: `OwnerUserID` has no `uuidShape` guard, so a malformed owner would panic `mustUUID` rather than returning a domain error. Unreachable today — every supplier is structurally a uuid — but it is the same shape as #97/T10.7. |
+
+**Indefinitely blocked** — blocked on something this project cannot produce
+or may not be entitled to decide:
+
+| Issue | Why |
+|---|---|
+| #134 | Needs real assistive-technology hardware this environment does not have. |
+| #145 | Needs a real, non-uuid IdP `sub` claim this environment cannot produce. |
+| ADR-0012 Q1/Q2 | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute. May never be this project's to answer. ADR-0015 warned explicitly against filing D1 alongside these; that warning was right, and this split exists so it is structural rather than prose. |
 
 ## Cross-cutting / later
 - **The Vue booking client needs a sign-in step before its confirm call
