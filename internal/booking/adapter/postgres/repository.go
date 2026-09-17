@@ -131,6 +131,24 @@ func (r *Repository) ListActiveForCourt(ctx context.Context, courtID string, rng
 	return out, nil
 }
 
+// ListActiveForReference implements port.Repository for the #124
+// cancellation cascade. The empty-reference guard lives in the SQL (see
+// db/queries/booking.sql) as well as in the app layer — reference_id is a
+// nullable text column, and an unguarded equality against "" would select
+// every plain individual booking in the table.
+func (r *Repository) ListActiveForReference(ctx context.Context, referenceID string) ([]domain.Booking, error) {
+	rows, err := r.q.ListActiveForReference(ctx, toText(referenceID))
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make([]domain.Booking, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID, row.OwnerUserID))
+	}
+	return out, nil
+}
+
 func (r *Repository) GetByID(ctx context.Context, id string) (domain.Booking, error) {
 	row, err := r.q.GetBookingByID(ctx, mustUUID(id))
 	if err != nil {

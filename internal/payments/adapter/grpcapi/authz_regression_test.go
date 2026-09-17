@@ -472,3 +472,10 @@ func TestRecordOfflinePayment_RejectionNotConflatedWithOtherErrors(t *testing.T)
 		t.Fatalf("status code = %v, want InvalidArgument", st.Code())
 	}
 }
+
+// GetByPayable implements port.Repository for T55.3's #124 refund cascade.
+// This fake reaches no cascade path, so it answers "no payment" rather than
+// pretending to hold one.
+func (r *fakeRepository) GetByPayable(context.Context, domain.PayableType, string) (domain.Payment, error) {
+	return domain.Payment{}, domain.ErrPaymentNotFound
+}

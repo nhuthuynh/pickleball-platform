@@ -258,3 +258,19 @@ func TestCreateBooking_InvalidSourceRejectedBeforeTouchingRepo(t *testing.T) {
 		t.Fatalf("invalid booking must not be persisted, repo has %d entries", len(repo.bookings))
 	}
 }
+
+// ListActiveForReference implements port.Repository for T55.2's #124
+// cascade. Real here, not a stub: this fake holds actual bookings, so a
+// stub would make the cascade untestable through it.
+func (r *inMemoryRepo) ListActiveForReference(_ context.Context, referenceID string) ([]domain.Booking, error) {
+	if referenceID == "" {
+		return nil, nil
+	}
+	var out []domain.Booking
+	for _, b := range r.bookings {
+		if b.ReferenceID == referenceID && b.Status != domain.StatusCancelled {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}

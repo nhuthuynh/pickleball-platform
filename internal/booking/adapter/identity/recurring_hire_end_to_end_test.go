@@ -296,3 +296,10 @@ func TestResolveActorUserID_UnregisteredSubjectIsUserNotFound(t *testing.T) {
 		t.Fatalf("createCalls = %d, want 0", recurringRepo.createCalls)
 	}
 }
+
+// ListActiveForReference implements port.Repository for T55.2's #124
+// cascade. This fake reaches no cascade path, so it fails closed rather
+// than returning a plausible empty result that could hide a wiring mistake.
+func (unusedBookingRepository) ListActiveForReference(context.Context, string) ([]bookingdomain.Booking, error) {
+	panic("ListActiveForReference: not expected in this test")
+}

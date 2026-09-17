@@ -114,7 +114,7 @@ func newPrincipalTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrati
 		Matches:       newFakeMatchRepo(),
 		GameAdmins:    newFakeGameAdminRepo(),
 	})
-	return grpcapi.NewHandler(svc, &fakeReservation{}, nil), gameRepo, regRepo
+	return grpcapi.NewHandler(svc, &fakeReservation{}, nil, noopRefunder{}), gameRepo, regRepo
 }
 
 // principalGameReq is createGameReq with a caller-chosen capacity. host_id is

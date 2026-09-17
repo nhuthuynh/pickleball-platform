@@ -898,3 +898,19 @@ func TestApproveRecurringHire_OpenEndedTemplateIsBoundedByTheHorizon(t *testing.
 		t.Errorf("last occurrence = %s, want 2027-01-04T09:00Z — the last Monday inside the horizon", last)
 	}
 }
+
+// ListActiveForReference implements port.Repository for T55.2's #124
+// cascade. Real here, not a stub: this fake holds actual bookings, so a
+// stub would make the cascade untestable through it.
+func (r *storingBookingRepo) ListActiveForReference(_ context.Context, referenceID string) ([]domain.Booking, error) {
+	if referenceID == "" {
+		return nil, nil
+	}
+	var out []domain.Booking
+	for _, b := range r.bookings {
+		if b.ReferenceID == referenceID && b.Status != domain.StatusCancelled {
+			out = append(out, b)
+		}
+	}
+	return out, nil
+}

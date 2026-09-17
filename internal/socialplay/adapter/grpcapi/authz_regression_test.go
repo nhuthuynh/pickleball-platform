@@ -283,7 +283,10 @@ func newTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 		Matches:       newFakeMatchRepo(),
 		GameAdmins:    newFakeGameAdminRepo(),
 	})
-	return grpcapi.NewHandler(svc, nil, nil), gameRepo, regRepo
+	// The CourtReservation is no longer nil-able: CancelGame passes it to
+	// the T55.2 court-release cascade (#124), so a nil here panics. The
+	// facilities lookup stays nil — no RPC in this file reaches it.
+	return grpcapi.NewHandler(svc, noopReservation{}, nil, noopRefunder{}), gameRepo, regRepo
 }
 
 // seedGameUUID deterministically maps a human-readable fixture label (e.g.
@@ -676,4 +679,31 @@ func TestCancelGame_ErrorMapping(t *testing.T) {
 			t.Fatalf("status code = %v, want FailedPrecondition", st.Code())
 		}
 	})
+}
+
+// noopReservation satisfies port.CourtReservation for the authorization
+// tests in this file, which are about who may call what — not about courts.
+// The cascade's real behaviour is proven in
+// internal/socialplay/app/cancel_game_courts_test.go against a real
+// Reservation over an in-memory booking repository.
+type noopReservation struct{}
+
+func (noopReservation) ReserveCourt(context.Context, string, time.Time, time.Time, string, string) (string, error) {
+	return "", nil
+}
+
+func (noopReservation) ReleaseCourt(context.Context, string, string) error { return nil }
+
+func (noopReservation) ReleaseCourtsForReference(context.Context, string, string) (int, error) {
+	return 0, nil
+}
+
+// noopRefunder satisfies port.PaymentRefunder for this file's authorization
+// tests, which are about who may call what — not about money. The refund
+// cascade's real behaviour is proven in
+// internal/socialplay/app/cancel_game_refunds_test.go.
+type noopRefunder struct{}
+
+func (noopRefunder) RefundForRegistration(context.Context, string, string) (bool, error) {
+	return false, nil
 }

@@ -195,7 +195,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeRepo, *shapeBookingRepo) 
 		ShareTokens:  &fakeShareTokens{},
 		Identity:     newFakeIdentityLookup(),
 	})
-	return grpcapi.NewHandler(svc), repo, bookingRepo
+	return grpcapi.NewHandler(svc, noopEntryRefunder{}), repo, bookingRepo
 }
 
 func shapeCreateCompetitionReq(sessions ...*competitionsv1.CompetitionSession) *competitionsv1.CreateCompetitionRequest {
@@ -280,4 +280,11 @@ func TestCreateCompetition_WellFormedCourtIDsStillReserveThroughRealBooking(t *t
 // helper in internal/socialplay/adapter/grpcapi.
 func courtID(n int) string {
 	return fmt.Sprintf("00000000-0000-4000-c000-%012d", n)
+}
+
+// ListActiveForReference implements port.Repository for T55.2's #124
+// cascade. This fake reaches no cascade path, so it fails closed rather
+// than returning a plausible empty result that could hide a wiring mistake.
+func (r *shapeBookingRepo) ListActiveForReference(context.Context, string) ([]bookingdomain.Booking, error) {
+	panic("ListActiveForReference: not expected in this test")
 }

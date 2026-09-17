@@ -288,7 +288,7 @@ func TestCancelCompetition_MalformedIDIsNotFoundAndNeverReachesTheAdapter(t *tes
 			// actorUserID is irrelevant here: the guard must short-circuit
 			// before EnsureHost is even reached, since GetByID runs first in
 			// the unguarded code path too.
-			_, err := svc.CancelCompetition(context.Background(), tc.id, "host-1")
+			_, err := svc.CancelCompetition(context.Background(), tc.id, "host-1", &fakeEntryRefunder{})
 
 			if !errors.Is(err, domain.ErrCompetitionNotFound) {
 				t.Fatalf("CancelCompetition(%q) error = %v, want %v", tc.id, err, domain.ErrCompetitionNotFound)
@@ -331,7 +331,7 @@ func TestEnterCompetitionAndCancelCompetition_WellFormedUnknownIDsStillReachTheA
 		repo := &mustUUIDRepo{}
 		svc := newGuardedService(repo)
 
-		_, err := svc.CancelCompetition(context.Background(), unknown, "host-1")
+		_, err := svc.CancelCompetition(context.Background(), unknown, "host-1", &fakeEntryRefunder{})
 		if !errors.Is(err, domain.ErrCompetitionNotFound) {
 			t.Fatalf("CancelCompetition(%q) error = %v, want %v", unknown, err, domain.ErrCompetitionNotFound)
 		}
