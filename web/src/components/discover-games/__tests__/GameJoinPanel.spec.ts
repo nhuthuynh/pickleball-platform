@@ -171,6 +171,12 @@ describe('GameJoinPanel', () => {
               status: 'REGISTRATION_STATUS_REGISTERED',
               paymentStatus: 'PAYMENT_STATUS_UNPAID',
               guestCount: 0,
+              // T56.1 (#126): the frozen per-head figure the server now
+              // returns. guestCount 0 against this Game's $10.00 entry fee
+              // is one head, so 1000 — the same amount this suite has
+              // always asserted, now arriving as the Registration's own
+              // record rather than being re-derived from the Game.
+              amountOwed: { amountCents: '1000', currencyCode: 'USD' },
             },
           },
           error: undefined,
@@ -204,14 +210,27 @@ describe('GameJoinPanel', () => {
       expect(buttons).toEqual(['Pay online now'])
     })
 
-    it('clicking "Pay online now" emits payOnline with the confirmed registration id', async () => {
+    // T56.1 (#126) widened this event's payload from the Registration's id
+    // to the whole ConfirmedRegistration. The checkout needs the frozen
+    // AmountOwed and this is the only place that has it; re-deriving it
+    // downstream would produce the Game's price NOW, not the one just
+    // agreed, which T56.2 (#297) makes the server refuse.
+    it('clicking "Pay online now" emits payOnline with the confirmed registration', async () => {
       const { wrapper } = registerAndFlush({ paymentMethod: 'PAYMENT_METHOD_ONLINE' })
       await wrapper.find('.game-join__form').trigger('submit')
       await flushPromises()
 
       await wrapper.find('.game-join__payment-choice .game-join__primary').trigger('click')
 
-      expect(wrapper.emitted('payOnline')).toEqual([['reg-1']])
+      const emitted = wrapper.emitted('payOnline')
+      expect(emitted).toHaveLength(1)
+      expect(emitted![0]![0]).toMatchObject({
+        id: 'reg-1',
+        // The part that matters downstream: what is actually owed travels
+        // with the id, so the checkout never has to guess.
+        amountOwedCents: 1000,
+        amountOwedCurrency: 'USD',
+      })
     })
 
     it('an "either" Game offers both options; choosing cash switches to the pending text without any network call', async () => {

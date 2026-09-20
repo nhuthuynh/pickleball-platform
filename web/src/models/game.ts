@@ -101,6 +101,18 @@ export interface ConfirmedRegistration {
   status: string
   paymentStatus: string
   guestCount: number
+  /** What this Registration owes, FROZEN at registration time (T56.1,
+   * issue #126): the Game's per-player entry fee once per HEAD — the
+   * Player plus `guestCount` guests.
+   *
+   * Read off the wire, never recomputed here. Multiplying the Game's
+   * current `entryFeeCents` by `1 + guestCount` would give the price
+   * TODAY, not the one this Player agreed to, and the two differ the
+   * moment the Host edits the fee. As of T56.2 (issue #297) the server
+   * validates an online payment against this exact figure, so a derived
+   * number is not just imprecise — it is refused. */
+  amountOwedCents: number
+  amountOwedCurrency: string
 }
 
 export function mapToRegistration(raw: RawRegistration): ConfirmedRegistration {
@@ -111,6 +123,12 @@ export function mapToRegistration(raw: RawRegistration): ConfirmedRegistration {
     status: raw.status ?? 'REGISTRATION_STATUS_UNSPECIFIED',
     paymentStatus: raw.paymentStatus ?? 'PAYMENT_STATUS_UNSPECIFIED',
     guestCount: raw.guestCount ?? 0,
+    // A server that never populated amount_owed (pre-T56.1) reads as 0,
+    // the same value db/migrations/0028 backfilled onto existing rows —
+    // so an unaware server and a pre-T56.1 row agree, exactly as
+    // entry_fee's own absent-message handling does.
+    amountOwedCents: Number(raw.amountOwed?.amountCents ?? 0),
+    amountOwedCurrency: raw.amountOwed?.currencyCode ?? '',
   }
 }
 

@@ -31,7 +31,7 @@
 import { computed, ref } from 'vue'
 import { useJoinGame, MOCK_PLAYER_ID } from '../../composables/useJoinGame'
 import { entryFeeLabel } from '../../models/game'
-import type { GameSummary } from '../../models/game'
+import type { GameSummary, ConfirmedRegistration } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 
 const props = defineProps<{
@@ -55,7 +55,12 @@ const emit = defineEmits<{
   /** Emitted when the Player chooses to pay online now, carrying the
    * confirmed Registration's id (the Payment's payableId, T8.10). This
    * component never navigates itself — see the file header comment. */
-  payOnline: [registrationId: string]
+  /** T56.1 (#126): carries the whole ConfirmedRegistration, not just its
+   * id. The checkout needs the FROZEN amount this Registration owes, and
+   * this is the only place that has it — re-deriving it downstream from
+   * the Game's entry fee would produce today's price rather than the one
+   * just agreed, which T56.2 (#297) makes the server refuse. */
+  payOnline: [registration: ConfirmedRegistration]
 }>()
 
 const {
@@ -113,7 +118,7 @@ function onJoinWaitlist(): void {
 
 function onPayOnline(): void {
   if (confirmedRegistration.value) {
-    emit('payOnline', confirmedRegistration.value.id)
+    emit('payOnline', confirmedRegistration.value)
   }
 }
 

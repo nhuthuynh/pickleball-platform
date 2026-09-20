@@ -77,6 +77,34 @@ var (
 	// booking.ErrBookingNotFound.
 	ErrPaymentNotFound = errors.New("payments: payment not found")
 
+	// ErrPayableNotFound and ErrAmountMismatch implement issue #297's
+	// server-side amount check (T56.2).
+	//
+	// ErrPayableNotFound is what port.PayableAmountLookup answers when the
+	// payable id resolves to nothing. It is deliberately distinct from
+	// ErrPaymentNotFound above — that one is about a *Payment* this context
+	// owns; this one is about the *thing being paid for*, which lives in
+	// another context entirely, and collapsing them would make a
+	// cross-context resolution failure indistinguishable from a local miss.
+	//
+	// ErrAmountMismatch is the check itself failing: the caller offered an
+	// amount that is not what the payable owes. It maps to InvalidArgument
+	// — the request is malformed against a server-held fact, and the caller
+	// can fix it by sending the right number. Deliberately NOT
+	// PermissionDenied: the actor may well be entitled to pay, they simply
+	// offered the wrong amount, and answering PermissionDenied would send a
+	// legitimate payer to re-authenticate over an arithmetic problem.
+	//
+	// The mismatch error text deliberately does NOT name the expected
+	// amount. The expected figure is already visible to any caller entitled
+	// to see the payable (the client reads it to render the checkout), so
+	// withholding it buys no security — but echoing a server-held figure
+	// back inside an error string invites clients to parse errors for data
+	// instead of reading it from the payable, which is a coupling this
+	// codebase should not create.
+	ErrPayableNotFound = errors.New("payments: payable not found")
+	ErrAmountMismatch  = errors.New("payments: amount does not match what this payable owes")
+
 	// ErrWebhookSignatureInvalid is T18.1's sentinel for
 	// app.Service.HandleStripeWebhookEvent (closes #167): returned when
 	// port.WebhookVerifier.VerifySignature rejects the delivery. Mapped by

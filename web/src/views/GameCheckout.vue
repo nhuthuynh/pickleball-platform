@@ -49,36 +49,72 @@ const registrationId = computed(() => {
   return typeof raw === 'string' ? raw : ''
 })
 
+/** The FROZEN amount this Registration owes (T56.1, issue #126), carried
+ * here from the join flow — see DiscoverGames.vue's `onPayOnline`. `null`
+ * means the route did not supply one, which this view treats as "unknown",
+ * never as zero. */
+const amountOwedCents = computed<number | null>(() => {
+  const raw = route.query.amountOwedCents
+  if (typeof raw !== 'string' || raw === '') return null
+  const parsed = Number(raw)
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+})
+
+const amountOwedCurrency = computed(() => {
+  const raw = route.query.amountOwedCurrency
+  return typeof raw === 'string' && raw !== '' ? raw : DEFAULT_CURRENCY_CODE
+})
+
 const { games, search } = useGameList(props.client)
 const game = computed(() => games.value.find((g) => g.id === gameId.value) ?? null)
 
 const { step, payment, createError, confirming, confirmError, confirmedPayment, startCheckout, confirmPayment } =
   useGamePayment(props.paymentsClient)
 
-/** True once the Game has loaded and its entry fee is 0 — a free Game, so
- * there is nothing to pay and no Payment to create (T9.2). */
-const isFreeGame = computed(() => game.value !== null && game.value.entryFeeCents <= 0)
+/** Nothing is owed, so there is nothing to pay and no Payment to create —
+ * the Payments domain rightly rejects a zero-amount Payment (T9.2).
+ *
+ * T56.1: decided by the FROZEN owed amount rather than the Game's entry
+ * fee. For a free Game the two agree (zero times any number of heads is
+ * zero), so this is not a behaviour change there; it is the right
+ * question to ask now that "what is owed" and "what one player costs" are
+ * no longer the same number. */
+const isFreeGame = computed(() => amountOwedCents.value === 0)
 
-/** The Game loaded but wasn't found, so its real price is unknown. We
- * refuse to invent one — see the file header. */
+/** The Game loaded but wasn't found, so we can't show what it is. We
+ * refuse to invent it — see the file header. */
 const gameMissing = ref(false)
+
+/** T56.1/T56.2: the route carried no owed amount, so this view does not
+ * know what to charge.
+ *
+ * It deliberately does NOT fall back to the Game's entry fee. That
+ * fallback would be correct only for a player who brought nobody, and
+ * silently wrong for everyone else — and since T56.2 (#297) the server
+ * compares the amount against the Registration's own record, so "silently
+ * wrong" is now "refused with a message about nothing the player did".
+ * Saying we can't tell is the honest answer, and it mirrors what this view
+ * already does for a Game it couldn't load. */
+const amountUnknown = computed(() => registrationId.value !== '' && amountOwedCents.value === null)
 
 onMounted(async () => {
   await search()
   if (!registrationId.value) return
 
-  const loaded = game.value
-  if (!loaded) {
+  const owed = amountOwedCents.value
+  if (owed === null) return
+  if (owed <= 0) return
+
+  if (!game.value) {
+    // The amount is known, so checkout could technically proceed — but the
+    // review step (WCAG 3.3.4 Error Prevention) has nothing to review
+    // without the Game's time and court. Same refusal as before T56.1,
+    // for the same reason, now on a narrower trigger.
     gameMissing.value = true
     return
   }
-  if (loaded.entryFeeCents <= 0) return
 
-  void startCheckout(
-    registrationId.value,
-    loaded.entryFeeCents,
-    loaded.entryFeeCurrency || DEFAULT_CURRENCY_CODE,
-  )
+  void startCheckout(registrationId.value, owed, amountOwedCurrency.value)
 })
 </script>
 
@@ -98,20 +134,31 @@ onMounted(async () => {
         <p data-testid="free-game-notice">This game is free — there's nothing to pay. You're all set.</p>
       </div>
 
+      <!-- T56.1/T56.2: the owed amount never arrived. We say so rather
+           than charging a guessed figure the server would refuse. -->
+      <p
+        v-else-if="amountUnknown"
+        class="game-checkout__status game-checkout__status--error"
+        role="alert"
+      >
+        We can't tell what this registration owes, so we won't guess an amount. Go back to the Games list
+        and start your payment from the game you joined.
+      </p>
+
       <p
         v-else-if="gameMissing"
         class="game-checkout__status game-checkout__status--error"
         role="alert"
       >
-        We couldn't load this game, so we can't show you its price. Go back to the Games list and try again.
+        We couldn't load this game, so we can't show you its details. Go back to the Games list and try again.
       </p>
 
-      <p v-else-if="step === 'preparing' && !createError" class="game-checkout__status" role="status">
+      <p v-else-if="step === 'preparing' && !createError && !amountUnknown" class="game-checkout__status" role="status">
         Preparing checkout…
       </p>
 
       <p
-        v-if="createError && !isFreeGame && !gameMissing"
+        v-if="createError && !isFreeGame && !gameMissing && !amountUnknown"
         class="game-checkout__status game-checkout__status--error"
         role="alert"
       >
@@ -122,7 +169,7 @@ onMounted(async () => {
            CourtBookingFlow.vue already uses for CreateBooking): ConfirmOnlinePayment
            can never fire before this step is on screen — useGamePayment's
            own confirm-step gate enforces that regardless of this template. -->
-      <div v-if="!isFreeGame && !gameMissing && step === 'review' && payment" class="game-checkout__review">
+      <div v-if="!isFreeGame && !gameMissing && !amountUnknown && step === 'review' && payment" class="game-checkout__review">
         <h2 class="game-checkout__review-heading">Review your payment</h2>
         <dl class="game-checkout__summary">
           <div v-if="game" class="game-checkout__summary-row">
@@ -153,7 +200,7 @@ onMounted(async () => {
 
       <!-- SUCCESS: ARIA live region (WCAG 4.1.3) -->
       <div
-        v-else-if="!isFreeGame && !gameMissing && step === 'success' && confirmedPayment"
+        v-else-if="!isFreeGame && !gameMissing && !amountUnknown && step === 'success' && confirmedPayment"
         class="game-checkout__success"
         role="status"
         aria-live="polite"

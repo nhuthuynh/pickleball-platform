@@ -73,7 +73,31 @@ type Registration struct {
 	// capacity slot the same as the registering Player themself — see
 	// Register's doc comment for the weighted capacity rule this implies.
 	// Must be >= 0 and <= the owning Game's GuestAllowance.
+	//
+	// **GuestCount is set once, at Register, and has no mutation path.**
+	// There is no RPC to change it (only RegisterForGame and
+	// CancelRegistration exist) and nothing calls the repository's Update
+	// to alter it. That is load-bearing as of T56.1: AmountOwed below is
+	// frozen from this value, so a future ticket that adds a
+	// change-your-guests path MUST either recompute AmountOwed or refuse
+	// the change once a Payment exists — the Product Owner's 2026-09-04
+	// decision was "freeze, and lock guests once paid", and today the lock
+	// holds by construction rather than by a guard.
 	GuestCount int
+	// AmountOwed is what this Registration owes, frozen at registration
+	// time: the Game's per-player EntryFee once per head
+	// (see ExpectedAmount). T56.1, issue #126.
+	//
+	// **Frozen, not derived.** It is stored rather than recomputed from the
+	// Game on each read, so that a Host raising the EntryFee after a player
+	// registered does not retroactively change what that player agreed to
+	// pay. It is also what Payments validates a payment against (issue
+	// #297), which only means anything if the figure is the one actually
+	// agreed.
+	//
+	// A zero AmountOwed is a real value — a free Game — never a sentinel
+	// for "not priced yet"; see Money.IsFree.
+	AmountOwed Money
 }
 
 // Register builds a new Registration for playerID against game, enforcing
@@ -144,6 +168,10 @@ func Register(game Game, existing []Registration, playerID string, guestCount in
 		Status:        RegistrationStatusRegistered,
 		PaymentStatus: PaymentStatusUnpaid,
 		GuestCount:    guestCount,
+		// Frozen here, after the guest-allowance and capacity checks above
+		// have passed — an over-allowance registration is rejected rather
+		// than priced.
+		AmountOwed: ExpectedAmount(game, guestCount),
 	}, nil
 }
 

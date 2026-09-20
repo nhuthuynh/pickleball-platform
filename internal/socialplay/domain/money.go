@@ -85,3 +85,48 @@ func isValidCurrencyCode(code string) bool {
 	}
 	return true
 }
+
+// ExpectedAmount is what a Registration with guestCount guests owes for
+// game: the Host's per-player EntryFee, once per head.
+//
+// **One player is one head.** The party size is `1 + guestCount`, not
+// guestCount — the registering Player is themself a head, and forgetting
+// that is the single most likely way to get this wrong.
+//
+// # Why this is a function rather than inline arithmetic in Register
+//
+// Three callers need this number and they must not each own a copy
+// (CLAUDE.md rule 7, one definition per concept):
+//
+//   - Register, to freeze it onto the Registration (T56.1, issue #126);
+//   - Payments, to validate that a payment matches what is actually owed
+//     (issue #297) — reached through a read-side port, so Payments never
+//     imports this package;
+//   - the web client, to show the player what they will be charged.
+//
+// Before T56.1 there was no definition at all: the client sent the bare
+// EntryFee and nothing multiplied it, so a player bringing three guests
+// paid for one.
+//
+// # Currency
+//
+// The currency rides along unchanged from the Game's own EntryFee.
+// Multiplying an amount cannot change what currency it is in, and ADR-0005
+// requires the pair to stay coupled — a bare cents figure with no currency
+// must never exist in this domain. A free Game (EntryFee zero, currency
+// possibly empty) stays free and keeps its currency for any party size,
+// which is why the zero case needs no special branch.
+//
+// # Overflow
+//
+// Not guarded, deliberately. Cents is int64 and guestCount is bounded by
+// the Game's own GuestAllowance, which Register validates; reaching int64
+// overflow would need a fee and an allowance so large that every other
+// capacity rule in this package would have failed first. A guard here
+// would be defending against a state no reachable input can produce.
+func ExpectedAmount(game Game, guestCount int) Money {
+	return Money{
+		Cents:    game.EntryFee.Cents * int64(1+guestCount),
+		Currency: game.EntryFee.Currency,
+	}
+}

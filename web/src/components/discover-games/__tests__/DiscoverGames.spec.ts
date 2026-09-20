@@ -5,6 +5,8 @@ import DiscoverGames from '../DiscoverGames.vue'
 import type { SocialPlayClient } from '../../../api/socialplayClient'
 import type { IdentityClient } from '../../../api/identityClient'
 import type { FacilitiesClient } from '../../../api/facilitiesClient'
+import { createRouter, createMemoryHistory } from 'vue-router'
+import { routes } from '../../../router'
 
 /** Mirrors DiscoverFacilities.spec.ts's identical fixed-viewport-width
  * matchMedia stand-in. */
@@ -158,6 +160,57 @@ describe('DiscoverGames', () => {
 
     expect(wrapper.find('.game-detail').exists()).toBe(true)
     expect(wrapper.text()).toContain('Select a game')
+  })
+
+  // T56.1 (#126) — the checkout navigation carries the FROZEN owed amount,
+  // not just the Registration id.
+  //
+  // This seam had no test before this ticket, which is why it is worth one
+  // now: dropping a field from a router.push is invisible at compile time,
+  // and as of T56.2 (#297) a checkout that arrives without the amount
+  // cannot recover — it refuses to guess, by design, so a silent drop here
+  // shows up as a dead-end payment screen rather than a wrong charge.
+  it('carries the Registration and its frozen owed amount into the checkout route', async () => {
+    const client = fakeClient(async () => ({ data: { games: [GAME_LISTING] }, error: undefined }))
+    // The real router, with push spied on: the assertion is about the
+    // route object DiscoverGames builds, so faking the router's injection
+    // would be testing the fake.
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push('/games')
+    await router.isReady()
+    const push = vi.spyOn(router, 'push')
+
+    const wrapper = mount(DiscoverGames, {
+      props: {
+        client,
+        identityClient: fakeIdentityClient(),
+        facilitiesClient: fakeFacilitiesClient(),
+        win: matchMediaForWidth(1024),
+      },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+
+    await wrapper.find('.game-list__item').trigger('click')
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'GameDetailPanel' }).vm.$emit('payOnline', {
+      id: 'reg-1',
+      gameId: 'g1',
+      playerId: 'player-mock-1',
+      status: 'REGISTRATION_STATUS_REGISTERED',
+      paymentStatus: 'PAYMENT_STATUS_UNPAID',
+      guestCount: 2,
+      amountOwedCents: 3000,
+      amountOwedCurrency: 'USD',
+    })
+    await flushPromises()
+
+    expect(push).toHaveBeenCalledWith({
+      name: 'game-checkout',
+      params: { id: 'g1' },
+      query: { registrationId: 'reg-1', amountOwedCents: '3000', amountOwedCurrency: 'USD' },
+    })
   })
 
   it('exposes the resolved breakpoint on the root element for responsive styling', async () => {

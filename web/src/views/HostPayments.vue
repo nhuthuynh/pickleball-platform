@@ -80,7 +80,10 @@ onMounted(() => {
                UnpaidCashAmount.vue by T9.6 so the Competition roster
                surfaces the same obligation with the same affordance
                instead of duplicating this line. -->
-          <UnpaidCashAmount :amount-cents="entry.entryFeeCents" />
+          <!-- T56.1 (#126): the amount OWED (entry fee per head), which is
+               also exactly what "Mark paid" records — the two must not
+               differ, or the button's effect contradicts its label. -->
+          <UnpaidCashAmount :amount-cents="entry.amountOwedCents" />
         </div>
         <button
           type="button"

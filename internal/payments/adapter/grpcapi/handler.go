@@ -389,7 +389,15 @@ func toStatus(err error) error {
 		// user-enumeration oracle. Mirrors booking/facilities' identical
 		// mapping for their own ErrUserNotFound.
 		return status.Error(codes.PermissionDenied, err.Error())
-	case errors.Is(err, domain.ErrPaymentNotFound):
+	case errors.Is(err, domain.ErrPaymentNotFound),
+		// T56.2 (#297). NotFound, matching what this codebase answers
+		// everywhere for "the request names something that does not
+		// exist". No enumeration oracle is created: authorization runs
+		// BEFORE the amount check in CreateOnlinePayment, so a caller who
+		// cannot be authorized against the payable never reaches this
+		// answer — in practice it fires only on a race (the payable
+		// deleted between the authorization read and the amount read).
+		errors.Is(err, domain.ErrPayableNotFound):
 		return status.Error(codes.NotFound, err.Error())
 	case errors.Is(err, domain.ErrPaymentDeclined),
 		// A decline is a legitimate business outcome, not a client input
@@ -411,7 +419,14 @@ func toStatus(err error) error {
 	case errors.Is(err, domain.ErrEmptyPayableID),
 		errors.Is(err, domain.ErrInvalidPayableType),
 		errors.Is(err, domain.ErrInvalidAmount),
-		errors.Is(err, domain.ErrInvalidCurrency):
+		errors.Is(err, domain.ErrInvalidCurrency),
+		// T56.2 (#297). InvalidArgument, not PermissionDenied: the actor
+		// may well be entitled to pay, they simply offered the wrong
+		// number, and a legitimate payer must not be sent to
+		// re-authenticate over an arithmetic problem. Not
+		// FailedPrecondition either — the amount is wrong regardless of
+		// system state, which is exactly what reserves InvalidArgument.
+		errors.Is(err, domain.ErrAmountMismatch):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())
