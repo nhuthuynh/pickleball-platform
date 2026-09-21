@@ -67,7 +67,12 @@ const amountOwedCents = computed<number | null>(() => {
   const raw = route.query.amountOwedCents
   if (typeof raw !== 'string' || raw === '') return null
   const parsed = Number(raw)
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null
+  // Integer, not merely finite: this is a minor-units figure, and a
+  // fractional one would be serialised straight into an int64 wire field —
+  // the server would answer with a parse error about nothing the player
+  // did. Reached only via a hand-edited URL, so the aim is a clear refusal
+  // rather than a confusing one.
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null
 })
 
 const amountOwedCurrency = computed(() => {

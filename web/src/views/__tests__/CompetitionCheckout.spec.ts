@@ -288,3 +288,29 @@ describe('CompetitionCheckout — frozen per-head amount (T57.1/T57.2)', () => {
     expect(wrapper.get('[data-testid="free-competition-notice"]').text()).toContain('free')
   })
 })
+
+// A hand-edited URL carrying a fractional cents value is treated as
+// unknown, not sent. amountCents is an int64 on the wire, so a fraction
+// would come back as a parse error the entrant can make no sense of —
+// "we can't tell what this owes" is the honest answer, and it is the same
+// one a missing value gets. Mirrors GameCheckout.spec's identical case.
+describe('CompetitionCheckout — malformed owed amount', () => {
+  it('refuses a non-integer cents value rather than sending it', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push({
+      name: 'competition-checkout',
+      params: { id: 'c1' },
+      query: { entryId: 'entry-1', amountOwedCents: '25.5', amountOwedCurrency: 'USD' },
+    })
+    await router.isReady()
+    const wrapper = mount(CompetitionCheckout, {
+      props: { client: competitionsClientStub(), paymentsClient },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+
+    expect((paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+    expect(wrapper.find('[role="alert"]').text()).toContain("can't tell what this entry owes")
+  })
+})
