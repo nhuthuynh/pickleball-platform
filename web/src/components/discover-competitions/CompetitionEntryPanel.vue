@@ -38,7 +38,7 @@
 // "reuse, not fork" means here).
 import { computed, ref } from 'vue'
 import { useEnterCompetition, MOCK_PLAYER_ID } from '../../composables/useEnterCompetition'
-import { entryFeeLabel, type CompetitionSummary, type EntrySource } from '../../models/competition'
+import { entryFeeLabel, type CompetitionSummary, type ConfirmedEntry, type EntrySource } from '../../models/competition'
 import type { CompetitionsClient } from '../../api/competitionsClient'
 
 const props = defineProps<{
@@ -56,7 +56,12 @@ const emit = defineEmits<{
    * confirmed CompetitionEntry's id (the Payment's payableId, T10.6). This
    * component never navigates itself — mirrors GameJoinPanel.vue's
    * identical `payOnline` emit exactly, see the file header comment. */
-  payOnline: [entryId: string]
+  /** T57.1 (#126): carries the whole ConfirmedEntry, not just its id. The
+   * checkout needs the FROZEN amount this entry owes, and this is the only
+   * place that has it — re-deriving it downstream from the Competition's
+   * entry fee would produce today's price rather than the one just agreed,
+   * which T57.2 makes the server refuse. */
+  payOnline: [entry: ConfirmedEntry]
 }>()
 
 const {
@@ -116,7 +121,7 @@ function onEnter(): void {
 
 function onPayOnline(): void {
   if (confirmedEntry.value) {
-    emit('payOnline', confirmedEntry.value.id)
+    emit('payOnline', confirmedEntry.value)
   }
 }
 

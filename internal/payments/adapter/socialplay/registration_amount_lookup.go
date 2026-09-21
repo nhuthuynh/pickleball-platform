@@ -10,18 +10,18 @@ import (
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 )
 
-// PayableAmountLookup implements payments/port.PayableAmountLookup over
+// RegistrationAmountLookup implements payments/port.RegistrationAmountLookup over
 // Social Play's real app.Service (T56.2, issue #297).
 //
 // It is the read-in counterpart to RegistrationLookup in this same package,
 // with the same relationship: Payments depends on Social Play through a
 // port, implemented by an adapter living in the depending context's tree.
-type PayableAmountLookup struct {
+type RegistrationAmountLookup struct {
 	socialplaySvc *socialplayapp.Service
 }
 
-func NewPayableAmountLookup(socialplaySvc *socialplayapp.Service) *PayableAmountLookup {
-	return &PayableAmountLookup{socialplaySvc: socialplaySvc}
+func NewRegistrationAmountLookup(socialplaySvc *socialplayapp.Service) *RegistrationAmountLookup {
+	return &RegistrationAmountLookup{socialplaySvc: socialplaySvc}
 }
 
 // ExpectedAmountForRegistration returns what the Registration owes.
@@ -42,7 +42,7 @@ func NewPayableAmountLookup(socialplaySvc *socialplayapp.Service) *PayableAmount
 // ErrPayableNotFound: no Social Play error type crosses this boundary
 // (CLAUDE.md rule 5). Anything else is wrapped with %s rather than %w, so
 // no socialplaydomain sentinel leaks by accident either.
-func (l *PayableAmountLookup) ExpectedAmountForRegistration(ctx context.Context, registrationID string) (paymentsdomain.Money, error) {
+func (l *RegistrationAmountLookup) ExpectedAmountForRegistration(ctx context.Context, registrationID string) (paymentsdomain.Money, error) {
 	reg, err := l.socialplaySvc.GetRegistrationByID(ctx, registrationID)
 	if err != nil {
 		if errors.Is(err, socialplaydomain.ErrRegistrationNotFound) {

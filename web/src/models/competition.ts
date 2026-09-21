@@ -145,6 +145,18 @@ export interface CompetitionEntrySummary {
   source: string
   paymentStatus: string
   status: string
+  /** What this entry owes, FROZEN at entry time (T57.1, Competitions'
+   * half of issue #126): the Competition's per-entrant fee once per HEAD
+   * — the entrant plus `guestCount` guests.
+   *
+   * Read off the wire, never recomputed here. Multiplying the
+   * Competition's current `entryFeeCents` by `1 + guestCount` would give
+   * the price TODAY, not the one this entrant agreed to, and the two
+   * differ the moment the Host edits the fee. As of T57.2 the server
+   * validates an online payment against this exact figure, so a derived
+   * number is not just imprecise — it is refused. */
+  amountOwedCents: number
+  amountOwedCurrency: string
 }
 
 /** Alias of `CompetitionEntrySummary` — T9.7's name for the identical
@@ -160,6 +172,12 @@ export function mapToCompetitionEntry(raw: RawCompetitionEntry): CompetitionEntr
     source: raw.source ?? 'ENTRY_SOURCE_UNSPECIFIED',
     paymentStatus: raw.paymentStatus ?? 'PAYMENT_STATUS_UNSPECIFIED',
     status: raw.status ?? 'ENTRY_STATUS_UNSPECIFIED',
+    // A server that never populated amount_owed (pre-T57.1) reads as 0,
+    // the same value db/migrations/0029 backfilled onto existing rows —
+    // so an unaware server and a pre-T57.1 row agree, exactly as
+    // entry_fee's own absent-message handling does.
+    amountOwedCents: Number(raw.amountOwed?.amountCents ?? 0),
+    amountOwedCurrency: raw.amountOwed?.currencyCode ?? '',
   }
 }
 

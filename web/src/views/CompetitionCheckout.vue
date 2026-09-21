@@ -59,35 +59,80 @@ const entryId = computed(() => {
   return typeof raw === 'string' ? raw : ''
 })
 
+/** The FROZEN amount this entry owes (T57.1, issue #126), carried here
+ * from the enter flow — see DiscoverCompetitions.vue's and
+ * CompetitionLanding.vue's `onPayOnline`. `null` means the route did not
+ * supply one, which this view treats as "unknown", never as zero. */
+const amountOwedCents = computed<number | null>(() => {
+  const raw = route.query.amountOwedCents
+  if (typeof raw !== 'string' || raw === '') return null
+  const parsed = Number(raw)
+  // Integer, not merely finite: this is a minor-units figure, and a
+  // fractional one would be serialised straight into an int64 wire field —
+  // the server would answer with a parse error about nothing the player
+  // did. Reached only via a hand-edited URL, so the aim is a clear refusal
+  // rather than a confusing one.
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null
+})
+
+const amountOwedCurrency = computed(() => {
+  const raw = route.query.amountOwedCurrency
+  return typeof raw === 'string' && raw !== '' ? raw : DEFAULT_CURRENCY_CODE
+})
+
 const { competitions, search } = useCompetitionList(props.client)
 const competition = computed(() => competitions.value.find((c) => c.id === competitionId.value) ?? null)
 
 const { step, payment, createError, confirming, confirmError, confirmedPayment, startCheckout, confirmPayment } =
   useGamePayment(props.paymentsClient, 'PAYABLE_TYPE_COMPETITION_ENTRY')
 
-/** True once the Competition has loaded and its entry fee is 0 — a free
- * Competition, so there is nothing to pay and no Payment to create. */
-const isFreeCompetition = computed(() => competition.value !== null && competition.value.entryFeeCents <= 0)
+/** Nothing is owed, so there is nothing to pay and no Payment to create —
+ * the Payments domain rightly rejects a zero-amount Payment.
+ *
+ * T57.1: decided by the FROZEN owed amount rather than the Competition's
+ * entry fee. For a free Competition the two agree (zero times any number
+ * of heads is zero), so this is not a behaviour change there; it is the
+ * right question to ask now that "what is owed" and "what one entrant
+ * costs" are no longer the same number. */
+const isFreeCompetition = computed(() => amountOwedCents.value === 0)
 
-/** The Competition loaded but wasn't found, so its real price is unknown.
- * We refuse to invent one — mirrors GameCheckout.vue's identical rule. */
+/** The Competition loaded but wasn't found, so we can't show what it is.
+ * We refuse to invent it — mirrors GameCheckout.vue's identical rule. */
 const competitionMissing = ref(false)
+
+/** T57.1/T57.2: the route carried no owed amount, so this view does not
+ * know what to charge.
+ *
+ * It deliberately does NOT fall back to the Competition's entry fee. That
+ * fallback would be correct only for an entrant who brought nobody, and
+ * silently wrong for everyone else — and since T57.2 the server compares
+ * the amount against the entry's own record, so "silently wrong" is now
+ * "refused with a message about nothing the entrant did". Saying we can't
+ * tell is the honest answer, and it mirrors what this view already does
+ * for a Competition it couldn't load. */
+const amountUnknown = computed(() => entryId.value !== '' && amountOwedCents.value === null)
 
 onMounted(async () => {
   await search()
   if (!entryId.value) return
 
-  const loaded = competition.value
-  if (!loaded) {
+  const owed = amountOwedCents.value
+  if (owed === null) return
+  if (owed <= 0) return
+
+  if (!competition.value) {
+    // The amount is known, so checkout could technically proceed — but the
+    // review step (WCAG 3.3.4 Error Prevention) has nothing to review
+    // without the Competition's name and sessions. Same refusal as before
+    // T57.1, for the same reason, now on a narrower trigger.
     competitionMissing.value = true
     return
   }
-  if (loaded.entryFeeCents <= 0) return
 
   void startCheckout(
     entryId.value,
-    loaded.entryFeeCents,
-    loaded.entryFeeCurrency || DEFAULT_CURRENCY_CODE,
+    owed,
+    amountOwedCurrency.value,
     { actorUserId: MOCK_PLAYER_ID, entrantPlayerId: MOCK_PLAYER_ID },
   )
 })
@@ -109,20 +154,31 @@ onMounted(async () => {
         <p data-testid="free-competition-notice">This competition is free — there's nothing to pay. You're all set.</p>
       </div>
 
+      <!-- T57.1/T57.2: the owed amount never arrived. We say so rather
+           than charging a guessed figure the server would refuse. -->
+      <p
+        v-else-if="amountUnknown"
+        class="competition-checkout__status competition-checkout__status--error"
+        role="alert"
+      >
+        We can't tell what this entry owes, so we won't guess an amount. Go back to the Competitions list
+        and start your payment from the competition you entered.
+      </p>
+
       <p
         v-else-if="competitionMissing"
         class="competition-checkout__status competition-checkout__status--error"
         role="alert"
       >
-        We couldn't load this competition, so we can't show you its price. Go back to the Competitions list and try again.
+        We couldn't load this competition, so we can't show you its details. Go back to the Competitions list and try again.
       </p>
 
-      <p v-else-if="step === 'preparing' && !createError" class="competition-checkout__status" role="status">
+      <p v-else-if="step === 'preparing' && !createError && !amountUnknown" class="competition-checkout__status" role="status">
         Preparing checkout…
       </p>
 
       <p
-        v-if="createError && !isFreeCompetition && !competitionMissing"
+        v-if="createError && !isFreeCompetition && !competitionMissing && !amountUnknown"
         class="competition-checkout__status competition-checkout__status--error"
         role="alert"
       >
@@ -133,7 +189,7 @@ onMounted(async () => {
            GameCheckout.vue already uses): ConfirmOnlinePayment can never
            fire before this step is on screen — useGamePayment's own
            confirm-step gate enforces that regardless of this template. -->
-      <div v-if="!isFreeCompetition && !competitionMissing && step === 'review' && payment" class="competition-checkout__review">
+      <div v-if="!isFreeCompetition && !competitionMissing && !amountUnknown && step === 'review' && payment" class="competition-checkout__review">
         <h2 class="competition-checkout__review-heading">Review your payment</h2>
         <dl class="competition-checkout__summary">
           <div v-if="competition" class="competition-checkout__summary-row">
@@ -164,7 +220,7 @@ onMounted(async () => {
 
       <!-- SUCCESS: ARIA live region (WCAG 4.1.3) -->
       <div
-        v-else-if="!isFreeCompetition && !competitionMissing && step === 'success' && confirmedPayment"
+        v-else-if="!isFreeCompetition && !competitionMissing && !amountUnknown && step === 'success' && confirmedPayment"
         class="competition-checkout__success"
         role="status"
         aria-live="polite"

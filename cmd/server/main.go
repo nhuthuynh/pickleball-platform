@@ -342,7 +342,12 @@ func run(logger *slog.Logger) error {
 		// T56.2 (#297): lets CreateOnlinePayment check the caller's amount
 		// against what the payable actually owes. Built over the same real
 		// socialplaySvc every other Social Play read here uses.
-		PayableAmounts:          paymentssocialplay.NewPayableAmountLookup(socialplaySvc),
+		RegistrationAmounts: paymentssocialplay.NewRegistrationAmountLookup(socialplaySvc),
+		// T57.2: the Competitions half of the same check, over the same
+		// real competitionsSvc entryLookup above is built from. Both are
+		// wired here so neither payable type is left as the unvalidated
+		// one — that asymmetry is what T57 exists to remove.
+		EntryAmounts:            paymentscompetitions.NewEntryAmountLookup(competitionsSvc),
 		CompetitionEntryUpdater: competitionEntryUpdater,
 		RegistrationLookup:      registrationLookup,
 		GameLookup:              gameLookup,

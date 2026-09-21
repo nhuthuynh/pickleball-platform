@@ -61,7 +61,17 @@ function paymentOk(status: string) {
   }
 }
 
-async function mountCheckout(paymentsClient: PaymentsClient, query: Record<string, string> = { entryId: 'entry-1' }) {
+// T57.1 (#126): the default query now carries the FROZEN owed amount
+// alongside the entry id, because that is what the enter flow actually
+// pushes (DiscoverCompetitions.vue's and CompetitionLanding.vue's
+// `onPayOnline`) and what the view now charges. 1000 matches
+// COMPETITION_LISTING's entry fee — i.e. an entrant who brought no guests
+// — so every test written before this ticket keeps exercising the same
+// figure it always did.
+async function mountCheckout(
+  paymentsClient: PaymentsClient,
+  query: Record<string, string> = { entryId: 'entry-1', amountOwedCents: '1000', amountOwedCurrency: 'USD' },
+) {
   const router = createRouter({ history: createMemoryHistory(), routes })
   await router.push({ name: 'competition-checkout', params: { id: 'c1' }, query })
   await router.isReady()
@@ -88,7 +98,11 @@ describe('CompetitionCheckout', () => {
   // (internal/payments/app/service.go) accepts it — mirrors
   // authorizeOfflineRecording's same actor-claim caveat every other
   // ActorUserID field in this codebase already carries.
-  it("creates the Payment for the entry's real fee, carrying the entrant's actor claim", async () => {
+  // T57.1 amended the amount's SOURCE (the entry's frozen AmountOwed, not
+  // the Competition's entry fee) — the actor-claim assertion this test
+  // exists for is untouched, and 1000 is still the figure because an
+  // entrant with no guests owes exactly one entry fee.
+  it("creates the Payment for a real fee, carrying the entrant's actor claim", async () => {
     const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
     await mountCheckout(paymentsClient)
 
@@ -112,7 +126,11 @@ describe('CompetitionCheckout', () => {
       createOnline: () => new Promise((resolve) => { resolveCreate = resolve }),
     })
     const router = createRouter({ history: createMemoryHistory(), routes })
-    await router.push({ name: 'competition-checkout', params: { id: 'c1' }, query: { entryId: 'entry-1' } })
+    await router.push({
+      name: 'competition-checkout',
+      params: { id: 'c1' },
+      query: { entryId: 'entry-1', amountOwedCents: '1000', amountOwedCurrency: 'USD' },
+    })
     await router.isReady()
     const wrapper = mount(CompetitionCheckout, {
       props: { client: competitionsClientStub(), paymentsClient },
@@ -151,6 +169,14 @@ describe('CompetitionCheckout', () => {
     expect(success.text()).toContain('Payment confirmed')
   })
 
+  // T57.1 AMENDED this test. It seeded a Competition with a zero entry fee
+  // and asserted no Payment was created; the view no longer reads the price
+  // off the Competition at all, so the zero now arrives as the entry's own
+  // owed amount. The Competition is left free too, because the two agree by
+  // construction for a free Competition and a fixture where they disagreed
+  // would be describing a state the domain cannot produce. What the test
+  // proves is unchanged: nothing owed means no Payment and a notice in
+  // words.
   it('creates no Payment for a free competition and says so in words', async () => {
     const listing = {
       ...COMPETITION_LISTING,
@@ -163,7 +189,11 @@ describe('CompetitionCheckout', () => {
     const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
 
     const router = createRouter({ history: createMemoryHistory(), routes })
-    await router.push({ name: 'competition-checkout', params: { id: 'c1' }, query: { entryId: 'entry-1' } })
+    await router.push({
+      name: 'competition-checkout',
+      params: { id: 'c1' },
+      query: { entryId: 'entry-1', amountOwedCents: '0', amountOwedCurrency: 'USD' },
+    })
     await router.isReady()
     const wrapper = mount(CompetitionCheckout, {
       props: { client, paymentsClient },
@@ -175,5 +205,112 @@ describe('CompetitionCheckout', () => {
     const notice = wrapper.get('[data-testid="free-competition-notice"]').text()
     expect(notice).toContain('free')
     expect(notice).not.toContain('$0.00')
+  })
+})
+
+// T57.1/T57.2 — Competitions' mirror of T56's per-head pricing: checkout
+// charges the FROZEN amount the entry recorded, not a figure re-derived
+// here.
+//
+// The two halves are one behaviour, exactly as they are for a Game. T57.1
+// made the owed amount entry_fee × (1 + guest_count) and froze it onto the
+// CompetitionEntry; T57.2 made the server validate every online entry
+// payment against that figure. So a client that keeps sending the bare
+// per-entrant fee is not merely undercharging — it is now REFUSED, for
+// every entrant who brought anyone.
+describe('CompetitionCheckout — frozen per-head amount (T57.1/T57.2)', () => {
+  async function mountWithQuery(query: Record<string, string>, paymentsClient: PaymentsClient) {
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push({ name: 'competition-checkout', params: { id: 'c1' }, query })
+    await router.isReady()
+    const wrapper = mount(CompetitionCheckout, {
+      props: { client: competitionsClientStub(), paymentsClient },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  // The defect, stated as a test. COMPETITION_LISTING's entry fee is 1000;
+  // an entrant who brought two guests owes 3000. Before this, the client
+  // sent 1000 and the other two heads were free.
+  it('charges the amount the entry owes, not the per-entrant fee', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    await mountWithQuery(
+      { entryId: 'entry-1', amountOwedCents: '3000', amountOwedCurrency: 'USD' },
+      paymentsClient,
+    )
+
+    const calls = (paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls.length).toBe(1)
+    expect(calls[0]![1].body.amount).toEqual({ amountCents: '3000', currencyCode: 'USD' })
+  })
+
+  // The currency travels with the amount (ADR-0005) rather than being
+  // defaulted here — T57.2 compares both, so a right number in the wrong
+  // currency is refused just as hard as a wrong number.
+  it('sends the currency the entry recorded', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    await mountWithQuery(
+      { entryId: 'entry-1', amountOwedCents: '3000', amountOwedCurrency: 'GBP' },
+      paymentsClient,
+    )
+
+    const calls = (paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls
+    expect(calls[0]![1].body.amount.currencyCode).toBe('GBP')
+  })
+
+  // The important refusal. Falling back to the Competition's entry fee when
+  // the owed amount is missing would be right only for an entrant who
+  // brought nobody and silently wrong — now server-refused — for everyone
+  // else. A checkout that cannot know what is owed says so instead of
+  // guessing, exactly as it already does for a Competition it could not
+  // load.
+  it('refuses to guess an amount when the owed figure is absent', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    const wrapper = await mountWithQuery({ entryId: 'entry-1' }, paymentsClient)
+
+    expect((paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+    expect(wrapper.find('[role="alert"]').text()).toContain("can't tell what this entry owes")
+  })
+
+  // A free Competition is still free for a whole party — ExpectedAmount
+  // multiplies zero by any number of heads and gets zero — and still
+  // creates no Payment, since the Payments domain rejects a zero-amount one.
+  it('creates no Payment when the frozen amount is zero, however many guests', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    const wrapper = await mountWithQuery(
+      { entryId: 'entry-1', amountOwedCents: '0', amountOwedCurrency: 'USD' },
+      paymentsClient,
+    )
+
+    expect((paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+    expect(wrapper.get('[data-testid="free-competition-notice"]').text()).toContain('free')
+  })
+})
+
+// A hand-edited URL carrying a fractional cents value is treated as
+// unknown, not sent. amountCents is an int64 on the wire, so a fraction
+// would come back as a parse error the entrant can make no sense of —
+// "we can't tell what this owes" is the honest answer, and it is the same
+// one a missing value gets. Mirrors GameCheckout.spec's identical case.
+describe('CompetitionCheckout — malformed owed amount', () => {
+  it('refuses a non-integer cents value rather than sending it', async () => {
+    const paymentsClient = paymentsClientStub({ createOnline: () => paymentOk('PAYMENT_STATUS_UNPAID') })
+    const router = createRouter({ history: createMemoryHistory(), routes })
+    await router.push({
+      name: 'competition-checkout',
+      params: { id: 'c1' },
+      query: { entryId: 'entry-1', amountOwedCents: '25.5', amountOwedCurrency: 'USD' },
+    })
+    await router.isReady()
+    const wrapper = mount(CompetitionCheckout, {
+      props: { client: competitionsClientStub(), paymentsClient },
+      global: { plugins: [router] },
+    })
+    await flushPromises()
+
+    expect((paymentsClient.POST as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+    expect(wrapper.find('[role="alert"]').text()).toContain("can't tell what this entry owes")
   })
 })

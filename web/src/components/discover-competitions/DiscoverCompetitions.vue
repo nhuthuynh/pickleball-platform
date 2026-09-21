@@ -18,6 +18,7 @@ import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
 import { useCompetitionList } from '../../composables/useCompetitionList'
+import type { ConfirmedEntry } from '../../models/competition'
 import type { CompetitionsClient } from '../../api/competitionsClient'
 import type { IdentityClient } from '../../api/identityClient'
 import type { FacilitiesClient } from '../../api/facilitiesClient'
@@ -86,10 +87,25 @@ function onSelect(id: string): void {
 // CompetitionEntry id as a query param — CompetitionCheckout.vue reads it
 // via `route.query.entryId` (the route's own `:id` path param is the
 // Competition id, per router/index.ts). Mirrors DiscoverGames.vue's
-// `onPayOnline` exactly.
-function onPayOnline(entryId: string): void {
+// `onPayOnline` exactly.//
+// T57.1 (#126): the FROZEN owed amount travels with it. The checkout
+// cannot work it out for itself — it has the Competition (hence today's
+// entry fee) but not the guest count that was entered, and even with both
+// it would be recomputing a figure that is only correct while the Host
+// leaves the price alone. Carrying it is not a security decision either
+// way: as of T57.2 the server checks the amount against the entry's own
+// record, so a hand-edited URL is refused rather than honoured.
+function onPayOnline(entry: ConfirmedEntry): void {
   if (!selectedId.value) return
-  void router?.push({ name: 'competition-checkout', params: { id: selectedId.value }, query: { entryId } })
+  void router?.push({
+    name: 'competition-checkout',
+    params: { id: selectedId.value },
+    query: {
+      entryId: entry.id,
+      amountOwedCents: String(entry.amountOwedCents),
+      amountOwedCurrency: entry.amountOwedCurrency,
+    },
+  })
 }
 
 onMounted(() => {

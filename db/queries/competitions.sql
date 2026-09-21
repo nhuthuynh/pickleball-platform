@@ -164,9 +164,9 @@ RETURNING id, host_id, name, venue_facility_id, capacity, guest_allowance, payme
 -- becomes domain.ErrCompetitionFull in the adapter, and a 23505 on
 -- competition_entries_active_player_idx becomes domain.ErrAlreadyEntered —
 -- neither leaks as a raw pgconn.PgError (CLAUDE.md rule 5).
-INSERT INTO competition_entries (id, competition_id, player_id, guest_count, source, status, payment_status)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, competition_id, player_id, guest_count, source, status, payment_status;
+INSERT INTO competition_entries (id, competition_id, player_id, guest_count, source, status, payment_status, amount_owed_cents, amount_owed_currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, competition_id, player_id, guest_count, source, status, payment_status, amount_owed_cents, amount_owed_currency;
 
 -- name: ListActiveEntriesForCompetition :many
 -- Non-cancelled entries only — the capacity-safe read path
@@ -174,7 +174,7 @@ RETURNING id, competition_id, player_id, guest_count, source, status, payment_st
 -- already-entered players before calling domain.Enter. Deliberately distinct
 -- from ListEntriesForCompetition below; see port.Repository's doc comments
 -- for why the two are separate methods rather than one with a flag.
-SELECT id, competition_id, player_id, guest_count, source, status, payment_status
+SELECT id, competition_id, player_id, guest_count, source, status, payment_status, amount_owed_cents, amount_owed_currency
 FROM competition_entries
 WHERE competition_id = $1
   AND status <> 'cancelled'
@@ -186,7 +186,7 @@ ORDER BY created_at;
 -- Host needs ("who withdrew" and "who never entered" are different answers,
 -- and a roster that hides the former can't be reconciled against payments),
 -- which is exactly why this must not reuse the filtered query above.
-SELECT id, competition_id, player_id, guest_count, source, status, payment_status
+SELECT id, competition_id, player_id, guest_count, source, status, payment_status, amount_owed_cents, amount_owed_currency
 FROM competition_entries
 WHERE competition_id = $1
 ORDER BY created_at;
@@ -195,7 +195,7 @@ ORDER BY created_at;
 -- T10.6 (closes #96): the read app.Service.MarkCompetitionEntryPaymentStatus
 -- needs before validating and writing a PaymentStatus transition — mirrors
 -- socialplay.sql's GetRegistrationByID exactly.
-SELECT id, competition_id, player_id, guest_count, source, status, payment_status
+SELECT id, competition_id, player_id, guest_count, source, status, payment_status, amount_owed_cents, amount_owed_currency
 FROM competition_entries
 WHERE id = $1;
 
@@ -211,7 +211,7 @@ WHERE id = $1;
 UPDATE competition_entries
 SET payment_status = $2
 WHERE id = $1
-RETURNING id, competition_id, player_id, guest_count, source, status, payment_status;
+RETURNING id, competition_id, player_id, guest_count, source, status, payment_status, amount_owed_cents, amount_owed_currency;
 
 -- name: CancelAllActiveEntriesForCompetition :execrows
 -- T16.3 (closes the mirrored Competitions gap found this ceremony; see

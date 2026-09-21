@@ -56,6 +56,8 @@ const ENTRIES = [
     source: 'ENTRY_SOURCE_SOCIAL',
     paymentStatus: 'PAYMENT_STATUS_UNPAID',
     status: 'ENTRY_STATUS_ENTERED',
+    // T57.1 (#126): one head at this Competition's $25.00 entry fee.
+    amountOwed: { amountCents: '2500', currencyCode: 'USD' },
   },
 ]
 
@@ -218,6 +220,34 @@ describe('CompetitionManage — unpaid cash entries (T8.10 pattern, reused)', ()
     // Only the unpaid one — the paid entry owes nothing.
     expect(amounts).toHaveLength(1)
     expect(amounts[0]!.text()).toContain('$25.00 due (cash at facility)')
+  })
+
+  // T57.1 (#126) — the roster showed the per-ENTRANT fee for an entry that
+  // brought guests, so a Host chasing cash from a party of three was told
+  // to collect $25.00 when $75.00 was owed. Display-only here (this screen
+  // has no "Mark paid" button — see the cash-recording note), which is
+  // exactly why it is easy to miss: nothing downstream contradicted it.
+  it('shows the amount the ENTRY owes, not the per-entrant fee', async () => {
+    const wrapper = mountManage(
+      makeClient({
+        entries: () => ({
+          data: {
+            entries: [
+              {
+                ...ENTRIES[1],
+                guestCount: 2,
+                amountOwed: { amountCents: '7500', currencyCode: 'USD' },
+              },
+            ],
+          },
+        }),
+      }),
+    )
+    await flushPromises()
+
+    const amounts = wrapper.findAll('[data-testid="unpaid-cash-amount"]')
+    expect(amounts).toHaveLength(1)
+    expect(amounts[0]!.text()).toContain('$75.00 due (cash at facility)')
   })
 
   it('does not surface a cash amount for an ONLINE-only competition', async () => {

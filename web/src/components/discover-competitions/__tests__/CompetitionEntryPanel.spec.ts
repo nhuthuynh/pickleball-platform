@@ -41,6 +41,10 @@ function okEntry(guestCount = 0) {
         source: 'ENTRY_SOURCE_APP',
         paymentStatus: 'PAYMENT_STATUS_UNPAID',
         status: 'ENTRY_STATUS_ENTERED',
+        // T57.1 (#126): the frozen per-head figure the server now returns
+        // — this suite's Competition charges 1000 per entrant, so the
+        // owed amount tracks the party size rather than being a constant.
+        amountOwed: { amountCents: String(1000 * (1 + guestCount)), currencyCode: 'USD' },
       },
     },
     error: undefined,
@@ -214,14 +218,27 @@ describe('CompetitionEntryPanel — payment (T8.10 paths, unchanged)', () => {
     expect(buttons).toEqual(['Pay online now'])
   })
 
-  it('clicking "Pay online now" emits payOnline with the confirmed entry id, and makes no Payments network call itself', async () => {
+  // T57.1 (#126) widened this event's payload from the entry's id to the
+  // whole ConfirmedEntry. The checkout needs the frozen AmountOwed and this
+  // is the only place that has it; re-deriving it downstream would produce
+  // the Competition's price NOW, not the one just agreed, which T57.2 makes
+  // the server refuse.
+  it('clicking "Pay online now" emits payOnline with the confirmed entry, and makes no Payments network call itself', async () => {
     const wrapper = mountPanel({ competition: competition({ paymentMethod: 'PAYMENT_METHOD_ONLINE' }) })
     await wrapper.get('.competition-entry__form').trigger('submit')
     await flushPromises()
 
     await wrapper.get('[data-testid="entry-pay-online"]').trigger('click')
 
-    expect(wrapper.emitted('payOnline')).toEqual([['e1']])
+    const emitted = wrapper.emitted('payOnline')
+    expect(emitted).toHaveLength(1)
+    expect(emitted![0]![0]).toMatchObject({
+      id: 'e1',
+      // The part that matters downstream: what is actually owed travels
+      // with the id, so the checkout never has to guess.
+      amountOwedCents: 1000,
+      amountOwedCurrency: 'USD',
+    })
   })
 
   it('an "either" Competition offers both options; choosing cash switches to the pending text without any network call', async () => {

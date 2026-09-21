@@ -31,7 +31,7 @@
 import { onMounted, ref, computed, useTemplateRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useCompetitionByShareToken } from '../composables/useCompetitionByShareToken'
-import { isCancelled } from '../models/competition'
+import { isCancelled, type ConfirmedEntry } from '../models/competition'
 import CompetitionDetailPanel from '../components/discover-competitions/CompetitionDetailPanel.vue'
 import type { CompetitionsClient } from '../api/competitionsClient'
 import type { IdentityClient } from '../api/identityClient'
@@ -96,9 +96,25 @@ onMounted(() => {
 // id from the already-loaded `competition`, since (unlike
 // DiscoverCompetitions.vue) there is no separate "selected id" state here —
 // the whole screen is about the one Competition the share link named.
-function onPayOnline(entryId: string): void {
+//
+// T57.1 (#126): the FROZEN owed amount travels with it. The checkout
+// cannot work it out for itself — it has the Competition (hence today's
+// entry fee) but not the guest count that was entered, and even with both
+// it would be recomputing a figure that is only correct while the Host
+// leaves the price alone. Carrying it is not a security decision either
+// way: as of T57.2 the server checks the amount against the entry's own
+// record, so a hand-edited URL is refused rather than honoured.
+function onPayOnline(entry: ConfirmedEntry): void {
   if (!competition.value) return
-  void router?.push({ name: 'competition-checkout', params: { id: competition.value.id }, query: { entryId } })
+  void router?.push({
+    name: 'competition-checkout',
+    params: { id: competition.value.id },
+    query: {
+      entryId: entry.id,
+      amountOwedCents: String(entry.amountOwedCents),
+      amountOwedCurrency: entry.amountOwedCurrency,
+    },
+  })
 }
 </script>
 
