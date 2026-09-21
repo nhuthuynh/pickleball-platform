@@ -75,12 +75,12 @@ WHERE id = $1
 RETURNING id, host_id, facility_id, venue_facility_id, court_ids, starts_at, ends_at, capacity, status, payment_method, guest_allowance, entry_fee_cents, entry_fee_currency;
 
 -- name: CreateRegistration :one
-INSERT INTO registrations (id, game_id, player_id, source, status, payment_status, guest_count)
-VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
+INSERT INTO registrations (id, game_id, player_id, source, status, payment_status, guest_count, amount_owed_cents, amount_owed_currency)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+RETURNING id, game_id, player_id, source, status, payment_status, guest_count, amount_owed_cents, amount_owed_currency;
 
 -- name: GetRegistrationByID :one
-SELECT id, game_id, player_id, source, status, payment_status, guest_count
+SELECT id, game_id, player_id, source, status, payment_status, guest_count, amount_owed_cents, amount_owed_currency
 FROM registrations
 WHERE id = $1;
 
@@ -89,7 +89,7 @@ WHERE id = $1;
 -- app.Service.RegisterForGame uses to re-derive the active count/players
 -- before calling domain.Register, mirroring ListActiveForCourt's role in
 -- Booking's CreateBooking.
-SELECT id, game_id, player_id, source, status, payment_status, guest_count
+SELECT id, game_id, player_id, source, status, payment_status, guest_count, amount_owed_cents, amount_owed_currency
 FROM registrations
 WHERE game_id = $1
   AND status <> 'cancelled'
@@ -99,7 +99,7 @@ ORDER BY created_at;
 UPDATE registrations
 SET status = $2
 WHERE id = $1
-RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
+RETURNING id, game_id, player_id, source, status, payment_status, guest_count, amount_owed_cents, amount_owed_currency;
 
 -- name: UpdateRegistrationPaymentStatus :one
 -- Dedicated single-column update for PaymentStatus (T6.5), mirroring
@@ -112,7 +112,7 @@ RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
 UPDATE registrations
 SET payment_status = $2
 WHERE id = $1
-RETURNING id, game_id, player_id, source, status, payment_status, guest_count;
+RETURNING id, game_id, player_id, source, status, payment_status, guest_count, amount_owed_cents, amount_owed_currency;
 
 -- name: CancelAllActiveRegistrationsForGame :execrows
 -- T16.3 (partial fix for #124): the bulk cascade app.Service.CancelGame

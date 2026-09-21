@@ -15,7 +15,7 @@
 // components, DisplayName.vue/VenueName.vue — the same "network-calling
 // child of a presentational parent" split GameJoinPanel already uses, just
 // applied to a read instead of a write.
-import type { GameSummary } from '../../models/game'
+import type { GameSummary, ConfirmedRegistration } from '../../models/game'
 import { formatGameRange, paymentMethodLabel, spotsLeftLabel, entryFeeLabel } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import type { IdentityClient } from '../../api/identityClient'
@@ -49,7 +49,7 @@ const emit = defineEmits<{
    * component stays presentational/router-free, same as its own `retry`
    * event; the caller that actually knows about routing (DiscoverGames.vue)
    * is what turns this into a real navigation. */
-  payOnline: [registrationId: string]
+  payOnline: [registration: ConfirmedRegistration]
 }>()
 </script>
 
@@ -118,7 +118,7 @@ const emit = defineEmits<{
         :game="game"
         :client="client"
         :start-full="game.spotsLeft <= 0"
-        @pay-online="(id) => emit('payOnline', id)"
+        @pay-online="(registration) => emit('payOnline', registration)"
       />
     </div>
   </section>

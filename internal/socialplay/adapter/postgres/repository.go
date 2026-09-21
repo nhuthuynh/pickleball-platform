@@ -255,12 +255,17 @@ func (r *RegistrationRepository) Create(ctx context.Context, reg domain.Registra
 		Source:        string(reg.Source),
 		Status:        string(reg.Status),
 		PaymentStatus: string(reg.PaymentStatus),
-		GuestCount:    int32(reg.GuestCount),
+		// T56.1 (#126): always written explicitly, including a 0 for a free
+		// registration — 0 is a real value here, not "unset" (Money.IsFree),
+		// so relying on the column DEFAULT would conflate the two.
+		AmountOwedCents:    reg.AmountOwed.Cents,
+		AmountOwedCurrency: reg.AmountOwed.Currency,
+		GuestCount:         int32(reg.GuestCount),
 	})
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 func (r *RegistrationRepository) GetByID(ctx context.Context, id string) (domain.Registration, error) {
@@ -268,7 +273,7 @@ func (r *RegistrationRepository) GetByID(ctx context.Context, id string) (domain
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 func (r *RegistrationRepository) ListActiveForGame(ctx context.Context, gameID string) ([]domain.Registration, error) {
@@ -278,7 +283,7 @@ func (r *RegistrationRepository) ListActiveForGame(ctx context.Context, gameID s
 	}
 	out := make([]domain.Registration, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount))
+		out = append(out, registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount, row.AmountOwedCents, row.AmountOwedCurrency))
 	}
 	return out, nil
 }
@@ -291,7 +296,7 @@ func (r *RegistrationRepository) Update(ctx context.Context, reg domain.Registra
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 // UpdatePaymentStatus persists a PaymentStatus change (T6.5) via its own
@@ -306,7 +311,7 @@ func (r *RegistrationRepository) UpdatePaymentStatus(ctx context.Context, id str
 	if err != nil {
 		return domain.Registration{}, translateRegistrationErr(err)
 	}
-	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount), nil
+	return registrationFromFields(row.ID, row.GameID, row.PlayerID, row.Source, row.Status, row.PaymentStatus, row.GuestCount, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 // CancelAllActiveForGame implements
@@ -381,7 +386,7 @@ func translateRegistrationErr(err error) error {
 // (db/migrations/0026_socialplay_identity_conformance.sql). Converted back to
 // a Go string via .String() — mirrors gameFromFields' identical HostID
 // conversion.
-func registrationFromFields(id, gameID, playerID pgtype.UUID, source, status, paymentStatus string, guestCount int32) domain.Registration {
+func registrationFromFields(id, gameID, playerID pgtype.UUID, source, status, paymentStatus string, guestCount int32, amountOwedCents int64, amountOwedCurrency string) domain.Registration {
 	return domain.Registration{
 		ID:            id.String(),
 		GameID:        gameID.String(),
@@ -390,6 +395,13 @@ func registrationFromFields(id, gameID, playerID pgtype.UUID, source, status, pa
 		Status:        domain.RegistrationStatus(status),
 		PaymentStatus: domain.PaymentStatus(paymentStatus),
 		GuestCount:    int(guestCount),
+		// T56.1 (#126). Read back as stored, never recomputed from the
+		// Game — the frozen figure IS the record of what was agreed, and
+		// re-deriving it here would defeat the point of storing it.
+		AmountOwed: domain.Money{
+			Cents:    amountOwedCents,
+			Currency: amountOwedCurrency,
+		},
 	}
 }
 

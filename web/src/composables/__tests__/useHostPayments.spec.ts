@@ -216,3 +216,95 @@ describe('useHostPayments — free games (T9.2)', () => {
     expect(body.amount).toEqual({ amountCents: '750', currencyCode: 'USD' })
   })
 })
+
+// T56.1 (issue #126) — the CASH path owes per head too.
+//
+// The online path was the loud half of #126, but a Game Admin marking cash
+// paid records a Payment against the same Registration, and until this
+// ticket it recorded the Game's per-PLAYER entry fee: a Host who took
+// $30.00 in cash from a player and their two guests recorded $10.00, and
+// reconciliation then marked the Registration paid in full. Same defect,
+// quieter path.
+//
+// Note what this does NOT do: T56.2 (#297) validates the amount on
+// CreateOnlinePayment only, so nothing server-side refuses a wrong figure
+// here. This is the client sending the right number because it is the
+// right number, not because it would be caught.
+describe('useHostPayments — per-head amounts (T56.1)', () => {
+  it('records the amount the Registration owes, not the per-player entry fee', async () => {
+    const client = fakeClient({
+      games: [gameListing({ id: 'g1', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 1000 })],
+      registrationsByGame: {
+        g1: [{
+          id: 'r1',
+          gameId: 'g1',
+          playerId: 'player-1',
+          status: 'REGISTRATION_STATUS_REGISTERED',
+          paymentStatus: 'PAYMENT_STATUS_UNPAID',
+          guestCount: 2,
+          amountOwed: { amountCents: '3000', currencyCode: 'USD' },
+        }],
+      },
+    })
+    const payments = fakePaymentsClient({
+      recordOffline: () => ({
+        data: { payment: { id: 'pay-1', payableId: 'r1', status: 'PAYMENT_STATUS_PAID' } },
+        error: undefined,
+        response: { status: 200 },
+      }),
+    })
+
+    const { pending, load, markPaid } = useHostPayments(client, payments)
+    await load('host-1')
+    await markPaid(pending.value[0]!, 'host-1')
+
+    const body = (payments.POST as ReturnType<typeof vi.fn>).mock.calls[0]![1].body
+    expect(body.amount).toEqual({ amountCents: '3000', currencyCode: 'USD' })
+  })
+
+  // The dashboard must show the Host the figure they are about to record,
+  // or "Mark paid" becomes a button whose effect differs from its label.
+  it('surfaces the owed amount on the row, not the per-player fee', async () => {
+    const client = fakeClient({
+      games: [gameListing({ id: 'g1', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 1000 })],
+      registrationsByGame: {
+        g1: [{
+          id: 'r1',
+          gameId: 'g1',
+          playerId: 'player-1',
+          status: 'REGISTRATION_STATUS_REGISTERED',
+          paymentStatus: 'PAYMENT_STATUS_UNPAID',
+          guestCount: 2,
+          amountOwed: { amountCents: '3000', currencyCode: 'USD' },
+        }],
+      },
+    })
+
+    const { pending, load } = useHostPayments(client, fakePaymentsClient({}))
+    await load('host-1')
+
+    expect(pending.value[0]!.amountOwedCents).toBe(3000)
+    expect(pending.value[0]!.amountOwedCurrency).toBe('USD')
+  })
+
+  // A Registration written before T56.1 carries amount_owed 0 (the
+  // migration's default). Recording 0 would be refused by the Payments
+  // domain and the row would be a button that can only fail — the exact
+  // condition the free-Game filter above already exists to prevent — so
+  // the per-player fee remains the fallback for those rows. It is the
+  // figure they were created under, and it is what this dashboard
+  // recorded for them before this ticket.
+  it('falls back to the entry fee for a pre-T56.1 registration that records no owed amount', async () => {
+    const client = fakeClient({
+      games: [gameListing({ id: 'g1', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 1000 })],
+      registrationsByGame: {
+        g1: [{ id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 }],
+      },
+    })
+
+    const { pending, load } = useHostPayments(client, fakePaymentsClient({}))
+    await load('host-1')
+
+    expect(pending.value[0]!.amountOwedCents).toBe(1000)
+  })
+})

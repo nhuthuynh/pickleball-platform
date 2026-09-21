@@ -59,6 +59,13 @@ const (
 	// adapter reports for an unknown or stale intent, and the only way either
 	// direction (capture or refund) reaches ErrPaymentProcessorUnavailable.
 	mapUnknownIntentRef = "pi_stub_never_issued"
+
+	// A well-formed registration id the amount lookup resolves to nothing —
+	// the only way to reach ErrPayableNotFound, since CreateOnlinePayment's
+	// uuidShape guard (T10.7) rejects a malformed id with ErrEmptyPayableID
+	// long before any cross-context lookup runs. Deliberately uuid-shaped
+	// for that reason.
+	mapUnknownRegistrationID = "6ba7b810-0000-4000-8000-0000000000ff"
 )
 
 // mappingWebhookSecret is the shared secret newMappingHandler wires its real
@@ -136,6 +143,51 @@ func seedOnline(t *testing.T, repo *fakeRepository, paymentID string, payableTyp
 	}
 }
 
+// mappingAmountLookup is this file's double for port.PayableAmountLookup
+// (T56.2, issue #297): fixtureRegistrationID owes `owed`, and every other
+// registration id resolves to nothing.
+//
+// Faked at this level for the same reason every other port in this file is
+// — the mapping under test is unaffected by which implementation sits
+// behind the port, and the real adapter's translation of Social Play's
+// ErrRegistrationNotFound into domain.ErrPayableNotFound is proven where it
+// lives, in internal/payments/adapter/socialplay.
+type mappingAmountLookup struct{ owed domain.Money }
+
+func (l mappingAmountLookup) ExpectedAmountForRegistration(_ context.Context, registrationID string) (domain.Money, error) {
+	if registrationID != fixtureRegistrationID {
+		return domain.Money{}, domain.ErrPayableNotFound
+	}
+	return l.owed, nil
+}
+
+// newMappingHandlerOwing is newMappingHandler with the T56.2 amount lookup
+// wired, as cmd/server wires it. A separate constructor rather than a field
+// on the shared one because the port is optional by design (see
+// ServiceOptions.PayableAmounts): the ~40 existing tests in this package,
+// none of which are about amounts, must keep reaching the sentinels they
+// are actually about rather than being refused on price first.
+//
+// PayableTypeRegistration needs no authorization fixtures here —
+// authorizeOnlineCreation only gates PayableTypeCompetitionEntry — so
+// RegistrationLookup/GameLookup/GameAdminReader are deliberately absent:
+// wiring them would suggest they participate in reaching these two
+// sentinels, and they do not.
+func newMappingHandlerOwing(owed domain.Money, ids ...string) (*grpcapi.Handler, *fakeRepository, *stripestub.Processor) {
+	repo := newFakeRepository()
+	proc := stripestub.NewProcessor()
+	svc := app.NewService(app.ServiceOptions{
+		Payments:        repo,
+		IDs:             &fixedIDs{ids: ids},
+		Processor:       proc,
+		WebhookVerifier: webhookstub.NewVerifier(mappingWebhookSecret),
+		WebhookEvents:   newFakeWebhookEventStore(),
+		Identity:        newFakeIdentityLookup(),
+		PayableAmounts:  mappingAmountLookup{owed: owed},
+	})
+	return grpcapi.NewHandler(svc), repo, proc
+}
+
 // errorMappingCase is one sentinel, the RPC call that provokes it through real
 // production code, and the status code the whole service must answer with.
 type errorMappingCase struct {
@@ -154,6 +206,43 @@ type errorMappingCase struct {
 
 func errorMappingCases() []errorMappingCase {
 	return []errorMappingCase{
+		{
+			name:     "amount does not match what the payable owes",
+			sentinel: "ErrAmountMismatch",
+			wantCode: codes.InvalidArgument,
+			why: "T56.2 (#297): the caller's figure disagrees with what the payable actually owes. That is a " +
+				"problem with the argument regardless of the state of the system — the request is wrong even " +
+				"if retried forever — which is gRPC's own definition of InvalidArgument, and it matches the " +
+				"code ErrInvalidAmount already answers for the other way an amount can be wrong",
+			invoke: func(t *testing.T) error {
+				h, _, _ := newMappingHandlerOwing(domain.Money{Cents: 2500, Currency: "USD"}, mapPaymentID)
+				_, err := h.CreateOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.CreateOnlinePaymentRequest{
+					PayableType: paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
+					PayableId:   fixtureRegistrationID,
+					Amount:      &paymentsv1.Money{AmountCents: 1, CurrencyCode: "USD"},
+				})
+				return err
+			},
+		},
+		{
+			name:     "the payable cannot be resolved",
+			sentinel: "ErrPayableNotFound",
+			wantCode: codes.NotFound,
+			why: "T56.2 (#297): a well-formed payable id the amount lookup resolves to nothing. NotFound is what " +
+				"this codebase answers for \"the request names something that does not exist\" " +
+				"(ErrPaymentNotFound above, booking's ErrInvalidCourtReference, socialplay's ErrGameNotFound). " +
+				"No enumeration oracle is created: the caller already holds the payable id, and failing OPEN " +
+				"here instead would make the amount check bypassable by sending an id that does not exist",
+			invoke: func(t *testing.T) error {
+				h, _, _ := newMappingHandlerOwing(domain.Money{Cents: 2500, Currency: "USD"}, mapPaymentID)
+				_, err := h.CreateOnlinePayment(ctxAs(seededPaymentOwnerID), &paymentsv1.CreateOnlinePaymentRequest{
+					PayableType: paymentsv1.PayableType_PAYABLE_TYPE_REGISTRATION,
+					PayableId:   mapUnknownRegistrationID,
+					Amount:      &paymentsv1.Money{AmountCents: 2500, CurrencyCode: "USD"},
+				})
+				return err
+			},
+		},
 		{
 			name:     "unknown payment id",
 			sentinel: "ErrPaymentNotFound",

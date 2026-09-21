@@ -106,6 +106,7 @@ type Service struct {
 	ids                     port.IDGenerator
 	processor               port.PaymentProcessor
 	registrationUpdater     socialplayport.RegistrationPaymentUpdater
+	payableAmounts          port.PayableAmountLookup
 	competitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
 
 	registrationLookup     port.RegistrationLookup
@@ -169,10 +170,29 @@ type Service struct {
 // so it was added there rather than introducing a third posture or a
 // construction-time panic this package has never had.
 type ServiceOptions struct {
-	Payments                port.Repository
-	IDs                     port.IDGenerator
-	Processor               port.PaymentProcessor
-	RegistrationUpdater     socialplayport.RegistrationPaymentUpdater
+	Payments            port.Repository
+	IDs                 port.IDGenerator
+	Processor           port.PaymentProcessor
+	RegistrationUpdater socialplayport.RegistrationPaymentUpdater
+	// PayableAmounts resolves what a payable actually owes, so
+	// CreateOnlinePayment can check the caller's amount against it instead
+	// of believing it (T56.2, issue #297).
+	//
+	// **Optional, and skip-safe** — it belongs to this struct's
+	// reconciliation-hook category rather than its fail-closed-resolver
+	// one. A Service built without it does not check amounts, which is what
+	// keeps the many tests in this package that are not about amounts
+	// working unchanged. cmd/server always wires it.
+	//
+	// That is a deliberate trade and worth naming: it means a
+	// misconfigured deployment silently stops validating. The alternative —
+	// fail closed — would reject every payment on a Service missing the
+	// port, turning a wiring mistake into a total payment outage. Given the
+	// check is a hardening measure over a path that had no check at all
+	// until T56.2, degrading to the previous behaviour is the less
+	// destructive failure mode. Revisit if this ever becomes the only thing
+	// standing between a caller and a real charge.
+	PayableAmounts          port.PayableAmountLookup
 	CompetitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
 
 	RegistrationLookup     port.RegistrationLookup
@@ -208,6 +228,7 @@ func NewService(opts ServiceOptions) *Service {
 		ids:                     opts.IDs,
 		processor:               opts.Processor,
 		registrationUpdater:     opts.RegistrationUpdater,
+		payableAmounts:          opts.PayableAmounts,
 		competitionEntryUpdater: opts.CompetitionEntryUpdater,
 
 		registrationLookup:     opts.RegistrationLookup,
@@ -361,6 +382,21 @@ func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymen
 	// — both would otherwise see it, and Create's mustUUID panics on it.
 	if !uuidShape.MatchString(in.PayableID) {
 		return domain.Payment{}, domain.ErrEmptyPayableID
+	}
+
+	// T56.2 (issue #297): the amount is CHECKED, not believed.
+	//
+	// Until this, `in.Amount` came straight off the wire and nothing
+	// compared it to anything — Payments had read-side ports for ownership
+	// facts but none for price, so a $25 Game could be paid for with one
+	// cent and reconcileRegistrationPaymentStatus would then mark the
+	// Registration paid in full.
+	//
+	// Placed AFTER authorization and the shape guard, deliberately: an
+	// unauthorized caller must not learn what a payable costs, and a
+	// malformed id must not reach a cross-context lookup.
+	if err := s.ensureAmountMatchesPayable(ctx, in); err != nil {
+		return domain.Payment{}, err
 	}
 
 	// in.ActorUserID becomes the Payment's RecordedByUserID (T13.7, closes
@@ -963,6 +999,59 @@ func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput
 		return false, err
 	}
 	return true, nil
+}
+
+// ensureAmountMatchesPayable rejects a payment whose amount is not what the
+// payable actually owes (T56.2, issue #297).
+//
+// # Scope: registration payables only, and why the others are not checked
+//
+// Each exclusion is a considered decision, not an oversight:
+//
+//   - **registration** — checked. Social Play freezes Registration.AmountOwed
+//     at registration time (T56.1, #126), so there is a server-held figure
+//     to compare against.
+//   - **competition_entry** — NOT checked. Competitions has no frozen
+//     equivalent yet; adding one is the direct mirror of T56.1 and is
+//     tracked on #297. Until then an entry payment is as unvalidated as
+//     every payment was before this ticket — no worse, and the gap is
+//     named rather than left for someone to discover.
+//   - **booking** — NOT checked. Booking has no owed-amount concept at all;
+//     GetQuote prices a *prospective* slot and nothing is stored on the
+//     Booking. Checking would mean inventing that concept, which is a
+//     larger change than this ticket.
+//   - **no_show_fee** — NOT checked, and arguably never should be. The
+//     amount is whatever the Game Admin decided to charge; there is no
+//     "correct" figure for it to match.
+//
+// # Why the lookup failing is fatal rather than skipped
+//
+// If the payable cannot be resolved, the payment is refused. Failing open
+// would make the whole check bypassable by sending a payable id that
+// resolves to nothing, which is a trivial bypass to find.
+//
+// A nil s.payableAmounts is different and IS skipped — see
+// ServiceOptions.PayableAmounts for why that trade is made deliberately.
+func (s *Service) ensureAmountMatchesPayable(ctx context.Context, in CreateOnlinePaymentInput) error {
+	if s.payableAmounts == nil {
+		return nil
+	}
+	if in.PayableType != domain.PayableTypeRegistration {
+		return nil
+	}
+
+	owed, err := s.payableAmounts.ExpectedAmountForRegistration(ctx, in.PayableID)
+	if err != nil {
+		return err
+	}
+
+	// Both halves compared: the currency is part of the amount, and "2500"
+	// in the wrong currency is a different sum of money, not a rounding
+	// difference.
+	if in.Amount.Cents != owed.Cents || in.Amount.Currency != owed.Currency {
+		return domain.ErrAmountMismatch
+	}
+	return nil
 }
 
 // reconcileRegistrationPaymentStatus pushes a successfully-paid Payment's

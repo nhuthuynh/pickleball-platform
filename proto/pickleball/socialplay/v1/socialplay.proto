@@ -133,6 +133,31 @@ message Registration {
   // guest_count mirrors internal/socialplay/domain.Registration.GuestCount
   // (T8.6), wired onto the wire in T8.7.
   int32 guest_count = 6;
+
+  // amount_owed mirrors internal/socialplay/domain.Registration.AmountOwed
+  // (T56.1, issue #126): the Game's per-player entry_fee once per HEAD —
+  // the registering Player plus their guest_count guests — FROZEN at the
+  // moment of registration.
+  //
+  // It is on the wire rather than left to the client to compute, and that
+  // is the whole point of the field. A client multiplying Game.entry_fee
+  // by (1 + guest_count) itself would get the CURRENT price, not the one
+  // this Player agreed to; the two differ the moment a Host edits the fee.
+  // As of T56.2 (issue #297) the server validates every online payment for
+  // a Registration against this exact figure, so a client that derives its
+  // own number instead of sending this one is refused with
+  // INVALID_ARGUMENT — deriving it is not merely discouraged, it no longer
+  // works.
+  //
+  // Always emitted, including for a free Game (amount_cents 0), for the
+  // same reason Game.entry_fee is — see toProtoMoney's doc comment.
+  //
+  // PCI guardrail (CLAUDE.md rule 11, docs/checklists/proto-review.md):
+  // this is Money, an amount and a currency code, on a RESPONSE message.
+  // It admits no card-shaped field of any kind and adds nothing to any
+  // request DTO — no PAN, card number, CVV, or track data enters this
+  // backend by it.
+  Money amount_owed = 7;
 }
 
 // WaitlistStatus mirrors internal/socialplay/domain.WaitlistStatus (T6.6).

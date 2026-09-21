@@ -335,10 +335,14 @@ func run(logger *slog.Logger) error {
 	// not a second/separate stack — mirroring both exactly.
 	paymentsIdentityLookup := paymentsidentity.NewLookup(identitySvc)
 	paymentsSvc := paymentsapp.NewService(paymentsapp.ServiceOptions{
-		Payments:                paymentsRepo,
-		IDs:                     idgen.UUID{},
-		Processor:               stripestub.NewProcessor(),
-		RegistrationUpdater:     registrationUpdater,
+		Payments:            paymentsRepo,
+		IDs:                 idgen.UUID{},
+		Processor:           stripestub.NewProcessor(),
+		RegistrationUpdater: registrationUpdater,
+		// T56.2 (#297): lets CreateOnlinePayment check the caller's amount
+		// against what the payable actually owes. Built over the same real
+		// socialplaySvc every other Social Play read here uses.
+		PayableAmounts:          paymentssocialplay.NewPayableAmountLookup(socialplaySvc),
 		CompetitionEntryUpdater: competitionEntryUpdater,
 		RegistrationLookup:      registrationLookup,
 		GameLookup:              gameLookup,

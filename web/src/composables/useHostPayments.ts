@@ -32,12 +32,27 @@ export interface PendingCashPayment {
   guestCount: number
   /** Formatted Game date/time range, for display. */
   gameLabel: string
-  /** The owning Game's real entry fee (T9.2) — the amount actually
-   * recorded by `markPaid`, replacing T8.10's flat placeholder. Always
-   * > 0 here: free games are filtered out of this list entirely (see
-   * `load`). */
+  /** The owning Game's real entry fee (T9.2) — the price of ONE player.
+   * Always > 0 here: free games are filtered out of this list entirely
+   * (see `load`).
+   *
+   * T56.1: no longer the amount `markPaid` records — see `amountOwedCents`
+   * below. Retained because it is still the Game's price and a row may
+   * fall back to it. */
   entryFeeCents: number
   entryFeeCurrency: string
+  /** What this Registration actually owes (T56.1, issue #126): the entry
+   * fee once per HEAD, frozen when the player registered. THIS is what
+   * `markPaid` records and what the dashboard shows.
+   *
+   * Falls back to the entry fee when the Registration records no owed
+   * amount — a row written before T56.1, carrying migration 0028's
+   * default of 0. Recording 0 would be rejected outright by the Payments
+   * domain, turning the row's "Mark paid" button into one that can only
+   * fail; the entry fee is both the figure those rows were created under
+   * and what this dashboard already recorded for them. */
+  amountOwedCents: number
+  amountOwedCurrency: string
 }
 
 export interface UseHostPaymentsResult {
@@ -123,6 +138,13 @@ export function useHostPayments(
             gameLabel: formatGameRange(game.startsAt, game.endsAt),
             entryFeeCents: game.entryFeeCents,
             entryFeeCurrency: game.entryFeeCurrency,
+            // T56.1: the frozen per-head figure, with the Game's
+            // per-player fee as the pre-T56.1 fallback — see
+            // PendingCashPayment.amountOwedCents for why 0 is treated as
+            // "not recorded" here specifically and not as a free
+            // registration (free Games never reach this list at all).
+            amountOwedCents: Number(raw.amountOwed?.amountCents ?? 0) || game.entryFeeCents,
+            amountOwedCurrency: raw.amountOwed?.currencyCode || game.entryFeeCurrency,
           })
         }
       }
@@ -142,7 +164,10 @@ export function useHostPayments(
         body: {
           payableType: 'PAYABLE_TYPE_REGISTRATION',
           payableId: entry.registrationId,
-          amount: toMoneyRequest(entry.entryFeeCents, entry.entryFeeCurrency || DEFAULT_CURRENCY_CODE),
+          // T56.1 (#126): what the Registration owes — entry fee per HEAD
+          // — not the price of one player. A Host who took $30.00 from a
+          // party of three used to record $10.00 of it.
+          amount: toMoneyRequest(entry.amountOwedCents, entry.amountOwedCurrency || DEFAULT_CURRENCY_CODE),
           actorUserId,
           gameHostId: entry.gameHostId,
         },

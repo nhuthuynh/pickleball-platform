@@ -47,9 +47,14 @@ func createGameReq(fee *socialplayv1.Money) *socialplayv1.CreateGameRequest {
 		CourtIds:      []string{courtID(1)},
 		StartsAt:      timestamppb.New(start),
 		EndsAt:        timestamppb.New(start.Add(time.Hour)),
-		Capacity:      4,
+		Capacity:      8,
 		PaymentMethod: socialplayv1.PaymentMethod_PAYMENT_METHOD_EITHER,
-		EntryFee:      fee,
+		// T56.1: a guest allowance, so the per-head amount_owed tests below
+		// can actually register a party. 0 (the previous implicit value)
+		// made every guest-bringing registration a rejection before it
+		// reached the field under test.
+		GuestAllowance: 3,
+		EntryFee:       fee,
 	}
 }
 
@@ -147,4 +152,82 @@ func TestCreateGame_InvalidEntryFeeIsInvalidArgument(t *testing.T) {
 // happened, not that a court was actually freed.
 func (f *fakeReservation) ReleaseCourtsForReference(context.Context, string, string) (int, error) {
 	return 0, nil
+}
+
+// T56.1 (issue #126) — Registration.amount_owed survives the full
+// wire -> app -> domain -> wire path.
+//
+// This test exists because of what its absence allowed, which was measured
+// rather than assumed: deleting the single `AmountOwed:` line from
+// toProtoRegistration left `make test-domain`, `make test-adapters` and
+// `make test-cmd` ALL GREEN. Every Go gate passed while the feature was
+// entirely broken — a client would read 0, send 0, and T56.2's validation
+// would then refuse every payment it was supposed to permit. The failure
+// mode is the same one TestCreateGame_EntryFeeRoundTrip above was written
+// for, and it recurred on the very next field added to this message.
+//
+// The per-head arithmetic itself is proven in the domain
+// (internal/socialplay/domain/amount_owed_test.go). What is proven HERE, and
+// only here, is that the number reaches the client at all.
+func TestRegisterForGame_AmountOwedRoundTrip(t *testing.T) {
+	h := newEntryFeeHandler()
+
+	gameResp, err := h.CreateGame(ctxAs("host-1"), createGameReq(&socialplayv1.Money{
+		AmountCents:  2500,
+		CurrencyCode: "USD",
+	}))
+	if err != nil {
+		t.Fatalf("CreateGame: %v", err)
+	}
+
+	// Two guests: three heads at 2500 = 7500. A response carrying 2500
+	// would mean the per-head rule never reached the wire; one carrying 0
+	// would mean the field did not.
+	regResp, err := h.RegisterForGame(ctxAs("player-1"), &socialplayv1.RegisterForGameRequest{
+		GameId:     gameResp.GetGame().GetId(),
+		GuestCount: 2,
+	})
+	if err != nil {
+		t.Fatalf("RegisterForGame: %v", err)
+	}
+
+	got := regResp.GetRegistration().GetAmountOwed()
+	if got == nil {
+		t.Fatal("amount_owed is absent from the wire — the client cannot pay what it cannot see")
+	}
+	if got.GetAmountCents() != 7500 {
+		t.Fatalf("amount_owed cents = %d, want 7500 (2500 × 3 heads)", got.GetAmountCents())
+	}
+	if got.GetCurrencyCode() != "USD" {
+		t.Fatalf("amount_owed currency = %q, want USD", got.GetCurrencyCode())
+	}
+}
+
+// A free Game emits the message with a zero amount rather than omitting it,
+// so a client can tell "this is free" from "the server never populated
+// this" — the same contract Game.entry_fee carries, and the distinction
+// GameCheckout.vue's free-game branch depends on.
+func TestRegisterForGame_FreeGameStillEmitsAmountOwed(t *testing.T) {
+	h := newEntryFeeHandler()
+
+	gameResp, err := h.CreateGame(ctxAs("host-1"), createGameReq(&socialplayv1.Money{}))
+	if err != nil {
+		t.Fatalf("CreateGame: %v", err)
+	}
+
+	regResp, err := h.RegisterForGame(ctxAs("player-1"), &socialplayv1.RegisterForGameRequest{
+		GameId:     gameResp.GetGame().GetId(),
+		GuestCount: 2,
+	})
+	if err != nil {
+		t.Fatalf("RegisterForGame: %v", err)
+	}
+
+	got := regResp.GetRegistration().GetAmountOwed()
+	if got == nil {
+		t.Fatal("a free Game must still emit amount_owed, so 'free' is distinguishable from 'unset'")
+	}
+	if got.GetAmountCents() != 0 {
+		t.Fatalf("amount_owed cents = %d, want 0 — a free game is free for any party size", got.GetAmountCents())
+	}
 }

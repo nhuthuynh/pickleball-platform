@@ -832,6 +832,10 @@ func toProtoRegistration(r domain.Registration) *socialplayv1.Registration {
 		Status:        toProtoRegistrationStatus(r.Status),
 		PaymentStatus: toProtoPaymentStatus(r.PaymentStatus),
 		GuestCount:    int32(r.GuestCount),
+		// T56.1 (#126): the frozen per-head figure, always emitted — a
+		// client must send exactly this back on CreateOnlinePayment, and
+		// as of T56.2 (#297) anything else is refused.
+		AmountOwed: toProtoMoney(r.AmountOwed),
 	}
 }
 

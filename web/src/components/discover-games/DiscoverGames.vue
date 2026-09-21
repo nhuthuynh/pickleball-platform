@@ -15,6 +15,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
 import { useGameList } from '../../composables/useGameList'
+import type { ConfirmedRegistration } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import type { IdentityClient } from '../../api/identityClient'
 import type { FacilitiesClient } from '../../api/facilitiesClient'
@@ -84,9 +85,25 @@ function onDetailRetry() {
 // T8.10: navigates to the checkout route, carrying the Registration id as
 // a query param — GameCheckout.vue reads it via `route.query.registrationId`
 // (the route's own `:id` path param is the Game id, per router/index.ts).
-function onPayOnline(registrationId: string) {
+//
+// T56.1 (#126): the FROZEN owed amount travels with it. The checkout
+// cannot work it out for itself — it has the Game (hence today's entry
+// fee) but not the guest count that was registered, and even with both it
+// would be recomputing a figure that is only correct while the Host leaves
+// the price alone. Carrying it is not a security decision either way: as
+// of T56.2 (#297) the server checks the amount against the Registration's
+// own record, so a hand-edited URL is refused rather than honoured.
+function onPayOnline(registration: ConfirmedRegistration) {
   if (!selectedId.value) return
-  void router?.push({ name: 'game-checkout', params: { id: selectedId.value }, query: { registrationId } })
+  void router?.push({
+    name: 'game-checkout',
+    params: { id: selectedId.value },
+    query: {
+      registrationId: registration.id,
+      amountOwedCents: String(registration.amountOwedCents),
+      amountOwedCurrency: registration.amountOwedCurrency,
+    },
+  })
 }
 
 onMounted(() => {
