@@ -106,7 +106,8 @@ type Service struct {
 	ids                     port.IDGenerator
 	processor               port.PaymentProcessor
 	registrationUpdater     socialplayport.RegistrationPaymentUpdater
-	payableAmounts          port.PayableAmountLookup
+	registrationAmounts     port.RegistrationAmountLookup
+	entryAmounts            port.EntryAmountLookup
 	competitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
 
 	registrationLookup     port.RegistrationLookup
@@ -174,7 +175,7 @@ type ServiceOptions struct {
 	IDs                 port.IDGenerator
 	Processor           port.PaymentProcessor
 	RegistrationUpdater socialplayport.RegistrationPaymentUpdater
-	// PayableAmounts resolves what a payable actually owes, so
+	// RegistrationAmounts resolves what a payable actually owes, so
 	// CreateOnlinePayment can check the caller's amount against it instead
 	// of believing it (T56.2, issue #297).
 	//
@@ -192,7 +193,20 @@ type ServiceOptions struct {
 	// until T56.2, degrading to the previous behaviour is the less
 	// destructive failure mode. Revisit if this ever becomes the only thing
 	// standing between a caller and a real charge.
-	PayableAmounts          port.PayableAmountLookup
+	RegistrationAmounts port.RegistrationAmountLookup
+	// EntryAmounts is RegistrationAmounts' Competitions counterpart
+	// (T57.2): what a CompetitionEntry owes.
+	//
+	// Optional and skip-safe on exactly the same terms — see
+	// RegistrationAmounts above, whose reasoning applies here verbatim.
+	//
+	// Two fields rather than one, and two nil checks rather than one
+	// shared guard: each is wired from a different adapter over a
+	// different context's app.Service, so a deployment can genuinely have
+	// one and not the other, and collapsing the guard would make an
+	// unwired Competitions lookup silently stop validating REGISTRATIONS
+	// too. Pinned by a test.
+	EntryAmounts            port.EntryAmountLookup
 	CompetitionEntryUpdater competitionsport.CompetitionEntryPaymentUpdater
 
 	RegistrationLookup     port.RegistrationLookup
@@ -228,7 +242,8 @@ func NewService(opts ServiceOptions) *Service {
 		ids:                     opts.IDs,
 		processor:               opts.Processor,
 		registrationUpdater:     opts.RegistrationUpdater,
-		payableAmounts:          opts.PayableAmounts,
+		registrationAmounts:     opts.RegistrationAmounts,
+		entryAmounts:            opts.EntryAmounts,
 		competitionEntryUpdater: opts.CompetitionEntryUpdater,
 
 		registrationLookup:     opts.RegistrationLookup,
@@ -1011,11 +1026,12 @@ func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput
 //   - **registration** — checked. Social Play freezes Registration.AmountOwed
 //     at registration time (T56.1, #126), so there is a server-held figure
 //     to compare against.
-//   - **competition_entry** — NOT checked. Competitions has no frozen
-//     equivalent yet; adding one is the direct mirror of T56.1 and is
-//     tracked on #297. Until then an entry payment is as unvalidated as
-//     every payment was before this ticket — no worse, and the gap is
-//     named rather than left for someone to discover.
+//   - **competition_entry** — checked as of T57.2. T56.2 left this out
+//     because Competitions had no frozen owed amount to compare against;
+//     T57.1 added CompetitionEntry.AmountOwed, so the exclusion has
+//     nothing left to stand on. Until then a $50.00 entry could be paid
+//     for with one cent while the identical registration payment was
+//     refused — one rule with an undocumented exception.
 //   - **booking** — NOT checked. Booking has no owed-amount concept at all;
 //     GetQuote prices a *prospective* slot and nothing is stored on the
 //     Booking. Checking would mean inventing that concept, which is a
@@ -1030,19 +1046,25 @@ func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput
 // would make the whole check bypassable by sending a payable id that
 // resolves to nothing, which is a trivial bypass to find.
 //
-// A nil s.payableAmounts is different and IS skipped — see
-// ServiceOptions.PayableAmounts for why that trade is made deliberately.
+// A nil lookup is different and IS skipped — see
+// ServiceOptions.RegistrationAmounts for why that trade is made
+// deliberately, and ServiceOptions.EntryAmounts for why the two are
+// checked separately rather than behind one shared guard.
+//
+// # Ordering
+//
+// The caller runs this AFTER authorization and after the uuidShape guard,
+// which matters most for competition_entry: that is the one payable type
+// CreateOnlinePayment authorizes, so answering ErrAmountMismatch to a
+// stranger would turn this into a price oracle for competitions they have
+// nothing to do with. Pinned by a test.
 func (s *Service) ensureAmountMatchesPayable(ctx context.Context, in CreateOnlinePaymentInput) error {
-	if s.payableAmounts == nil {
-		return nil
-	}
-	if in.PayableType != domain.PayableTypeRegistration {
-		return nil
-	}
-
-	owed, err := s.payableAmounts.ExpectedAmountForRegistration(ctx, in.PayableID)
+	owed, checked, err := s.expectedAmountFor(ctx, in)
 	if err != nil {
 		return err
+	}
+	if !checked {
+		return nil
 	}
 
 	// Both halves compared: the currency is part of the amount, and "2500"
@@ -1052,6 +1074,40 @@ func (s *Service) ensureAmountMatchesPayable(ctx context.Context, in CreateOnlin
 		return domain.ErrAmountMismatch
 	}
 	return nil
+}
+
+// expectedAmountFor resolves what in's payable owes, reporting `checked`
+// false when this payable type has no owed-amount concept or its lookup is
+// unwired — the two ways the check is legitimately skipped.
+//
+// Split out from ensureAmountMatchesPayable so the comparison above is
+// stated once for every payable type rather than repeated per branch: two
+// copies of `Cents != owed.Cents || Currency != owed.Currency` is exactly
+// how one of them later grows a subtle difference nobody intended.
+func (s *Service) expectedAmountFor(ctx context.Context, in CreateOnlinePaymentInput) (owed domain.Money, checked bool, err error) {
+	switch in.PayableType {
+	case domain.PayableTypeRegistration:
+		if s.registrationAmounts == nil {
+			return domain.Money{}, false, nil
+		}
+		owed, err = s.registrationAmounts.ExpectedAmountForRegistration(ctx, in.PayableID)
+	case domain.PayableTypeCompetitionEntry:
+		if s.entryAmounts == nil {
+			return domain.Money{}, false, nil
+		}
+		owed, err = s.entryAmounts.ExpectedAmountForCompetitionEntry(ctx, in.PayableID)
+	default:
+		// booking and no_show_fee: no owed-amount concept to check
+		// against. See ensureAmountMatchesPayable's scope section — each
+		// exclusion is argued there, and a new payable type landing here
+		// silently unchecked is the risk that section exists to make
+		// visible.
+		return domain.Money{}, false, nil
+	}
+	if err != nil {
+		return domain.Money{}, false, err
+	}
+	return owed, true, nil
 }
 
 // reconcileRegistrationPaymentStatus pushes a successfully-paid Payment's

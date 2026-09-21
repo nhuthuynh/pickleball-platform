@@ -155,6 +155,19 @@ function owesCash(entry: CompetitionEntrySummary): boolean {
   )
 }
 
+/** What this entry owes, for display: the frozen per-head figure (T57.1,
+ * issue #126).
+ *
+ * Falls back to the Competition's per-entrant fee for an entry that
+ * records no owed amount — a row written before T57.1, carrying migration
+ * 0029's default of 0. Showing "$0.00 due" for such a row would be worse
+ * than showing the old figure: it states, wrongly and precisely, that
+ * nothing is owed. The fallback is the number this screen displayed for
+ * those rows before this ticket. */
+function amountDue(entry: CompetitionEntrySummary): number {
+  return entry.amountOwedCents || (competition.value?.entryFeeCents ?? 0)
+}
+
 function guestLabel(guestCount: number): string {
   if (guestCount <= 0) return ''
   return guestCount === 1 ? '1 guest' : `${guestCount} guests`
@@ -266,8 +279,12 @@ onMounted(() => {
                 </template>
               </p>
 
-              <!-- T8.10's own component, reused rather than duplicated. -->
-              <UnpaidCashAmount v-if="owesCash(entry)" :amount-cents="competition.entryFeeCents" />
+              <!-- T8.10's own component, reused rather than duplicated.
+                   T57.1 (#126): the amount the ENTRY owes (entry fee per
+                   head), not the per-entrant fee — a Host chasing cash
+                   from a party of three was being told to collect one
+                   entrant's worth. -->
+              <UnpaidCashAmount v-if="owesCash(entry)" :amount-cents="amountDue(entry)" />
             </div>
           </li>
         </ul>

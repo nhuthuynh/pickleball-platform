@@ -11,7 +11,7 @@
 // rather than deciding attribution itself, and why it stays router-free: the
 // landing owns its own "browse instead" navigation.
 import CompetitionEntryPanel from './CompetitionEntryPanel.vue'
-import type { CompetitionSummary, EntrySource } from '../../models/competition'
+import type { CompetitionSummary, ConfirmedEntry, EntrySource } from '../../models/competition'
 import {
   competitionFormatLabel,
   entryFeeLabel,
@@ -56,7 +56,7 @@ const emit = defineEmits<{
    * (T10.6, closes #96) — this component stays router-free (see the header
    * comment: it's reused by both DiscoverCompetitions.vue and
    * CompetitionLanding.vue, each of which owns its own navigation). */
-  payOnline: [entryId: string]
+  payOnline: [entry: ConfirmedEntry]
 }>()
 
 /** A cancelled Competition cannot be entered, so no entry form is rendered
@@ -163,7 +163,7 @@ function cancelled(): boolean {
         :competition="competition"
         :source="source"
         :client="client"
-        @pay-online="(entryId) => emit('payOnline', entryId)"
+        @pay-online="(entry) => emit('payOnline', entry)"
       />
     </div>
   </section>

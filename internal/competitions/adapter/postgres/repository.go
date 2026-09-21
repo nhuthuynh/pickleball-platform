@@ -248,11 +248,16 @@ func (r *Repository) CreateEntry(ctx context.Context, e domain.CompetitionEntry)
 		Source:        string(e.Source),
 		Status:        string(e.Status),
 		PaymentStatus: string(e.PaymentStatus),
+		// T57.1 (#126): always written explicitly, including a 0 for a free
+		// entry — 0 is a real value here, not "unset" (Money.IsZero), so
+		// relying on the column DEFAULT would conflate the two.
+		AmountOwedCents:    e.AmountOwed.AmountCents,
+		AmountOwedCurrency: e.AmountOwed.CurrencyCode,
 	})
 	if err != nil {
 		return domain.CompetitionEntry{}, translateEntryErr(err)
 	}
-	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus), nil
+	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 // ListActiveEntriesForCompetition returns non-cancelled entries only — the
@@ -264,7 +269,7 @@ func (r *Repository) ListActiveEntriesForCompetition(ctx context.Context, compet
 	}
 	out := make([]domain.CompetitionEntry, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus))
+		out = append(out, entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus, row.AmountOwedCents, row.AmountOwedCurrency))
 	}
 	return out, nil
 }
@@ -279,7 +284,7 @@ func (r *Repository) ListEntriesForCompetition(ctx context.Context, competitionI
 	}
 	out := make([]domain.CompetitionEntry, 0, len(rows))
 	for _, row := range rows {
-		out = append(out, entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus))
+		out = append(out, entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus, row.AmountOwedCents, row.AmountOwedCurrency))
 	}
 	return out, nil
 }
@@ -291,7 +296,7 @@ func (r *Repository) GetEntryByID(ctx context.Context, id string) (domain.Compet
 	if err != nil {
 		return domain.CompetitionEntry{}, translateEntryErr(err)
 	}
-	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus), nil
+	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 // UpdateEntryPaymentStatus persists a PaymentStatus transition
@@ -305,7 +310,7 @@ func (r *Repository) UpdateEntryPaymentStatus(ctx context.Context, id string, st
 	if err != nil {
 		return domain.CompetitionEntry{}, translateEntryErr(err)
 	}
-	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus), nil
+	return entryFromFields(row.ID, row.CompetitionID, row.PlayerID, row.GuestCount, row.Source, row.Status, row.PaymentStatus, row.AmountOwedCents, row.AmountOwedCurrency), nil
 }
 
 // CancelAllActiveForCompetition implements
@@ -556,7 +561,7 @@ func sessionFromFields(startsAt, endsAt pgtype.Timestamptz, courtIDs []pgtype.UU
 // playerID is pgtype.UUID as of T29.1, converted via fromNullableUUID for
 // the identical orphan-tolerance reason competitionFromFields's hostID
 // parameter documents.
-func entryFromFields(id, competitionID pgtype.UUID, playerID pgtype.UUID, guestCount int32, source, status, paymentStatus string) domain.CompetitionEntry {
+func entryFromFields(id, competitionID pgtype.UUID, playerID pgtype.UUID, guestCount int32, source, status, paymentStatus string, amountOwedCents int64, amountOwedCurrency string) domain.CompetitionEntry {
 	return domain.CompetitionEntry{
 		ID:            id.String(),
 		CompetitionID: competitionID.String(),
@@ -565,6 +570,10 @@ func entryFromFields(id, competitionID pgtype.UUID, playerID pgtype.UUID, guestC
 		Source:        domain.EntrySource(source),
 		PaymentStatus: domain.PaymentStatus(paymentStatus),
 		Status:        domain.EntryStatus(status),
+		// T57.1 (#126): read back as stored, never recomputed from the
+		// Competition's current EntryFee — recomputing here would defeat
+		// the entire point of freezing it (see CompetitionEntry.AmountOwed).
+		AmountOwed: domain.Money{AmountCents: amountOwedCents, CurrencyCode: amountOwedCurrency},
 	}
 }
 

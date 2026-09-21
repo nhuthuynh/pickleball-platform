@@ -80,7 +80,7 @@ var (
 	// ErrPayableNotFound and ErrAmountMismatch implement issue #297's
 	// server-side amount check (T56.2).
 	//
-	// ErrPayableNotFound is what port.PayableAmountLookup answers when the
+	// ErrPayableNotFound is what port.RegistrationAmountLookup answers when the
 	// payable id resolves to nothing. It is deliberately distinct from
 	// ErrPaymentNotFound above — that one is about a *Payment* this context
 	// owns; this one is about the *thing being paid for*, which lives in

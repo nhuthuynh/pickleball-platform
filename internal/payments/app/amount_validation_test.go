@@ -50,7 +50,7 @@ func amountCheckService(repo *fakeRepository, owed domain.Money) *app.Service {
 		RegistrationLookup: regs,
 		GameLookup:         games,
 		GameAdminReader:    admins,
-		PayableAmounts: fakeAmountLookup{
+		RegistrationAmounts: fakeAmountLookup{
 			owed: map[string]domain.Money{fixtureRegistrationID: owed},
 		},
 	})
@@ -178,7 +178,7 @@ func TestCreateOnlinePayment_WithoutTheLookupTheCheckIsSkipped(t *testing.T) {
 		RegistrationLookup: regs,
 		GameLookup:         games,
 		GameAdminReader:    admins,
-		// PayableAmounts deliberately omitted.
+		// RegistrationAmounts deliberately omitted.
 	})
 
 	if _, err := svc.CreateOnlinePayment(context.Background(), app.CreateOnlinePaymentInput{
@@ -187,6 +187,6 @@ func TestCreateOnlinePayment_WithoutTheLookupTheCheckIsSkipped(t *testing.T) {
 		Amount:      domain.Money{Cents: 1, Currency: "USD"},
 		ActorUserID: fixtureGameHostID,
 	}); err != nil {
-		t.Fatalf("without a PayableAmounts port the check must be skipped, got %v", err)
+		t.Fatalf("without a RegistrationAmounts port the check must be skipped, got %v", err)
 	}
 }

@@ -143,7 +143,7 @@ func seedOnline(t *testing.T, repo *fakeRepository, paymentID string, payableTyp
 	}
 }
 
-// mappingAmountLookup is this file's double for port.PayableAmountLookup
+// mappingAmountLookup is this file's double for port.RegistrationAmountLookup
 // (T56.2, issue #297): fixtureRegistrationID owes `owed`, and every other
 // registration id resolves to nothing.
 //
@@ -164,7 +164,7 @@ func (l mappingAmountLookup) ExpectedAmountForRegistration(_ context.Context, re
 // newMappingHandlerOwing is newMappingHandler with the T56.2 amount lookup
 // wired, as cmd/server wires it. A separate constructor rather than a field
 // on the shared one because the port is optional by design (see
-// ServiceOptions.PayableAmounts): the ~40 existing tests in this package,
+// ServiceOptions.RegistrationAmounts): the ~40 existing tests in this package,
 // none of which are about amounts, must keep reaching the sentinels they
 // are actually about rather than being refused on price first.
 //
@@ -177,13 +177,13 @@ func newMappingHandlerOwing(owed domain.Money, ids ...string) (*grpcapi.Handler,
 	repo := newFakeRepository()
 	proc := stripestub.NewProcessor()
 	svc := app.NewService(app.ServiceOptions{
-		Payments:        repo,
-		IDs:             &fixedIDs{ids: ids},
-		Processor:       proc,
-		WebhookVerifier: webhookstub.NewVerifier(mappingWebhookSecret),
-		WebhookEvents:   newFakeWebhookEventStore(),
-		Identity:        newFakeIdentityLookup(),
-		PayableAmounts:  mappingAmountLookup{owed: owed},
+		Payments:            repo,
+		IDs:                 &fixedIDs{ids: ids},
+		Processor:           proc,
+		WebhookVerifier:     webhookstub.NewVerifier(mappingWebhookSecret),
+		WebhookEvents:       newFakeWebhookEventStore(),
+		Identity:            newFakeIdentityLookup(),
+		RegistrationAmounts: mappingAmountLookup{owed: owed},
 	})
 	return grpcapi.NewHandler(svc), repo, proc
 }

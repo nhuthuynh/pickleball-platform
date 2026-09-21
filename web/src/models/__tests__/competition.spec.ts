@@ -274,7 +274,7 @@ describe('mapToCompetitionSummary (alias of mapToCompetition, used by T9.6)', ()
 })
 
 describe('mapToCompetitionEntry', () => {
-  it('carries guest count, source, payment status, and entry status', () => {
+  it('carries guest count, source, payment status, entry status, and the owed amount', () => {
     const entry = mapToCompetitionEntry({
       id: 'entry-1',
       competitionId: 'comp-1',
@@ -283,6 +283,8 @@ describe('mapToCompetitionEntry', () => {
       source: 'ENTRY_SOURCE_SOCIAL',
       paymentStatus: 'PAYMENT_STATUS_UNPAID',
       status: 'ENTRY_STATUS_ENTERED',
+      // T57.1 (#126): three heads at the Competition's per-entrant fee.
+      amountOwed: { amountCents: '6000', currencyCode: 'GBP' },
     } as never)
 
     expect(entry).toEqual({
@@ -293,7 +295,28 @@ describe('mapToCompetitionEntry', () => {
       source: 'ENTRY_SOURCE_SOCIAL',
       paymentStatus: 'PAYMENT_STATUS_UNPAID',
       status: 'ENTRY_STATUS_ENTERED',
+      amountOwedCents: 6000,
+      amountOwedCurrency: 'GBP',
     })
+  })
+
+  // A pre-T57.1 server sends no amount_owed at all. It must map to a real
+  // zero rather than undefined, so a consumer can compare it without first
+  // checking whether the field exists — the same absent-message handling
+  // entry_fee already gets.
+  it('maps an absent owed amount to zero rather than undefined', () => {
+    const entry = mapToCompetitionEntry({
+      id: 'entry-1',
+      competitionId: 'comp-1',
+      playerId: 'player-7',
+      guestCount: 0,
+      source: 'ENTRY_SOURCE_APP',
+      paymentStatus: 'PAYMENT_STATUS_UNPAID',
+      status: 'ENTRY_STATUS_ENTERED',
+    } as never)
+
+    expect(entry.amountOwedCents).toBe(0)
+    expect(entry.amountOwedCurrency).toBe('')
   })
 })
 

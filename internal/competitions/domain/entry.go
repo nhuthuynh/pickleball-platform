@@ -99,10 +99,37 @@ type CompetitionEntry struct {
 	// Each guest occupies a place exactly as the entrant does — see
 	// Enter's weighted capacity rule. Must be >= 0 and <= the owning
 	// Competition's GuestAllowance.
+	//
+	// As of T57.1 it is also a PRICE input: AmountOwed is the EntryFee
+	// times (1 + GuestCount), computed once by Enter and frozen. There is
+	// no mutation path today — competitions.proto exposes EnterCompetition
+	// and nothing that edits an existing entry, and the repository has no
+	// method that writes this field after creation — so "the price matches
+	// the party" holds by construction rather than by a guard, and no
+	// guard is added here for an operation that does not exist. A future
+	// ticket adding one must either recompute AmountOwed or refuse the
+	// change once a Payment exists; changing this number without touching
+	// that one silently makes the two disagree.
 	GuestCount    int
 	Source        EntrySource
 	PaymentStatus PaymentStatus
 	Status        EntryStatus
+	// AmountOwed is what this entry owes: the Competition's EntryFee once
+	// per HEAD — the entrant plus GuestCount guests — FROZEN at the moment
+	// Enter built it (T57.1, Competitions' half of issue #126).
+	//
+	// Frozen, not derived on read. A Host who raises the Competition's
+	// EntryFee afterwards must not retroactively change what an entrant
+	// already agreed to pay, and Payments validates a payment against this
+	// figure (T57.2), which only means something if the figure is the one
+	// actually agreed rather than one that can move underneath it. It may
+	// therefore disagree with EntryFee × (1 + GuestCount) for an entry made
+	// before a price change, and that disagreement is the historical
+	// record, not drift to be reconciled away.
+	//
+	// See GuestCount's doc comment for what a future ticket adding a
+	// change-your-guests path owes this field.
+	AmountOwed Money
 }
 
 // Enter builds a new CompetitionEntry for playerID against competition,
@@ -173,6 +200,10 @@ func Enter(competition Competition, existing []CompetitionEntry, playerID string
 		Source:        source,
 		PaymentStatus: PaymentStatusUnpaid,
 		Status:        EntryStatusEntered,
+		// T57.1 (#126): priced LAST, after every rejection above, so a
+		// refused entry is never priced and guestCount is known good by
+		// the time it reaches the arithmetic.
+		AmountOwed: ExpectedAmount(competition, guestCount),
 	}, nil
 }
 

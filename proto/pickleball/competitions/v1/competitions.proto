@@ -196,6 +196,31 @@ message CompetitionEntry {
   EntrySource source = 5;
   PaymentStatus payment_status = 6;
   EntryStatus status = 7;
+
+  // amount_owed mirrors
+  // internal/competitions/domain.CompetitionEntry.AmountOwed (T57.1, the
+  // Competitions half of issue #126): the Competition's entry_fee once per
+  // HEAD — the entrant plus their guest_count guests — FROZEN at the moment
+  // of entry.
+  //
+  // It is on the wire rather than left to the client to compute, and that is
+  // the whole point of the field. A client multiplying Competition.entry_fee
+  // by (1 + guest_count) itself would get the CURRENT price, not the one this
+  // entrant agreed to; the two differ the moment a Host edits the fee. As of
+  // T57.2 the server validates every online payment for a CompetitionEntry
+  // against this exact figure, so a client that derives its own number
+  // instead of sending this one is refused with INVALID_ARGUMENT — deriving
+  // it is not merely discouraged, it no longer works.
+  //
+  // Always emitted, including for a free entry (amount_cents 0), for the same
+  // reason Competition.entry_fee is: a client must be able to tell "this is
+  // free" from "the server never populated this".
+  //
+  // PCI guardrail (CLAUDE.md rule 11, docs/checklists/proto-review.md): this
+  // is Money, an amount and a currency code, on a RESPONSE message. It admits
+  // no card-shaped field of any kind and adds nothing to any request DTO — no
+  // PAN, card number, CVV, or track data enters this backend by it.
+  Money amount_owed = 8;
 }
 
 message CreateCompetitionRequest {

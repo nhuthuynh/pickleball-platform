@@ -1,0 +1,81 @@
+-- T57.1 — Competitions' mirror of 0028: a CompetitionEntry records what it
+-- owes, frozen at entry time — the Competition's entry fee once per HEAD.
+--
+-- 0029 is the next free number: db/migrations ended at 0028
+-- (0028_socialplay_registration_amount_owed.sql), confirmed by listing the
+-- directory rather than assuming a plan's number was still free.
+--
+-- WHY THIS COLUMN EXISTS
+--
+-- Issue #126's Product Owner answer on 2026-09-04 was "per head, including
+-- guests". T56.1 applied that to Social Play and explicitly left
+-- Competitions out of scope, so for one sprint a Game charged per head and
+-- a Competition did not, with nothing in either context saying why. One
+-- rule with an undocumented exception is not a ubiquitous language
+-- (CLAUDE.md rule 7); this closes the gap.
+--
+-- The defect itself is the same one 0028 describes: competitions.entry_fee_
+-- cents is the price of ONE entry, and nothing multiplied it by the party
+-- size, so an entrant bringing three guests paid for one. The weighted
+-- capacity trigger enforce_competition_capacity() (0014_competitions.sql)
+-- has always counted each guest as occupying a place — so a Competition was
+-- correctly sold out by four heads while being billed for one. The price
+-- never learned what the capacity rule already knew.
+--
+-- WHY FROZEN ON THE ENTRY RATHER THAN DERIVED FROM THE COMPETITION
+--
+-- Identical reasoning to 0028's, and deliberately so — this is one rule in
+-- two contexts, not two rules:
+--
+--   1. A Host who raises the entry fee after someone entered must not
+--      retroactively change what that entrant agreed to pay. A derived
+--      figure would do exactly that, silently.
+--   2. T57.2 makes Payments validate a payment against this figure. That
+--      check only means something if the figure is the one actually agreed
+--      at entry, not one that can move underneath it.
+--
+-- The cost is the usual cost of denormalising: this column can drift from
+-- competitions.entry_fee_cents * (1 + guest_count), and *that is the point*
+-- — the drift is the historical record, not a bug to be reconciled away.
+--
+-- WHY guest_count IS SAFE TO FREEZE AGAINST TODAY
+--
+-- guest_count is written once, by EnterCompetition, and has no mutation
+-- path: competitions.proto exposes no RPC that edits an existing entry, and
+-- the only post-creation write in db/queries/competitions.sql is
+-- UpdateCompetitionEntryPaymentStatus, whose single-column shape exists
+-- precisely so it cannot touch anything else. So "the price matches the
+-- party" holds by construction rather than by a guard, and no guard is
+-- added here for an operation that does not exist. A future ticket adding
+-- a change-your-guests path must either recompute this column or refuse the
+-- change once a Payment exists — see domain.CompetitionEntry.GuestCount's
+-- doc comment, which carries the same warning where a Go reader will hit it.
+--
+-- BACKFILL, AND WHY THE DEFAULT IS 0 RATHER THAN THE COMPUTED AMOUNT
+--
+-- DEFAULT 0 mirrors 0028's choice and 0014's own default for
+-- competitions.entry_fee_cents. 0 is a real value in this domain (a free
+-- entry) rather than a sentinel — see domain.Money.IsZero.
+--
+-- A cleverer backfill (UPDATE ... SET amount_owed_cents = entry_fee_cents *
+-- (1 + guest_count) FROM competitions ...) is deliberately NOT done, for
+-- 0028's reason: existing rows were created under the flat-per-entry rule
+-- and their entrants were charged accordingly; rewriting history to say
+-- they owed more would manufacture arrears nobody agreed to. On the only
+-- path this migration ever runs — docker-compose initdb.d on a FRESH
+-- volume, per CLAUDE.md's migration gotcha — the table is empty and the
+-- question is moot anyway. Adopt golang-migrate/goose before production, at
+-- which point a real backfill decision is owed for real rows.
+
+ALTER TABLE competition_entries
+    ADD COLUMN amount_owed_cents bigint NOT NULL DEFAULT 0,
+    ADD COLUMN amount_owed_currency text NOT NULL DEFAULT 'USD';
+
+-- The DB-side half of domain.Money.Validate's "no negative amount" rule
+-- (CLAUDE.md rule 4: invariants live in Postgres AND the domain, and the
+-- two must be kept in sync if either changes). Mirrors
+-- registrations_amount_owed_cents_non_negative from 0028 exactly — there is
+-- no entry that pays an entrant to compete.
+ALTER TABLE competition_entries
+    ADD CONSTRAINT competition_entries_amount_owed_cents_non_negative
+        CHECK (amount_owed_cents >= 0);

@@ -855,5 +855,9 @@ func toProtoEntry(e domain.CompetitionEntry) *competitionsv1.CompetitionEntry {
 		Source:        toProtoEntrySource(e.Source),
 		PaymentStatus: toProtoPaymentStatus(e.PaymentStatus),
 		Status:        toProtoEntryStatus(e.Status),
+		// T57.1 (#126): the frozen per-head figure, always emitted — a
+		// client must send exactly this back on CreateOnlinePayment, and
+		// as of T57.2 anything else is refused.
+		AmountOwed: toProtoMoney(e.AmountOwed),
 	}
 }
