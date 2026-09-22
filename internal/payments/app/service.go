@@ -410,7 +410,7 @@ func (s *Service) CreateOnlinePayment(ctx context.Context, in CreateOnlinePaymen
 	// Placed AFTER authorization and the shape guard, deliberately: an
 	// unauthorized caller must not learn what a payable costs, and a
 	// malformed id must not reach a cross-context lookup.
-	if err := s.ensureAmountMatchesPayable(ctx, in); err != nil {
+	if err := s.ensureAmountMatchesPayable(ctx, in.PayableType, in.PayableID, in.Amount); err != nil {
 		return domain.Payment{}, err
 	}
 
@@ -732,6 +732,23 @@ func (s *Service) RecordOfflinePayment(ctx context.Context, in RecordOfflinePaym
 		return domain.Payment{}, domain.ErrEmptyPayableID
 	}
 
+	// T58 (issue #299): the recorded amount is CHECKED, not believed —
+	// the same rule, ports and sentinel the online path uses.
+	//
+	// Placed here for the same reasons CreateOnlinePayment places it in the
+	// same spot (an unauthorized caller must not learn what a payable costs;
+	// a malformed id must not reach a cross-context lookup) and one that is
+	// sharper on this path: a Payment created here is StatusPaid
+	// immediately, with no confirm step, so a wrong figure that got past
+	// this line would reach reconciliation within the same call and settle
+	// the debt. Refusing before anything is created also leaves the
+	// payable's one Payment slot free, so the correct amount can be
+	// recorded straight after — see ensureAmountMatchesPayable on why that
+	// slot is singular.
+	if err := s.ensureAmountMatchesPayable(ctx, in.PayableType, in.PayableID, in.Amount); err != nil {
+		return domain.Payment{}, err
+	}
+
 	p, err := domain.NewPayment(s.ids.NewID(), in.PayableType, in.PayableID, in.Amount, domain.MethodOffline, in.ActorUserID)
 	if err != nil {
 		return domain.Payment{}, err
@@ -1017,9 +1034,34 @@ func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput
 }
 
 // ensureAmountMatchesPayable rejects a payment whose amount is not what the
-// payable actually owes (T56.2, issue #297).
+// payable actually owes (T56.2, issue #297; extended to the offline path by
+// T58, issue #299).
 //
-// # Scope: registration payables only, and why the others are not checked
+// # Both paths, one rule
+//
+// CreateOnlinePayment and RecordOfflinePayment both call this. They used
+// not to, and the asymmetry was the whole of #299: a Game Admin could
+// record $1.00 of cash against a $30.00 registration and reconciliation
+// would mark it settled, while the identical figure sent online was
+// refused.
+//
+// The offline exemption was originally defended on the grounds that a cash
+// part-payment may be legitimate. That defence did not survive contact with
+// the schema. payments_payable_unique_idx (db/migrations/0005_payments.sql)
+// permits exactly ONE Payment per (payable_type, payable_id), so a
+// part-payment was never supported-but-unvalidated — it was impossible: the
+// $20.00 record takes the slot, the payable is marked paid in full (see
+// reconcileRegistrationPaymentStatus, which keys off a Payment's existence
+// and never its amount), and the remaining $10.00 can never be recorded.
+// Exact-match is the only rule consistent with one-Payment-per-payable: if
+// a caller may record exactly one Payment, it must be the whole amount or
+// the record is a lie. (Product Owner decision, 2026-09-22.)
+//
+// Real part-payments — dropping that index, tracking amount-paid against
+// amount-owed, deriving payment status across Social Play and Competitions
+// — remain unbuilt and are deliberately not smuggled in here.
+//
+// # Scope: which payable types are checked, and why the others are not
 //
 // Each exclusion is a considered decision, not an oversight:
 //
@@ -1038,7 +1080,11 @@ func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput
 //     larger change than this ticket.
 //   - **no_show_fee** — NOT checked, and arguably never should be. The
 //     amount is whatever the Game Admin decided to charge; there is no
-//     "correct" figure for it to match.
+//     "correct" figure for it to match. Note this type shares a payable id
+//     with a Registration (the fee is levied against one), so the switch
+//     below dispatches on the payable TYPE and never on the id alone —
+//     keying off the id would compare every no-show fee to the entry price
+//     and refuse all of them. Pinned by a test.
 //
 // # Why the lookup failing is fatal rather than skipped
 //
@@ -1058,8 +1104,8 @@ func (s *Service) RefundForPayable(ctx context.Context, in RefundForPayableInput
 // CreateOnlinePayment authorizes, so answering ErrAmountMismatch to a
 // stranger would turn this into a price oracle for competitions they have
 // nothing to do with. Pinned by a test.
-func (s *Service) ensureAmountMatchesPayable(ctx context.Context, in CreateOnlinePaymentInput) error {
-	owed, checked, err := s.expectedAmountFor(ctx, in)
+func (s *Service) ensureAmountMatchesPayable(ctx context.Context, payableType domain.PayableType, payableID string, amount domain.Money) error {
+	owed, checked, err := s.expectedAmountFor(ctx, payableType, payableID)
 	if err != nil {
 		return err
 	}
@@ -1070,32 +1116,36 @@ func (s *Service) ensureAmountMatchesPayable(ctx context.Context, in CreateOnlin
 	// Both halves compared: the currency is part of the amount, and "2500"
 	// in the wrong currency is a different sum of money, not a rounding
 	// difference.
-	if in.Amount.Cents != owed.Cents || in.Amount.Currency != owed.Currency {
+	if amount.Cents != owed.Cents || amount.Currency != owed.Currency {
 		return domain.ErrAmountMismatch
 	}
 	return nil
 }
 
-// expectedAmountFor resolves what in's payable owes, reporting `checked`
-// false when this payable type has no owed-amount concept or its lookup is
-// unwired — the two ways the check is legitimately skipped.
+// expectedAmountFor resolves what the named payable owes, reporting
+// `checked` false when this payable type has no owed-amount concept or its
+// lookup is unwired — the two ways the check is legitimately skipped.
+//
+// Takes the payable's type and id rather than an input struct (T58) so the
+// online and offline paths, whose inputs are different types, can share one
+// implementation instead of each growing its own near-copy.
 //
 // Split out from ensureAmountMatchesPayable so the comparison above is
 // stated once for every payable type rather than repeated per branch: two
 // copies of `Cents != owed.Cents || Currency != owed.Currency` is exactly
 // how one of them later grows a subtle difference nobody intended.
-func (s *Service) expectedAmountFor(ctx context.Context, in CreateOnlinePaymentInput) (owed domain.Money, checked bool, err error) {
-	switch in.PayableType {
+func (s *Service) expectedAmountFor(ctx context.Context, payableType domain.PayableType, payableID string) (owed domain.Money, checked bool, err error) {
+	switch payableType {
 	case domain.PayableTypeRegistration:
 		if s.registrationAmounts == nil {
 			return domain.Money{}, false, nil
 		}
-		owed, err = s.registrationAmounts.ExpectedAmountForRegistration(ctx, in.PayableID)
+		owed, err = s.registrationAmounts.ExpectedAmountForRegistration(ctx, payableID)
 	case domain.PayableTypeCompetitionEntry:
 		if s.entryAmounts == nil {
 			return domain.Money{}, false, nil
 		}
-		owed, err = s.entryAmounts.ExpectedAmountForCompetitionEntry(ctx, in.PayableID)
+		owed, err = s.entryAmounts.ExpectedAmountForCompetitionEntry(ctx, payableID)
 	default:
 		// booking and no_show_fee: no owed-amount concept to check
 		// against. See ensureAmountMatchesPayable's scope section — each

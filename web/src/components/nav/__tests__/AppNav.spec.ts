@@ -170,7 +170,10 @@ describe('AppNav', () => {
           return {
             data: {
               registrations: [
-                { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 },
+                // T56.1: the frozen owed figure a real server returns.
+                // Without it, T58's filter drops the row and this badge
+                // would count 0 for a reason unrelated to the badge.
+                { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0, amountOwed: { amountCents: '2500', currencyCode: 'USD' } },
               ],
             },
             error: undefined,
@@ -242,7 +245,10 @@ describe('AppNav', () => {
           return {
             data: {
               registrations: [
-                { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 },
+                // T56.1: the frozen owed figure a real server returns.
+                // Without it, T58's filter drops the row and this badge
+                // would count 0 for a reason unrelated to the badge.
+                { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0, amountOwed: { amountCents: '2500', currencyCode: 'USD' } },
               ],
             },
             error: undefined,

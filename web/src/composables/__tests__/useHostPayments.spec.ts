@@ -30,6 +30,29 @@ function gameListing(overrides: Partial<{
   }
 }
 
+// T56.1/T58 — a real server always returns amount_owed on a Registration
+// (entry fee x heads, frozen at registration). This fixture fills it in
+// when a test does not state one, so every registration here has the shape
+// a live server produces rather than a pre-T56.1 one.
+//
+// That matters more than it looks: T58 makes `load` skip a registration
+// recording no owed amount, because the server would refuse any figure we
+// sent for it. Without this defaulting, every fixture in this file would
+// silently vanish from the dashboard and the tests would be asserting
+// against an empty list for reasons unrelated to what they are about — the
+// fixture-infidelity failure docs/LESSONS.md's T9 entry describes.
+//
+// A test that specifically wants a pre-T56.1 row states `amountOwed: null`
+// and gets one.
+function withOwedAmount(raw: Record<string, unknown>, entryFeeCents: number): Record<string, unknown> {
+  if ('amountOwed' in raw) {
+    const { amountOwed, ...rest } = raw
+    return amountOwed === null ? rest : raw
+  }
+  const heads = 1 + Number(raw.guestCount ?? 0)
+  return { ...raw, amountOwed: { amountCents: String(entryFeeCents * heads), currencyCode: 'USD' } }
+}
+
 function fakeClient(handlers: {
   games?: unknown[]
   registrationsByGame?: Record<string, unknown[]>
@@ -40,8 +63,15 @@ function fakeClient(handlers: {
     }
     if (path === '/v1/games/{gameId}/registrations') {
       const gameId = options.params?.path?.gameId ?? ''
+      const listing = (handlers.games ?? []).find(
+        (g) => (g as { game: { id: string } }).game.id === gameId,
+      ) as { game: { entryFee?: { amountCents?: string } } } | undefined
+      const fee = Number(listing?.game.entryFee?.amountCents ?? 0)
+      const regs = (handlers.registrationsByGame?.[gameId] ?? []).map((r) =>
+        withOwedAmount(r as Record<string, unknown>, fee),
+      )
       return {
-        data: { registrations: handlers.registrationsByGame?.[gameId] ?? [] },
+        data: { registrations: regs },
         error: undefined,
         response: { status: 200 },
       }
@@ -287,24 +317,56 @@ describe('useHostPayments — per-head amounts (T56.1)', () => {
     expect(pending.value[0]!.amountOwedCurrency).toBe('USD')
   })
 
-  // A Registration written before T56.1 carries amount_owed 0 (the
-  // migration's default). Recording 0 would be refused by the Payments
-  // domain and the row would be a button that can only fail — the exact
-  // condition the free-Game filter above already exists to prevent — so
-  // the per-player fee remains the fallback for those rows. It is the
-  // figure they were created under, and it is what this dashboard
-  // recorded for them before this ticket.
-  it('falls back to the entry fee for a pre-T56.1 registration that records no owed amount', async () => {
+  // RETIRED by T58 (issue #299), deliberately left as a note rather than
+  // deleted silently.
+  //
+  // T56.1 gave a Registration recording no owed amount a fallback to the
+  // Game's per-player entry fee, and this test pinned it. T58 makes the
+  // server validate the recorded amount, which refuses that fallback
+  // figure (the payable owes 0, not the entry fee) — and refuses 0 too, as
+  // an invalid amount. The row became unpayable by any figure, so the
+  // fallback stopped being a rescue and became a guaranteed failure.
+  //
+  // The replacement behaviour — such rows are filtered out of the
+  // dashboard, like a free Game's — is pinned by
+  // 'excludes a registration that records no owed amount on a paid game'
+  // in the T58 block at the end of this file.
+})
+
+// T58 (issue #299) — the server now validates the recorded amount, and that
+// makes one of this dashboard's own fallbacks unsafe.
+//
+// Before T58, a Registration carrying no owed amount (migration 0028's
+// default of 0, i.e. a row written before T56.1) fell back to the Game's
+// per-player entry fee, and RecordOfflinePayment accepted whatever it was
+// sent. Now the server compares against what the payable owes — which for
+// such a row is 0 — so the fallback figure is REFUSED, and 0 is refused too
+// (domain.NewPayment rejects a zero amount). The row is unpayable either
+// way.
+//
+// That is precisely the condition the free-Game filter above already exists
+// to prevent: a "Mark paid" button that could only ever fail. Same
+// treatment, same reason.
+describe('useHostPayments — rows whose owed amount is unknown (T58)', () => {
+  it('excludes a registration that records no owed amount on a paid game', async () => {
     const client = fakeClient({
       games: [gameListing({ id: 'g1', hostId: 'host-1', paymentMethod: 'PAYMENT_METHOD_CASH', entryFeeCents: 1000 })],
       registrationsByGame: {
-        g1: [{ id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0 }],
+        g1: [
+          // Pre-T56.1: no amount_owed on the wire at all.
+          { id: 'r-legacy', gameId: 'g1', playerId: 'p1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 0, amountOwed: null },
+          // Post-T56.1: a real frozen figure.
+          { id: 'r-current', gameId: 'g1', playerId: 'p2', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 1, amountOwed: { amountCents: '2000', currencyCode: 'USD' } },
+        ],
       },
     })
 
     const { pending, load } = useHostPayments(client, fakePaymentsClient({}))
     await load('host-1')
 
-    expect(pending.value[0]!.amountOwedCents).toBe(1000)
+    // The payable row survives; the unpayable one does not. Both filtered
+    // and kept, so a filter that dropped everything would not pass.
+    expect(pending.value.map((p) => p.registrationId)).toEqual(['r-current'])
+    expect(pending.value[0]!.amountOwedCents).toBe(2000)
   })
 })
