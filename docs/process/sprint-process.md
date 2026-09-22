@@ -246,7 +246,28 @@ split is by **how long the record has to last**, not by preference:
    durable record. This is the half BA was right about, and it is what
    T11's retro finding 4 identified from the other direction.
 
-3. **Label taxonomy follows the split** — see "Label taxonomy" below.
+3. **A deliberate scope exclusion is a deferred item, and gets an issue.**
+   Adopted at T59 from `docs/process/t57-retro.md` recommendation 1. Rule 2
+   covers a gap you *found*; this extends it to a gap you *chose to leave* —
+   "X is out of scope for this ticket", written into shipped code or a
+   merged PR body. They have identical half-lives, and the second is more
+   dangerous because it reads as settled rather than outstanding.
+
+   **The worked example is T56.2.** Its exclusion of `competition_entry`
+   from amount validation was correct when written — Competitions had no
+   frozen owed amount to compare against — and one sprint later the system
+   refused a 99% underpayment for a Registration and accepted it for an
+   entry, with nothing but a ticket boundary explaining the difference. A
+   reader encountering that in month six would find two rules and assume
+   one was deliberate. T57 closed it, but because its author remembered,
+   not because anything required it.
+
+   **Threshold and action** (per the counter rule below): an exclusion that
+   is still in the tree at the *next* Ceremony 1 either has an issue or gets
+   one at that ceremony. An exclusion that will never be revisited is not an
+   exclusion, it is a decision, and belongs in an ADR instead.
+
+4. **Label taxonomy follows the split** — see "Label taxonomy" below.
 
 **First worked examples.** T12's Ceremony 1 opened these four under rule 2,
 each a real item that had survived multiple sprints as prose only:
@@ -316,6 +337,84 @@ The three in the first row had been "blocked" for the same reason D1 was:
 **nobody had asked.** They were answered within one exchange of being put to
 the user. That is the pattern this split exists to make visible before it
 costs another 24 sprints.
+
+### The sweep re-verifies premises, not only blockers
+
+Adopted at T59 from `docs/process/t56-retro.md` recommendations 1 and 2, and
+from `docs/process/t58-retro.md`'s finding that the same failure had
+occurred twice.
+
+**The rule.** When Ceremony 1 re-reads each open issue, it asks **two**
+questions, not one:
+
+1. **Is the blocker still in place?** (the question every sweep from T13
+   onward has asked)
+2. **Is what the issue describes still true of the tree?** — verified
+   against the code, never against the issue's own prose.
+
+**No age threshold.** The obvious form of this rule ("re-check issues older
+than N sprints") would have caught neither instance:
+
+| Issue | Asserted | Falsified by | Age when filed |
+|---|---|---|---|
+| #126 | "no price/fee field at all" | `0013_socialplay_entry_fee.sql`, added 9 days earlier | **9 days** |
+| #299 | "a part-payment may legitimately be recorded" | `payments_payable_unique_idx`, in place since T5 | **written false** |
+
+Both were filed by this project, five weeks apart, each asserting something
+about the system its author had not checked against the system. #126 quoted
+a correct T8.10 inspection at T12 in the present tense; #299 reasoned about
+the domain without reading the constraint. Age is a proxy for wrongness and
+a bad one.
+
+**The companion obligation, on the filing side.** An issue asserting what
+the code *currently* does must say **where and when that was verified** —
+"as of T8.10" rather than a bare present tense. Had #126 carried its date,
+its staleness would have been visible on the page to every one of the 23
+sweeps that re-read it.
+
+**Threshold and action.** Every issue, every Ceremony 1. A drifted premise
+is corrected **on the issue** (see below), not merely noted in the ceremony
+document — the next reader picks up the issue, not the ceremony.
+
+**First run, T59:** fired immediately. #149 names five caller-supplied
+ownership facts; four had been closed by T16.2 and T17.1 without the issue
+being updated, leaving one. Twenty-plus sweeps had re-verified its blocker
+and never its premise.
+
+### When an issue's analysis is corrected, correct the issue
+
+Adopted at T59 from `docs/process/t58-retro.md` recommendation 3.
+
+An issue is read by whoever picks it up next, usually without its retro or
+its ceremony document. Leaving a falsified premise in the issue body while
+correcting it in a retro reproduces the original failure one layer down —
+the correction is now the thing nobody re-reads.
+
+**The rule.** When work shows an issue's analysis to be wrong or outdated,
+the correction goes **on the issue** as a comment, stating what was wrong,
+what is actually true, and what the options or scope reduce to. Closing it
+is a separate decision: #299 was corrected *and* closed; #149 is corrected
+and stays open, because one real hole remains.
+
+### A third "safety net hid a defect" goes to LESSONS
+
+Adopted at T59 from `docs/process/t58-retro.md` recommendation 4. A counter
+with a threshold and an action, per the rule below.
+
+**The pattern.** Something whose job is to make failure visible instead made
+a broken thing look fine:
+
+| # | Instance | Sprint | Caught |
+|---|---|---|---|
+| 1 | Deleting the line that puts `amount_owed` on the wire left every Go gate green | T56 | pre-merge review |
+| 2 | An entry-fee fallback hid a live assertion error — `HostPayments.spec` asserted a guest-bringing registration records one player's fee, which is #126's own defect asserted as *correct* | T58 | removing the fallback |
+
+**Threshold: two.** Both were caught pre-merge, so neither is an incident
+and both are correctly retro findings.
+
+**Action at three:** the third instance is written up in `docs/LESSONS.md`
+as a postmortem, whether or not it reached a merge — at three, the pattern
+is recurring after being named, which is itself the finding.
 
 ### The dependency-completeness check
 
