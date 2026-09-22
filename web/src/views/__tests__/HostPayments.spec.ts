@@ -47,7 +47,11 @@ function socialplayClientStub(): SocialPlayClient {
         return {
           data: {
             registrations: [
-              { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 1 },
+              // T56.1: two heads at this Game's entry fee — the shape a
+              // real server returns. Without amount_owed, T58's filter
+              // (a row whose owed amount is unknown cannot be paid for,
+              // so it is not offered) correctly drops this fixture.
+              { id: 'r1', gameId: 'g1', playerId: 'player-1', status: 'REGISTRATION_STATUS_REGISTERED', paymentStatus: 'PAYMENT_STATUS_UNPAID', guestCount: 1, amountOwed: { amountCents: '2000', currencyCode: 'USD' } },
             ],
           },
           error: undefined,
@@ -125,11 +129,18 @@ describe('HostPayments', () => {
     await wrapper.find('.host-payments__mark-paid').trigger('click')
     await flushPromises()
 
+    // T56.1/T58: 2000, not 1000. This registration brings a guest, so it
+    // owes two heads at the Game's 1000 entry fee. The old assertion of
+    // 1000 was the #126 defect itself — it kept passing after T56.1 only
+    // because the fixture carried no amount_owed and the composable fell
+    // back to the per-player fee. T58 removed that fallback (the server
+    // now validates the figure and would refuse it), so the fixture states
+    // what a real server returns and the assertion states what is owed.
     expect(paymentsClient.POST).toHaveBeenCalledWith('/v1/payments:recordOffline', {
       body: {
         payableType: 'PAYABLE_TYPE_REGISTRATION',
         payableId: 'r1',
-        amount: { amountCents: '1000', currencyCode: 'USD' },
+        amount: { amountCents: '2000', currencyCode: 'USD' },
         actorUserId: MOCK_HOST_ID,
         gameHostId: MOCK_HOST_ID,
       },

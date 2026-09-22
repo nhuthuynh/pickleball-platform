@@ -45,12 +45,15 @@ export interface PendingCashPayment {
    * fee once per HEAD, frozen when the player registered. THIS is what
    * `markPaid` records and what the dashboard shows.
    *
-   * Falls back to the entry fee when the Registration records no owed
-   * amount — a row written before T56.1, carrying migration 0028's
-   * default of 0. Recording 0 would be rejected outright by the Payments
-   * domain, turning the row's "Mark paid" button into one that can only
-   * fail; the entry fee is both the figure those rows were created under
-   * and what this dashboard already recorded for them. */
+   * Always > 0 here. T56.1 shipped an entry-fee FALLBACK for a
+   * Registration recording no owed amount (migration 0028's default of 0,
+   * i.e. a row written before T56.1); T58 removed it, because the server
+   * now validates the recorded amount against what the payable owes and
+   * would refuse that fallback figure. Such a row is unpayable either way
+   * — the fallback is refused as a mismatch, and 0 is refused as an
+   * invalid amount — so `load` filters it out rather than offering a
+   * button that can only fail, exactly as it already does for a free
+   * Game. */
   amountOwedCents: number
   amountOwedCurrency: string
 }
@@ -129,6 +132,17 @@ export function useHostPayments(
         if (regError || !regData) continue
         for (const raw of regData.registrations ?? []) {
           if (raw.paymentStatus !== 'PAYMENT_STATUS_UNPAID') continue
+
+          // T58 (issue #299): a row that records no owed amount cannot be
+          // paid for at all now that the server validates the figure —
+          // anything we send is a mismatch, and 0 is an invalid amount.
+          // Same correctness filter as the free-Game one above, and for
+          // the same stated reason: no "Mark paid" button that can only
+          // fail. Free Games never reach here, so a 0 at this point means
+          // "not recorded", not "free".
+          const owed = Number(raw.amountOwed?.amountCents ?? 0)
+          if (owed <= 0) continue
+
           results.push({
             registrationId: raw.id ?? '',
             gameId: game.id,
@@ -138,12 +152,7 @@ export function useHostPayments(
             gameLabel: formatGameRange(game.startsAt, game.endsAt),
             entryFeeCents: game.entryFeeCents,
             entryFeeCurrency: game.entryFeeCurrency,
-            // T56.1: the frozen per-head figure, with the Game's
-            // per-player fee as the pre-T56.1 fallback — see
-            // PendingCashPayment.amountOwedCents for why 0 is treated as
-            // "not recorded" here specifically and not as a free
-            // registration (free Games never reach this list at all).
-            amountOwedCents: Number(raw.amountOwed?.amountCents ?? 0) || game.entryFeeCents,
+            amountOwedCents: owed,
             amountOwedCurrency: raw.amountOwed?.currencyCode || game.entryFeeCurrency,
           })
         }
