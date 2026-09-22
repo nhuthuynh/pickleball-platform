@@ -78,6 +78,9 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T53 | `docs/process/t53-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T52 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T52's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the thirty-second 0-ticket sprint in this project's history by total count and the twenty-fourth sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T53) since T28 broke the T20–T27 streak) | `docs/process/t53-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T52 row correction, landed by T53's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-nine and confirmed D1's silence counter at forty (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T53 row/narrative, per the now-settled convention, leaving it for T54's Ceremony 1; 7 recommendations for T54) | PR #288 (Ceremony 1/2 doc) → PR #289 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:32:31Z` → `11:37:45Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T54 | `docs/process/t54-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T53 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep) | not yet written | not yet opened | — | — |
 | T55 | **No sprint-plan document — deliberately.** T55 held no planning ceremony: it resumed an interrupted T54 session and its first act was to put the two standing escalations (D1, D2) to the user rather than open a third consecutive 0-ticket plan. That is now the behaviour `sprint-process.md`'s escalation rule requires of every Ceremony 1, adopted this sprint from T54's retro | not yet written | PR #291 (T55.1, `442bc68`) → #292 (T55.2+T55.3, `797e6b3`) → #293 (T55.4, `9e039ab`) → #294 (process, `725ac72`), in that merge order — **verified by merging in that sequence**, not inferred from numbering. #292 and #293 were each rebased onto the shared branch before merge, because each was stacked on its predecessor's pre-squash branch. All four reviewed via GitHub PR reviews (PE + QA passes), each disclosing that the reviewing session also authored the code and that the Docker-backed integration tests were never executed | `adr/0015` and `adr/0016` both moved **Escalated → Accepted** — D1 = option (a) authenticate the flow; D2 = option (b) the bounded carve-out, verbatim and unrelaxed. Neither is a new ADR; both are resolutions of existing ones, with their original questions and option tables preserved | `docs/process/t54-retro.md` recommendations 1–4 applied to `docs/process/sprint-process.md`; `CLAUDE.md` rule 9 gains D2's five-condition reviewer-authorship carve-out |
+| T56 | **No sprint-plan document.** T56 continued T55's session directly: #126 and #297 were already answered/filed, so it built rather than planned. Same posture `sprint-process.md`'s escalation rule now requires — ask or build, do not open a ceremony to restate a known backlog | not yet written | PR #298 (`62e6af3`), reviewed via a GitHub PR review (engineer + QA passes). **That review found a defect and is the reason this row exists as a warning**: deleting the one line that puts `amount_owed` on the wire left `test-domain`, `test-adapters` and `test-cmd` all green — measured, not reasoned about. Fixed in the same PR before merge and disclosed in the review | none new | — |
+| T57 | **No sprint-plan document** — the Competitions mirror of T56, taken directly from T56's own stated scope exclusion | not yet written | PR #300 (`bc3668c`), reviewed via a GitHub PR review. Stacked on #298; rebased onto the shared branch and retargeted after #298 squash-merged | none new | — |
+| T58 | **No sprint-plan document.** Answered #299's standing question before building: the investigation found the issue's own premise false (see the T58 narrative), so the options were re-put to the Product Owner rather than built as filed | not yet written | PR #301 (`619a974`), reviewed via a GitHub PR review including an explicit bypass hunt (payable-type confusion, the webhook path, and a `grep`-verifiable claim that exactly two call sites create a Payment) | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -3796,7 +3799,10 @@ exchange of being asked:
   cancellation; paid registrations refunded automatically on host-initiated
   cancellation.
 - **#126's pricing question** → per head, including guests. *Answered but
-  not yet built* — see below.
+  not yet built* as of T55 — **built in T56 (Social Play) and T57
+  (Competitions)**, which closed it; see the T56–T58 section below. This
+  sentence is left as T55's own record rather than rewritten, since "answered
+  but not built" is what was true at the time.
 - **#130's projection question** → a no-show-fee refund projects **nothing**.
 
 D1 had been unanswered for **41 sprints**. That is the finding
@@ -3849,20 +3855,132 @@ and should be run before anything depends on that invariant holding.
 
 Retro not yet written.
 
+**T56–T58 — three sprints that closed the money-amount hole end to end.
+Three tickets built and merged, three issues closed, one issue's premise
+corrected.**
+
+Like T55, none of the three held a planning ceremony. T56 and T57 built from
+a backlog already answered; T58's first act was to re-put a question to the
+Product Owner because its own issue turned out to rest on a false premise.
+
+**What was wrong.** `Game.EntryFee` and `Competition.EntryFee` priced ONE
+participant, and nothing multiplied by the party size anywhere in the stack,
+so a player or entrant bringing three guests paid for one (#126). Separately,
+`CreateOnlinePayment` took the amount off the wire and compared it to nothing,
+so a $25.00 Game could be paid for with one cent and the Registration was
+then marked paid in full (#297). `RecordOfflinePayment` did the same (#299).
+
+Competitions makes the first defect vivid: `domain.Enter` and
+`enforce_competition_capacity()` both sum `(1 + GuestCount)`, so a Competition
+was correctly **sold out** by four heads while being **billed** for one. The
+price never learned what the capacity rule already knew.
+
+| Ticket | What | PR | Merged as | Closed |
+|---|---|---|---|---|
+| **T56.1** | `Registration.AmountOwed` — entry fee per HEAD, frozen at registration; migration 0028 | #298 | `62e6af3` | #126 (Social Play half) |
+| **T56.2** | `CreateOnlinePayment` validates a Registration payment against that stored figure | #298 | `62e6af3` | #297 |
+| **T57.1** | `CompetitionEntry.AmountOwed`, the same rule; migration 0029 | #300 | `bc3668c` | #126 (Competitions half) |
+| **T57.2** | The entry half of the same validation; `EntryAmountLookup` port | #300 | `bc3668c` | — |
+| **T58** | `RecordOfflinePayment` validates too — the last unchecked money path | #301 | `619a974` | #299 |
+
+Merge order #298 → #300 → #301, verified by merging in that sequence. #300
+was stacked on #298's pre-squash branch and was rebased onto the shared
+branch and retargeted before merge — the same mechanic T55 recorded, and it
+recurs on every stacked PR because merges here are squashes.
+
+**Frozen, not derived — the decision the whole design rests on.** The owed
+amount is stored on the Registration/entry rather than recomputed from the
+Game/Competition on read. A Host who raises the fee afterwards must not
+retroactively change what someone already agreed to pay, and the validation
+only means something against the figure *actually agreed*. So the column can
+disagree with `entry_fee × (1 + guest_count)` for a row created before a
+price change — **that disagreement is the historical record, not drift to be
+reconciled away**, and neither migration backfills it.
+
+**#126 was half stale when it was filed, and nearly caused redundant work.**
+Its headline ask — add a real per-Game price field, retire T8.10's
+`PLACEHOLDER_REGISTRATION_FEE_CENTS` — shipped in **T9.2, three sprints
+before the issue was opened**. Only the Product Owner's "per head, including
+guests" was ever unbuilt. Caught by checking the tree against the ticket
+rather than trusting the ticket.
+
+**#299's premise was false, and correcting it changed the answer.** The issue
+(filed by this project, in T56) argued the offline path should stay
+unvalidated because a Game Admin may legitimately record a cash PART-payment.
+`payments_payable_unique_idx` (migration 0005) permits exactly ONE Payment per
+payable, so a part-payment was never supported-but-unvalidated — it was
+impossible: the $20.00 record of a $30.00 debt takes the slot, reconciliation
+marks the payable paid in full (it keys off a Payment's *existence*, never its
+amount), and the remaining $10.00 can never be recorded. Mis-recorded, then
+locked. Exact-match became the only rule consistent with
+one-Payment-per-payable, and the Product Owner chose it on 2026-09-22. The
+correction is recorded on #299 itself, not just here.
+
+**Issue count: 5 → 4.** Closed: **#126, #297, #299** — all manually, since
+`Closes #N` structurally cannot auto-fire on this project. Opened and closed
+within the same run: **#297** (T56, from T55's work) and **#299** (T56). Still
+open and unchanged: #296, #149, #145, #134 — verified live at the time of
+writing, not carried from T55's count.
+
+**Two findings worth carrying forward, both the same shape.** Recorded here
+because they are about how this project tests, not about these tickets:
+
+1. **A wire field with no test.** #298's review deleted the single line
+   putting `amount_owed` on the wire and every Go gate stayed green — the
+   client would have read 0, sent 0, and the validation built in the same PR
+   would have refused every payment it existed to permit. The guard already
+   existed one field earlier (`TestCreateGame_EntryFeeRoundTrip`, written for
+   exactly this failure mode) and was not followed for the next field added
+   to the same message. A convention living in one test's doc comment is not
+   a convention.
+2. **A fallback that hid the bug it was compensating for.** T58 removed
+   T56.1's entry-fee fallback and exposed a *live assertion error*:
+   `HostPayments.spec` asserted a registration WITH A GUEST records one
+   player's fee. That is #126's own defect, sitting in the suite asserted as
+   correct, surviving the very ticket that fixed #126 — because the fixture
+   carried no `amount_owed` and the composable fell back.
+
+   Stated generally: **a fallback that hides a missing fixture field will
+   also hide the bug that field exists to fix.** Two instances in three
+   sprints.
+
+**Where amount validation now stands.** Exactly two call sites in
+`internal/payments/app` create a Payment (`grep -n "s.payments.Create("`), and
+both validate; the webhook path cannot create one, only capture an existing
+one. What remains unchecked is argued rather than inherited: **booking** has
+no owed-amount concept (`GetQuote` prices a prospective slot and stores
+nothing) and **no_show_fee** has no correct figure to match — and the latter
+shares a payable id with a Registration, so a check keyed on the id rather
+than the TYPE would refuse every no-show fee. That trap has its own test.
+
+**The gap none of the three closed, again.** Docker was unavailable for all
+of T56–T58, so the integration tests **compile** and were **never executed** —
+now three consecutive sprints of payment-path changes resting on tests nobody
+has run. `make ci-integration` on a Docker-capable machine is owed and should
+be run before anything here goes near real money. Per CLAUDE.md rule 10,
+nothing in T56–T58 is described as proven under concurrency.
+
+**Not built, deliberately:** real part-payments (drop the unique index, track
+amount-paid against amount-owed, derive payment status across Social Play and
+Competitions). That is a sprint of its own if the product wants it, and #299's
+resolution says so rather than leaving it implied.
+
+Retros not yet written for T56, T57 or T58.
+
 ### Open issues, split by whether anyone can act (per `sprint-process.md`)
 
 Recommendation 4 of `docs/process/t54-retro.md`, applied here because this
-file is where it was asked for. **Five open**, verified live at the time of
-writing rather than carried from an earlier count.
+file is where it was asked for. **Four open**, verified live at the time of
+writing (T58) rather than carried from an earlier count — T55 recorded five,
+and #126 closed in T56/T57.
 
 **Answerable now** — blocked on nothing but attention or ordinary unbuilt
 work:
 
 | Issue | State |
 |---|---|
-| #126 | Question **answered** (per head, including guests); not yet built. The largest remaining item: domain field, migration, proto and UI, plus a decision on what happens when `GuestCount` changes after payment. |
-| #149 | Its D1 half is unblocked by T55.1. What remains is the Game-Admin/Competition-Admin durable store — ordinary unbuilt work, not a blocker. |
-| #296 | New, from T55.1's merge review: `OwnerUserID` has no `uuidShape` guard, so a malformed owner would panic `mustUUID` rather than returning a domain error. Unreachable today — every supplier is structurally a uuid — but it is the same shape as #97/T10.7. |
+| #149 | Its D1 half is unblocked by T55.1. What remains is the Game-Admin/Competition-Admin durable store — ordinary unbuilt work, not a blocker. **Narrowed but not closed by T56–T58:** those sprints added read-side ports for *price* (`RegistrationAmountLookup`, `EntryAmountLookup`), which is the same family of fix this issue asks for — Payments resolving a fact instead of being told it — applied to a different fact. The ownership facts #149 names are still caller-supplied. |
+| #296 | New in T55, unchanged: `OwnerUserID` has no `uuidShape` guard, so a malformed owner would panic `mustUUID` rather than returning a domain error. Unreachable today — every supplier is structurally a uuid — but it is the same shape as #97/T10.7. |
 
 **Indefinitely blocked** — blocked on something this project cannot produce
 or may not be entitled to decide:
