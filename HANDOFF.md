@@ -3918,9 +3918,18 @@ correction is recorded on #299 itself, not just here.
 
 **Issue count: 5 → 4.** Closed: **#126, #297, #299** — all manually, since
 `Closes #N` structurally cannot auto-fire on this project. Opened and closed
-within the same run: **#297** (T56, from T55's work) and **#299** (T56). Still
-open and unchanged: #296, #149, #145, #134 — verified live at the time of
-writing, not carried from T55's count.
+within the same run: **#297** and **#299**, both filed at T56 — #297 while
+scoping #126's per-head change, #299 from T56.2's own stated scope exclusion.
+Still open and unchanged: #296, #149, #145, #134 — verified live at the time
+of writing, not carried from T55's count.
+
+Worth noting for a reader deciding whether these were closed properly: #297's
+own "Open questions" section posed three — exact match or minimum, whether
+`RecordOfflinePayment` gets the same check, and what happens when a fee
+changes after someone registered. All three were answered rather than
+inherited: exact match (a minimum admits silent overcharge), yes (T58), and
+the amount is frozen at registration, which is what makes the check mean
+anything.
 
 **Two findings worth carrying forward, both the same shape.** Recorded here
 because they are about how this project tests, not about these tickets:
