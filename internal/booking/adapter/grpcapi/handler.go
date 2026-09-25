@@ -523,6 +523,13 @@ func toStatus(err error) error {
 		// always pass a resolved actor, but reachable through the app layer
 		// by any other caller, so it is mapped rather than left to Internal.
 		errors.Is(err, domain.ErrEmptyOwnerUserID),
+		// ErrInvalidOwnerReference (T59.1, #296) is InvalidArgument for the
+		// same reason ErrEmptyOwnerUserID above is, and deliberately NOT
+		// NotFound the way its CourtID counterpart is: the owner is
+		// server-resolved, so a malformed one is a programming error in this
+		// system rather than a fact about anything the caller named. See the
+		// sentinel's own doc comment.
+		errors.Is(err, domain.ErrInvalidOwnerReference),
 		errors.Is(err, domain.ErrInvalidClockTime),
 		errors.Is(err, domain.ErrInvalidRecurringHireTimeRange),
 		errors.Is(err, domain.ErrInvalidRecurringHireEndAfterOccurrences):

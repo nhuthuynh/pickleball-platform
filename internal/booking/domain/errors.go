@@ -37,6 +37,55 @@ var (
 	ErrEmptyOwnerUserID = errors.New("booking: owner user id is required")
 	ErrNotBookingOwner  = errors.New("booking: actor is not the owner of this booking")
 
+	// ErrInvalidOwnerReference is "this OwnerUserID is not shaped like a
+	// User.ID" (T59.1, closes issue #296). It completes the pair
+	// ErrEmptyOwnerUserID starts: empty is a caller that supplied nothing,
+	// malformed is a caller that supplied something wrong, and they are
+	// different faults with different fixes.
+	//
+	// # Why it exists
+	//
+	// app.Service.CreateBooking shape-checked CourtID and not OwnerUserID,
+	// although the Postgres adapter writes BOTH with mustUUID — which panics
+	// by design on a non-canonical uuid. CourtID's guard was added by T10.7
+	// after issue #97, where exactly that happened. OwnerUserID (T55.1) had
+	// no equivalent, so a malformed-but-non-empty owner would have taken the
+	// process down instead of returning an error.
+	//
+	// Unreachable when it was added: every supplier is structurally a uuid
+	// (the grpcapi handler's resolved principal, Game.HostID,
+	// Competition.HostID, a template's RequestedByUserID). The guard exists
+	// for the supplier nobody has added yet — which is the whole of #97's
+	// lesson, where CourtID was "obviously" well-formed until it wasn't.
+	//
+	// # Why InvalidArgument and not NotFound
+	//
+	// This is the deliberate opposite of ErrInvalidCourtReference's mapping,
+	// and the difference is who supplied the value. A CourtID comes from the
+	// requester, so "no such court" is the honest answer and NotFound is
+	// right. An OwnerUserID is **server-resolved** — no request names it (see
+	// app.CreateBookingInput.OwnerUserID, which exists in that shape
+	// precisely so #144 cannot be reopened through the front door). A
+	// malformed one is therefore a *programming* error inside this system,
+	// not a fact about anything the caller asked for, and answering NotFound
+	// would imply the caller had named a user that does not exist. Same
+	// reasoning ErrEmptyOwnerUserID's comment above gives for its own
+	// InvalidArgument.
+	//
+	// # Why CancelBookingsForReference's actorUserID gets no such guard
+	//
+	// Asked and answered as part of #296 rather than left open. That value is
+	// only ever *compared* (EnsureOwner, against a stored OwnerUserID) and
+	// never written, so it cannot reach mustUUID and cannot panic. A
+	// malformed actor matches no owner and is refused with
+	// ErrNotBookingOwner, which is correct: a caller supplying a malformed id
+	// is not the owner. A shape guard there would turn that correct
+	// PermissionDenied into an InvalidArgument, telling an unauthorized
+	// caller their id was *shaped* wrong — a small disclosure for no safety
+	// gain, on the endpoint #144 was filed about. The asymmetry is
+	// deliberate; a test in app/owner_shape_test.go pins it.
+	ErrInvalidOwnerReference = errors.New("booking: owner user id is not a usable user reference")
+
 	// ErrInvalidCourtReference is the single answer to "this CourtID does not
 	// name a court this context can use", raised from BOTH of the two places
 	// that can discover it:

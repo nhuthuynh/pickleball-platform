@@ -274,6 +274,23 @@ func (s *Service) CreateBooking(ctx context.Context, in CreateBookingInput) (dom
 		return domain.Booking{}, domain.ErrInvalidCourtReference
 	}
 
+	// The same guard for the other id the adapter writes with mustUUID
+	// (T59.1, closes issue #296). CourtID has had one since T10.7/#97;
+	// OwnerUserID, added by T55.1 and written by the same panicking helper,
+	// did not.
+	//
+	// Placed AFTER CourtID's guard, deliberately: a request malformed in both
+	// ids has always answered ErrInvalidCourtReference, and reordering would
+	// silently change that for an input that was already rejected. Pinned by
+	// a test.
+	//
+	// An empty owner is unaffected — domain.NewBooking's own
+	// ErrEmptyOwnerUserID check ran above and still fires for that case,
+	// exactly as CourtID's guard leaves ErrEmptyCourtID alone.
+	if !uuidShape.MatchString(in.OwnerUserID) {
+		return domain.Booking{}, domain.ErrInvalidOwnerReference
+	}
+
 	existing, err := s.repo.ListActiveForCourt(ctx, in.CourtID, in.Range)
 	if err != nil {
 		return domain.Booking{}, err
