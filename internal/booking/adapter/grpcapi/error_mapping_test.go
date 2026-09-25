@@ -208,6 +208,21 @@ func errorMappingCases() []errorMappingCase {
 			invoke: nil,
 		},
 		{
+			name:     "a booking whose owner id is malformed",
+			sentinel: "ErrInvalidOwnerReference",
+			err:      domain.ErrInvalidOwnerReference,
+			wantCode: codes.InvalidArgument,
+			why: "T59.1 (closes #296). InvalidArgument, and deliberately NOT the NotFound its CourtID " +
+				"counterpart ErrInvalidCourtReference gets — the difference is who supplied the value. A " +
+				"CourtID comes from the requester, so \"no such court\" is honest; an OwnerUserID is " +
+				"server-resolved and no request names it, so a malformed one is a programming error inside " +
+				"this system and NotFound would imply the caller had named a user that does not exist. " +
+				"invoke is nil for the same reason ErrEmptyOwnerUserID's is: no RPC can reach it, because " +
+				"CreateBooking resolves the owner from the verified token. Pinned so a future caller that " +
+				"CAN raise it inherits a considered code",
+			invoke: nil,
+		},
+		{
 			name:     "a stranger cancelling somebody else's booking",
 			sentinel: "ErrNotBookingOwner",
 			err:      domain.ErrNotBookingOwner,

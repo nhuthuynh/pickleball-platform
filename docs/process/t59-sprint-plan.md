@@ -284,3 +284,118 @@ dispatched in any order or in parallel.
   no session can close — the failure mode `sprint-process.md`'s
   indefinitely-blocked split exists to keep visible rather than to
   accumulate.
+
+---
+
+# T59 Ceremony 2 — Sprint planning (kickoff note)
+
+Full six-role team against §7's refined tickets.
+
+## Sprint goal
+
+> A malformed owner id produces a domain error rather than a server panic,
+> closing the last of #97's unfinished business — and whatever that guard
+> surfaces is reported rather than absorbed.
+
+The second clause was added during Ceremony 2 at QA's insistence, and it
+earned its place within the hour: see §12.
+
+## Scope
+
+**In:** T59.1 only. T59.2 and T59.3 completed during Ceremony 1 as its own
+output (correcting an issue and adopting process rules are ceremony
+bookkeeping, not sprint execution) and are marked DONE in §7 rather than
+carried here as if pending.
+
+**Not taken, with reasons:** #145 and #134 remain blocked on things this
+environment cannot produce. #149, freshly re-scoped by Ceremony 1, is now
+*ready* — one field, one seam, a shape built three times before — but it is
+a new port plus adapter across a context boundary, which is not the same
+sprint as a two-line guard. It is the obvious T60 candidate.
+
+## Dispatch isolation
+
+**One ticket, one implementer — no isolation mechanism required**, per
+`sprint-process.md`'s own scope note ("a solo-implementer wave... does not
+require this"). Stated explicitly rather than omitted, because that section
+exists precisely because T29's plan omitted it and a near-collision
+followed. A wave of one is the case where the rule does not apply; saying so
+is how a reader knows it was considered.
+
+Same-wave shared-interface verification: not applicable, same reason.
+
+## Recorded disagreement — QA vs PE, resolved in QA's favour
+
+**PE** held that T59.1 is a two-line guard against an unreachable input, and
+that the ticket's instruction 4 (decide whether
+`CancelBookingsForReference`'s `actorUserID` wants the same treatment) was
+scope creep on a 2-point ticket — a question to note, not to answer.
+
+**QA** held that "unreachable" is the claim #97 disproved about `CourtID`,
+and that a guard whose justification is *"no supplier is malformed today"*
+must state what happens when one is, or the next ticket re-opens the same
+question from scratch.
+
+**Resolved in QA's favour, and the resolution paid off immediately.**
+Instruction 4 is answered as a *test* rather than as prose
+(`TestCancelBookingsForReference_MalformedActorIsRefusedNotErrored`), and
+the answer is **no guard there** — that value is only ever compared, never
+written, so it cannot reach `mustUUID`; a malformed actor correctly fails
+the ownership check. Adding a guard would convert a correct
+`PermissionDenied` into an `InvalidArgument` and tell an unauthorized caller
+their id was *shaped* wrong, on the endpoint #144 was filed about.
+
+PE's cost was real and is recorded: the ticket came in at 4 points of work
+against a 2-point estimate, and the overrun is entirely instruction 4 plus
+§12.
+
+## Execution outcome
+
+Delivered as specified. `domain.ErrInvalidOwnerReference`, a guard in
+`CreateBooking` placed **after** `CourtID`'s (so a doubly-malformed request
+keeps answering the code it always has — pinned by a test), and the gRPC
+mapping to `InvalidArgument` rather than the `NotFound` its `CourtID`
+counterpart gets, because the owner is server-resolved and no request names
+it.
+
+The source-checked error-mapping table failed on the new sentinel before the
+mapping was added, exactly as instruction 3 predicted. **Verified by
+deletion:** removing the guard fails two tests.
+
+## §12 — What the guard surfaced, and the scope call it forced
+
+A guard for an "unreachable" condition immediately broke five Social Play
+tests. Not a regression — **those tests were modelling a state the schema
+forbids.**
+
+`internal/socialplay/adapter/grpcapi`'s shared `fakeIdentityLookup` returns
+the subject *unchanged*, so `ctxAs("host-1")` produced
+`Game.HostID == "host-1"`. Social Play passes `Game.HostID` as a Booking's
+owner, and `games.host_id` has been `uuid NOT NULL REFERENCES identity_users
+(id)` since migration 0026. They passed only because that harness's booking
+repository is in-memory and never reaches `mustUUID`.
+
+**The scope call, measured rather than guessed.** Fixing the shared fake
+properly — mirroring Payments' `resolvedUserID` from T28.1 — takes the
+package from 6 failures to **30**: ~24 assertions across ~12 files compare a
+resolved actor against a raw-subject fixture. That is Social Play's own
+T28.1-equivalent fixture pass, not a 2-point guard ticket.
+
+T59.1 therefore fixed it **locally** — a `resolvingIdentityLookup` used only
+by `newBookingBackedHandler`, the one harness driving the real
+`bookingapp.Service` — and **filed #305** for the rest.
+
+That filing is itself the first application of the board-of-record extension
+adopted hours earlier at T59.3 (*"a deliberate scope exclusion gets a
+tracked issue"*), applied by its own author to their own exclusion. The rule
+would have been easy to adopt and then quietly not follow on its first
+occasion.
+
+**A pattern worth watching, named in #305.** This is the third time in four
+sprints that a fixture modelling something the real system cannot produce
+has hidden or distorted a result (T56's wire-test gap, T58's fallback, this).
+`docs/LESSONS.md`'s T9 entry already names fixture infidelity; what is new is
+that it keeps recurring in fakes of the **identity resolution seam**, where
+the subject-vs-`User.ID` distinction is exactly what is being faked away.
+This does not meet T59.3's safety-net counter (a different pattern), and it
+is deliberately not forced into it.

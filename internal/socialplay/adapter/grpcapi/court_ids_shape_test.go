@@ -17,6 +17,7 @@ package grpcapi_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
 	"github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/socialplay/app"
+	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -198,7 +200,29 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 
 	gameRepo := newFakeGameRepo()
 	svc := app.NewService(app.ServiceOptions{
-		Identity:      fakeIdentityLookup{},
+		// T59.1: a RESOLVING identity fake, not the package's shared
+		// subject-passthrough one.
+		//
+		// This harness is the only one that drives the REAL bookingapp.Service,
+		// so it is the only one where Game.HostID travels on to become a
+		// Booking's OwnerUserID — which booking's app layer now shape-checks
+		// (#296) because its Postgres adapter writes that column with
+		// mustUUID, and `games.host_id` is `uuid NOT NULL REFERENCES
+		// identity_users (id)` as of migration 0026.
+		//
+		// The shared `fakeIdentityLookup` returns the subject UNCHANGED, so
+		// `ctxAs("host-1")` produced `HostID == "host-1"` — a shape a resolved
+		// identity_users.id can never have. These tests were therefore
+		// modelling a state the schema forbids, and passed only because the
+		// booking repository here is in-memory and never reaches mustUUID.
+		// The new guard is what surfaced it.
+		//
+		// Fixed locally rather than by changing the shared fake: doing that
+		// cascades into ~30 assertions across this package that compare a
+		// resolved actor against a raw-subject fixture. That is a real,
+		// separate defect — Social Play's own T28.1-equivalent fixture pass —
+		// and it is tracked rather than smuggled into a 2-point ticket.
+		Identity:      resolvingIdentityLookup{},
 		IDs:           &fakeIDs{},
 		Games:         gameRepo,
 		Registrations: newFakeRegistrationRepo(),
@@ -208,6 +232,21 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 	})
 
 	return grpcapi.NewHandler(svc, socialplaybooking.NewReservation(bookingSvc), nil, noopRefunder{}), gameRepo, bookingRepo
+}
+
+// resolvingIdentityLookup maps a subject to a deterministic, uuid-shaped
+// User.ID — what a real port.IdentityLookup returns. Mirrors
+// internal/payments/adapter/grpcapi's `resolvedUserID` (T28.1), which solved
+// the identical fixture-fidelity problem for that context.
+type resolvingIdentityLookup struct{}
+
+func (resolvingIdentityLookup) UserIDBySubject(_ context.Context, subject string) (string, error) {
+	if subject == "" {
+		return "", domain.ErrUserNotFound
+	}
+	sum := sha256.Sum256([]byte("socialplay-booking-backed-fixture:" + subject))
+	b := sum[:16]
+	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 func shapeCreateGameReq(courtIDs ...string) *socialplayv1.CreateGameRequest {
