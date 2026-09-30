@@ -169,15 +169,15 @@ func TestAssignGameAdmin_HostHappyPathAndItsAnswers(t *testing.T) {
 	}
 
 	got := resp.GetGameAdmin()
-	if got.GetUserId() != gaTestAdmin {
-		t.Errorf("response user_id = %q, want %q", got.GetUserId(), gaTestAdmin)
+	if got.GetUserId() != resolvedUserID(gaTestAdmin) {
+		t.Errorf("response user_id = %q, want %q", got.GetUserId(), resolvedUserID(gaTestAdmin))
 	}
 	if got.GetGameId() != game.ID {
 		t.Errorf("response game_id = %q, want %q", got.GetGameId(), game.ID)
 	}
-	if got.GetAssignedBy() != gaTestHost {
+	if got.GetAssignedBy() != resolvedUserID(gaTestHost) {
 		t.Errorf("response assigned_by = %q, want the verified Host %q — the assigner is a server fact, not a request field",
-			got.GetAssignedBy(), gaTestHost)
+			got.GetAssignedBy(), resolvedUserID(gaTestHost))
 	}
 	if got.GetAssignedAt() == nil {
 		t.Error("response assigned_at is unset; the server supplies the clock")

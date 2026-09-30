@@ -84,8 +84,8 @@ func TestListRegistrationsForGame_HostPrincipalReadsTheRoster(t *testing.T) {
 	if len(regs) != 1 {
 		t.Fatalf("Host read %d registrations, want 1 — the Host's own dashboard read is broken", len(regs))
 	}
-	if got := regs[0].GetPlayerId(); got != playerSubject {
-		t.Errorf("Registration.PlayerId = %q, want %q", got, playerSubject)
+	if got := regs[0].GetPlayerId(); got != resolvedUserID(playerSubject) {
+		t.Errorf("Registration.PlayerId = %q, want %q", got, resolvedUserID(playerSubject))
 	}
 }
 

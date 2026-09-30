@@ -330,7 +330,12 @@ func seedGame(t *testing.T, gameRepo *fakeGameRepo, id string, capacity int) dom
 	if err != nil {
 		t.Fatalf("bad fixture range: %v", err)
 	}
-	g, err := domain.NewGame(seedGameUUID(id), "host-1", "facility-1", "venue-1", []string{courtID(1)}, rng, capacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	// T60 (#305): the stored HostID is resolvedUserID("host-1"), not the
+	// literal — so this fixture's Host is the same person `ctxAs("host-1")`
+	// authenticates as, once the handler's actor() funnel resolves that
+	// subject. See seedGameWithHost's fuller note and
+	// identity_fixtures_test.go.
+	g, err := domain.NewGame(seedGameUUID(id), resolvedUserID("host-1"), "facility-1", "venue-1", []string{courtID(1)}, rng, capacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
@@ -453,9 +458,24 @@ func TestCancelRegistration_AllowsOwningActor(t *testing.T) {
 // stack and maps to the right gRPC code."
 
 // seedGameWithHost is seedGame's sibling for the CancelGame tests: the
-// same fixture, but with a caller-chosen HostID, since every assertion
-// below turns on who the Host actually is. seedGame hard-codes "host-1".
-func seedGameWithHost(t *testing.T, gameRepo *fakeGameRepo, label, hostID string) domain.Game {
+// same fixture, but with a caller-chosen Host, since every assertion below
+// turns on who the Host actually is. seedGame hard-codes "host-1".
+//
+// hostSubject is a SUBJECT, and the stored Game.HostID is
+// resolvedUserID(hostSubject) — not the argument verbatim (T60, #305).
+//
+// That is what makes `seedGameWithHost(..., "host-1")` and
+// `ctxAs("host-1")` describe the same person: the handler's actor() funnel
+// resolves the caller's subject through port.IdentityLookup before any
+// Host comparison, so a fixture storing the raw subject would compare a
+// resolved uuid against a literal and fail every Host-only check. Before
+// T60 the fake returned subjects unchanged and the two happened to match
+// — on a value `games.host_id` (uuid NOT NULL, migration 0026) cannot
+// hold. See identity_fixtures_test.go.
+//
+// Callers therefore keep passing subjects and need no change; a caller that
+// wants to ASSERT on the stored id uses resolvedUserID(subject) too.
+func seedGameWithHost(t *testing.T, gameRepo *fakeGameRepo, label, hostSubject string) domain.Game {
 	t.Helper()
 	start := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
@@ -463,7 +483,7 @@ func seedGameWithHost(t *testing.T, gameRepo *fakeGameRepo, label, hostID string
 	if err != nil {
 		t.Fatalf("bad fixture range: %v", err)
 	}
-	g, err := domain.NewGame(seedGameUUID(label), hostID, "facility-1", "venue-1", []string{courtID(1)}, rng, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	g, err := domain.NewGame(seedGameUUID(label), resolvedUserID(hostSubject), "facility-1", "venue-1", []string{courtID(1)}, rng, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
