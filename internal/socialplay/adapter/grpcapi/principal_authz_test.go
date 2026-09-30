@@ -94,7 +94,10 @@ func (fakeIdentityLookup) UserIDBySubject(_ context.Context, subject string) (st
 	if subject == "" || subject == unregisteredSubject {
 		return "", domain.ErrUserNotFound
 	}
-	return subject, nil
+	// T60 (#305): a RESOLVED User.ID, not the subject. See
+	// identity_fixtures_test.go for what returning the subject unchanged
+	// used to mean.
+	return resolvedUserID(subject), nil
 }
 
 // newPrincipalTestHandler wires the real app.Service and the real
@@ -192,8 +195,8 @@ func TestEnforcedRPCs_OwnerPrincipalSucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RegisterForGame under the player's own principal should succeed, got: %v", err)
 	}
-	if got := regResp.GetRegistration().GetPlayerId(); got != playerSubject {
-		t.Errorf("Registration.PlayerId = %q, want %q — the registering player was not taken from the principal", got, playerSubject)
+	if got := regResp.GetRegistration().GetPlayerId(); got != resolvedUserID(playerSubject) {
+		t.Errorf("Registration.PlayerId = %q, want %q — the registering player was not taken from the principal", got, resolvedUserID(playerSubject))
 	}
 
 	if _, err := h.RecordMatchResult(ctxAs(hostSubject), &socialplayv1.RecordMatchResultRequest{
@@ -389,8 +392,8 @@ func TestCreateGame_HostComesFromPrincipalNotWire(t *testing.T) {
 		t.Fatalf("CreateGame with a valid principal should succeed: %v", err)
 	}
 
-	if got := resp.GetGame().GetHostId(); got != attackerSubject {
-		t.Errorf("Game.HostId = %q, want %q — host_id was taken from the wire, so a caller can create a Game hosted by someone else", got, attackerSubject)
+	if got := resp.GetGame().GetHostId(); got != resolvedUserID(attackerSubject) {
+		t.Errorf("Game.HostId = %q, want %q — host_id was taken from the wire, so a caller can create a Game hosted by someone else", got, resolvedUserID(attackerSubject))
 	}
 }
 
@@ -417,8 +420,8 @@ func TestJoinWaitlist_PlayerComesFromPrincipalNotWire(t *testing.T) {
 		t.Fatalf("JoinWaitlist with a valid principal should succeed: %v", err)
 	}
 
-	if got := resp.GetEntry().GetPlayerId(); got != attackerSubject {
-		t.Errorf("WaitlistEntry.PlayerId = %q, want %q — player_id was taken from the wire", got, attackerSubject)
+	if got := resp.GetEntry().GetPlayerId(); got != resolvedUserID(attackerSubject) {
+		t.Errorf("WaitlistEntry.PlayerId = %q, want %q — player_id was taken from the wire", got, resolvedUserID(attackerSubject))
 	}
 }
 
@@ -437,7 +440,7 @@ func TestRegisterForGame_PlayerComesFromPrincipalNotWire(t *testing.T) {
 		t.Fatalf("RegisterForGame with a valid principal should succeed: %v", err)
 	}
 
-	if got := resp.GetRegistration().GetPlayerId(); got != attackerSubject {
-		t.Errorf("Registration.PlayerId = %q, want %q — player_id was taken from the wire", got, attackerSubject)
+	if got := resp.GetRegistration().GetPlayerId(); got != resolvedUserID(attackerSubject) {
+		t.Errorf("Registration.PlayerId = %q, want %q — player_id was taken from the wire", got, resolvedUserID(attackerSubject))
 	}
 }
