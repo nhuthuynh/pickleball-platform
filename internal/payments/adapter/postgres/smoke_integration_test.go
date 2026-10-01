@@ -71,6 +71,10 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 	waitForReady(t, ctx, pool)
 	applyMigrations(t, ctx, pool)
 
+	// T61: the actor that gets WRITTEN needs its identity_users row, since
+	// payments.recorded_by_user_id is a uuid FK as of migration 0024.
+	seedPaymentsActor(t, ctx, pool, smokeHostUserID)
+
 	repo := paymentspg.NewRepository(pool)
 	svc := paymentsapp.NewService(paymentsapp.ServiceOptions{
 		Payments: repo,
@@ -97,8 +101,8 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 		PayableType:   domain.PayableTypeBooking,
 		PayableID:     "22222222-2222-2222-2222-222222222222",
 		Amount:        amount,
-		ActorUserID:   "host-1",
-		BookingHostID: "host-1",
+		ActorUserID:   smokeHostUserID,
+		BookingHostID: smokeHostUserID,
 	})
 	if err != nil {
 		t.Fatalf("first recording: unexpected err: %v", err)
@@ -114,8 +118,8 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 		PayableType:   domain.PayableTypeBooking,
 		PayableID:     "22222222-2222-2222-2222-222222222222",
 		Amount:        amount,
-		ActorUserID:   "host-1",
-		BookingHostID: "host-1",
+		ActorUserID:   smokeHostUserID,
+		BookingHostID: smokeHostUserID,
 	})
 	if !errors.Is(err, domain.ErrPaymentAlreadyRecorded) {
 		t.Fatalf("duplicate recording: got err %v, want %v", err, domain.ErrPaymentAlreadyRecorded)
@@ -130,8 +134,8 @@ func TestRecordOfflinePayment_SmokeTestAC(t *testing.T) {
 		PayableType:   domain.PayableTypeBooking,
 		PayableID:     "33333333-3333-3333-3333-333333333333",
 		Amount:        amount,
-		ActorUserID:   "random-player",
-		BookingHostID: "host-1",
+		ActorUserID:   smokeOtherUserID,
+		BookingHostID: smokeHostUserID,
 	})
 	if !errors.Is(err, domain.ErrNotPaymentRecorder) {
 		t.Fatalf("actor mismatch: got err %v, want %v", err, domain.ErrNotPaymentRecorder)
@@ -181,3 +185,21 @@ func applyMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 		}
 	}
 }
+
+// T61 — uuid-shaped actor fixtures with a real identity_users row behind the
+// one that gets WRITTEN.
+//
+// payments.recorded_by_user_id became `uuid REFERENCES identity_users (id)`
+// at T28.1 (migration 0024). These fixtures predated that and used "host-1" /
+// "random-player", which mustUUID panics on — taking the whole test binary
+// down. Invisible until T61 because no Docker-free gate executes these tests
+// and `make vet-integration` only COMPILES them.
+//
+// smokeOtherUserID is only ever COMPARED (the unauthorized-actor case), never
+// written, so it needs no identity_users row — but it is still uuid-shaped,
+// because a fixture in a shape the column cannot hold is how this class of
+// rot started.
+const (
+	smokeHostUserID  = "66666666-6666-6666-6666-666666666666"
+	smokeOtherUserID = "77777777-7777-7777-7777-777777777777"
+)

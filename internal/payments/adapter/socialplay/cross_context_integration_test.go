@@ -15,16 +15,14 @@
 // integration build tag; run it with `go test -tags=integration ./...` or
 // `make test`. Requires Docker.
 //
-// This authoring environment has no Docker daemon (mirroring the T4/T5.4/
-// T6.4 gap documented in docs/LESSONS.md), so this file could not itself be
-// run here via testcontainers. The identical scenario was instead verified
-// manually against a real local Postgres 16 instance (installed as a
-// system package, the T4 LESSONS.md fallback) — see the T6.5 PR description
-// for that methodology and its exact output. This file is the portable,
-// CI-runnable version of that same manual verification, mirroring
-// internal/payments/adapter/postgres/smoke_integration_test.go's and
-// internal/socialplay/adapter/postgres/concurrency_integration_test.go's
-// pattern exactly.
+// T61 NOTE: this file's original header said no Docker daemon was available
+// in the authoring environment and that the scenario had been verified
+// manually against a local Postgres instead. T61 ran it for real, via
+// testcontainers, in `make ci-integration` — where it failed immediately, on
+// fixtures that migration 0026 had made invalid. The manual verification was
+// genuine at T6.5; what it could not do is stay true, and nothing re-checked
+// it for 32 sprints because no Docker-free gate executes this file and
+// `make vet-integration` only COMPILES it.
 package socialplay_test
 
 import (
@@ -35,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -129,7 +128,15 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	if err != nil {
 		t.Fatalf("failed to build fixture time range: %v", err)
 	}
-	game, err := socialplaydomain.NewGame("", "host-1", "facility-1", "", []string{"court-1"}, rng, 4, socialplaydomain.PaymentMethodEither, 0, socialplaydomain.Money{Cents: 1500, Currency: "USD"})
+	// T61: hostUserID, the court id and the player below all have to be uuids
+	// with real rows behind them. games.host_id and registrations.player_id
+	// became `uuid NOT NULL REFERENCES identity_users (id)` at migration 0026
+	// and games.court_ids has been `uuid[]` since 0005 — the old "host-1" /
+	// "player-1" / "court-1" fixtures panicked in the adapter's mustUUID. The
+	// court is 0002_seed.sql's Court 1 rather than a seeded one, matching what
+	// every other integration test in the tree uses.
+	hostUserID := seedCrossContextUser(t, ctx, pool, "cross-context-host")
+	game, err := socialplaydomain.NewGame("", hostUserID, "facility-1", "", []string{"11111111-1111-1111-1111-111111111111"}, rng, 4, socialplaydomain.PaymentMethodEither, 0, socialplaydomain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("failed to build fixture game: %v", err)
 	}
@@ -140,7 +147,7 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 
 	reg, err := socialplaySvc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{
 		GameID:   game.ID,
-		PlayerID: "player-1",
+		PlayerID: seedCrossContextUser(t, ctx, pool, "cross-context-player"),
 	})
 	if err != nil {
 		t.Fatalf("failed to persist fixture registration: %v", err)
@@ -151,14 +158,14 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 
 	// The T6.5 AC: recording an offline payment for the live Registration
 	// through the real Payments stack. No game_host_id (T16.2, closes #168):
-	// "host-1" is authorized because it is genuinely game.HostID, resolved
+	// hostUserID is authorized because it is genuinely game.HostID, resolved
 	// end to end through real Postgres via RegistrationLookup -> GameLookup,
 	// not because the caller claims it.
 	_, err = paymentsSvc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
 		PayableType: paymentsdomain.PayableTypeRegistration,
 		PayableID:   reg.ID,
 		Amount:      paymentsdomain.Money{Cents: 2500, Currency: "USD"},
-		ActorUserID: "host-1",
+		ActorUserID: hostUserID,
 	})
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment: unexpected err: %v", err)
@@ -223,4 +230,22 @@ func applyMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 			t.Fatalf("failed to apply migration %s: %v", name, err)
 		}
 	}
+}
+
+// seedCrossContextUser inserts an identity_users row and returns its uuid id.
+//
+// T61. Duplicated per package rather than shared, like every other
+// container-boot/migrate helper in this tree — see applyMigrations above,
+// which this package already duplicates for the same reason.
+func seedCrossContextUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) string {
+	t.Helper()
+
+	id := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level, subject)
+		VALUES ($1, $2, ARRAY['player'], 3, $3)
+	`, id, "T61 "+label, "auth0|t61-payments-socialplay-"+id); err != nil {
+		t.Fatalf("seeding identity_users for %s: %v", label, err)
+	}
+	return id
 }

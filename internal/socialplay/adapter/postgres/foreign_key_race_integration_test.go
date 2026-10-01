@@ -71,7 +71,7 @@ func TestCreateRegistration_GameDeletedBetweenGuardReadAndInsertIsGameNotFound(t
 	t.Run("game deleted after the guarding read answers ErrGameNotFound, not a raw 23503", func(t *testing.T) {
 		r := mustRange(t, "2026-09-05T09:00:00Z", "2026-09-05T10:00:00Z")
 		game, err := domain.NewGame(
-			"33333333-3333-3333-3333-330000000001", "race-host", "facility-x", "",
+			"33333333-3333-3333-3333-330000000001", seedSocialplayUser(t, ctx, pool, "fk-race-host"), "facility-x", "",
 			[]string{seedCourtID}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"},
 		)
 		if err != nil {
@@ -102,7 +102,7 @@ func TestCreateRegistration_GameDeletedBetweenGuardReadAndInsertIsGameNotFound(t
 		reg := domain.Registration{
 			ID:            "33333333-3333-3333-3333-330000000002",
 			GameID:        game.ID,
-			PlayerID:      "race-player",
+			PlayerID:      seedSocialplayUser(t, ctx, pool, "fk-race-player"),
 			Source:        domain.RegistrationSourceApp,
 			Status:        domain.RegistrationStatusRegistered,
 			PaymentStatus: domain.PaymentStatusUnpaid,
@@ -128,7 +128,7 @@ func TestCreateRegistration_GameDeletedBetweenGuardReadAndInsertIsGameNotFound(t
 	t.Run("control: registering against a game that was never deleted still succeeds", func(t *testing.T) {
 		r := mustRange(t, "2026-09-05T13:00:00Z", "2026-09-05T14:00:00Z")
 		game, err := domain.NewGame(
-			"33333333-3333-3333-3333-330000000003", "race-host-2", "facility-x", "",
+			"33333333-3333-3333-3333-330000000003", seedSocialplayUser(t, ctx, pool, "fk-race-host-2"), "facility-x", "",
 			[]string{seedCourtID}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"},
 		)
 		if err != nil {
@@ -142,7 +142,7 @@ func TestCreateRegistration_GameDeletedBetweenGuardReadAndInsertIsGameNotFound(t
 		reg := domain.Registration{
 			ID:            "33333333-3333-3333-3333-330000000004",
 			GameID:        game.ID,
-			PlayerID:      "race-player-2",
+			PlayerID:      seedSocialplayUser(t, ctx, pool, "fk-race-player-2"),
 			Source:        domain.RegistrationSourceApp,
 			Status:        domain.RegistrationStatusRegistered,
 			PaymentStatus: domain.PaymentStatusUnpaid,
@@ -203,7 +203,7 @@ func TestCreateGame_VenueFacilityDeletedBetweenGuardReadAndInsertIsFacilityNotFo
 
 		r := mustRange(t, "2026-09-05T11:00:00Z", "2026-09-05T12:00:00Z")
 		game, err := domain.NewGame(
-			"44444444-4444-4444-4444-440000000002", "race-host", "facility-x", facility.ID,
+			"44444444-4444-4444-4444-440000000002", seedSocialplayUser(t, ctx, pool, "fk-venue-host"), "facility-x", facility.ID,
 			[]string{seedCourtID}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"},
 		)
 		if err != nil {
@@ -226,7 +226,7 @@ func TestCreateGame_VenueFacilityDeletedBetweenGuardReadAndInsertIsFacilityNotFo
 		// column entirely rather than sending an empty string through
 		// mustUUID.
 		gameNoVenue, err := domain.NewGame(
-			"44444444-4444-4444-4444-440000000003", "race-host", "facility-x", "",
+			"44444444-4444-4444-4444-440000000003", seedSocialplayUser(t, ctx, pool, "fk-venue-host-no-venue"), "facility-x", "",
 			[]string{seedCourtID}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"},
 		)
 		if err != nil {
@@ -255,7 +255,7 @@ func TestCreateGame_VenueFacilityDeletedBetweenGuardReadAndInsertIsFacilityNotFo
 
 		r := mustRange(t, "2026-09-05T15:00:00Z", "2026-09-05T16:00:00Z")
 		game, err := domain.NewGame(
-			"44444444-4444-4444-4444-440000000005", "race-host-2", "facility-x", facility.ID,
+			"44444444-4444-4444-4444-440000000005", seedSocialplayUser(t, ctx, pool, "fk-venue-host-2"), "facility-x", facility.ID,
 			[]string{seedCourtID}, r, 4, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"},
 		)
 		if err != nil {

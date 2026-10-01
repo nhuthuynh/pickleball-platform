@@ -100,10 +100,13 @@ func TestPromoteNextWaiting_ExactlyOnePromotionUnderConcurrency(t *testing.T) {
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
 		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
+		// T61: required since T29.2. Never exercised here — see
+		// identity_fixtures_integration_test.go.
+		Identity: stubIdentityLookup{},
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
-	game, err := domain.NewGame("33333333-3333-3333-3333-100000000001", "host-x", "facility-x", "", []string{seedCourtID}, r, 1, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	game, err := domain.NewGame("33333333-3333-3333-3333-100000000001", seedSocialplayUser(t, ctx, pool, "waitlist-promotion-host"), "facility-x", "", []string{seedCourtID}, r, 1, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
@@ -112,12 +115,19 @@ func TestPromoteNextWaiting_ExactlyOnePromotionUnderConcurrency(t *testing.T) {
 		t.Fatalf("failed to create fixture game: %v", err)
 	}
 
-	reg, err := svc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{GameID: game.ID, PlayerID: "player-active"})
+	// T61: registrations.player_id and waitlist_entries.player_id are uuid FKs
+	// as of migration 0026. activePlayerID is also the ACTOR the cancels below
+	// are attempted as, so it is bound to a variable rather than repeated —
+	// the cancel must be attempted as the registration's own player, which is
+	// what makes every attempt authorized and the race the real one.
+	activePlayerID := seedSocialplayUser(t, ctx, pool, "promotion-active")
+
+	reg, err := svc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{GameID: game.ID, PlayerID: activePlayerID})
 	if err != nil {
 		t.Fatalf("failed to create fixture registration: %v", err)
 	}
 
-	waitingEntry, err := svc.JoinWaitlist(ctx, socialplayapp.JoinWaitlistInput{GameID: game.ID, PlayerID: "player-waiting"})
+	waitingEntry, err := svc.JoinWaitlist(ctx, socialplayapp.JoinWaitlistInput{GameID: game.ID, PlayerID: seedSocialplayUser(t, ctx, pool, "promotion-waiting")})
 	if err != nil {
 		t.Fatalf("failed to create fixture waitlist entry: %v", err)
 	}
@@ -133,7 +143,7 @@ func TestPromoteNextWaiting_ExactlyOnePromotionUnderConcurrency(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := svc.CancelRegistration(ctx, reg.ID, "player-active")
+			_, err := svc.CancelRegistration(ctx, reg.ID, activePlayerID)
 			mu.Lock()
 			defer mu.Unlock()
 			if err == nil {

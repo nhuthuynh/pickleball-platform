@@ -17,17 +17,14 @@
 // plain `go test ./...` by the integration build tag; run it with
 // `go test -tags=integration ./...` or `make test`. Requires Docker.
 //
-// NOT EXECUTED BY ITS AUTHOR. No Docker daemon was available in this
-// ticket's sandbox (`docker ps` fails with "dial unix
-// /var/run/docker.sock: connect: no such file or directory") — the same
-// gap HANDOFF.md records for T4/T5.4/T6.4/T6.5/T7/T8.3/T8.7/T9.2/T9.4/
-// T9.5. It was type-checked under its build tag (`go vet -tags=integration
-// ./internal/payments/adapter/competitions/...`) and no further. It is
-// committed anyway for the same reason those precedents were: it is the
-// portable, CI-runnable guard against the exact routing regression #96
-// exists to prevent, and CLAUDE.md rule 10 means this claim must not be
-// overstated as "proven" or "reliable" until a run with a real Docker
-// daemon says so.
+// T61 NOTE: this header said "NOT EXECUTED BY ITS AUTHOR", citing the Docker
+// gap HANDOFF.md recorded for T4 onward, and that CLAUDE.md rule 10 meant the
+// guard must not be called proven until a run with a real daemon said so. T61
+// is that run. It failed immediately: the fixtures below were invalidated by
+// migration 0025, which turned competitions.host_id and
+// competition_entries.player_id into uuid FKs. The caution in the original
+// header was right, and the thing it was cautious about is exactly what had
+// happened by the time anyone checked.
 package competitions_test
 
 import (
@@ -38,6 +35,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -149,9 +147,15 @@ func TestRecordOfflinePayment_ReconcilesCompetitionEntryPaymentStatus_CrossConte
 	if err != nil {
 		t.Fatalf("failed to build fixture time range: %v", err)
 	}
+	// T61: competitions.host_id and competition_entries.player_id became
+	// `uuid REFERENCES identity_users (id)` at migration 0025, and
+	// competition_sessions.court_ids has been `uuid[]` since 0014 — the old
+	// "host-1" / "player-1" / "court-1" fixtures panicked in the adapter's
+	// mustUUID. The court is 0002_seed.sql's Court 1, as elsewhere in the tree.
+	hostUserID := seedCrossContextUser(t, ctx, pool, "cross-context-host")
 	competition, err := competitionsdomain.NewCompetition(
-		"", "host-1", "Spring Doubles Open", "",
-		[]competitionsdomain.Session{{Range: rng, CourtIDs: []string{"court-1"}}},
+		"", hostUserID, "Spring Doubles Open", "",
+		[]competitionsdomain.Session{{Range: rng, CourtIDs: []string{"11111111-1111-1111-1111-111111111111"}}},
 		16, 2,
 		competitionsdomain.PaymentMethodEither,
 		competitionsdomain.Money{AmountCents: 2500, CurrencyCode: "AUD"},
@@ -166,9 +170,10 @@ func TestRecordOfflinePayment_ReconcilesCompetitionEntryPaymentStatus_CrossConte
 		t.Fatalf("failed to persist fixture competition: %v", err)
 	}
 
+	entrantUserID := seedCrossContextUser(t, ctx, pool, "cross-context-entrant")
 	entry, err := competitionsSvc.EnterCompetition(ctx, competitionsapp.EnterCompetitionInput{
 		CompetitionID: competition.ID,
-		PlayerID:      "player-1",
+		PlayerID:      entrantUserID,
 		Source:        competitionsdomain.EntrySourceApp,
 	})
 	if err != nil {
@@ -180,14 +185,14 @@ func TestRecordOfflinePayment_ReconcilesCompetitionEntryPaymentStatus_CrossConte
 
 	// The T10.6 AC: recording an offline payment for the live
 	// CompetitionEntry through the real Payments stack. No
-	// entrant_player_id (T16.2, closes #168): "player-1" is authorized
+	// entrant_player_id (T16.2, closes #168): entrantUserID is authorized
 	// because it is genuinely entry.PlayerID, resolved end to end through
 	// real Postgres via EntryLookup, not because the caller claims it.
 	_, err = paymentsSvc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
 		PayableType: paymentsdomain.PayableTypeCompetitionEntry,
 		PayableID:   entry.ID,
 		Amount:      paymentsdomain.Money{Cents: 2500, Currency: "AUD"},
-		ActorUserID: "player-1",
+		ActorUserID: entrantUserID,
 	})
 	if err != nil {
 		t.Fatalf("RecordOfflinePayment: unexpected err: %v", err)
@@ -258,4 +263,21 @@ func applyMigrations(t *testing.T, ctx context.Context, pool *pgxpool.Pool) {
 // happened, not that a court was actually freed.
 func (stubReservation) ReleaseCourtsForReference(context.Context, string, string) (int, error) {
 	return 0, nil
+}
+
+// seedCrossContextUser inserts an identity_users row and returns its uuid id.
+//
+// T61. Duplicated per package, like applyMigrations above and like its twin in
+// internal/payments/adapter/socialplay's own cross-context test.
+func seedCrossContextUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) string {
+	t.Helper()
+
+	id := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level, subject)
+		VALUES ($1, $2, ARRAY['player'], 3, $3)
+	`, id, "T61 "+label, "auth0|t61-payments-competitions-"+id); err != nil {
+		t.Fatalf("seeding identity_users for %s: %v", label, err)
+	}
+	return id
 }

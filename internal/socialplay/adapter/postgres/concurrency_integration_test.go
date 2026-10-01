@@ -79,7 +79,7 @@ func TestCreateRegistration_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 	regRepo := socialplaypg.NewRegistrationRepository(pool)
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
-	game, err := domain.NewGame("11111111-1111-1111-1111-100000000001", "host-x", "facility-x", "", []string{seedCourtID}, r, concurrentRegisterAttempts, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	game, err := domain.NewGame("11111111-1111-1111-1111-100000000001", seedSocialplayUser(t, ctx, pool, "duplicate-host"), "facility-x", "", []string{seedCourtID}, r, concurrentRegisterAttempts, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
@@ -94,6 +94,13 @@ func TestCreateRegistration_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 	// duplicates. This deliberately does not go through app.Service, the
 	// same way T4's booking test calls the repo layer where the invariant
 	// actually lives under concurrency.
+	// T61: one player, seeded once — the whole point of this test is that
+	// every attempt shares a (game_id, player_id) key. registrations.player_id
+	// is a uuid FK as of migration 0026, so the shared id has to be a real
+	// identity_users row, and it is seeded here rather than inside a goroutine
+	// because seedSocialplayUser calls t.Fatalf.
+	duplicatePlayerID := seedSocialplayUser(t, ctx, pool, "duplicate-player")
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	successes, conflicts, unexpected := 0, 0, 0
@@ -105,7 +112,7 @@ func TestCreateRegistration_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 			reg := domain.Registration{
 				ID:            uuidLike(n),
 				GameID:        game.ID,
-				PlayerID:      "dup-player",
+				PlayerID:      duplicatePlayerID,
 				Source:        domain.RegistrationSourceApp,
 				Status:        domain.RegistrationStatusRegistered,
 				PaymentStatus: domain.PaymentStatusUnpaid,

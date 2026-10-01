@@ -63,8 +63,15 @@ func seedUserRow(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id strin
 	t.Helper()
 
 	_, err := pool.Exec(ctx,
-		`INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level) VALUES ($1, $2, $3, $4)`,
-		id, "T17.5 race-window club", []string{"club"}, 3)
+		// T61: `subject` is NOT NULL UNIQUE as of
+		// db/migrations/0019_identity_subject.sql. These seeds predate that
+		// migration and were never updated, because no gate on a
+		// Docker-free machine executes them — `make vet-integration` only
+		// COMPILES these files, which cannot catch a NOT NULL column.
+		// Derived from the row's own id so it is unique without a counter.
+		`INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level, subject)
+		 VALUES ($1, $2, $3, $4, $5)`,
+		id, "T17.5 race-window club", []string{"club"}, 3, "auth0|integration-fixture-"+id)
 	if err != nil {
 		t.Fatalf("seed user: %v", err)
 	}

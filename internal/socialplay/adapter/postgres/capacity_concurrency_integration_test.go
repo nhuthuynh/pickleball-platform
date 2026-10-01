@@ -90,10 +90,13 @@ func TestRegisterForGame_CapacityHoldsUnderConcurrency(t *testing.T) {
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
 		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
+		// T61: required since T29.2. Never exercised here — see
+		// identity_fixtures_integration_test.go.
+		Identity: stubIdentityLookup{},
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
-	game, err := domain.NewGame("22222222-2222-2222-2222-100000000001", "host-x", "facility-x", "", []string{seedCourtID}, r, gameCapacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	game, err := domain.NewGame("22222222-2222-2222-2222-100000000001", seedSocialplayUser(t, ctx, pool, "capacity-host"), "facility-x", "", []string{seedCourtID}, r, gameCapacity, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
@@ -107,6 +110,15 @@ func TestRegisterForGame_CapacityHoldsUnderConcurrency(t *testing.T) {
 	// -> domain.Register's pre-check -> insert) — so distinct
 	// (game_id, player_id) keys mean the unique index can't be what closes
 	// this race; only the capacity guard trigger can.
+	// T61: the players are seeded BEFORE the goroutines start, not inside
+	// them. registrations.player_id is a uuid FK as of migration 0026, so each
+	// attempt needs a real identity_users row — and seedSocialplayUser calls
+	// t.Fatalf, which is only legal on the test's own goroutine.
+	playerIDs := make([]string, concurrentRegisterAttemptsForCapacity)
+	for i := range playerIDs {
+		playerIDs[i] = seedSocialplayUser(t, ctx, pool, fmt.Sprintf("capacity-player-%02d", i))
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	successes, full, unexpected := 0, 0, 0
@@ -117,7 +129,7 @@ func TestRegisterForGame_CapacityHoldsUnderConcurrency(t *testing.T) {
 			defer wg.Done()
 			_, err := svc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{
 				GameID:   game.ID,
-				PlayerID: fmt.Sprintf("player-%02d", n),
+				PlayerID: playerIDs[n],
 			})
 			mu.Lock()
 			defer mu.Unlock()

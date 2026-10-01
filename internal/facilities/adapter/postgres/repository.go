@@ -67,14 +67,44 @@ func NewRepository(pool *pgxpool.Pool) *Repository {
 	return &Repository{q: facilitiesdb.New(pool)}
 }
 
+// emptyIfNil returns a non-nil empty slice for a nil input, so a caller's
+// "none" reaches a NOT NULL array column as '{}' rather than NULL.
+//
+// Deliberately not a general nil-coercion helper applied everywhere: it is
+// used at the one write site whose column is a NOT NULL array. A column that
+// is genuinely nullable should keep receiving NULL, because "unset" and
+// "empty" are different facts there.
+func emptyIfNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
 func (r *Repository) CreateFacility(ctx context.Context, f domain.Facility) (domain.Facility, error) {
 	row, err := r.q.CreateFacility(ctx, facilitiesdb.CreateFacilityParams{
-		ID:                    mustUUID(f.ID),
-		OwnerID:               mustUUID(f.OwnerID),
-		Name:                  f.Name,
-		Description:           f.Description,
-		Address:               f.Address,
-		PhotoUrls:             f.PhotoURLs,
+		ID:          mustUUID(f.ID),
+		OwnerID:     mustUUID(f.OwnerID),
+		Name:        f.Name,
+		Description: f.Description,
+		Address:     f.Address,
+		// T61: nil becomes an empty array, never a NULL.
+		//
+		// facilities.photo_urls is `text[] NOT NULL DEFAULT '{}'`, and a
+		// column DEFAULT applies only when the column is OMITTED from the
+		// INSERT — it does nothing for an explicit NULL. This query names
+		// photo_urls, so a nil slice was sent as NULL and every photo-less
+		// Facility creation was rejected with a raw 23502. The ordinary case:
+		// CreateFacilityRequest.GetPhotoUrls() returns []string(nil) when a
+		// client sends no photos.
+		//
+		// Coerced here rather than in the domain, deliberately: nil meaning
+		// "no photos" is idiomatic Go and domain.Facility is right to permit
+		// it. Translating a context's own types into its storage shape is the
+		// adapter's job (CLAUDE.md rule 5). Proven by
+		// nil_photo_urls_integration_test.go, which reproduced the failure
+		// against real Postgres before this line existed.
+		PhotoUrls:             emptyIfNil(f.PhotoURLs),
 		CameraConsentAttested: f.CameraConsentAttested,
 	})
 	if err != nil {

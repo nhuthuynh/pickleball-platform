@@ -56,8 +56,8 @@ func TestGetByShareToken_ResolvesIncludingCancelled(t *testing.T) {
 		cancelledToken = "share-token-cancelled-t95"
 	)
 
-	scheduled := seedCompetition(t, ctx, repo, "44444444-4444-4444-4444-200000000001", 8, 2, scheduledToken)
-	cancelled := seedCompetition(t, ctx, repo, "44444444-4444-4444-4444-200000000002", 8, 2, cancelledToken)
+	scheduled := seedCompetition(t, ctx, pool, repo, "44444444-4444-4444-4444-200000000001", 8, 2, scheduledToken)
+	cancelled := seedCompetition(t, ctx, pool, repo, "44444444-4444-4444-4444-200000000002", 8, 2, cancelledToken)
 
 	// --- a scheduled Competition resolves by its token, sessions and all ---
 	got, err := repo.GetByShareToken(ctx, scheduledToken)
