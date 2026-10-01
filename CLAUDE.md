@@ -232,6 +232,35 @@ its filename alone and nothing collides or goes stale silently:
   Docker-free gate. **The counts above are narrative, not a gate** — do not
   hand-edit them into a checklist, and never add an exclusion list to
   `tools/gatecoverage` to keep them true.
+- **Docker works here. Start it and run `make ci-integration`.** Every sprint
+  from T4 to T60 recorded "no Docker daemon available" and shipped
+  integration tests nobody had executed. The `dockerd`/`containerd` binaries
+  were present the whole time; the daemon starts in about four seconds
+  (`dockerd` detached, then poll `docker ps`), and the full suite takes
+  roughly 80 seconds. T61 ran it for the first time and it reported 34
+  failures — including **two live production defects** (`db/migrations/0030`,
+  `db/migrations/0031`) that every Docker-free gate had reported green for 18
+  and 22 sprints respectively. So: **compiling an integration test is not a
+  substitute for running it, and "the environment can't" is a claim to test
+  before it is written down.** A session that changes a migration, an actor
+  column, or anything a `*_integration_test.go` touches is expected to run
+  `make ci-integration`, not `make vet-integration` alone.
+- **An in-memory fake is more permissive than Postgres, and that asymmetry
+  hides storage bugs.** `0031`'s defect — `payments.payable_type`'s CHECK
+  never widened for `competition_entry` — passed every unit-level test for 22
+  sprints, because the in-memory Payments repository has no CHECK constraint
+  to violate. The fixtures proved the routing and hid the storage. When a
+  domain enum, status set, or payable type gains a value, the schema half is
+  part of the same ticket (rule 4), and the test that pins it belongs where a
+  real database can refuse it. See
+  `internal/payments/adapter/postgres/payable_type_conformance_integration_test.go`
+  for the shape: derive the set from the source, never list it.
+- **`CREATE OR REPLACE FUNCTION` replaces the whole body.** `0023` added one
+  check to `enforce_game_capacity()` and silently reverted `0012`'s weighted
+  capacity sum by rebuilding the body from `0006`'s version — its header even
+  says the function is "unchanged by this migration". Before redefining a
+  function, diff your new body against **the migration that last defined
+  it**, not against the one that created it.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +
