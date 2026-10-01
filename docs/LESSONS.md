@@ -2795,3 +2795,105 @@ sprint — a genuinely routine confirm-and-report retro. `HANDOFF.md`'s T53
 row and Task-backlog narrative are deliberately left for T54's Ceremony 1
 to correct, per the same convention, with the agreed honest-form sentence
 supplied in the retro document for that ceremony to carry forward.
+
+## T61 — Six sprints of "no Docker daemon", and the two production defects it hid
+
+- **Mistake:** every sprint from T4 to T60 recorded that no Docker daemon was
+  available in the authoring environment, and shipped `//go:build integration`
+  tests that had never been executed. The `dockerd` and `containerd` binaries
+  were present the whole time, the session ran as uid 0, and the daemon starts
+  in about four seconds. Nobody checked. The claim was first written when it
+  was presumably true, then quoted forward — the same failure mode T56's retro
+  recorded for #126 and T58's for #299 (an assertion about the system that its
+  author had not checked against the system), applied this time to the
+  environment rather than to the code.
+
+  T12.1 responded to the gap correctly but partially: `make vet-integration`
+  **compiles** the integration files, which is what caught the breakage it was
+  added for. It cannot execute an assertion, satisfy a NOT NULL column, or
+  reach a CHECK constraint. Six sprints then disclaimed the remaining hole in
+  their retros, which is the honest thing to do with a hole and not the same
+  as closing it.
+
+  **What it cost.** The first run reported 34 failures and surfaced two live
+  production defects, each of which every Docker-free gate had been reporting
+  green for the whole time it existed:
+
+  1. **Guests stopped counting toward Game capacity** (fixed by
+     `db/migrations/0030`). `0023` (T19.1) added a cancelled-Game check to
+     `enforce_game_capacity()` via `CREATE OR REPLACE`, rebuilding the body
+     from `0006`'s version and so reverting `0012`'s weighted
+     `SUM(1 + guest_count)` to a plain `COUNT(*)`. A 7-person Game accepted 7
+     registrations each bringing 3 guests — 28 people in a 7-person Game.
+     `domain.Register` stayed weighted throughout, so CLAUDE.md rule 4's two
+     halves disagreed for 18 sprints with the authoritative half wrong. The
+     test that catches this has existed, asserting exactly this, since T8.7.
+  2. **Every Competition-entry payment failed against a real database** (fixed
+     by `db/migrations/0031`). `payments.payable_type`'s CHECK still listed
+     only booking/registration/no_show_fee; `domain.PayableTypeCompetitionEntry`
+     and the entire Competitions payment path shipped at T10.6, 22 sprints
+     earlier. Money-adjacent, and broken from the sprint it was built in.
+  3. **A promoted waitlist player's reserved slot could be taken out from under
+     them** (also fixed by `db/migrations/0030`) — **found by the pre-merge
+     review of the fix for #1, not by the suite.** `0007` (T6.6) had taught the
+     same function that an unexpired `promoted` entry for a different player
+     occupies a slot during its response window. `0012` (T8.7) rewrote the
+     function for guest weighting, from `0006`'s body, and that count vanished
+     without being mentioned anywhere in `0012`. So `0012` is simultaneously
+     the fix for one divergence and the cause of another, and `0023` then did
+     the same thing to `0012`. `domain.SlotReservedByPromotion` enforced the
+     rule in Go throughout.
+
+     This one had **no test on either side of the boundary** — `0007` shipped
+     the guard untested, so when `0012` dropped it nothing failed, for 18
+     migrations. The review found it by diffing all five bodies of the function
+     against each other rather than reviewing the new one on its own, which is
+     the check worth keeping: *the function's history is the review surface,
+     not the diff.*
+
+  **Fix:** started the daemon, ran `make ci-integration`, fixed all three
+  defects and the fixture rot behind the other failures, and recorded in
+  CLAUDE.md's gotchas that Docker works here, that compiling an integration
+  test is not a substitute for running it, that a `CREATE OR REPLACE FUNCTION`
+  must be diffed against the migration that last *defined* the function, and
+  that a DB-level guard with no DB-level test is a comment. `make test` also gained `-count=1`: without it
+  Go served the whole suite from the build cache, so a repeat run reported 2466
+  tests green in two seconds without starting a container — found while doing
+  rule 10's repeat runs, on the one target that cannot afford a cached result.
+
+- **Mistake (the third instance, now promoted here as T58's retro required):**
+  defect 2 above passed every unit-level test for 22 sprints because the
+  in-memory Payments repository has no CHECK constraint to violate. **The
+  fixture was more permissive than the database it stood in for**, so the tests
+  proved the routing and hid the storage.
+
+  `docs/process/t58-retro.md` §3 recorded two prior instances of a safety net
+  hiding the defect it was compensating for — T56's wire-test gap, and the
+  `HostPayments.spec` fallback — and said a third belonged here rather than in
+  another retro. This is the third, and it is worse than its predecessors in
+  one specific way: both of those were caught pre-merge by a reviewer. This one
+  shipped, and was found by a machine running the suite, 22 sprints later.
+
+  **Fix:** `internal/payments/adapter/postgres/payable_type_conformance_integration_test.go`
+  pins the domain's payable types against the real CHECK constraint, in both
+  directions. It **parses `internal/payments/domain/payment.go`** for the set
+  rather than listing it, because a hand-maintained table would have been
+  written by the same ticket that forgot the migration — forgetting to extend
+  the list is the same act as forgetting the schema, so a listed table cannot
+  catch this class. Verified by deletion: remove `0031` and exactly the
+  `competition_entry` subtest fails.
+
+- **The generalisation worth carrying forward:** a fake exists to be cheaper
+  than the real thing, and every way it is cheaper is a fact it cannot check.
+  When the fact in question is a constraint — NOT NULL, CHECK, a FK, a unique
+  index, a trigger — the only test that can check it is one with a real
+  database behind it, and such a test is worth nothing until something runs it.
+
+- **A note on where each of the three came from, because it is not flattering
+  in the same way.** #1 and #2 were found by a machine running a suite that had
+  been sitting in the repository for sprints. #3 was found by a human-style
+  review step — diffing every historical body of the function being changed —
+  performed on the fix for #1, and nothing in the test suite would ever have
+  found it, because no test existed. Running the suite was necessary and was
+  not sufficient; the review that asked "what else did this function lose?" is
+  what turned two defects into three.

@@ -232,6 +232,51 @@ its filename alone and nothing collides or goes stale silently:
   Docker-free gate. **The counts above are narrative, not a gate** — do not
   hand-edit them into a checklist, and never add an exclusion list to
   `tools/gatecoverage` to keep them true.
+- **Docker works here. Start it and run `make ci-integration`.** Every sprint
+  from T4 to T60 recorded "no Docker daemon available" and shipped
+  integration tests nobody had executed. The `dockerd`/`containerd` binaries
+  were present the whole time; the daemon starts in about four seconds
+  (`dockerd` detached, then poll `docker ps`), and the full suite takes
+  roughly 80 seconds. T61 ran it for the first time and it reported 34
+  failures — including **two live production defects** (`db/migrations/0030`,
+  `db/migrations/0031`) that every Docker-free gate had reported green for 18
+  and 22 sprints respectively. So: **compiling an integration test is not a
+  substitute for running it, and "the environment can't" is a claim to test
+  before it is written down.** A session that changes a migration, an actor
+  column, or anything a `*_integration_test.go` touches is expected to run
+  `make ci-integration`, not `make vet-integration` alone.
+- **An in-memory fake is more permissive than Postgres, and that asymmetry
+  hides storage bugs.** `0031`'s defect — `payments.payable_type`'s CHECK
+  never widened for `competition_entry` — passed every unit-level test for 22
+  sprints, because the in-memory Payments repository has no CHECK constraint
+  to violate. The fixtures proved the routing and hid the storage. When a
+  domain enum, status set, or payable type gains a value, the schema half is
+  part of the same ticket (rule 4), and the test that pins it belongs where a
+  real database can refuse it. See
+  `internal/payments/adapter/postgres/payable_type_conformance_integration_test.go`
+  for the shape: derive the set from the source, never list it.
+- **`CREATE OR REPLACE FUNCTION` replaces the whole body, and this project has
+  got that wrong twice in the same function.** `enforce_game_capacity()` has
+  been redefined five times. `0012` added guest weighting and silently dropped
+  `0007`'s waitlist-promotion reservation; `0023` added a cancelled-Game check
+  and silently dropped `0012`'s weighted sum. Both rebuilt their body from
+  `0006`'s version, and `0023`'s header even states the function is "unchanged
+  by this migration (that function is 0006's)" — recording which migration
+  *created* the function rather than which last *defined* it. `0030` is the
+  union of all four. **Before redefining a function, diff your new body
+  against the migration that last defined it**, found by grepping every
+  `CREATE OR REPLACE FUNCTION <name>` across `db/migrations`, not against the
+  one that created it. A redefinition that reads as purely additive is exactly
+  the shape this failure takes.
+- **A DB-level guard with no DB-level test is a comment.** `0007`'s reservation
+  shipped with no test on either side of the boundary, so when `0012` dropped
+  it nothing failed, for 18 migrations. Its test
+  (`internal/socialplay/adapter/postgres/waitlist_reservation_integration_test.go`,
+  T61) has to drive the **repository**, not `app.Service` — the app layer's own
+  pre-check refuses the call before Postgres sees it, so a test through
+  `app.Service` passes against a trigger with no such logic at all. That is
+  how the regression stayed invisible, and it is the general shape: to test
+  the Postgres half of rule 4, the test must bypass the Go half.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +

@@ -70,7 +70,7 @@ func TestCreateCompetitionEntry_CompetitionDeletedBetweenGuardReadAndInsertIsCom
 	repo := competitionspg.NewRepository(pool)
 
 	t.Run("competition deleted after the guarding read answers ErrCompetitionNotFound, not a raw 23503", func(t *testing.T) {
-		competition := seedCompetition(t, ctx, repo, "66666666-6666-6666-6666-660000000001", 16, 2, "fk-race-entries-token-1")
+		competition := seedCompetition(t, ctx, pool, repo, "66666666-6666-6666-6666-660000000001", 16, 2, "fk-race-entries-token-1")
 
 		// The guarding read app.Service.EnterCompetition performs before its
 		// own insert — proven to succeed here, exactly as it would for a
@@ -95,7 +95,11 @@ func TestCreateCompetitionEntry_CompetitionDeletedBetweenGuardReadAndInsertIsCom
 		entry := domain.CompetitionEntry{
 			ID:            "66666666-6666-6666-6666-660000000002",
 			CompetitionID: competition.ID,
-			PlayerID:      "race-player",
+			// T61: competition_entries.player_id became `uuid REFERENCES
+			// identity_users (id)` at migration 0025, so a bare label panics
+			// mustUUID. Seeded so the ONLY FK that can fail in this insert is
+			// the competition_id one under test.
+			PlayerID:      seedCompetitionsUser(t, ctx, pool, "race-player"),
 			Source:        domain.EntrySourceApp,
 			Status:        domain.EntryStatusEntered,
 			PaymentStatus: domain.PaymentStatusUnpaid,
@@ -127,12 +131,12 @@ func TestCreateCompetitionEntry_CompetitionDeletedBetweenGuardReadAndInsertIsCom
 	// Control: without it, a repository that rejected every insert would
 	// satisfy the subtest above for the wrong reason.
 	t.Run("control: entering a competition that was never deleted still succeeds", func(t *testing.T) {
-		competition := seedCompetition(t, ctx, repo, "66666666-6666-6666-6666-660000000003", 16, 2, "fk-race-entries-token-2")
+		competition := seedCompetition(t, ctx, pool, repo, "66666666-6666-6666-6666-660000000003", 16, 2, "fk-race-entries-token-2")
 
 		entry := domain.CompetitionEntry{
 			ID:            "66666666-6666-6666-6666-660000000004",
 			CompetitionID: competition.ID,
-			PlayerID:      "race-player-2",
+			PlayerID:      seedCompetitionsUser(t, ctx, pool, "race-player-2"),
 			Source:        domain.EntrySourceApp,
 			Status:        domain.EntryStatusEntered,
 			PaymentStatus: domain.PaymentStatusUnpaid,
@@ -193,7 +197,7 @@ func TestCreateCompetition_VenueFacilityDeletedBetweenGuardReadAndInsertIsFacili
 		}
 
 		competition, err := domain.NewCompetition(
-			"77777777-7777-7777-7777-770000000002", "race-host", "Race Open", facility.ID,
+			"77777777-7777-7777-7777-770000000002", seedCompetitionsUser(t, ctx, pool, "race-host"), "Race Open", facility.ID,
 			[]domain.Session{{
 				Range:    mustRange(t, "2026-09-05T09:00:00Z", "2026-09-05T12:00:00Z"),
 				CourtIDs: []string{seedCourtID},
@@ -227,7 +231,7 @@ func TestCreateCompetition_VenueFacilityDeletedBetweenGuardReadAndInsertIsFacili
 		// nullableUUID skips the column entirely rather than sending an
 		// empty string through mustUUID.
 		competitionNoVenue, err := domain.NewCompetition(
-			"77777777-7777-7777-7777-770000000003", "race-host", "Race Open No Venue", "",
+			"77777777-7777-7777-7777-770000000003", seedCompetitionsUser(t, ctx, pool, "race-host-no-venue"), "Race Open No Venue", "",
 			[]domain.Session{{
 				Range:    mustRange(t, "2026-09-05T09:00:00Z", "2026-09-05T12:00:00Z"),
 				CourtIDs: []string{seedCourtID},
@@ -263,7 +267,7 @@ func TestCreateCompetition_VenueFacilityDeletedBetweenGuardReadAndInsertIsFacili
 		}
 
 		competition, err := domain.NewCompetition(
-			"77777777-7777-7777-7777-770000000005", "race-host-2", "Race Open 2", facility.ID,
+			"77777777-7777-7777-7777-770000000005", seedCompetitionsUser(t, ctx, pool, "race-host-2"), "Race Open 2", facility.ID,
 			[]domain.Session{{
 				Range:    mustRange(t, "2026-09-05T13:00:00Z", "2026-09-05T16:00:00Z"),
 				CourtIDs: []string{seedCourtID},

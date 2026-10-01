@@ -130,11 +130,14 @@ func TestRegisterForGame_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) {
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
 		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
+		// T61: required since T29.2. Never exercised here — see
+		// identity_fixtures_integration_test.go.
+		Identity: stubIdentityLookup{},
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 	game, err := domain.NewGame(
-		"33333333-3333-3333-3333-100000000001", "host-x", "facility-x", "",
+		"33333333-3333-3333-3333-100000000001", seedSocialplayUser(t, ctx, pool, "uniform-guest-host"), "facility-x", "",
 		[]string{seedCourtID}, r, gameCapacityUniform,
 		domain.PaymentMethodEither, guestCountUniform, // GuestAllowance must cover guestCountUniform
 		domain.Money{Cents: 1500, Currency: "USD"},
@@ -147,6 +150,14 @@ func TestRegisterForGame_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) {
 		t.Fatalf("failed to create fixture game: %v", err)
 	}
 
+	// T61: seeded before the goroutines start — registrations.player_id is a
+	// uuid FK as of migration 0026, and seedSocialplayUser calls t.Fatalf,
+	// which is only legal on the test's own goroutine.
+	playerIDs := make([]string, concurrentAttemptsUniform)
+	for i := range playerIDs {
+		playerIDs[i] = seedSocialplayUser(t, ctx, pool, fmt.Sprintf("uniform-player-%02d", i))
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	successes, full, unexpected := 0, 0, 0
@@ -157,7 +168,7 @@ func TestRegisterForGame_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) {
 			defer wg.Done()
 			_, err := svc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{
 				GameID:     game.ID,
-				PlayerID:   fmt.Sprintf("uniform-player-%02d", n),
+				PlayerID:   playerIDs[n],
 				GuestCount: guestCountUniform,
 			})
 			mu.Lock()
@@ -258,11 +269,14 @@ func TestRegisterForGame_VaryingGuestCountsFillExactlyToCapacityUnderConcurrency
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
 		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
+		// T61: required since T29.2. Never exercised here — see
+		// identity_fixtures_integration_test.go.
+		Identity: stubIdentityLookup{},
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
 	game, err := domain.NewGame(
-		"33333333-3333-3333-3333-100000000002", "host-x", "facility-x", "",
+		"33333333-3333-3333-3333-100000000002", seedSocialplayUser(t, ctx, pool, "varying-guest-host"), "facility-x", "",
 		[]string{seedCourtID}, r, gameCapacityVarying,
 		domain.PaymentMethodEither, largeGuestCount, // GuestAllowance must cover the largest guestCount used
 		domain.Money{Cents: 1500, Currency: "USD"},
@@ -281,10 +295,10 @@ func TestRegisterForGame_VaryingGuestCountsFillExactlyToCapacityUnderConcurrency
 	}
 	var attempts []attempt
 	for i := 0; i < largeAttempts; i++ {
-		attempts = append(attempts, attempt{playerID: fmt.Sprintf("large-player-%02d", i), guestCount: largeGuestCount})
+		attempts = append(attempts, attempt{playerID: seedSocialplayUser(t, ctx, pool, fmt.Sprintf("large-player-%02d", i)), guestCount: largeGuestCount})
 	}
 	for i := 0; i < smallAttempts; i++ {
-		attempts = append(attempts, attempt{playerID: fmt.Sprintf("small-player-%02d", i), guestCount: smallGuestCount})
+		attempts = append(attempts, attempt{playerID: seedSocialplayUser(t, ctx, pool, fmt.Sprintf("small-player-%02d", i)), guestCount: smallGuestCount})
 	}
 
 	var wg sync.WaitGroup

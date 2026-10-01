@@ -102,10 +102,19 @@ func TestRecordOfflinePayment_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 	// of the 20 calls so every attempt passes authorization identically and
 	// the only thing distinguishing a winner from a loser is the race for
 	// the unique index, not an authorization difference between attempts.
+	// T61: actorID is a uuid with a real identity_users row behind it.
+	//
+	// payments.recorded_by_user_id became `uuid REFERENCES identity_users (id)`
+	// at T28.1 (migration 0024). This fixture predated that and still used
+	// "host-concurrency-1", which mustUUID panics on — taking the whole test
+	// binary down and marking every other test in this package failed. It was
+	// invisible because no Docker-free gate runs these tests, and
+	// `make vet-integration` only COMPILES them.
 	const (
 		payableID = "44444444-4444-4444-4444-444444444444"
-		actorID   = "host-concurrency-1"
+		actorID   = "55555555-5555-5555-5555-555555555555"
 	)
+	seedPaymentsActor(t, ctx, pool, actorID)
 	amount := domain.Money{Cents: 1500, Currency: "USD"}
 
 	var wg sync.WaitGroup
@@ -151,5 +160,19 @@ func TestRecordOfflinePayment_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 	}
 	if unexpected != 0 {
 		t.Errorf("unexpected outcomes = %d, want 0", unexpected)
+	}
+}
+
+// seedPaymentsActor inserts the identity_users row
+// payments.recorded_by_user_id's FK requires (T61). `subject` is NOT NULL
+// UNIQUE as of migration 0019, so it is derived from the id.
+func seedPaymentsActor(t *testing.T, ctx context.Context, pool *pgxpool.Pool, userID string) {
+	t.Helper()
+
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level, subject)
+		VALUES ($1, 'T61 Concurrency Actor', ARRAY['player'], 3, $2)
+	`, userID, "auth0|t61-concurrency-"+userID); err != nil {
+		t.Fatalf("seeding the concurrency actor: %v", err)
 	}
 }

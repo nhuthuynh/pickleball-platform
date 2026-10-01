@@ -64,6 +64,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -117,11 +118,19 @@ func newTestService(pool *pgxpool.Pool) (*competitionsapp.Service, *competitions
 // seedCompetition persists a fixture Competition directly through the
 // repository, bypassing ScheduleCompetition so no court reservation is
 // involved — the capacity guard, not the booking path, is what's under test.
-func seedCompetition(t *testing.T, ctx context.Context, repo *competitionspg.Repository, id string, capacity, guestAllowance int, shareToken string) domain.Competition {
+// T61: takes a pool as well as the repo, because competitions.host_id became
+// `uuid REFERENCES identity_users (id)` at T29.1 (migration 0025) and the host
+// now needs a real row behind it. The previous "host-x" panicked mustUUID,
+// taking the whole test binary down — invisible until T61, since no
+// Docker-free gate executes these tests and `make vet-integration` only
+// COMPILES them.
+func seedCompetition(t *testing.T, ctx context.Context, pool *pgxpool.Pool, repo *competitionspg.Repository, id string, capacity, guestAllowance int, shareToken string) domain.Competition {
 	t.Helper()
 
+	hostID := seedCompetitionsUser(t, ctx, pool, "host")
+
 	competition, err := domain.NewCompetition(
-		id, "host-x", "Concurrency Fixture", "",
+		id, hostID, "Concurrency Fixture", "",
 		[]domain.Session{{
 			Range:    mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T12:00:00Z"),
 			CourtIDs: []string{seedCourtID},
@@ -231,11 +240,11 @@ func TestEnterCompetition_UniformGuestWeightHoldsUnderConcurrency(t *testing.T) 
 		expectedSuccesses = 1 // floor(7/4) = 1; a 2nd (weight 4) would need 8 > 7
 	)
 
-	competition := seedCompetition(t, ctx, repo, "44444444-4444-4444-4444-100000000001", capacity, guestCount, "concurrency-token-uniform")
+	competition := seedCompetition(t, ctx, pool, repo, "44444444-4444-4444-4444-100000000001", capacity, guestCount, "concurrency-token-uniform")
 
 	attempts := make([]attempt, 0, concurrentEntries)
 	for i := 0; i < concurrentEntries; i++ {
-		attempts = append(attempts, attempt{playerID: fmt.Sprintf("uniform-player-%02d", i), guestCount: guestCount})
+		attempts = append(attempts, attempt{playerID: seedCompetitionsUser(t, ctx, pool, fmt.Sprintf("uniform-%02d", i)), guestCount: guestCount})
 	}
 
 	successes, full, unexpected := runConcurrently(t, ctx, svc, competition.ID, attempts)
@@ -296,14 +305,14 @@ func TestEnterCompetition_VaryingGuestCountsFillExactlyToCapacity(t *testing.T) 
 		smallAttempts   = 10
 	)
 
-	competition := seedCompetition(t, ctx, repo, "44444444-4444-4444-4444-100000000002", capacity, largeGuestCount, "concurrency-token-varying")
+	competition := seedCompetition(t, ctx, pool, repo, "44444444-4444-4444-4444-100000000002", capacity, largeGuestCount, "concurrency-token-varying")
 
 	attempts := make([]attempt, 0, largeAttempts+smallAttempts)
 	for i := 0; i < largeAttempts; i++ {
-		attempts = append(attempts, attempt{playerID: fmt.Sprintf("large-player-%02d", i), guestCount: largeGuestCount})
+		attempts = append(attempts, attempt{playerID: seedCompetitionsUser(t, ctx, pool, fmt.Sprintf("large-%02d", i)), guestCount: largeGuestCount})
 	}
 	for i := 0; i < smallAttempts; i++ {
-		attempts = append(attempts, attempt{playerID: fmt.Sprintf("small-player-%02d", i), guestCount: smallGuestCount})
+		attempts = append(attempts, attempt{playerID: seedCompetitionsUser(t, ctx, pool, fmt.Sprintf("small-%02d", i)), guestCount: smallGuestCount})
 	}
 
 	successes, full, unexpected := runConcurrently(t, ctx, svc, competition.ID, attempts)
@@ -369,11 +378,11 @@ func TestEnterCompetition_ExactlyOneCombinationFits(t *testing.T) {
 		concurrentEntries = 16
 	)
 
-	competition := seedCompetition(t, ctx, repo, "44444444-4444-4444-4444-100000000003", capacity, guestCount, "concurrency-token-exact")
+	competition := seedCompetition(t, ctx, pool, repo, "44444444-4444-4444-4444-100000000003", capacity, guestCount, "concurrency-token-exact")
 
 	attempts := make([]attempt, 0, concurrentEntries)
 	for i := 0; i < concurrentEntries; i++ {
-		attempts = append(attempts, attempt{playerID: fmt.Sprintf("exact-player-%02d", i), guestCount: guestCount})
+		attempts = append(attempts, attempt{playerID: seedCompetitionsUser(t, ctx, pool, fmt.Sprintf("exact-%02d", i)), guestCount: guestCount})
 	}
 
 	successes, full, unexpected := runConcurrently(t, ctx, svc, competition.ID, attempts)
@@ -503,4 +512,21 @@ func mustRange(t *testing.T, start, end string) domain.TimeRange {
 // happened, not that a court was actually freed.
 func (stubReservation) ReleaseCourtsForReference(context.Context, string, string) (int, error) {
 	return 0, nil
+}
+
+// seedCompetitionsUser inserts an identity_users row and returns its uuid id,
+// for the FKs competitions.host_id and competition_entries.player_id became at
+// T29.1 (migration 0025). label only has to be unique within a test, since
+// identity_users.subject is NOT NULL UNIQUE as of migration 0019.
+func seedCompetitionsUser(t *testing.T, ctx context.Context, pool *pgxpool.Pool, label string) string {
+	t.Helper()
+
+	id := uuid.NewString()
+	if _, err := pool.Exec(ctx, `
+		INSERT INTO identity_users (id, display_name, roles, self_reported_starting_level, subject)
+		VALUES ($1, $2, ARRAY['player'], 3, $3)
+	`, id, "T61 "+label, "auth0|t61-competitions-"+id); err != nil {
+		t.Fatalf("seeding identity_users for %s: %v", label, err)
+	}
+	return id
 }

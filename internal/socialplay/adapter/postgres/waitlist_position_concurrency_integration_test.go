@@ -98,10 +98,13 @@ func TestJoinWaitlist_CorrectPositionSequenceUnderConcurrency(t *testing.T) {
 		Waitlist:      waitlistRepo,
 		Matches:       matchRepo,
 		GameAdmins:    socialplaypg.NewGameAdminRepository(pool),
+		// T61: required since T29.2. Never exercised here — see
+		// identity_fixtures_integration_test.go.
+		Identity: stubIdentityLookup{},
 	})
 
 	r := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
-	game, err := domain.NewGame("22222222-2222-2222-2222-100000000001", "host-x", "facility-x", "", []string{seedCourtID}, r, 1, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
+	game, err := domain.NewGame("22222222-2222-2222-2222-100000000001", seedSocialplayUser(t, ctx, pool, "waitlist-position-host"), "facility-x", "", []string{seedCourtID}, r, 1, domain.PaymentMethodEither, 0, domain.Money{Cents: 1500, Currency: "USD"})
 	if err != nil {
 		t.Fatalf("bad fixture game: %v", err)
 	}
@@ -111,7 +114,7 @@ func TestJoinWaitlist_CorrectPositionSequenceUnderConcurrency(t *testing.T) {
 	}
 
 	// Fill capacity so every JoinWaitlist call below is legal (game is full).
-	if _, err := svc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{GameID: game.ID, PlayerID: "player-active"}); err != nil {
+	if _, err := svc.RegisterForGame(ctx, socialplayapp.RegisterForGameInput{GameID: game.ID, PlayerID: seedSocialplayUser(t, ctx, pool, "waitlist-position-active")}); err != nil {
 		t.Fatalf("failed to fill capacity: %v", err)
 	}
 
@@ -119,6 +122,16 @@ func TestJoinWaitlist_CorrectPositionSequenceUnderConcurrency(t *testing.T) {
 	// no-double-waitlisting race (0007's unique index), it's the
 	// queue-position race: N legitimate, distinct joiners racing for N
 	// distinct, correctly-ordered Position values.
+	// T61: seeded before the goroutines start — waitlist_entries.player_id is
+	// a uuid FK as of migration 0026, and seedSocialplayUser calls t.Fatalf,
+	// which is only legal on the test's own goroutine. This replaces a
+	// playerName(i) helper that built "player-waiting-<i>" strings; the ids
+	// still have to be distinct per joiner, which is what this test is about.
+	waitingPlayerIDs := make([]string, concurrentJoinAttempts)
+	for i := range waitingPlayerIDs {
+		waitingPlayerIDs[i] = seedSocialplayUser(t, ctx, pool, "waitlist-position-waiting-"+strconv.Itoa(i))
+	}
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var positions []int
@@ -130,7 +143,7 @@ func TestJoinWaitlist_CorrectPositionSequenceUnderConcurrency(t *testing.T) {
 			defer wg.Done()
 			entry, err := svc.JoinWaitlist(ctx, socialplayapp.JoinWaitlistInput{
 				GameID:   game.ID,
-				PlayerID: playerName(i),
+				PlayerID: waitingPlayerIDs[i],
 			})
 			mu.Lock()
 			defer mu.Unlock()
@@ -168,8 +181,4 @@ func TestJoinWaitlist_CorrectPositionSequenceUnderConcurrency(t *testing.T) {
 	if len(stored) != concurrentJoinAttempts {
 		t.Fatalf("stored entries = %d, want %d", len(stored), concurrentJoinAttempts)
 	}
-}
-
-func playerName(i int) string {
-	return "player-waiting-" + strconv.Itoa(i)
 }

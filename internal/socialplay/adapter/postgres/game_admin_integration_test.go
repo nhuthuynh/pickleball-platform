@@ -22,7 +22,25 @@
 // build tag; run it with `go test -tags=integration ./...` or `make test`.
 // Requires Docker — `make vet-integration` (T12.1) compiles it without.
 // Shares waitForReady/applyMigrations/mustRange/seedCourtID with
-// concurrency_integration_test.go in this same package.
+// concurrency_integration_test.go, and seedSocialplayUser with
+// identity_fixtures_integration_test.go, in this same package.
+//
+// # T61: this file's actor fixtures were subjects, and are now uuids
+//
+// As written at T14.4 every actor id here was an IdP subject
+// (`"auth0|host-subject"`), deliberately: ADR-0014 §5a had ruled this
+// context's actor columns were text subjects, and the fixtures were chosen so
+// that a uuid column type could not slip into game_admins unnoticed. **T29.2
+// reversed that ruling** — `0026_socialplay_identity_conformance.sql` converted
+// games.host_id and game_admins.user_id/assigned_by to
+// `uuid REFERENCES identity_users (id)` — and this file was not updated, so
+// every test in it panicked in `mustUUID` on its first fixture. Nothing
+// reported that for 32 sprints, because no gate on a Docker-free machine
+// executes it and `make vet-integration` only COMPILES it.
+//
+// The guard the old fixtures provided is not lost, only inverted: a subject
+// reaching one of these columns now panics loudly in the adapter, which is a
+// stronger signal than a text column quietly accepting one.
 package postgres_test
 
 import (
@@ -80,12 +98,11 @@ func newGameAdminTestPool(t *testing.T, ctx context.Context) *pgxpool.Pool {
 	return pool
 }
 
-// seedGameAdminFixtureGame persists a Game whose HostID is a SUBJECT rather
-// than a uuid — which is the point, not a shortcut. ADR-0014 §5a rules that
-// this context's actor columns are text subjects, and
-// db/migrations/0020_socialplay_game_admins.sql follows games.host_id
-// deliberately; a fixture using uuids everywhere would let a uuid column type
-// slip into game_admins unnoticed.
+// seedGameAdminFixtureGame persists a Game whose HostID must be a resolved
+// User.ID (uuid) with a real identity_users row behind it — games.host_id is
+// `uuid NOT NULL REFERENCES identity_users (id)` as of migration 0026 (T29.2).
+// Callers get that id from seedSocialplayUser. See this file's header for what
+// these fixtures used to be and why.
 func seedGameAdminFixtureGame(t *testing.T, ctx context.Context, pool *pgxpool.Pool, id, hostID string) domain.Game {
 	t.Helper()
 
@@ -107,11 +124,9 @@ func TestGameAdminRepository_ReadObservesWhatTheWriteWrote(t *testing.T) {
 	ctx := context.Background()
 	pool := newGameAdminTestPool(t, ctx)
 
-	const (
-		hostSubject  = "auth0|host-subject"
-		adminSubject = "auth0|admin-subject"
-	)
-	game := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000001", hostSubject)
+	hostUserID := seedSocialplayUser(t, ctx, pool, "game-admin-roundtrip-host")
+	adminUserID := seedSocialplayUser(t, ctx, pool, "game-admin-roundtrip-admin")
+	game := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000001", hostUserID)
 	repo := socialplaypg.NewGameAdminRepository(pool)
 
 	before, err := repo.ListGameAdmins(ctx, game.ID)
@@ -125,14 +140,14 @@ func TestGameAdminRepository_ReadObservesWhatTheWriteWrote(t *testing.T) {
 	assignedAt := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	written, err := repo.Assign(ctx, domain.GameAdmin{
 		GameID:     game.ID,
-		UserID:     adminSubject,
-		AssignedBy: hostSubject,
+		UserID:     adminUserID,
+		AssignedBy: hostUserID,
 		AssignedAt: assignedAt,
 	})
 	if err != nil {
 		t.Fatalf("Assign: %v", err)
 	}
-	if written.UserID != adminSubject || written.AssignedBy != hostSubject {
+	if written.UserID != adminUserID || written.AssignedBy != hostUserID {
 		t.Fatalf("Assign returned %+v, want the values it was given", written)
 	}
 
@@ -148,22 +163,22 @@ func TestGameAdminRepository_ReadObservesWhatTheWriteWrote(t *testing.T) {
 	if got.GameID != game.ID {
 		t.Errorf("read back GameID %q, want %q", got.GameID, game.ID)
 	}
-	if got.UserID != adminSubject {
-		t.Errorf("read back UserID %q, want %q — a subject must survive the text column unchanged (ADR-0014 §5a)", got.UserID, adminSubject)
+	if got.UserID != adminUserID {
+		t.Errorf("read back UserID %q, want %q — the resolved User.ID must survive the uuid column unchanged (migration 0026)", got.UserID, adminUserID)
 	}
-	if got.AssignedBy != hostSubject {
-		t.Errorf("read back AssignedBy %q, want %q", got.AssignedBy, hostSubject)
+	if got.AssignedBy != hostUserID {
+		t.Errorf("read back AssignedBy %q, want %q", got.AssignedBy, hostUserID)
 	}
 	if !got.AssignedAt.Equal(assignedAt) {
 		t.Errorf("read back AssignedAt %v, want %v — the caller-supplied timestamp must survive the timestamptz round trip", got.AssignedAt, assignedAt)
 	}
 
 	// domain.HasGameAdmin over the real read is exactly what T14.5 consumes.
-	if !domain.HasGameAdmin(after, adminSubject) {
+	if !domain.HasGameAdmin(after, adminUserID) {
 		t.Error("HasGameAdmin does not resolve the admin the real store just recorded")
 	}
 
-	if err := repo.Revoke(ctx, game.ID, adminSubject); err != nil {
+	if err := repo.Revoke(ctx, game.ID, adminUserID); err != nil {
 		t.Fatalf("Revoke: %v", err)
 	}
 	remaining, err := repo.ListGameAdmins(ctx, game.ID)
@@ -173,7 +188,7 @@ func TestGameAdminRepository_ReadObservesWhatTheWriteWrote(t *testing.T) {
 	if len(remaining) != 0 {
 		t.Fatalf("after the revoke the table holds %d rows, want 0", len(remaining))
 	}
-	if err := repo.Revoke(ctx, game.ID, adminSubject); !errors.Is(err, domain.ErrGameAdminNotFound) {
+	if err := repo.Revoke(ctx, game.ID, adminUserID); !errors.Is(err, domain.ErrGameAdminNotFound) {
 		t.Fatalf("revoking an already-revoked assignment = %v, want ErrGameAdminNotFound — "+
 			"a DELETE that matched nothing must not report success", err)
 	}
@@ -196,11 +211,9 @@ func TestGameAdminRepository_ExactlyOneAssignWinsUnderConcurrency(t *testing.T) 
 	ctx := context.Background()
 	pool := newGameAdminTestPool(t, ctx)
 
-	const (
-		hostSubject  = "auth0|race-host"
-		adminSubject = "auth0|race-admin"
-	)
-	game := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000002", hostSubject)
+	hostUserID := seedSocialplayUser(t, ctx, pool, "game-admin-race-host")
+	adminUserID := seedSocialplayUser(t, ctx, pool, "game-admin-race-admin")
+	game := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000002", hostUserID)
 	repo := socialplaypg.NewGameAdminRepository(pool)
 
 	var (
@@ -220,8 +233,8 @@ func TestGameAdminRepository_ExactlyOneAssignWinsUnderConcurrency(t *testing.T) 
 
 			_, err := repo.Assign(ctx, domain.GameAdmin{
 				GameID:     game.ID,
-				UserID:     adminSubject,
-				AssignedBy: hostSubject,
+				UserID:     adminUserID,
+				AssignedBy: hostUserID,
 				AssignedAt: time.Now(),
 			})
 
@@ -273,10 +286,15 @@ func TestGameAdminRepository_RejectsAnUnknownGame(t *testing.T) {
 	pool := newGameAdminTestPool(t, ctx)
 
 	repo := socialplaypg.NewGameAdminRepository(pool)
+	// T61: both user columns are seeded, even though this test is about the
+	// game_id FK. user_id and assigned_by became uuid FKs into identity_users
+	// at migration 0026 too, so unseeded ones would give Postgres a choice of
+	// which FK to report — and this test asserts a specific sentinel. Seeding
+	// them leaves game_id as the only constraint that can fire.
 	_, err := repo.Assign(ctx, domain.GameAdmin{
 		GameID:     "22222222-2222-2222-2222-2000000000ff",
-		UserID:     "auth0|nobody",
-		AssignedBy: "auth0|nobody-else",
+		UserID:     seedSocialplayUser(t, ctx, pool, "unknown-game-admin"),
+		AssignedBy: seedSocialplayUser(t, ctx, pool, "unknown-game-assigner"),
 		AssignedAt: time.Now(),
 	})
 	if !errors.Is(err, domain.ErrGameNotFound) {
@@ -292,16 +310,14 @@ func TestGameAdmins_AreScopedToOneGame(t *testing.T) {
 	ctx := context.Background()
 	pool := newGameAdminTestPool(t, ctx)
 
-	const (
-		hostSubject  = "auth0|scope-host"
-		adminSubject = "auth0|scope-admin"
-	)
-	gameA := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000003", hostSubject)
-	gameB := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000004", hostSubject)
+	hostUserID := seedSocialplayUser(t, ctx, pool, "game-admin-scope-host")
+	adminUserID := seedSocialplayUser(t, ctx, pool, "game-admin-scope-admin")
+	gameA := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000003", hostUserID)
+	gameB := seedGameAdminFixtureGame(t, ctx, pool, "22222222-2222-2222-2222-200000000004", hostUserID)
 	repo := socialplaypg.NewGameAdminRepository(pool)
 
 	if _, err := repo.Assign(ctx, domain.GameAdmin{
-		GameID: gameA.ID, UserID: adminSubject, AssignedBy: hostSubject, AssignedAt: time.Now(),
+		GameID: gameA.ID, UserID: adminUserID, AssignedBy: hostUserID, AssignedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("Assign on game A: %v", err)
 	}
@@ -310,14 +326,14 @@ func TestGameAdmins_AreScopedToOneGame(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListGameAdmins on game B: %v", err)
 	}
-	if domain.HasGameAdmin(adminsB, adminSubject) {
+	if domain.HasGameAdmin(adminsB, adminUserID) {
 		t.Fatal("an admin assigned to game A resolves as an admin of game B")
 	}
 
 	// And the same user CAN hold an assignment on both — the PK is composite,
 	// not a global unique on user_id.
 	if _, err := repo.Assign(ctx, domain.GameAdmin{
-		GameID: gameB.ID, UserID: adminSubject, AssignedBy: hostSubject, AssignedAt: time.Now(),
+		GameID: gameB.ID, UserID: adminUserID, AssignedBy: hostUserID, AssignedAt: time.Now(),
 	}); err != nil {
 		t.Fatalf("assigning the same user to a second Game: %v — the uniqueness guard is per (game_id, user_id), not per user", err)
 	}

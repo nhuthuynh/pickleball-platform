@@ -133,9 +133,17 @@ tidy:
 # Full suite: everything, including packages that depend on generated code
 # and the testcontainers-based concurrency integration test (T4), which
 # needs Docker. Requires `make generate` to have been run first.
+#
+# -count=1 (T61) is NOT cosmetic consistency with the targets above: without
+# it, Go serves this target's result from the build cache, so a second
+# `make ci-integration` on an unchanged tree reports 2466 tests green in two
+# seconds without starting a single container. That is precisely the wrong
+# behaviour for the one target whose job is to execute non-deterministic
+# concurrency tests — CLAUDE.md rule 10 asks for repeat runs, and a cached
+# repeat is not a repeat. Found while doing those repeats.
 test:
 	mkdir -p build
-	gotestsum --junitfile build/junit.xml -- -race -tags=integration -coverprofile=build/coverage.out ./...
+	gotestsum --junitfile build/junit.xml -- -race -count=1 -tags=integration -coverprofile=build/coverage.out ./...
 
 # Type-checks the //go:build integration files WITHOUT running them, so they
 # stop being invisible to every gate a machine without Docker can run.
