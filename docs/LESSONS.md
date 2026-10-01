@@ -2833,11 +2833,30 @@ supplied in the retro document for that ceremony to carry forward.
      only booking/registration/no_show_fee; `domain.PayableTypeCompetitionEntry`
      and the entire Competitions payment path shipped at T10.6, 22 sprints
      earlier. Money-adjacent, and broken from the sprint it was built in.
+  3. **A promoted waitlist player's reserved slot could be taken out from under
+     them** (also fixed by `db/migrations/0030`) — **found by the pre-merge
+     review of the fix for #1, not by the suite.** `0007` (T6.6) had taught the
+     same function that an unexpired `promoted` entry for a different player
+     occupies a slot during its response window. `0012` (T8.7) rewrote the
+     function for guest weighting, from `0006`'s body, and that count vanished
+     without being mentioned anywhere in `0012`. So `0012` is simultaneously
+     the fix for one divergence and the cause of another, and `0023` then did
+     the same thing to `0012`. `domain.SlotReservedByPromotion` enforced the
+     rule in Go throughout.
 
-  **Fix:** started the daemon, ran `make ci-integration`, fixed both defects
-  and the fixture rot behind the other failures, and recorded in CLAUDE.md's
-  gotchas that Docker works here and that compiling an integration test is not
-  a substitute for running it. `make test` also gained `-count=1`: without it
+     This one had **no test on either side of the boundary** — `0007` shipped
+     the guard untested, so when `0012` dropped it nothing failed, for 18
+     migrations. The review found it by diffing all five bodies of the function
+     against each other rather than reviewing the new one on its own, which is
+     the check worth keeping: *the function's history is the review surface,
+     not the diff.*
+
+  **Fix:** started the daemon, ran `make ci-integration`, fixed all three
+  defects and the fixture rot behind the other failures, and recorded in
+  CLAUDE.md's gotchas that Docker works here, that compiling an integration
+  test is not a substitute for running it, that a `CREATE OR REPLACE FUNCTION`
+  must be diffed against the migration that last *defined* the function, and
+  that a DB-level guard with no DB-level test is a comment. `make test` also gained `-count=1`: without it
   Go served the whole suite from the build cache, so a repeat run reported 2466
   tests green in two seconds without starting a container — found while doing
   rule 10's repeat runs, on the one target that cannot afford a cached result.
@@ -2869,3 +2888,12 @@ supplied in the retro document for that ceremony to carry forward.
   When the fact in question is a constraint — NOT NULL, CHECK, a FK, a unique
   index, a trigger — the only test that can check it is one with a real
   database behind it, and such a test is worth nothing until something runs it.
+
+- **A note on where each of the three came from, because it is not flattering
+  in the same way.** #1 and #2 were found by a machine running a suite that had
+  been sitting in the repository for sprints. #3 was found by a human-style
+  review step — diffing every historical body of the function being changed —
+  performed on the fix for #1, and nothing in the test suite would ever have
+  found it, because no test existed. Running the suite was necessary and was
+  not sufficient; the review that asked "what else did this function lose?" is
+  what turned two defects into three.

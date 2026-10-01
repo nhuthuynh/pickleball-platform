@@ -255,12 +255,28 @@ its filename alone and nothing collides or goes stale silently:
   real database can refuse it. See
   `internal/payments/adapter/postgres/payable_type_conformance_integration_test.go`
   for the shape: derive the set from the source, never list it.
-- **`CREATE OR REPLACE FUNCTION` replaces the whole body.** `0023` added one
-  check to `enforce_game_capacity()` and silently reverted `0012`'s weighted
-  capacity sum by rebuilding the body from `0006`'s version — its header even
-  says the function is "unchanged by this migration". Before redefining a
-  function, diff your new body against **the migration that last defined
-  it**, not against the one that created it.
+- **`CREATE OR REPLACE FUNCTION` replaces the whole body, and this project has
+  got that wrong twice in the same function.** `enforce_game_capacity()` has
+  been redefined five times. `0012` added guest weighting and silently dropped
+  `0007`'s waitlist-promotion reservation; `0023` added a cancelled-Game check
+  and silently dropped `0012`'s weighted sum. Both rebuilt their body from
+  `0006`'s version, and `0023`'s header even states the function is "unchanged
+  by this migration (that function is 0006's)" — recording which migration
+  *created* the function rather than which last *defined* it. `0030` is the
+  union of all four. **Before redefining a function, diff your new body
+  against the migration that last defined it**, found by grepping every
+  `CREATE OR REPLACE FUNCTION <name>` across `db/migrations`, not against the
+  one that created it. A redefinition that reads as purely additive is exactly
+  the shape this failure takes.
+- **A DB-level guard with no DB-level test is a comment.** `0007`'s reservation
+  shipped with no test on either side of the boundary, so when `0012` dropped
+  it nothing failed, for 18 migrations. Its test
+  (`internal/socialplay/adapter/postgres/waitlist_reservation_integration_test.go`,
+  T61) has to drive the **repository**, not `app.Service` — the app layer's own
+  pre-check refuses the call before Postgres sees it, so a test through
+  `app.Service` passes against a trigger with no such logic at all. That is
+  how the regression stayed invisible, and it is the general shape: to test
+  the Postgres half of rule 4, the test must bypass the Go half.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +
