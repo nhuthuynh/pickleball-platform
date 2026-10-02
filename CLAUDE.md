@@ -213,9 +213,12 @@ its filename alone and nothing collides or goes stale silently:
   Don't write adapter code assuming one row type across queries — see
   `fromFields` in `internal/booking/adapter/postgres/repository.go` for the
   pattern (convert from the shared columns, not a shared struct).
-- **11 test files across 4 contexts** are gated behind `//go:build
-  integration` — socialplay (5), payments (3), competitions (2), booking (1),
-  all under `adapter/`. Verify with `grep -rl "go:build integration"`. They
+- **26 test files across 5 contexts** are gated behind `//go:build
+  integration` — socialplay (10), payments (6), booking (4), competitions (4),
+  facilities (2), all under `adapter/`. Verify with
+  `grep -rl "go:build integration"` — this count read 11 across 4 contexts from
+  T12.1 until T61 re-ran that grep, which is the caveat at the end of this
+  paragraph working as intended rather than a separate failure. They
   need Docker (testcontainers-go) to *run*, so they are excluded from
   `make test-domain` and from plain `go test ./...`/`go vet ./...` — which
   means a break in one of them is invisible to every gate a machine without a
@@ -238,9 +241,14 @@ its filename alone and nothing collides or goes stale silently:
   were present the whole time; the daemon starts in about four seconds
   (`dockerd` detached, then poll `docker ps`), and the full suite takes
   roughly 80 seconds. T61 ran it for the first time and it reported 34
-  failures — including **two live production defects** (`db/migrations/0030`,
-  `db/migrations/0031`) that every Docker-free gate had reported green for 18
-  and 22 sprints respectively. So: **compiling an integration test is not a
+  failures — including **three live production defects**, two of them in one
+  trigger (`db/migrations/0030` fixes both, `db/migrations/0031` the third).
+  Each had been reported green by every Docker-free gate from the sprint that
+  broke it — **T8.7, T19.1 and T10.6 respectively** — until T61. (Those are
+  ticket numbers, not a count of elapsed sprints: T61's own first draft of this
+  paragraph said "18 and 22 sprints", which was two migration-distances
+  mislabelled as sprints and one invented figure. See
+  `docs/process/t61-retro.md` §4.) So: **compiling an integration test is not a
   substitute for running it, and "the environment can't" is a claim to test
   before it is written down.** A session that changes a migration, an actor
   column, or anything a `*_integration_test.go` touches is expected to run
@@ -269,8 +277,9 @@ its filename alone and nothing collides or goes stale silently:
   one that created it. A redefinition that reads as purely additive is exactly
   the shape this failure takes.
 - **A DB-level guard with no DB-level test is a comment.** `0007`'s reservation
-  shipped with no test on either side of the boundary, so when `0012` dropped
-  it nothing failed, for 18 migrations. Its test
+  shipped with no test on either side of the boundary, so when `0012` (T8.7)
+  dropped it nothing failed until T61 — seventeen migrations landed in between.
+  Its test
   (`internal/socialplay/adapter/postgres/waitlist_reservation_integration_test.go`,
   T61) has to drive the **repository**, not `app.Service` — the app layer's own
   pre-check refuses the call before Postgres sees it, so a test through

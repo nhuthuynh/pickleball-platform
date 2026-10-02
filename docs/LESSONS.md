@@ -2826,13 +2826,15 @@ supplied in the retro document for that ceremony to carry forward.
      `SUM(1 + guest_count)` to a plain `COUNT(*)`. A 7-person Game accepted 7
      registrations each bringing 3 guests — 28 people in a 7-person Game.
      `domain.Register` stayed weighted throughout, so CLAUDE.md rule 4's two
-     halves disagreed for 18 sprints with the authoritative half wrong. The
+     halves disagreed from T19.1 until T61, with the authoritative half wrong.
+     The
      test that catches this has existed, asserting exactly this, since T8.7.
   2. **Every Competition-entry payment failed against a real database** (fixed
      by `db/migrations/0031`). `payments.payable_type`'s CHECK still listed
      only booking/registration/no_show_fee; `domain.PayableTypeCompetitionEntry`
-     and the entire Competitions payment path shipped at T10.6, 22 sprints
-     earlier. Money-adjacent, and broken from the sprint it was built in.
+     and the entire Competitions payment path shipped at T10.6 and the CHECK was
+     never widened, so it was broken from T10.6 until T61. Money-adjacent, and
+     broken from the sprint it was built in.
   3. **A promoted waitlist player's reserved slot could be taken out from under
      them** (also fixed by `db/migrations/0030`) — **found by the pre-merge
      review of the fix for #1, not by the suite.** `0007` (T6.6) had taught the
@@ -2845,8 +2847,8 @@ supplied in the retro document for that ceremony to carry forward.
      rule in Go throughout.
 
      This one had **no test on either side of the boundary** — `0007` shipped
-     the guard untested, so when `0012` dropped it nothing failed, for 18
-     migrations. The review found it by diffing all five bodies of the function
+     the guard untested, so when `0012` dropped it nothing failed until T61;
+     seventeen migrations landed in between. The review found it by diffing all five bodies of the function
      against each other rather than reviewing the new one on its own, which is
      the check worth keeping: *the function's history is the review surface,
      not the diff.*
@@ -2862,7 +2864,7 @@ supplied in the retro document for that ceremony to carry forward.
   rule 10's repeat runs, on the one target that cannot afford a cached result.
 
 - **Mistake (the third instance, now promoted here as T58's retro required):**
-  defect 2 above passed every unit-level test for 22 sprints because the
+  defect 2 above passed every unit-level test from T10.6 to T61 because the
   in-memory Payments repository has no CHECK constraint to violate. **The
   fixture was more permissive than the database it stood in for**, so the tests
   proved the routing and hid the storage.
@@ -2872,7 +2874,8 @@ supplied in the retro document for that ceremony to carry forward.
   `HostPayments.spec` fallback — and said a third belonged here rather than in
   another retro. This is the third, and it is worse than its predecessors in
   one specific way: both of those were caught pre-merge by a reviewer. This one
-  shipped, and was found by a machine running the suite, 22 sprints later.
+  shipped, and was found by a machine running the suite at T61, having been
+  broken since T10.6.
 
   **Fix:** `internal/payments/adapter/postgres/payable_type_conformance_integration_test.go`
   pins the domain's payable types against the real CHECK constraint, in both
