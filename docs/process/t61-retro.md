@@ -6,7 +6,7 @@ Ceremony 3 per `docs/process/sprint-process.md`, six-role team (briefs:
 and the live issue/PR/commit history.
 
 **T61 held no planning ceremony.** It was one instruction — *run
-`ci-integration`* — against a gap six consecutive retros had disclaimed.
+`ci-integration`* — against a gap six retros had disclaimed.
 
 **Outcome: 3 live production defects found and fixed, 1 issue opened, 1 gate
 weakness closed.** Merged as PR #310 (`d0b36eb`). #311 opened. No issue was
@@ -18,7 +18,7 @@ they existed.
 ## 1. What actually happened, in order
 
 1. The session was asked to run `make ci-integration` — the command six
-   retros in a row had recorded as impossible here.
+   retros had recorded as impossible here.
 2. **It checked, instead of repeating the claim.** `dockerd` and `containerd`
    were on the box, the session ran as uid 0, and the daemon came up in about
    four seconds.
@@ -38,8 +38,20 @@ they existed.
 
 ## 2. The finding this retro exists to record
 
-**Six consecutive sprints wrote down that the environment could not run the
-integration suite. None of them tried.**
+**Six retros wrote down that the environment could not run the integration
+suite. None of them tried.**
+
+Those six are **not** consecutive, and the shape matters: they are two runs of
+three — **T17, T18, T19**, then a 36-sprint silence, then **T56, T57, T58**.
+(`for f in docs/process/t*-retro.md; do grep -qiE "Docker (was |is )?(un)?available|no Docker daemon|never (been )?executed" "$f" && echo "$f"; done`.)
+T59 and T60 disclaimed nothing because **neither has a retro at all** (§9), and
+T61's first draft of this section said "six consecutive sprints" on the strength
+of T58's own "third consecutive sprint" without running that loop — see §7, which
+is about exactly this.
+
+The gap between the two runs is the part that should be uncomfortable. The claim
+did not decay steadily; it was raised three times, dropped for three dozen
+sprints, and raised three more times. Nothing in between re-tested it either.
 
 The claim's lifecycle is the point. It was presumably true when first written —
 T4's `LESSONS.md` entry records a genuine `docker info` failure. It was then
@@ -72,7 +84,7 @@ T61 is the third face, and the broadest:
 | About | the code | the schema | **the environment** |
 | Falsified by | `0013_socialplay_entry_fee.sql` | `0005_payments.sql` | `dockerd &` |
 | Cost of checking | one `grep` | one file read | one command |
-| How long it stood | 9 days | 2 sprints | **T4 → T60** |
+| How long it stood | 9 days | 2 sprints | **T4 → T60**, asserted in retros at T17–T19 and T56–T58 |
 | What it cost | a near-duplicate migration | nearly a guard that advertised protection it could not provide | **three production defects, one money-adjacent** |
 
 The first two were caught before they cost anything. This one was not, and the
@@ -293,6 +305,25 @@ T61"), which is the specific temptation that produces this class of error. A
 sprint count is arithmetic over two ticket numbers and invites a plausible
 guess; a ticket pair is a fact you either have or do not.
 
+### And then this retro did it twice more
+
+The pre-merge review of **this retro** checked its numbers against the tree
+rather than reading them, and found two more:
+
+| as drafted here | reality |
+|---|---|
+| "six **consecutive** retros" | six retros, but in **two runs of three** — T17–T19 and T56–T58. Taken from T58's own "third consecutive sprint" and generalised without running the loop |
+| "13 integration files and 11 unit tests" carry stale headers | **9 and 15.** The total, 24, was from a real `grep`; the split was an estimate |
+
+Both are corrected above. Neither changes a conclusion — and that is the point
+worth recording rather than being embarrassed about. **Three successive
+artifacts of this sprint (the `CLAUDE.md` gotcha, this retro's §2, this retro's
+§9) each reached for a number that sounded right instead of running the
+one-liner that settles it, and each was caught by the next verification pass
+rather than by more careful writing.** The lesson is not "try harder to be
+accurate"; it is that accuracy here is a *command*, not an *intention*, which is
+why recommendation 4 is phrased as a format rule rather than an exhortation.
+
 Corrected in this PR, in both `CLAUDE.md` and `docs/LESSONS.md`, with every
 figure restated as a ticket range. `CLAUDE.md` also carries a one-sentence note
 that the first draft said "18 and 22 sprints" and why that was wrong — per
@@ -372,8 +403,13 @@ correction, so a reader arriving at the PR is not left with it.
   itself a claim that licenses inaction, and T62 should test it rather than
   quote it.**
 - **24 test files still carry a stale no-Docker or "NOT EXECUTED BY ITS AUTHOR"
-  header**, of which 13 are integration files and 11 are unit tests that cite
-  the Docker gap as the reason they exist in their current form. The two
+  header**, of which **9 are integration files and 15 are unit tests** that cite
+  the Docker gap as the reason they exist in their current form. (This retro's
+  first draft said 13 and 11, from an estimate rather than the one-line loop that
+  produces 9 and 15 — see §7.) The unit-test majority is itself worth noting:
+  most of these headers are not on tests that needed Docker, but on tests written
+  *because* Docker was believed unavailable, which means the false claim shaped
+  design and not only process. The two
   cross-context files T61 edited had theirs corrected in place; the rest were
   out of that PR's scope and are a follow-up sweep. `HANDOFF.md`'s T11
   narrative also still states that no session in this project's history has had
@@ -397,8 +433,9 @@ correction, so a reader arriving at the PR is not left with it.
 For `HANDOFF.md`'s T61 row, to be carried verbatim rather than strengthened:
 
 > T61 held no planning ceremony. It was one instruction — run
-> `make ci-integration` — against a gap **six consecutive retros had
-> disclaimed as impossible in this environment**. It was not impossible:
+> `make ci-integration` — against a gap **six retros had disclaimed as
+> impossible in this environment** (T17–T19 and T56–T58, two runs of three with
+> a 36-sprint silence between them). It was not impossible:
 > `dockerd` and `containerd` were on the box, the session ran as uid 0, and the
 > daemon came up in about four seconds. The first run reported **2386 tests, 34
 > failures** (plus 21 errors that were a missing `covdata` binary, built from
@@ -438,7 +475,12 @@ For `HANDOFF.md`'s T61 row, to be carried verbatim rather than strengthened:
 > wrong numbers in it** — "two" defects where there were three, and two sprint
 > counts that were a migration-distance and an invented figure — corrected here
 > in both `CLAUDE.md` and `LESSONS.md` as ticket ranges, with the correction
-> placed where the wrong claim was. `make security` remains not green here
+> placed where the wrong claim was. **The retro's own review then found two more
+> in the retro's first draft** ("six consecutive retros" for six in two runs of
+> three; a 13/11 file split that is 9/15), so three successive artifacts of this
+> sprint each reached for a number that sounded right instead of running the
+> one-liner that settles it — which is why recommendation 4 is a format rule
+> rather than an exhortation to be careful. `make security` remains not green here
 > (`govulncheck` cannot reach `vuln.go.dev`), self-review stands at six
 > consecutive sprints, and no second party has read a diff on this project since
 > T55.
