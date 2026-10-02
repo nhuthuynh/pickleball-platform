@@ -13,6 +13,14 @@
 // environment where testcontainers itself couldn't run (no Docker daemon) —
 // see docs/reviews/04-t4-concurrency-invariant.md for that methodology and
 // result. This file is the portable, CI-runnable version of that same test.
+//
+// T61 — SUPERSEDES THE "no Docker daemon" CLAUSE ABOVE. That claim was false.
+// Docker runs in this environment, and T61 ran this file for the first time;
+// see CLAUDE.md's gotchas. It passed, and passed again in every one of T61's
+// five full `make ci-integration` runs — three of them cold — plus `-count=5
+// -race` on this package, so the manual verification the clause describes is
+// no longer this test's only evidence. Per CLAUDE.md rule 10 that is ten-plus
+// runs of evidence, not proof for all time.
 package postgres_test
 
 import (

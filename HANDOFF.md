@@ -526,7 +526,11 @@ work existed only as an unpushed local commit, one cleanup away from
 being lost. (2) `//go:build integration` files are invisible to every
 gate a session can actually run (`make ci` has no `-tags=integration`
 step; `make test`/`ci-integration` need Docker, which no session in this
-project's history has had), so the same file broke twice in one sprint —
+project's history has had **— false, and this parenthesis is where T61 found
+the claim being quoted forward as a present-tense fact; Docker was available
+the whole time, and T61 ran the suite. Left in place because this entry is
+T11's record and the quoting is the finding; see
+`docs/process/t61-retro.md` §2**), so the same file broke twice in one sprint —
 caught in review both times, never reaching the shared branch.
 `docs/process/t12-sprint-plan.md` threads all six findings and tickets
 the Docker-free `vet-integration` gate (T12.1).

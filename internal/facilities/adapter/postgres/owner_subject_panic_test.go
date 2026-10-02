@@ -11,7 +11,16 @@ import (
 // *reproduced* rather than reasoned about. It is deliberately an in-package
 // test (`package postgres`, like translate_test.go beside it): mustUUID is
 // unexported, and the whole point is to hit it directly rather than through a
-// Postgres round trip that this environment has no Docker daemon for.
+// Postgres round trip.
+//
+// T61: that sentence used to end "...a Postgres round trip that this
+// environment has no Docker daemon for." The clause was false — Docker runs
+// here and T61 executed the whole integration suite (CLAUDE.md gotchas) — and
+// it was never the reason anyway: `mustUUID` is unexported, so an in-package
+// test is the only way to hit it directly, whatever the environment can run.
+// Removed rather than annotated in place, because unlike the fourteen sibling
+// files that carried this clause as a standalone justification, here it was a
+// subordinate clause inside a sentence whose actual argument is sound.
 //
 // **What this test is and is not.** It is not the regression test for #154 —
 // it passes both before and after the fix, because mustUUID's behaviour is

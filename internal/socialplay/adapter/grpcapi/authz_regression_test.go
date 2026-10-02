@@ -27,6 +27,23 @@
 //     if the team wants Postgres-round-trip coverage of the same
 //     assertion; it would not exercise any code this file doesn't already
 //     cover, since the ownership check has no SQL involved.
+//
+// T61 — SUPERSEDES THE "no Docker daemon" CLAUSE ABOVE. That claim was false.
+// Docker runs in this environment and T61 executed the whole integration suite
+// here; see CLAUDE.md's gotchas. The clause is left in place rather than
+// deleted, because six retros repeated it and the record of that is the point.
+//
+// **This file's shape does not change.** Its other stated reason — the
+// behaviour under test lives in the domain/app layer, which no port
+// implementation can influence, so a real Postgres round trip would add
+// infrastructure rather than proof — was always the load-bearing one, and it
+// still holds on its own. Checked across all fifteen files that carried this
+// clause: in fourteen of them the Docker claim was the *second* of two
+// reasons, never the only one. The fifteenth
+// (internal/payments/adapter/grpcapi/webhook_test.go) cited it alone, and
+// inherits the substantive reason by reference to its own package's
+// error_mapping_test.go. So no test here was missing coverage it should have
+// had — the false claim shaped the stated justification, not the design.
 package grpcapi_test
 
 import (

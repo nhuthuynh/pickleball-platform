@@ -22,9 +22,18 @@ import (
 // T18.1 (closes #167): Handler.ReceiveStripeWebhookEvent, driven end to end
 // (real app.Service, real webhookstub, real stripestub) with only
 // persistence and the idempotency ledger faked — mirroring
-// newMappingHandler's own established pattern (error_mapping_test.go) for
-// the identical reason: no Docker daemon in this environment (CLAUDE.md
-// rule 10).
+// newMappingHandler's own established pattern (error_mapping_test.go) for the
+// identical reason: nothing under test here is influenced by which
+// port.Repository sits behind it, so a real Postgres round trip would add
+// infrastructure rather than proof.
+//
+// T61: that reason used to read "no Docker daemon in this environment
+// (CLAUDE.md rule 10)" — false, since Docker runs here and T61 executed the
+// whole integration suite (CLAUDE.md gotchas). This file was the only one of
+// the fifteen carrying that clause where it was the *sole* stated reason; the
+// substantive one above is error_mapping_test.go's, which this file already
+// said it was mirroring, now written out rather than left implicit. The
+// design does not change.
 
 const webhookHandlerSecret = "whsec_handler_test"
 
