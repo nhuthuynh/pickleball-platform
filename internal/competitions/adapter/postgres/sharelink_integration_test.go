@@ -32,6 +32,13 @@
 //
 // Do not describe this file as having passed until a run with a Docker
 // daemon says so.
+//
+// T61 — SUPERSEDES THE "no Docker daemon" CLAUSE ABOVE. That claim was false.
+// Docker runs in this environment, and T61 ran this file for the first time;
+// see CLAUDE.md's gotchas. It did not pass as written: `seedCompetition`
+// had to start seeding a real `identity_users` row first, because migration
+// 0025 turned `competitions.host_id` into a uuid FK and no gate had executed
+// this file since. Green since that fix.
 package postgres_test
 
 import (

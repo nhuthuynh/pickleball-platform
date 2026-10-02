@@ -402,11 +402,16 @@ correction, so a reader arriving at the PR is not left with it.
   not read as including the security gate. **Per recommendation 1, this is now
   itself a claim that licenses inaction, and T62 should test it rather than
   quote it.**
-- **24 test files still carry a stale no-Docker or "NOT EXECUTED BY ITS AUTHOR"
-  header**, of which **9 are integration files and 15 are unit tests** that cite
-  the Docker gap as the reason they exist in their current form. (This retro's
-  first draft said 13 and 11, from an estimate rather than the one-line loop that
-  produces 9 and 15 — see §7.) The unit-test majority is itself worth noting:
+- **17 test files still carry a stale no-Docker or "NOT EXECUTED BY ITS AUTHOR"
+  header** — **2 integration files and 15 unit tests** — that cite the Docker gap
+  as the reason they exist in their current form. (This figure took three
+  attempts. The first draft said "13 and 11"; the review corrected it to "9 and
+  15" from the file-matching loop; the *sweep that acted on it* then found that 7
+  of those 24 matches were files T61 had already annotated, whose annotations
+  quote the old phrase and so match the grep. 24 files match the pattern; 17 are
+  genuinely stale. A fourth pass on one number in one bullet — which is the
+  strongest available argument for §7's conclusion that this needs a mechanical
+  rule and not more care.) The unit-test majority is itself worth noting:
   most of these headers are not on tests that needed Docker, but on tests written
   *because* Docker was believed unavailable, which means the false claim shaped
   design and not only process. The two
