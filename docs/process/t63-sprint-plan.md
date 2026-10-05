@@ -232,6 +232,17 @@ running the gate, and not running the gate hid the half that works.
 
 **NFRs.** `make test-web` and `make build-web` must stay green — a security fix
 that breaks the client is not a fix. No baseline entry without a written reason.
+
+**Standing instruction, added by this plan's PE pass.** `vitest` is a **direct
+dev dependency** and both moderate findings are in the test runner itself, so a
+bump can change test behaviour — and `make test-web` is in `ci-checks`. The
+plausible failure mode is "security fix green, two web tests now fail for
+unrelated reasons", and the temptation will be to adjust the tests.
+
+**If a bump breaks a web test, stop and report. Do not fix the test in the same
+PR.** A test changed under pressure inside a security PR is how a real assertion
+gets quietly weakened, and this project has already recorded one instance of a
+suite asserting a defect as correct (`t58-retro.md` §3's `HostPayments.spec`).
 **Points: 5.** `role:principal-engineer`, `type:bug`.
 
 ### T63.1 — Extend T62.2 so a claim about an action carries a live-state command
@@ -265,6 +276,19 @@ exempting action-claims, which would have exempted the false one.
    "every number has an adjacent command" would need to tell a quantity from any
    other number in prose, and a gate that mis-fires on prose would be disabled
    within a sprint. Record the decision so T64 does not re-litigate it.
+6. **Decide whether a count of narrative events is in scope, and say which way.**
+   Raised by this plan's own PE pass, which audited this plan against the rule
+   and found two figures without commands: *"5 of the first 21 `enumPairs` rows
+   were wrong"* (a state that no longer exists, because T62 fixed it) and
+   *"five instances across T62–T63"* (a count of events across two documents).
+   Neither has a reproducible command and both are load-bearing.
+
+   **This ticket decides it; this plan deliberately does not** — pre-deciding it
+   in the plan that proposes the rule is the mistake T62 made when its retro's
+   recommendation 5 proposed an exemption that would have exempted the false
+   claim (§2). Whichever way it goes, the first figure's resolution is already
+   demonstrated: cite where the output is recorded (`t62-retro.md` §9, PR #317's
+   review) rather than a command that cannot exist.
 
 **NFRs.** The amendment is prose; `t62-retro.md` §9's correction is the evidence
 it rests on and must be cited from it.
@@ -369,3 +393,13 @@ avoid a conflict; T63.4 is independent of all three.
 6. **A fifth instance of "the parser was right and the grep was wrong"** (§1),
    this time in a command written to double-check the parser.
 7. **Four tickets**, T63.1–T63.4, and four documented exclusions.
+8. **This plan audited against T62.2's rule by its own review, derived rather
+   than hand-listed** — because §2's finding is that PR #318's hand-enumerated
+   audit missed a figure. The audit found one quantity missing its command (the
+   52 blockquote lines, now derived inline) and two that cannot have one, which
+   became T63.1 instruction 6.
+
+   **Three documents in a row have now had something caught by applying this
+   rule** — T62's retro twice, this plan once. That is the strongest evidence yet
+   that the wide form was the right call, and it is evidence against the author's
+   own recorded objection on #314.
