@@ -973,6 +973,153 @@ If it is not, that is evidence for the narrow form, not a reason to restate
 this one more firmly** — which is the same lesson `make docs-index-check`
 exists to encode about prose rules in this project.
 
+### A claim about an action carries the command that re-reads the live state
+
+**Adopted T63.1**, from the failure in `docs/process/t63-sprint-plan.md` §2.
+
+**The rule.** A claim that something *was done* carries the command that
+**re-reads the resulting state** — not the command that performed the action,
+and not a description of it.
+
+| claim | the wrong evidence | the right command |
+|---|---|---|
+| "issues closed" | the closing call | list the open issues |
+| "merged in this order" | the merge calls | each PR's `merged_at` |
+| "N tests pass" | "I ran the suite" | the run's own summary line |
+| "the gate is green" | "I ran it" | the gate's own final line |
+
+**Why, and the number is the argument.** T62's retro asserted *"Issues: 5 → 3.
+#311 and #314 closed by PR #317"* and called them **"live-verified"**. Neither
+was closed; `Closes #N` cannot auto-fire against a non-default base branch,
+which that same retro section states. The live count was 5 for three days, and
+the command that would have shown it was one line.
+
+**This deliberately rejects the exemption T62's retro proposed.**
+`t62-retro.md` §8 recommendation 5 — written by that PR's own review — argued
+that a quantity describing an action the sprint took *cannot* be re-derived
+later, and should therefore be exempt, carrying instead the command that was
+run plus where its output is recorded.
+
+**That exemption would have exempted the false claim.** "Issues: 5 → 3" was not
+a record of an action taken; it described an action the sprint *believed* it had
+taken and had not. An action-claim is the **most** in need of a command, not the
+least, precisely because the actor's own account of what they did is the
+unreliable part.
+
+### Prefer a count the running system reports over one grepped from source
+
+**Adopted T63.1**, folding in `t62-retro.md` recommendation 1 as part of the
+same rule rather than a separate one — the failure mode is identical.
+
+Instances across T62–T63, each a command written to produce a figure, each
+wrong, each corrected by the running system's own report:
+
+1. `grep -ohE "CHECK \(\w+ IN \(" db/migrations/*.sql | wc -l` → **25**; the
+   conformance test reports **22**. The grep counts one column twice when a
+   later migration re-adds its constraint.
+2. `grep -c "{Table:" …_test.go` → **23**; the test reports **22 mapped**. The
+   grep matched a `Constraint{Table:` literal inside the scanning loop.
+3. A loop over `docs/adr/*.md` reported **16** of 17 classifiable; the tool
+   reports **17**. The loop's `tail -1` took a blank line after `## Status`.
+4. A regex requiring a single space read `EndConditionKind` as having **one**
+   constant; it has **three**, space-aligned. The AST parser was never fooled.
+
+**The generalisation: a figure produced by a program that loaded the thing it
+was counting beats a figure produced by matching text that describes it.** Where
+both are available, cite the former.
+
+### What these two rules cannot do
+
+They cannot make a session run the command. They can only make the omission
+visible on the page, and make a wrong figure correctable by the next reader
+rather than inherited by them.
+
+**No gate is proposed, and that is a decision rather than an omission.** A
+checker for "every number has an adjacent command" would have to tell a
+*quantity* from any other number in prose — a version string, a file path, a
+ticket number, a year. A gate that mis-fires on prose gets disabled inside a
+sprint, which is worse than no gate, and `t56-retro.md` recommendation 4 already
+records this project rejecting a broad rule for exactly that reason. Recorded so
+T64 does not re-litigate it.
+
+### Counts of narrative events are in scope, and here is how to satisfy them
+
+**T63.1 instruction 6, decided.** This plan's own PE pass audited
+`t63-sprint-plan.md` against these rules and found two load-bearing figures with
+no possible command: *"5 of the first 21 `enumPairs` rows were wrong"* (a state
+that no longer exists, because T62 fixed it) and *"five instances across
+T62–T63"* (a count of events across two documents).
+
+**They are in scope.** Exempting them would recreate recommendation 5's mistake
+one category over. What changes is what counts as the command:
+
+- **A state that no longer exists** is satisfied by citing **where the output
+  was recorded** at the time — a retro section, a PR review, a log path — so a
+  reader can check the record even though they cannot re-run the measurement.
+  `t62-retro.md` §9 and PR #317's review are the worked example.
+- **A count of events across documents** is satisfied by a command that
+  enumerates them, because documents are text in the repository and therefore
+  greppable. If such a count cannot be enumerated, it is a claim about
+  significance rather than a quantity, and should be written as one — "repeatedly"
+  rather than "five times".
+
+**The distinction that makes this tractable:** a quantity about the *tree* has a
+command that reproduces it; a quantity about the *past* has a citation that
+records it. Neither is exempt from carrying its evidence; they carry different
+kinds.
+
+## A guard is verified by removing it
+
+**Adopted T63.3**, from `docs/process/t60-retro.md` recommendation 1 after **two
+deferrals** — T62 §6 deferred it with a stated reason (two process rules in one
+sprint is how rules become wallpaper) and the evidence only grew.
+
+**The rule.** A change that **adds or relies on a guard** is verified by
+removing the guard and recording what fails. The review quotes **the actual
+failure output**, not the claim that one was observed.
+
+"Guard" is deliberately narrow — a constraint, a trigger, a validation branch,
+a gate, an assertion that exists to refuse something. It is **not** all code.
+`t56-retro.md` recommendation 4 rejected a general "mutation-test everything"
+rule as one that would be ignored, and that judgement stands; this is the
+subset where the check is a ten-second edit and the signal is unambiguous.
+
+**Why, with the instances rather than an argument.** Three consecutive sprints
+applied this voluntarily and it found something every time:
+
+| sprint | mutation | what it found |
+|---|---|---|
+| T56 | deleted the line putting `amount_owed` on the wire | every Go gate green with the feature entirely broken |
+| T60 | made `actor()` skip resolution | 6 tests caught it, not 36 — Social Play's own 30+ authorization assertions caught it **zero** times |
+| T61 | removed `0031`, then `0030`'s two halves | each named the exact divergence; the expired-reservation control correctly still passed |
+| T62 | removed `0032` | the conformance test named the sets, the path test produced the real `SQLSTATE 23514` |
+
+### Two ways to get this wrong, both already made here
+
+1. **A mutation that fails to compile proves nothing.** Recorded at T60.2: a
+   mutation that removes a usage and leaves an unused import breaks the build,
+   which is not the same as breaking a test. Write the mutation so the tree
+   still compiles — T60.2's own note is *"each mutation written so imports
+   stayed used"*.
+2. **A mutation cannot prove a test is looking at anything.** It proves a test
+   *can* fail. The complement is a **vacuity guard**: an assertion that the test
+   examined a non-empty input. `tools/enumconformance`'s
+   *"found only 0 enum-shaped CHECK constraints among 56 … which would make this
+   test vacuous rather than green"* is the worked example, and it caught a
+   defect no mutation would have — a parser written against an invented fixture,
+   agreeing perfectly with unit tests built from the same invention.
+
+   **A guard needs both.** Mutation answers "would this fail if the thing
+   broke?"; a vacuity guard answers "is this looking at the thing at all?"
+
+### If this is deferred again
+
+**A third deferral must state what evidence would change the answer.** "More
+instances" has now been satisfied twice over, so it is no longer available as a
+reason. This clause exists because an indefinitely-deferrable ticket is
+indistinguishable from a rejected one, and the project should be able to tell
+which it has.
+
 ## Execution loop mechanics (within a sprint)
 
 Per-ticket execution (the "Execution" section above) runs as a bounded,

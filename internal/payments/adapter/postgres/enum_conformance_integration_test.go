@@ -162,6 +162,23 @@ func TestEveryEnumCheckAgreesWithItsDomainType(t *testing.T) {
 		return enumconformance.DeclaredConstants(filepath.Join("..", "..", "..", p.File), p.TypeName)
 	}
 
+	// T63.4 — check the mapping itself before comparing anything. This half is
+	// Docker-free and is what would have caught T62's five wrong rows (three
+	// named a file that does not exist, two a type that does not exist).
+	// Ambiguous type names are reported, not failed: `Status` is declared in
+	// four bounded contexts, so the name alone cannot identify the right one,
+	// and only a human can confirm a given row's choice.
+	mapFindings, notes := enumconformance.ValidateMapping(enumPairs, declared)
+	for _, n := range notes {
+		t.Logf("mapping note: %s", n)
+	}
+	for _, f := range mapFindings {
+		t.Errorf("mapping: %s", f)
+	}
+	if len(mapFindings) > 0 {
+		t.FailNow() // comparing against a broken mapping would report noise
+	}
+
 	findings, err := enumconformance.Compare(constraints, enumPairs, declared)
 	if err != nil {
 		t.Fatalf("comparing: %v", err)
