@@ -280,8 +280,15 @@ evidence that six consecutive sprints ignored the existing rule.
 5. Covered by `make test-tools`. Verify by mutation: re-introduce one of §3's
    eight defects and confirm the tool names it.
 
+6. **Also check ADR status**, per the PE sign-off below: the same tool reads
+   `docs/adr/*.md`'s machine-readable status line (added by T62.4) and fails on
+   an ADR it cannot classify. One tool over `docs/`, not two — the shapes are
+   identical, and a second tool for one more file is the worse outcome.
+
 **NFRs.** Docker-free, codegen-free — this must run in the cheapest gate.
 **Points: 5.** `role:principal-engineer`, `type:chore`.
+**Depends on T62.4 steps 1–2** (the ADR status lines must exist before a tool
+can read them). **Sequenced second**, per the PE sign-off.
 
 ### T62.2 — Widen the quantity rule to all quantities (closes #314)
 
@@ -375,12 +382,15 @@ which this rule was written to prevent.
 4. Amend `sprint-process.md`'s escalation rule to match, and record all three
    defects there with the §1 evidence, so the next ceremony inherits the finding
    and not just the fix.
-5. Consider folding the ADR-status check into T62.1's tool rather than leaving
-   it as a human step. **State the decision either way** — per `t57-retro.md`, a
-   deliberate scope exclusion gets a documented decision.
+5. **The ADR-status check is folded into T62.1's tool — decided, not deferred.**
+   The PE pass settled this rather than leaving it as a "consider": the two
+   checks are the same shape, and the mechanical half belongs in a gate rather
+   than in a ceremony's discipline, for §3's reason. **This ticket owns adding
+   the status lines (steps 1–2); T62.1 owns reading them.**
 
-**NFRs.** If 1–3 land as prose only, say so explicitly: this ceremony's §3
-finding is that prose rules here have a poor record.
+**NFRs.** Steps 1–2 are a prerequisite for T62.1, so this ticket is **sequenced
+first**. Step 3 may land as prose; if it does, say so explicitly — this
+ceremony's §3 finding is that prose rules here have a poor record.
 **Points: 3.** `role:principal-engineer`, `type:chore`.
 
 ### T62.5 — Extend the enum/CHECK conformance test to the other four pairs (closes #311)
@@ -467,3 +477,19 @@ Per `t57-retro.md`: a chosen exclusion gets a documented decision, not silence.
    the claim. Assert positively. Written into T62.1 and T62.4 as a requirement
    with a test.
 7. **Five tickets**, T62.1–T62.5, and one documented exclusion.
+8. **A sequencing change made by the PE pass on this plan, after it was
+   drafted:** T62.4's ADR status lines must precede T62.1's tool, and the ADR
+   check folds into that tool rather than remaining a human step. The plan as
+   first written implied the opposite order and left the fold as a "consider".
+   Recorded here as a change rather than silently edited, because
+   `sprint-process.md` makes this document the board of record — and recorded
+   with the caveat the review states plainly: **there is no second party to
+   referee a PE objection on this project, so the author adjudicated their own
+   dispute.** That is the standing weakness, not a property of this call.
+
+### Execution order
+
+**T62.4 (steps 1–2) → T62.1 → T62.3 → T62.5 → T62.2 (and T62.4 step 3).**
+T62.3 is first by *value* (per the PM pass: #149 and #145 actively mislead
+their next reader, the only ticket whose delay has an ongoing cost) and can run
+in parallel with the tool work, since it touches no code.
