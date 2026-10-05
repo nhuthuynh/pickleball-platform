@@ -102,6 +102,25 @@ from the previous sprint is merged, when every number is knowable — and it
 already re-reads the Docs index, since CLAUDE.md's "Docs index & naming
 convention" section requires reading the relevant row before starting a task.
 
+**The path/number distinction, forced by T62.1's gate.** As first written, this
+rule and `make docs-index-check` contradict each other: the rule says a retro PR
+must not write the row pointing at it, and the gate says a row must **name the
+retro file that exists**. Both cannot hold the moment a retro merges, and the
+gate would go red on the shared branch until the next Ceremony 1 ran — blocking
+every PR in between, which is how a red gate gets normalised.
+
+The contradiction is only apparent, because the rule's own rationale is about
+the **merge PR number**, not the **path**. So, precisely:
+
+- A retro PR **does** set its own row's **Retro cell to the retro's path**. The
+  path is knowable while the PR is open; nothing circular about it.
+- A retro PR **does not** write the **Reviews cell**, which cites merge PR
+  numbers it cannot know. That stays Ceremony 1's job, along with the narrative.
+
+T62's retro is the worked example: it set its Retro cell and left Reviews as
+"not yet opened". **Found by running the gate against the retro before merging
+it** — the gate's first real encounter with the rule that created it.
+
 Concretely, the Ceremony 1 output PR carries:
 
 1. The previous sprint's row, corrected: its real retro path, and its real
