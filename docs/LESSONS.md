@@ -2900,3 +2900,63 @@ supplied in the retro document for that ceremony to carry forward.
   found it, because no test existed. Running the suite was necessary and was
   not sufficient; the review that asked "what else did this function lose?" is
   what turned two defects into three.
+
+## T63 — The gate's own failure message said the thing the sweep had just retired
+
+- **Mistake:** T61 established that "no Docker daemon available here" was false
+  — the daemon starts in about two seconds — and PR #313 swept the stale claim
+  out of **17 test files**. The sweep touched `HANDOFF.md`,
+  `docs/process/t61-retro.md` and seventeen `*_test.go` files. It did not touch
+  the `Makefile`, where the `ci-integration` target's own guard prints:
+
+  ```
+  No Docker daemon reachable — the integration tests (testcontainers) cannot run here.
+  This is the documented gap in CLAUDE.md's gotchas, not a new problem.
+  ```
+
+  So the claim survived in the one place that *fires at the moment someone is
+  deciding whether to act*, and it cites `CLAUDE.md`'s gotchas for a statement
+  those gotchas now begin by refuting. Two sprints after the sweep, the daemon
+  stopped mid-session and this message is what a session was told; the correct
+  response was one command, and the message's response was "not a new problem".
+
+  **Fix:** filed as #322 with the remedy spelled out, deliberately **not**
+  folded into T63's retro PR — the same split T61 used (retro in #312, sweep in
+  #313), so the retro stays the record and a change to a gate gets reviewed as
+  one. `docs/process/t63-retro.md` §2 carries the live refutation.
+
+- **The generalisation worth carrying forward, and it is not "sweep more
+  files":** a stale sentence in a document misleads someone reading history; a
+  stale sentence in a **gate, a Makefile message, a CI config or an error
+  string** misleads someone who is blocked right now. The second kind is worth
+  more than the first and is the kind a documentation sweep structurally cannot
+  reach, because such a sweep is scoped to documents. **When a claim is
+  retired, the scope is every file that can utter it, derived by a repo-wide
+  grep rather than hand-listed** — the same principle `make gate-coverage`
+  embodies ("there is no package list in the tool, and adding one is the one
+  change that would defeat it"), applied to prose.
+
+- **A second mistake from the same sprint, kept here because its shape recurs:**
+  T63.2 fixed five `high` npm advisories with an `overrides` block in
+  `web/package.json`, and the PR's review recorded that a dependency pin has
+  "no meaningful mutation" to verify it with. Running one anyway, for the retro,
+  showed **the declaration is not the guard**:
+
+  | mutation | `high` findings |
+  |---|---|
+  | revert `web/package-lock.json` to the pre-fix commit | **5**, by name |
+  | delete the `overrides` block, keep the fixed lockfile | **0** |
+
+  `npm install --package-lock-only` does not downgrade a package that already
+  satisfies its range, so removing the declaration is a silent no-op **today**
+  and takes effect only at the next fresh resolve — which, on this graph, crashes
+  (see `CLAUDE.md`'s npm gotcha). A guard whose removal breaks nothing now and
+  breaks later is the most dangerous shape available, and the only reason it was
+  found is that the mutation was run after being argued to be impossible.
+
+  **Fix:** recorded in `docs/process/t63-retro.md` §3, with the dependency-pin
+  clause (mutate the **lockfile**, not the declaration) recommended for
+  `sprint-process.md` in §8. Not amended into the rule inside the retro's own
+  PR, since a rule amended to fit the first document judged against it should
+  have a second reader — the same reasoning `t62-retro.md` recommendation 5
+  recorded, and the same one T63.1 then overruled on its merits.
