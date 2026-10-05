@@ -336,6 +336,17 @@ its filename alone and nothing collides or goes stale silently:
   `app.Service` passes against a trigger with no such logic at all. That is
   how the regression stayed invisible, and it is the general shape: to test
   the Postgres half of rule 4, the test must bypass the Go half.
+- **The lockfile, not the `overrides` block, is what holds an npm fix in
+  place** — so **to mutation-verify a dependency pin, revert
+  `web/package-lock.json`, not the declaration.** Measured at T63
+  (`docs/process/t63-retro.md` §3): reverting the lockfile to its pre-fix state
+  returns all five advisories by name, while **deleting the `overrides` block
+  changes nothing at all**, because `npm install --package-lock-only` will not
+  downgrade a package that already satisfies its range. A pin's removal is
+  therefore a silent no-op today that bites at the next fresh resolve — which
+  crashes on this graph, per the npm gotcha above. Never treat the `overrides`
+  block alone as the record of what is pinned, and never read "removing it
+  changed nothing" as evidence that it was unnecessary.
 
 ## Current state (updated by each phase, see HANDOFF.md for detail)
 - T0 bootstrap complete: Booking domain + app + Postgres/gRPC adapters +
