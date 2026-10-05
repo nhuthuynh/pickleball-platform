@@ -302,16 +302,6 @@ its filename alone and nothing collides or goes stale silently:
      auditing nothing. Always check `metadata.dependencies.total` alongside the
      tally — a clean result over 0 dependencies is the vacuous-green failure
      this project keeps rediscovering.
-  4. **The lockfile, not the `overrides` block, is what holds a fix in place.**
-     Measured at T63 (`docs/process/t63-retro.md` §3): reverting
-     `web/package-lock.json` to its pre-fix state returns all five advisories by
-     name, while **deleting the `overrides` block changes nothing at all**,
-     because `npm install --package-lock-only` will not downgrade a package that
-     already satisfies its range. So a pin's removal is a silent no-op today and
-     bites at the next fresh resolve — which crashes here, per point 2. Two
-     consequences: **to mutation-verify a dependency pin, revert the lockfile**
-     (reverting the declaration proves nothing), and never treat the `overrides`
-     block alone as the record of what is pinned.
 
 - **An in-memory fake is more permissive than Postgres, and that asymmetry
   hides storage bugs.** `0031`'s defect — `payments.payable_type`'s CHECK

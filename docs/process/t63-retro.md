@@ -414,11 +414,12 @@ advertised and no better.
 3. **T63.3 needs the dependency-pin clause §3 supplies**: the mutation for a
    version pin is reverting the **lockfile**, not the declaration, because
    removing the declaration is a no-op against an already-resolved tree. The
-   *finding* is in `CLAUDE.md`'s npm gotcha as of this PR, since a future session
-   needs it whether or not the rule is amended; **the rule clause itself is
-   deliberately left to T64**, because a rule amended to fit the first document
-   judged against it should have a second reader — which is `t62-retro.md`
-   recommendation 5's own reasoning, the one T63.1 overruled on its merits.
+   *finding* belongs in `CLAUDE.md`'s npm gotcha — a future session needs it
+   whether or not the rule is amended — and goes in its own PR, for the reason in
+   §9's scope bullet. **The rule clause itself is deliberately left to T64**,
+   because a rule amended to fit the first document judged against it should have
+   a second reader, which is `t62-retro.md` recommendation 5's own reasoning: the
+   one T63.1 overruled on its merits.
 4. **A quantity in a *plan* gets the same scrutiny as one in a retro** (§4).
    T63.4's premise — "the shape four of the five errors had" — was a quantity
    with no command, in a document written one sprint after the rule requiring
@@ -510,15 +511,33 @@ advertised and no better.
   should also check whether T63.1's and T63.3's rules are being followed by a
   sprint that did not write them, which is the only evidence that counts.
 - **What this retro's own PR changes, stated so the diff is not larger than the
-  record implies:** the retro itself; `HANDOFF.md`'s T63 **Retro cell only**; a
-  `docs/LESSONS.md` entry for §2 and §3, since both are postmortem-shaped and
-  that file is where this project keeps recurring-mistake generalisations; and
-  one sub-bullet in `CLAUDE.md`'s npm gotcha recording §3's measurement. No code,
-  no gate, no rule text — the two changes §8 asks for (#322's Makefile fix and
-  T63.3's dependency-pin clause) are both left to a reviewable change of their
-  own. T61's retro PR (#312) set the precedent for a retro touching `CLAUDE.md`
-  and `LESSONS.md`; T62's (#318) set it for touching `sprint-process.md`, and
-  this one deliberately does not.
+  record implies:** the retro itself; `HANDOFF.md`'s T63 **Retro cell only**; and
+  a `docs/LESSONS.md` entry for §2 and §3, since both are postmortem-shaped and
+  that file is where this project keeps recurring-mistake generalisations. No
+  code, no gate, no rulebook — the three changes §8 asks for (#322's Makefile
+  fix, `CLAUDE.md`'s npm sub-bullet, and T63.3's dependency-pin clause) are each
+  left to a reviewable change of their own.
+
+  **The `CLAUDE.md` sub-bullet was in this PR and was removed, for a mechanical
+  reason worth recording** — it is the one genuinely new thing this project has
+  learned about its own branch topology. Every PR here merges into
+  `claude/go-backend-pickleball-7up34j` **squashed**, so a branch cut from the
+  previous PR's tip shares no commit with the squashed result. Git then 3-way
+  merges from the grandparent, and a file both sides touched in the same region
+  conflicts even though **the two trees are byte-identical**. Reproduced rather
+  than guessed, using a stand-in commit with the merged tree and the same parent:
+
+  ```
+  $ T=$(git rev-parse 2b118b3^{tree}); E=$(git commit-tree "$T" -p 31000d8 -m stand-in)
+  $ git merge-tree --write-tree --name-only HEAD "$E"
+  CLAUDE.md
+  CONFLICT (content): Merge conflict in CLAUDE.md
+  ```
+
+  Exactly one file, and the reasoning predicted it: PR #321 touched `CLAUDE.md`
+  and nothing else this PR touches. So the narrower scope is not a judgement
+  call dressed up as one — the alternative was a conflict resolution on a
+  rulebook file, which is the last file to resolve by hand.
 - **One thing this retro deliberately did not do:** fix `Makefile:376-377`. It is
   a two-line change and the temptation to fold it in was real. It went to #322
   instead, following T61's precedent (retro #312, sweep #313), so that the retro
