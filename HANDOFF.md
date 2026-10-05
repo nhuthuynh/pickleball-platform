@@ -84,7 +84,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T59 | `docs/process/t59-sprint-plan.md` (Ceremony 1: first since T55, since T56–T58 each held none. Runs the merged-fix sweep clean — live `totalCount: 4`, arithmetically reconciled with T55's 5 minus #126, with #297 and #299 each opened *and* closed within the run. **Applies the new premise check for the first time and it fires**: #149's premise has substantially drifted — four of the five caller-supplied ownership facts it names are no longer read from the wire, closed by T16.2 and T17.1, leaving only `booking_host_id`. Verifies merge order against `merged_at`; confirms no unanswered escalation; confirms the 0-ticket counter reset to 0. Takes **three tickets**: T59.1 guards `OwnerUserID`'s shape (#296), T59.2 re-scopes #149 to the one hole that remains, T59.3 adopts T56–T58's retro recommendations) | `docs/process/t59-retro.md` (written late, at T61 — finding: T59.2's job was to stop #149 misleading its next reader, and the correction landed in a comment and the title while the body kept all five facts and a claim false since T14.4) | PR #304 (`9fed700`, Ceremony 1, carrying T59.2 and T59.3) → PR #306 (T59.1, `b7608e3`, closing #296), verified against `merged_at`. Reviewed via GitHub PR reviews. **This row previously carried 8 cells against a 6-column header** and T58's carried 4 — both corrected at T62's Ceremony 1 | — | — |
 | T60 | **No sprint-plan document.** Both tickets came from already-filed issues (#305 from T59.1's documented scope exclusion, #308 from T60's own work) | `docs/process/t60-retro.md` (written late, at T61 — finding: deleting actor resolution went from **6 tests catching it to 36**, and the 6 were the booking-backed ones catching it only via Booking's own guard; Social Play's 30-plus authorization assertions caught it **zero** times) | PR #307 (`940c444`, closing #305) → PR #309 (T60.2, `52fcd66`, closing #308), verified against `merged_at`. Reviewed via GitHub PR reviews. **There is no T60.1** — the tickets are labelled T60 and T60.2 | none new | — |
 | T61 | **No sprint-plan document.** One instruction — run `make ci-integration` — against a gap six retros had disclaimed (T17–T19, then T56–T58) | `docs/process/t61-retro.md` (finding: a claim that licenses **inaction** is the least likely claim in a codebase to be re-checked, and therefore the most valuable one to re-check. Also corrects three wrong numbers T61 itself shipped) | PR #310 (`d0b36eb`, three production defects) → #312 (`71c71fe`, retro) → #313 (`bb2bcda`, stale-disclaimer sweep) → #315 (`fcdee67`, the late T55/T59/T60 retros), verified against `merged_at`. Each reviewed via a GitHub PR review disclosing self-review | none new | — |
-| T62 | `docs/process/t62-sprint-plan.md` (Ceremony 1: clears **eight sprints** of accumulated Docs-index debt, found by a derived check rather than by reading. The escalation sweep's own three mechanical defects found by running it. The premise check fires on **two of five** issues — #149 again, and #145. #314 put to the user and answered: widen the quantity rule to all quantities. Takes five tickets, T62.1–T62.5) | `docs/process/t62-retro.md` (finding: every refund of a Social Play Registration had failed against a real database since T6.5 — `registrations.payment_status` accepted only `('unpaid','paid')` while the domain declared `refunded` and `RefundPayment` wrote it, with the Competitions twin twelve lines later working because `0014` included the value. Also: the sprint corrected three of its own written claims, and is the first document subject to T62.2's every-quantity-carries-its-command rule — complying changed it twice) | not yet opened | none new | — |
+| T62 | `docs/process/t62-sprint-plan.md` (Ceremony 1: clears **eight sprints** of accumulated Docs-index debt, found by a derived check rather than by reading. The escalation sweep's own three mechanical defects found by running it. The premise check fires on **two of five** issues — #149 again, and #145. #314 put to the user and answered: widen the quantity rule to all quantities. Takes five tickets, T62.1–T62.5) | `docs/process/t62-retro.md` (finding: every refund of a Social Play Registration had failed against a real database since T6.5 — `registrations.payment_status` accepted only `('unpaid','paid')` while the domain declared `refunded` and `RefundPayment` wrote it, with the Competitions twin twelve lines later working because `0014` included the value. Also: the sprint corrected three of its own written claims, and is the first document subject to T62.2's every-quantity-carries-its-command rule — complying changed it twice) | PR #316 (`ed14f0e`, Ceremony 1) → #317 (`d7dc605`, all five tickets) → #318 (`4621975`, retro), verified against each PR's `merged_at`. Each reviewed via a GitHub PR review disclosing self-review; #316's PE pass **declined its own plan's ticket sequencing** and the plan was amended rather than merged over, and #318's review **audited the retro against T62.2's own rule and found it holed** | none new | — |
+| T63 | `docs/process/t63-sprint-plan.md` (Ceremony 1: runs T62.4's corrected escalation sweep — no ADR escalated, and **every open issue** considered rather than every labelled one. **Finds that T62's retro claimed #311 and #314 "closed… live-verified" when both were still open** — and that figure was one of the few carrying no command, so the uncommanded figure is the one that was wrong. Both closed here. **Tests the `govulncheck` claim two retros had only quoted**, confirms it, and discovers that the Go half's failure had masked the npm half entirely: `make security` has never run on this project and fails with **7 vulnerabilities, 5 of them `high`, all with `fixAvailable: true`**. Takes four tickets, T63.1–T63.4) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -4129,6 +4130,68 @@ Ceremony 1 item 3 requires the retro's own agreed sentence):
 > (`govulncheck` cannot reach `vuln.go.dev`), self-review stands at six
 > consecutive sprints, and no second party has read a diff on this project since
 > T55.
+
+**T62 — the first planning ceremony since T59, and the sprint whose own new gate found a contradiction in the rule that created it.** All five tickets delivered.
+
+**Outcome: 5 tickets, 2 issues closed (manually, at T63's Ceremony 1 — see below), 1 production defect found and fixed, 2 new gates.** Retro: `docs/process/t62-retro.md`.
+
+**Corrected at T63's Ceremony 1:** T62's retro recorded #311 and #314 as closed and "live-verified". **Neither was.** `Closes #N` cannot auto-fire against a non-default base branch and nobody closed them by hand, so the live count stayed at 5 for three days. Both are closed now. The figure carried no command, which is why it is also the sprint's sharpest evidence for its own T62.2 rule — see `docs/process/t63-sprint-plan.md` §2.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 requires the retro's own agreed sentence):
+
+> T62 held the first planning ceremony since T59 and delivered all five of its
+> tickets. **Its Ceremony 1 found its own escalation sweep mechanically unsound
+> three ways, one of them live**: #314 was a decision awaiting an answer that a
+> label-keyed sweep could not see, because #311 and #314 carry no labels — D1's
+> failure mode reintroduced through a label gap by the sprint that wrote the
+> rule against it. Put to the Product Owner before any ticket was refined and
+> answered: **widen the quantity rule to all quantities**. A derived check of
+> the Docs index then found **eight** sprints of row debt against
+> `t60-retro.md`'s predicted two — T54's Retro cell stale since T54, T58's row
+> carrying four cells against a six-column header, T59's carrying eight, T60's
+> and T61's missing entirely — which argued for a gate rather than a firmer
+> prose rule, since six consecutive sprints had ignored the existing one.
+> **T62.5 then found a live production defect on its first real run**:
+> `registrations.payment_status`'s CHECK accepted only `('unpaid','paid')` while
+> the domain has declared `refunded` since T6.5 and `RefundPayment` writes it at
+> `service.go:959`, so **every refund of a Social Play Registration had failed
+> against a real database with SQLSTATE 23514 for the whole life of the
+> feature** — while the Competitions twin twelve lines later worked, because
+> `0014` included the value. Fixed by `db/migrations/0032`, with two tests
+> because the sets agreeing and the path working are different claims, and
+> `grep -rn RefundPayment` over that package had returned nothing at all.
+> **#311 was closed deliberately not as filed**: it listed five enum pairs and
+> the schema has twenty-two, so the check derives side A from the live database
+> and **fails on any unmapped constraint** — an inversion that earned itself on
+> its first run by naming a column missing from the mapping. The sprint also
+> **corrected three of its own written claims**: the Ceremony 1 plan's "4 ADRs
+> have no status" was a grep artifact (all 17 have one; two conventions coexist,
+> 11 heading and 6 front-matter) and executing it as written would have
+> rewritten eleven ADRs to fix a problem they did not have; a grep nearly had
+> #149 corrected backwards, having counted comment lines; and
+> `enumconformance`'s parser was written against an **invented** fixture whose
+> comment claimed it was real, matched **0 of 56** live constraints, and was
+> caught not by its unit tests — which asserted against the same invention — but
+> by the integration test's vacuity guard. **A fixture and the code under test,
+> both built from one wrong assumption, agree perfectly.** T62's retro is the
+> first document subject to T62.2's own rule, and complying changed it twice:
+> the first two commands written for it returned 25 and 23 where the running
+> system reports 22 and 22, which yields the refinement that **a count derived
+> from source text is almost always wrong — prefer a count the running system
+> reports**. Verified by `make ci-checks` green and `make ci-integration` green
+> three times (2493 tests, 0 failures, one cold), with five mutation checks.
+> Self-review for the tenth consecutive sprint, on a sprint that merged a
+> migration on the money path and two new gates; `enumPairs`' 22 hand-written
+> rows, five of whose first 21 were wrong, remain the weakest link. **The new
+> gate's first real encounter with the rule that created it found a latent
+> contradiction in that rule**: `sprint-process.md` forbids a retro PR from
+> writing the row pointing at it, while `docs-index-check` requires a row to
+> name the retro that exists — resolved by distinguishing the **path** (knowable
+> while the PR is open, so the retro PR sets it) from the **merge PR number**
+> (not knowable, so Ceremony 1 still owns the Reviews cell), and found only
+> because the gate was run against the retro before merging it rather than
+> after.
 
 **T59's Ceremony 1 correction to this section.** The `#149` row in the
 open-issues table below was amended at T58's bookkeeping to say T56–T58

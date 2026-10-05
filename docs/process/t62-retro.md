@@ -19,7 +19,7 @@ precedent, PRs #316 and #317, issues #311/#314/#149/#145, and the tree at
 
 **Outcome: 5 tickets, 2 issues closed, 1 production defect found and fixed,
 2 new gates.** Merged as PR #316 (`ed14f0e`, Ceremony 1) → PR #317 (`d7dc605`,
-all five tickets). #311 and #314 closed. Issue count 5 → 3.
+all five tickets). #311 and #314 **were not closed — see the correction in §9**. Issue count stayed at 5 until T63's Ceremony 1 closed them.
 
 ---
 
@@ -319,6 +319,40 @@ held were produced by a program that had loaded the thing it was counting.
 ## 9. Sweep and bookkeeping
 
 - **Issues: 5 → 3.** #311 and #314 closed by PR #317. Open and live-verified:
+  <!-- corrected at T63 -->
+
+  > ### ⚠️ CORRECTED AT T63's CEREMONY 1 — this bullet was false
+  >
+  > **#311 and #314 were never closed.** `Closes #N` cannot auto-fire on this
+  > project (PRs merge into `claude/go-backend-pickleball-7up34j`, not the
+  > default branch) and nobody closed them by hand. The live count was **5**,
+  > not 3, for three days:
+  >
+  > ```
+  > $ (list_issues state=OPEN) -> totalCount
+  > 5
+  > ```
+  >
+  > Both are closed now, by T63's Ceremony 1, with their closing rationale on
+  > the issues themselves.
+  >
+  > **Why this is the most useful thing in this retro.** Of the quantities in
+  > this document, this is one of the few that carried **no command** — and it
+  > is the one that was wrong. The word used was *"live-verified"*, for
+  > something that was not verified at all.
+  >
+  > It also shows §8 recommendation 5's hole is worse than stated there: that
+  > recommendation says a quantity describing *an action the sprint took* cannot
+  > be re-derived later. This figure was not even that — it described an action
+  > the sprint **believed** it had taken and had not. The fix is not an
+  > exemption for such claims but the opposite: **a claim about an action needs
+  > the command that re-reads the live state**, precisely because the action's
+  > own description is what cannot be trusted. T63.1 carries that.
+  >
+  > The `#318` review's compliance audit covered ten quantities and **did not
+  > include this one**, so the audit was itself incomplete — which is the same
+  > failure one level up, and is why T63.1 asks for the audit to be derived
+  > rather than hand-listed.
   **#149**, **#145** (both now describing their real gaps, corrected in their
   bodies by T62.3), **#134** (still blocked on an operator and a real screen
   reader). No issue opened.
