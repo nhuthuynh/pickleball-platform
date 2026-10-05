@@ -162,34 +162,39 @@ func TestEveryEnumCheckAgreesWithItsDomainType(t *testing.T) {
 		return enumconformance.DeclaredConstants(filepath.Join("..", "..", "..", p.File), p.TypeName)
 	}
 
-	// T63.4 — check the mapping itself before comparing anything. This half is
-	// Docker-free and is what would have caught T62's five wrong rows (three
-	// named a file that does not exist, two a type that does not exist).
+	// T63.4 — check the mapping itself before comparing anything, and do not
+	// compare against a mapping that does not hold. Both halves live in
+	// enumconformance.Verify, where they are unit-tested Docker-free; this file
+	// supplies the database and the mapping and reports what comes back.
+	//
+	// The ordering was a t.FailNow() here until PR #321's review flagged it as
+	// an untested branch — only Docker could reach it, and only on a run where
+	// the mapping was already sound. It is now
+	// TestVerifyDoesNotCompareAgainstABrokenMapping.
+	//
 	// Ambiguous type names are reported, not failed: `Status` is declared in
 	// four bounded contexts, so the name alone cannot identify the right one,
 	// and only a human can confirm a given row's choice.
-	mapFindings, notes := enumconformance.ValidateMapping(enumPairs, declared)
-	for _, n := range notes {
+	result, err := enumconformance.Verify(constraints, enumPairs, declared)
+	if err != nil {
+		t.Fatalf("verifying: %v", err)
+	}
+	for _, n := range result.Notes {
 		t.Logf("mapping note: %s", n)
 	}
-	for _, f := range mapFindings {
+	for _, f := range result.MapFindings {
 		t.Errorf("mapping: %s", f)
 	}
-	if len(mapFindings) > 0 {
-		t.FailNow() // comparing against a broken mapping would report noise
-	}
-
-	findings, err := enumconformance.Compare(constraints, enumPairs, declared)
-	if err != nil {
-		t.Fatalf("comparing: %v", err)
-	}
-	for _, f := range findings {
+	for _, f := range result.Findings {
 		t.Errorf("%s", f)
 	}
-	if len(findings) > 0 {
+	// Not `len(Findings) == 0`: a rejected mapping also has no findings, and
+	// treating the two alike is the vacuous-green bug. OK() requires that a
+	// comparison actually ran.
+	if !result.OK() && len(result.MapFindings) == 0 {
 		t.Logf("\n%d enum constraint(s) disagree with their domain type, or are unmapped.\n"+
 			"Fix by adding a migration, correcting the domain, or adding a row to enumPairs —\n"+
 			"never by removing a column from enumPairs. #311 listed 5 of the 22 that exist,\n"+
-			"which is the failure this test's unmapped-is-a-failure inversion prevents.", len(findings))
+			"which is the failure this test's unmapped-is-a-failure inversion prevents.", len(result.Findings))
 	}
 }

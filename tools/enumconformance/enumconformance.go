@@ -267,6 +267,51 @@ func ValidateMapping(pairs []Pair, declared func(Pair) (map[string]string, error
 	return findings, notes
 }
 
+// Result is one Verify run: the mapping's own problems, the ambiguity notes,
+// and — only when the mapping held — the domain/schema comparison.
+type Result struct {
+	MapFindings []Finding // the mapping is unusable; nothing was compared
+	Notes       []string  // ambiguous type names, reported not failed
+	Findings    []Finding // domain/schema disagreements
+	// Compared records whether Compare ran at all. A Result with no findings
+	// and Compared false is a rejected mapping, not a clean schema, and a
+	// caller that treats the two alike has the vacuous-green bug this repo
+	// has now shipped three times.
+	Compared bool
+}
+
+// OK reports whether the run found nothing wrong AND actually compared
+// something. Both halves matter: see Compared.
+func (r Result) OK() bool { return r.Compared && len(r.MapFindings) == 0 && len(r.Findings) == 0 }
+
+// Verify is ValidateMapping and Compare in the one order that makes sense:
+// **a mapping that does not hold is not compared.**
+//
+// Comparing against a broken mapping produces noise, not information — an
+// unresolvable row yields an error from Compare for that row and an
+// "unmapped CHECK" finding for the column it was supposed to cover, neither of
+// which names the actual defect. So the short-circuit is real behaviour and
+// belongs here, where a unit test can observe it, rather than as a t.FailNow()
+// in an integration test that only Docker can run.
+//
+// That placement is T63.3's rule applied to T63.4's own code: the branch was
+// written as an untested FailNow first, flagged as untested in PR #321's
+// review, and moved here so it could be removed and watched to fail
+// (TestVerifyDoesNotCompareAgainstABrokenMapping).
+func Verify(constraints []Constraint, pairs []Pair, declared func(Pair) (map[string]string, error)) (Result, error) {
+	var r Result
+	r.MapFindings, r.Notes = ValidateMapping(pairs, declared)
+	if len(r.MapFindings) > 0 {
+		return r, nil
+	}
+	findings, err := Compare(constraints, pairs, declared)
+	if err != nil {
+		return r, err
+	}
+	r.Findings, r.Compared = findings, true
+	return r, nil
+}
+
 // Finding is one disagreement, phrased so the message alone says what to do.
 type Finding struct {
 	Col  string

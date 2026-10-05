@@ -325,3 +325,94 @@ func TestValidateMappingPassesAGoodMapping(t *testing.T) {
 		t.Fatalf("a good unambiguous mapping must be silent, got findings=%v notes=%v", f, notes)
 	}
 }
+
+// TestVerifyDoesNotCompareAgainstABrokenMapping is the branch PR #321's review
+// flagged as untested: when the mapping does not hold, nothing is compared.
+//
+// It was a `t.FailNow()` inside the Docker-only integration test, so no
+// Docker-free gate could reach it and even `make ci-integration` only ever
+// exercised the path where the mapping *was* sound. Moving the short-circuit
+// into Verify is what makes it observable here.
+//
+// Per T63.3 ("a guard is verified by removing it"): deleting the early return
+// in Verify makes this test fail, and the failure it produces is itself the
+// argument for the guard —
+//
+//	a broken mapping is a finding, not an error: found no Nope constants in nope.go
+//
+// i.e. Compare propagates the unresolvable row as a hard error, so the caller
+// gets a Go error about one row instead of a finding list naming every broken
+// row. (The first draft of this comment predicted the three assertions below
+// would fail instead; they are never reached. Removing the guard and reading
+// the output is what corrected it.)
+func TestVerifyDoesNotCompareAgainstABrokenMapping(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	decl := func(p enumconformance.Pair) (map[string]string, error) {
+		calls++
+		return nil, errors.New("found no " + p.TypeName + " constants in " + p.File)
+	}
+
+	// A constraint that Compare would certainly report on, so "no findings"
+	// cannot be an accident of thin input.
+	constraints := []enumconformance.Constraint{
+		{Table: "t", Column: "c", Values: []string{"a"}},
+		{Table: "t", Column: "other", Values: []string{"x"}},
+	}
+	pairs := []enumconformance.Pair{{Table: "t", Column: "c", File: "nope.go", TypeName: "Nope"}}
+
+	r, err := enumconformance.Verify(constraints, pairs, decl)
+	if err != nil {
+		t.Fatalf("a broken mapping is a finding, not an error: %v", err)
+	}
+	if len(r.MapFindings) != 1 {
+		t.Fatalf("want the one mapping finding, got %v", r.MapFindings)
+	}
+	if r.Compared {
+		t.Error("Compared must be false: comparing against a mapping that does not resolve reports noise")
+	}
+	if len(r.Findings) != 0 {
+		t.Errorf("nothing may be compared against a broken mapping; got %v — note that t.other is unmapped, "+
+			"so these findings name a column the reader cannot act on until the mapping is fixed", r.Findings)
+	}
+	if calls != 1 {
+		t.Errorf("declared() called %d times, want 1 (ValidateMapping's only) — Compare must not have run", calls)
+	}
+	if r.OK() {
+		t.Error("a rejected mapping must not report OK")
+	}
+}
+
+// The other half: a mapping that holds IS compared, and a clean run says so.
+// Without this, a Verify that always short-circuited would satisfy the test
+// above — which is the vacuous-green shape this repo has shipped three times.
+func TestVerifyComparesWhenTheMappingHolds(t *testing.T) {
+	t.Parallel()
+
+	decl := declOK(map[string]map[string]string{"S": {"A": "a", "B": "b"}})
+	pairs := []enumconformance.Pair{{Table: "t", Column: "c", File: "s.go", TypeName: "S"}}
+
+	diverged, err := enumconformance.Verify(
+		[]enumconformance.Constraint{{Table: "t", Column: "c", Values: []string{"a"}}}, pairs, decl)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !diverged.Compared || len(diverged.Findings) != 1 {
+		t.Fatalf("a sound mapping over a diverging schema must compare and find the divergence; "+
+			"Compared=%v findings=%v", diverged.Compared, diverged.Findings)
+	}
+	if diverged.OK() {
+		t.Error("a divergence must not report OK")
+	}
+
+	agreed, err := enumconformance.Verify(
+		[]enumconformance.Constraint{{Table: "t", Column: "c", Values: []string{"a", "b"}}}, pairs, decl)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !agreed.OK() {
+		t.Fatalf("agreement must report OK, got mapFindings=%v findings=%v compared=%v",
+			agreed.MapFindings, agreed.Findings, agreed.Compared)
+	}
+}
