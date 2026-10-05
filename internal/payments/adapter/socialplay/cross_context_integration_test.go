@@ -161,7 +161,7 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	// hostUserID is authorized because it is genuinely game.HostID, resolved
 	// end to end through real Postgres via RegistrationLookup -> GameLookup,
 	// not because the caller claims it.
-	_, err = paymentsSvc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
+	recorded, err := paymentsSvc.RecordOfflinePayment(ctx, paymentsapp.RecordOfflinePaymentInput{
 		PayableType: paymentsdomain.PayableTypeRegistration,
 		PayableID:   reg.ID,
 		Amount:      paymentsdomain.Money{Cents: 2500, Currency: "USD"},
@@ -183,6 +183,45 @@ func TestRecordOfflinePayment_ReconcilesRegistrationPaymentStatus_CrossContext(t
 	}
 	if stored.PaymentStatus != socialplaydomain.PaymentStatusPaid {
 		t.Fatalf("PaymentStatus = %v, want paid", stored.PaymentStatus)
+	}
+
+	// T62.5 — the regression test for `db/migrations/0032`, and the assertion
+	// whose absence let that defect live from T6.5 to T62.
+	//
+	// `registrations.payment_status`'s CHECK (migration 0005, T5) accepted only
+	// ('unpaid', 'paid'). `socialplay/domain.PaymentStatus` gained `refunded` at
+	// T6.5, and `internal/payments/app/service.go` writes exactly that value
+	// through this path on a refund. So **every refund of a Social Play
+	// Registration failed against a real database with SQLSTATE 23514**, for
+	// the whole time the feature existed, while every unit-level test passed —
+	// the in-memory Social Play repository has no CHECK constraint to violate.
+	//
+	// T62.5's enum-conformance test proves the two *sets* agree and is
+	// mutation-verified against 0032. It does not prove this *path* works, and
+	// those are different claims — `CLAUDE.md`'s "a DB-level guard with no
+	// DB-level test is a comment" applies to the write as much as to the guard.
+	// Nothing covered this path before: `grep -rn RefundPayment` over this
+	// package returned nothing.
+	refunded, err := paymentsSvc.RefundPayment(ctx, paymentsapp.RefundPaymentInput{
+		PaymentID:   recorded.ID,
+		ActorUserID: hostUserID,
+	})
+	if err != nil {
+		t.Fatalf("RefundPayment: unexpected err: %v — if this is SQLSTATE 23514 on "+
+			"registrations_payment_status_check, db/migrations/0032 is missing", err)
+	}
+	if refunded.Status != paymentsdomain.StatusRefunded {
+		t.Fatalf("Payment.Status = %v, want refunded", refunded.Status)
+	}
+
+	// And the projection reached Postgres, read back independently.
+	stored, err = regRepo.GetByID(ctx, reg.ID)
+	if err != nil {
+		t.Fatalf("GetByID after refund: unexpected err: %v", err)
+	}
+	if stored.PaymentStatus != socialplaydomain.PaymentStatusRefunded {
+		t.Fatalf("PaymentStatus after refund = %v, want refunded — the value the domain has "+
+			"declared since T6.5 and the column refused until 0032", stored.PaymentStatus)
 	}
 }
 

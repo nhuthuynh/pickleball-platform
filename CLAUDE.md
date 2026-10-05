@@ -253,6 +253,20 @@ its filename alone and nothing collides or goes stale silently:
   before it is written down.** A session that changes a migration, an actor
   column, or anything a `*_integration_test.go` touches is expected to run
   `make ci-integration`, not `make vet-integration` alone.
+
+  **Two per-container setup steps, since a reclaimed container loses both**
+  (both cost minutes and both have now bitten twice):
+  1. `$(go env GOPATH)/bin` is empty on a fresh clone, so `make generate` has
+     no `buf` — `go install` the four protoc plugins plus `buf`, `sqlc` and
+     `gotestsum` first (the list is in the `buf generate` gotcha above).
+  2. `make test` reports *errors* rather than failures — `go: no such tool
+     "covdata"` — because this toolchain ships `cmd/covdata`'s source and no
+     built binary. Build it and place it in the active `GOROOT`:
+     `go build -o /tmp/covdata cmd/covdata`, then `chmod -R u+w
+     "$(go env GOROOT)/pkg"` and copy it into
+     `$(go env GOROOT)/pkg/tool/linux_amd64/`. **Verify the copy landed** —
+     the module-cache `GOROOT` is mode `555`, so a `cp` without that `chmod`
+     can report success and leave nothing behind.
 - **An in-memory fake is more permissive than Postgres, and that asymmetry
   hides storage bugs.** `0031`'s defect — `payments.payable_type`'s CHECK
   never widened for `competition_entry` — passed every unit-level test for 22

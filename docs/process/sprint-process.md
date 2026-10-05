@@ -156,6 +156,41 @@ ceremony must still never guess on the user's behalf. An escalation that is
 raised and still unanswered is handled by the 0-ticket cap below, not by
 inventing a disposition for it.
 
+#### How to run the sweep, after T62 found three ways to run it wrong
+
+**Adopted T62.4.** T62's Ceremony 1 ran this sweep as written and found it
+mechanically unsound in three ways — one of which was live. The rule now
+specifies the mechanism, not just the intent.
+
+1. **Read the ADR's status, not its prose.** ADR-0015 and ADR-0016 preserve
+   the words *"Escalated — awaiting product decision"* verbatim beneath a
+   supersession notice, deliberately, as the record of the question as it
+   stood. A `grep` for "Escalated" over an ADR's body therefore hits two
+   **resolved** decisions. Read the status line; both forms are legitimate
+   (`## Status` heading, used by eleven ADRs, and `- **Status:**` front
+   matter, used by six) and the status value must **begin** with one of
+   `Accepted` / `Superseded` / `Proposed` / `Escalated` / `Rejected`, with any
+   prose after it.
+2. **An ADR the sweep cannot classify is a failure, never a silent skip.**
+   T62's sweep keyed on the heading form alone and silently skipped the six
+   front-matter ADRs — a third of the corpus — reporting a clean sweep.
+   `make docs-index-check` (T62.1) now enforces both halves of this point
+   mechanically, so the ceremony inherits a gate rather than a discipline.
+3. **Consider every open issue, not every labelled issue.** The sweep keyed on
+   the `role:product-owner` label. **#311 and #314 carry no labels**, and
+   #314 was a decision genuinely awaiting an answer — so the mechanism built
+   to surface decisions awaiting answers could not see one. That is DECISION
+   D1's failure mode, reintroduced through a label gap by the sprint that
+   wrote this rule. A label is a thing someone must remember to add; the open
+   issue list is not. **The ceremony states, per open issue, whether it awaits
+   a decision**, and the label remains useful for filtering but is never the
+   gate.
+
+The cost of getting this wrong is the thing to hold on to: #314 was filed by
+this project, sat invisible to its own escalation mechanism, and was answered
+in a single exchange once put to the user — which is also, precisely, what
+happened to D1 over 41 sprints.
+
 ### The 0-ticket sprint cap — two consecutive, then stop
 
 Adopted at T55 from `docs/process/t54-retro.md` recommendation 2.
@@ -865,6 +900,59 @@ full findings. A retro that produces zero findings is treated as
 suspicious, not a clean bill of health (mirrors QA's "an invariant with no
 test that could fail is untested, not proven" heuristic, applied to
 process).
+
+## Every quantity carries the command that produces it
+
+**Adopted T62.2, answering issue #314.** The Product Owner chose the wide form
+over the narrow one.
+
+**The rule.** Any quantity asserted in a process document — a sprint plan, a
+retro, `HANDOFF.md`, `docs/LESSONS.md`, a PR body, or `CLAUDE.md` — carries the
+**runnable command that produces it**, inline or in an adjacent fenced block.
+Not the technique. The command.
+
+**Why "cite your method" is not enough, which is the part that was learned the
+hard way.** `docs/process/t56-retro.md` states that 23 Ceremony 1 sweeps
+re-verified #126's blocker, *and gives its method*: a `grep -c` of `HANDOFF.md`
+narratives carrying one exact sentence. **That method does not reproduce.** Run
+at T61, the sentence it names returns 0, and the nearest patterns return 5, 33,
+47 and 12 depending on how much of it is kept. T56 did the right thing by the
+standard of its day and still left a figure nobody can re-check. So the
+artifact is the command, verbatim, not a description of one.
+
+**The evidence this rule is wide rather than narrow.** Six wrong figures in
+four days across three artifacts of one sprint:
+
+| | claim | wrong how | a duration? |
+|---|---|---|---|
+| 1 | "**two** live production defects" | three | no — a **count** |
+| 2 | "18 … **sprints**" | a migration-distance relabelled as sprints | yes |
+| 3 | "**22 sprints**" | not derived from anything | yes |
+| 4 | "six **consecutive** retros" | six, in two runs of three | no — a **count** |
+| 5 | "**13** integration / **11** unit files" | 9 and 15, then 2 and 15 | no — a **count** |
+| 6 | "**23** sweeps" (T56) | cited a method that does not reproduce | no — a **count** |
+
+T61's recommendation 4 covered durations only and would have caught 2 and 3.
+**Four of the six were counts.** Each was caught by the *next* verification
+pass rather than by more careful writing, which is why this is a format rule:
+accuracy here is a **command**, not an **intention**.
+
+**The one exemption, and how to take it.** A quantity **quoted from another
+document** is attributed rather than re-derived — and if its method does not
+reproduce, *that* is recorded instead of the figure being repeated.
+`docs/process/t59-retro.md`'s treatment of T56's "23 sweeps" is the worked
+example: it attributes the number to T56, states that the method returns 0 at
+T61, and says "many" where it cannot derive a figure.
+
+**The recorded dissent, so T63 can evaluate this rather than relitigate it.**
+`docs/process/t56-retro.md` recommendation 4 explicitly rejected a *general*
+rule — "a general 'mutation-test everything' rule was considered and rejected:
+it would be ignored" — and the author of #314 shared that concern on the
+record, in the issue and in two PR reviews. The Product Owner overruled it.
+**T63's Ceremony 1 should check whether this rule is actually being followed.
+If it is not, that is evidence for the narrow form, not a reason to restate
+this one more firmly** — which is the same lesson `make docs-index-check`
+exists to encode about prose rules in this project.
 
 ## Execution loop mechanics (within a sprint)
 

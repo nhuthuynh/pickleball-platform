@@ -1,0 +1,71 @@
+-- T62.5 — widen registrations.payment_status's CHECK to accept 'refunded'.
+--
+-- THE DEFECT
+--
+-- `internal/socialplay/domain.PaymentStatus` has declared three values since
+-- T6.5 — `unpaid`, `paid`, `refunded` — and its `IsValid()` accepts all three
+-- (`internal/socialplay/domain/registration.go`). The column's CHECK, written
+-- at T5 in `0005_socialplay.sql`, accepts only two:
+--
+--     payment_status text NOT NULL DEFAULT 'unpaid'
+--         CHECK (payment_status IN ('unpaid', 'paid'))
+--
+-- `refunded` was added to the domain one sprint after the table was created,
+-- and the CHECK was never widened.
+--
+-- IT IS REACHABLE, AND IT IS THE REFUND PATH
+--
+-- `internal/payments/app/service.go:959`:
+--
+--     if err := s.reconcileRegistrationPaymentStatus(ctx, updated,
+--             socialplaydomain.PaymentStatusRefunded); err != nil {
+--
+-- So `RefundPayment` on a Registration payable → `RegistrationUpdater.
+-- UpdatePaymentStatus` → `RegistrationRepository.UpdatePaymentStatus` →
+-- `UPDATE registrations SET payment_status = 'refunded'` → **SQLSTATE 23514**.
+--
+-- **Every refund of a Social Play Registration has failed against a real
+-- database since T6.5.** Money-adjacent, like `0031`'s.
+--
+-- The Competitions twin is correct: `0014_competitions.sql` wrote
+-- `competition_entries.payment_status ... CHECK (payment_status IN ('unpaid',
+-- 'paid', 'refunded'))`, and the adjacent call at service.go:967 therefore
+-- works. One context got it right and the other did not, which is why a
+-- per-pair comparison finds this and reading either file alone does not.
+--
+-- HOW IT WAS FOUND
+--
+-- By `TestEveryEnumCheckAgreesWithItsDomainType`
+-- (`internal/payments/adapter/postgres/enum_conformance_integration_test.go`,
+-- T62.5), on its first run against a real database. Issue #311 asked for
+-- conformance tests on five enum pairs it had listed; the schema has
+-- twenty-two, and **`registrations.payment_status` was one of the five**, so
+-- this defect would also have been caught by #311 as filed. What #311 would
+-- have missed is the other seventeen.
+--
+-- Nothing else found it in the intervening sprints because the in-memory
+-- Social Play repository has no CHECK constraint to violate — `CLAUDE.md`'s
+-- "an in-memory fake is more permissive than Postgres" gotcha, third instance
+-- after `0031` and `0030`.
+--
+-- 0032 is the next free number: db/migrations ended at
+-- 0031_payments_competition_entry_payable_type.sql, confirmed by listing the
+-- directory.
+--
+-- WHY DROP-AND-ADD
+--
+-- A CHECK cannot be widened in place, and a second constraint alongside the
+-- old one would leave the narrower one still refusing the value. The name is
+-- Postgres's default for an inline column CHECK (<table>_<column>_check),
+-- which is what the failing error message names, so it is dropped by that name
+-- and re-added with it — leaving one constraint, called what it was called.
+--
+-- The three values are exactly `PaymentStatus`'s declared constants, and
+-- `TestEveryEnumCheckAgreesWithItsDomainType` now fails if the two sets ever
+-- diverge again, in either direction.
+ALTER TABLE registrations
+    DROP CONSTRAINT registrations_payment_status_check;
+
+ALTER TABLE registrations
+    ADD CONSTRAINT registrations_payment_status_check
+    CHECK (payment_status IN ('unpaid', 'paid', 'refunded'));
