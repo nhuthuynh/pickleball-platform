@@ -76,12 +76,15 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T51 | `docs/process/t51-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T50 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T50's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the thirtieth 0-ticket sprint in this project's history by total count and the twenty-second sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50, T51) since T28 broke the T20–T27 streak) | `docs/process/t51-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T50 row correction, landed by T51's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-five and confirmed D1's silence counter at thirty-eight (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T51 row/narrative, per the now-settled convention, leaving it for T52's Ceremony 1; 7 recommendations for T52) | PR #284 (Ceremony 1/2 doc) → PR #285 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:11:54Z` → `11:16:44Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T52 | `docs/process/t52-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T51 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T51's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the thirty-first 0-ticket sprint in this project's history by total count and the twenty-third sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52) since T28 broke the T20–T27 streak) | `docs/process/t52-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T51 row correction, landed by T52's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-seven and confirmed D1's silence counter at thirty-nine (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T52 row/narrative, per the now-settled convention, leaving it for T53's Ceremony 1; 7 recommendations for T53) | PR #286 (Ceremony 1/2 doc) → PR #287 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:21:49Z` → `11:26:33Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
 | T53 | `docs/process/t53-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T52 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep clean — live `totalCount: 7`, arithmetically reconciled with zero opens/closes since T52's retro — re-verifies all 7 open issues' blockers live down to their full bodies and finds every one unchanged; re-scans `HANDOFF.md`'s Cross-cutting section and finds nothing newly actionable; takes **zero tickets**, the thirty-second 0-ticket sprint in this project's history by total count and the twenty-fourth sprint of the fresh consecutive run (T30, T31, T32, T33, T34, T35, T36, T37, T38, T39, T40, T41, T42, T43, T44, T45, T46, T47, T48, T49, T50, T51, T52, T53) since T28 broke the T20–T27 streak) | `docs/process/t53-retro.md` (no incident-grade finding; independently re-verified live, issue by issue down to full bodies, that all 7 open issues' blockers held for the whole sprint; confirmed D2 correctly not exercised (zero PRs beyond the planning doc); confirmed D1/D2 unanswered as formal ADR decisions; verified `HANDOFF.md`'s T52 row correction, landed by T53's own Ceremony 1, accurate against freshly re-fetched PR data; carried the post-T29 backlog-composition counter to forty-nine and confirmed D1's silence counter at forty (not incremented a second time within the sprint); re-confirmed the stale repo-metadata artifact, including the `list_pull_requests`-vs-`get` `merged`-field discrepancy, still present and still functionally inert; deliberately did not touch `HANDOFF.md`'s own T53 row/narrative, per the now-settled convention, leaving it for T54's Ceremony 1; 7 recommendations for T54) | PR #288 (Ceremony 1/2 doc) → PR #289 (retro doc), in that merge order (verified against each PR's `merged_at` per this project's standing convention: `11:32:31Z` → `11:37:45Z`) — both merged, both reviewed via GitHub review comments, see naming convention | none new | — |
-| T54 | `docs/process/t54-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T53 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep) | not yet written | not yet opened | — | — |
-| T55 | **No sprint-plan document — deliberately.** T55 held no planning ceremony: it resumed an interrupted T54 session and its first act was to put the two standing escalations (D1, D2) to the user rather than open a third consecutive 0-ticket plan. That is now the behaviour `sprint-process.md`'s escalation rule requires of every Ceremony 1, adopted this sprint from T54's retro | not yet written | PR #291 (T55.1, `442bc68`) → #292 (T55.2+T55.3, `797e6b3`) → #293 (T55.4, `9e039ab`) → #294 (process, `725ac72`), in that merge order — **verified by merging in that sequence**, not inferred from numbering. #292 and #293 were each rebased onto the shared branch before merge, because each was stacked on its predecessor's pre-squash branch. All four reviewed via GitHub PR reviews (PE + QA passes), each disclosing that the reviewing session also authored the code and that the Docker-backed integration tests were never executed | `adr/0015` and `adr/0016` both moved **Escalated → Accepted** — D1 = option (a) authenticate the flow; D2 = option (b) the bounded carve-out, verbatim and unrelaxed. Neither is a new ADR; both are resolutions of existing ones, with their original questions and option tables preserved | `docs/process/t54-retro.md` recommendations 1–4 applied to `docs/process/sprint-process.md`; `CLAUDE.md` rule 9 gains D2's five-condition reviewer-authorship carve-out |
+| T54 | `docs/process/t54-sprint-plan.md` (Ceremony 1 corrects `HANDOFF.md`'s T53 Docs-index row and Task-backlog narrative as its first job, re-runs the merged-fix issue sweep) | `docs/process/t54-retro.md` (**this cell read "not yet written" from T54 until T62's Ceremony 1 — eight sprints, because the rule assigns row correction to the next sprint's Ceremony 1 and T55–T58, T60 and T61 each held none; see `docs/process/t62-sprint-plan.md` §3**) | not yet opened | — | — |
+| T55 | **No sprint-plan document — deliberately.** T55 held no planning ceremony: it resumed an interrupted T54 session and its first act was to put the two standing escalations (D1, D2) to the user rather than open a third consecutive 0-ticket plan. That is now the behaviour `sprint-process.md`'s escalation rule requires of every Ceremony 1, adopted this sprint from T54's retro | `docs/process/t55-retro.md` (written late, at T61 — finding: its five PRs were open up to 13d 8h and merged inside 9m 03s, which is the mechanical cause of both the rebase churn this row records as a branching fact and the bookkeeping PR that had to be rewritten rather than rebased) | PR #291 (T55.1, `442bc68`) → #292 (T55.2+T55.3, `797e6b3`) → #293 (T55.4, `9e039ab`) → #294 (process, `725ac72`), in that merge order — **verified by merging in that sequence**, not inferred from numbering. #292 and #293 were each rebased onto the shared branch before merge, because each was stacked on its predecessor's pre-squash branch. All four reviewed via GitHub PR reviews (PE + QA passes), each disclosing that the reviewing session also authored the code and that the Docker-backed integration tests were never executed | `adr/0015` and `adr/0016` both moved **Escalated → Accepted** — D1 = option (a) authenticate the flow; D2 = option (b) the bounded carve-out, verbatim and unrelaxed. Neither is a new ADR; both are resolutions of existing ones, with their original questions and option tables preserved | `docs/process/t54-retro.md` recommendations 1–4 applied to `docs/process/sprint-process.md`; `CLAUDE.md` rule 9 gains D2's five-condition reviewer-authorship carve-out |
 | T56 | **No sprint-plan document.** T56 continued T55's session directly: #126 and #297 were already answered/filed, so it built rather than planned. Same posture `sprint-process.md`'s escalation rule now requires — ask or build, do not open a ceremony to restate a known backlog | `docs/process/t56-retro.md` (finding: an observation quoted across sprints without re-verification — #126 asserted "no price/fee field at all — confirmed by inspection at T8.10", but T9.2 added the field on 2026-08-05 and the issue was opened 2026-08-14, so it was **false when filed**, not stale; 23 Ceremony 1 sweeps then re-verified its blocker and never its premise. Also records the wire-test gap found by deletion and that the round-trip test which would have caught it already existed one field earlier. 4 recommendations for T57+) | PR #298 (`62e6af3`, `merged_at 2026-09-21T09:03:58Z`); retro doc in PR #303 (`merged_at 2026-09-22T11:49:42Z`). Reviewed via a GitHub PR review (engineer + QA passes). **That review found a defect and is the reason this row exists as a warning**: deleting the one line that puts `amount_owed` on the wire left `test-domain`, `test-adapters` and `test-cmd` all green — measured, not reasoned about. Fixed in the same PR before merge and disclosed in the review | none new | — |
 | T57 | **No sprint-plan document** — the Competitions mirror of T56, taken directly from T56's own stated scope exclusion | `docs/process/t57-retro.md` (finding: a scope exclusion is a dated object — T56.2's "`competition_entry` is out of scope" was correct when written and an undocumented inconsistency one sprint later, with an underpayment refused for a Registration and accepted for an entry; `sprint-process.md` has a rule for a *disclosed* gap and none for a *chosen* one. Also: mirroring is not copying — a straight copy of Social Play's wire test would have missed `toProtoEntry`'s second call site behind the Host roster read. 3 recommendations for T58+) | PR #300 (`bc3668c`, `merged_at 2026-09-21T09:06:59Z`); retro doc in PR #303. Reviewed via a GitHub PR review. Stacked on #298; rebased onto the shared branch and retargeted after #298 squash-merged | none new | — |
-| T58 | **No sprint-plan document.** Answered #299's standing question before building: the investigation found the issue's own premise false (see the T58 narrative), so the options were re-put to the Product Owner rather than built as filed | `docs/process/t58-retro.md` (finding: an issue filed on a premise its author had not checked — #299 defended the offline exemption on grounds `payments_payable_unique_idx` has forbidden since T5, and its option 2 would have shipped a guard advertising protection it could not provide. Writing T56's retro showed #126 failed the same way, so this retro records the two as **one** failure mode rather than two findings. 4 recommendations for T59+) | PR #301 (`619a974`, `merged_at 2026-09-22T07:12:17Z`) → PR #302 (T56–T58 bookkeeping, `6cd7ade`, `merged_at 2026-09-22T11:35:40Z`) → PR #303 (T56–T58 retros, `merged_at 2026-09-22T11:49:42Z`), in that merge order, **verified against each PR's `merged_at`** rather than inferred from numbering (they agree this time, which is itself a checked fact). #301's review ran an explicit bypass hunt: payable-type confusion, the webhook path, and a `grep`-verifiable claim that exactly two call sites create a Payment |
-| T59 | `docs/process/t59-sprint-plan.md` (Ceremony 1: first since T55, since T56–T58 each held none. Runs the merged-fix sweep clean — live `totalCount: 4`, arithmetically reconciled with T55's 5 minus #126, with #297 and #299 each opened *and* closed within the run. **Applies the new premise check for the first time and it fires**: #149's premise has substantially drifted — four of the five caller-supplied ownership facts it names are no longer read from the wire, closed by T16.2 and T17.1, leaving only `booking_host_id`. Verifies merge order against `merged_at`; confirms no unanswered escalation; confirms the 0-ticket counter reset to 0. Takes **three tickets**: T59.1 guards `OwnerUserID`'s shape (#296), T59.2 re-scopes #149 to the one hole that remains, T59.3 adopts T56–T58's retro recommendations) | not yet written | not yet opened | — | — | none new | — |
+| T58 | **No sprint-plan document.** Answered #299's standing question before building: the investigation found the issue's own premise false (see the T58 narrative), so the options were re-put to the Product Owner rather than built as filed | `docs/process/t58-retro.md` (finding: an issue filed on a premise its author had not checked — #299 defended the offline exemption on grounds `payments_payable_unique_idx` has forbidden since T5, and its option 2 would have shipped a guard advertising protection it could not provide. Writing T56's retro showed #126 failed the same way, so this retro records the two as **one** failure mode rather than two findings. 4 recommendations for T59+) | PR #301 (`619a974`, `merged_at 2026-09-22T07:12:17Z`) → PR #302 (T56–T58 bookkeeping, `6cd7ade`, `merged_at 2026-09-22T11:35:40Z`) → PR #303 (T56–T58 retros, `merged_at 2026-09-22T11:49:42Z`), in that merge order, **verified against each PR's `merged_at`** rather than inferred from numbering (they agree this time, which is itself a checked fact). #301's review ran an explicit bypass hunt: payable-type confusion, the webhook path, and a `grep`-verifiable claim that exactly two call sites create a Payment | none new | — |
+| T59 | `docs/process/t59-sprint-plan.md` (Ceremony 1: first since T55, since T56–T58 each held none. Runs the merged-fix sweep clean — live `totalCount: 4`, arithmetically reconciled with T55's 5 minus #126, with #297 and #299 each opened *and* closed within the run. **Applies the new premise check for the first time and it fires**: #149's premise has substantially drifted — four of the five caller-supplied ownership facts it names are no longer read from the wire, closed by T16.2 and T17.1, leaving only `booking_host_id`. Verifies merge order against `merged_at`; confirms no unanswered escalation; confirms the 0-ticket counter reset to 0. Takes **three tickets**: T59.1 guards `OwnerUserID`'s shape (#296), T59.2 re-scopes #149 to the one hole that remains, T59.3 adopts T56–T58's retro recommendations) | `docs/process/t59-retro.md` (written late, at T61 — finding: T59.2's job was to stop #149 misleading its next reader, and the correction landed in a comment and the title while the body kept all five facts and a claim false since T14.4) | PR #304 (`9fed700`, Ceremony 1, carrying T59.2 and T59.3) → PR #306 (T59.1, `b7608e3`, closing #296), verified against `merged_at`. Reviewed via GitHub PR reviews. **This row previously carried 8 cells against a 6-column header** and T58's carried 4 — both corrected at T62's Ceremony 1 | — | — |
+| T60 | **No sprint-plan document.** Both tickets came from already-filed issues (#305 from T59.1's documented scope exclusion, #308 from T60's own work) | `docs/process/t60-retro.md` (written late, at T61 — finding: deleting actor resolution went from **6 tests catching it to 36**, and the 6 were the booking-backed ones catching it only via Booking's own guard; Social Play's 30-plus authorization assertions caught it **zero** times) | PR #307 (`940c444`, closing #305) → PR #309 (T60.2, `52fcd66`, closing #308), verified against `merged_at`. Reviewed via GitHub PR reviews. **There is no T60.1** — the tickets are labelled T60 and T60.2 | none new | — |
+| T61 | **No sprint-plan document.** One instruction — run `make ci-integration` — against a gap six retros had disclaimed (T17–T19, then T56–T58) | `docs/process/t61-retro.md` (finding: a claim that licenses **inaction** is the least likely claim in a codebase to be re-checked, and therefore the most valuable one to re-check. Also corrects three wrong numbers T61 itself shipped) | PR #310 (`d0b36eb`, three production defects) → #312 (`71c71fe`, retro) → #313 (`bb2bcda`, stale-disclaimer sweep) → #315 (`fcdee67`, the late T55/T59/T60 retros), verified against `merged_at`. Each reviewed via a GitHub PR review disclosing self-review | none new | — |
+| T62 | `docs/process/t62-sprint-plan.md` (Ceremony 1: clears **eight sprints** of accumulated Docs-index debt, found by a derived check rather than by reading. The escalation sweep's own three mechanical defects found by running it. The premise check fires on **two of five** issues — #149 again, and #145. #314 put to the user and answered: widen the quantity rule to all quantities. Takes five tickets, T62.1–T62.5) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -2772,7 +2775,8 @@ the retro's form, not a stronger one).
 
 **T42 — Ceremony 1/2 only.** See `docs/process/t42-sprint-plan.md` for the
 live sweep, per-issue re-verification, and this sprint's disposition.
-Retro not yet written.
+Retro: `docs/process/t42-retro.md` (this line read "Retro not yet written" until
+T62's Ceremony 1, though the file has existed since T42).
 
 **Outcome: 0 tickets, the twenty-first 0-ticket sprint in this project's
 history by total count, the thirteenth of a fresh consecutive run (T30, T31,
@@ -3858,7 +3862,8 @@ and should be run before anything depends on that invariant holding.
 3. **Client follow-up for D1** — still open; see the Cross-cutting entry
    below.
 
-Retro not yet written.
+Retro: `docs/process/t55-retro.md`, written late at T61 — see its own
+"Written late, and what that costs" preamble.
 
 **T56–T58 — three sprints that closed the money-amount hole end to end.
 Three tickets built and merged, three issues closed, one issue's premise
@@ -3983,6 +3988,147 @@ resolution says so rather than leaving it implied.
 `t57-retro.md`, `t58-retro.md` (PR #303). Their agreed outcome sentences are
 carried verbatim in the Docs-index rows above rather than restated here in a
 stronger form, per `sprint-process.md`'s Ceremony 1 rule.
+
+**T59 — the first planning ceremony since T55, and the premise check's first firing.** One ticket shipped; T59.2 and T59.3 completed inside Ceremony 1 by design, not omission — see `docs/process/t59-sprint-plan.md` §In.
+
+**Outcome: 1 ticket, 1 issue closed (#296), 2 tickets absorbed into the ceremony.** Retro: `docs/process/t59-retro.md`.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 requires the retro's own agreed sentence):
+
+> T59 held the first planning ceremony since T55 and **applied T56's new premise
+> check for the first time, where it immediately fired**: #149 was describing a
+> world four of its five ownership facts had left, closed by T16.2 and T17.1,
+> leaving only `booking_host_id`. A sweep that had been asking "can anyone act on
+> this yet?" for many sprints asked "is this still describing reality?" once and
+> got no. (Not "23 sweeps": `t56-retro.md` gives that figure with a stated
+> `grep -c` method that **does not reproduce at T61**, so this retro attributes
+> it rather than repeating it.) One ticket shipped — T59.1, PR #306 (`b7608e3`), closing
+> #296 — guarding `Booking.OwnerUserID`'s shape, with #296's symmetry question
+> answered as an executable assertion rather than prose: `actorUserID` needs no
+> guard because it is only ever compared, and guarding it would turn a correct
+> `PermissionDenied` into an `InvalidArgument` disclosing that an unauthorized
+> caller's id was shaped wrong. T59.2 and T59.3 were completed inside Ceremony 1
+> by design, not omission. **The finding this retro exists for is that T59.2's
+> job was to stop #149 misleading its next reader, and #149 still misleads its
+> next reader**: the correction was posted as a comment and the title re-scoped
+> from five facts to one, but the body still lists all five as open and still
+> claims the codebase "has never persisted Game-Admin or Competition-Admin
+> assignments at all" — false since T14.4's `0020_socialplay_game_admins.sql`.
+> T59.2 found a third stale claim in that body and recorded it in the **sprint
+> plan**, which nobody reads when picking up an issue. T61 faced the identical
+> question two sprints later for 17 stale test headers, reached the same
+> principle — supersede, don't delete — and implemented it the other way, with
+> the correction adjacent and unmissable rather than below the body a reader may
+> stop at. Neither sprint could learn from the other because neither wrote the
+> principle down. **Written at T61, two sprints late**, which is also what makes
+> observable the one thing a contemporaneous retro would only have predicted:
+> T59.1's deliberately local `resolvingIdentityLookup` stopgap, documented as a
+> chosen scope exclusion under a rule adopted hours earlier at T59.3, was
+> retired by T60 exactly as intended.
+
+**T60 — no planning ceremony; both tickets came from already-filed issues.** The sprint that proved, by mutation, that a fixture can make a package blind to the thing its assertions are about.
+
+**Outcome: 2 tickets, 2 issues closed (#305; #308 opened and closed within the run).** Retro: `docs/process/t60-retro.md`.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 requires the retro's own agreed sentence):
+
+> T60 held no planning ceremony; both tickets came from already-filed issues.
+> T60 (PR #307, `940c444`, closing #305) gave Social Play the identity-fixture
+> pass Payments had at T28.1 and Competitions at T29.1 — its shared
+> `fakeIdentityLookup` returned the verified subject unchanged, so
+> `ctxAs("host-1")` produced a `Game.HostID` that `games.host_id` cannot hold,
+> since migration 0026 made it a uuid FK. **The finding this retro exists for is
+> what the fix measured**: deleting actor resolution entirely went from **6 tests
+> catching it to 36**, and the 6 were exactly the booking-backed ones, catching
+> it only because *Booking* had a `uuidShape` guard from T59.1 — **Social Play's
+> own 30-plus authorization assertions caught it zero times.** A package whose
+> suite is largely about authorization could have its actor resolution deleted
+> and not one of its own assertions would notice, because a fixture wrong in the
+> same dimension a suite tests cannot be caught by that suite; only mutation
+> finds it. T60 also added a **test that protects the tests** —
+> fixture subjects must never resolve to the same `User.ID`, or every
+> principal-not-wire assertion passes while proving nothing — and filed #308 to
+> mirror it. **T60.2 (PR #309, `52fcd66`) then closed #308 deliberately not in
+> the shape #308 asked for**: the issue asked for a hand-maintained subject list,
+> which is the exact artifact `CLAUDE.md` names as having defeated
+> `gate-coverage` three sprints running, and **#308's own lists were incomplete
+> the day it was filed — 12 subjects where 22 existed for Payments, 8 where 21
+> existed for Competitions.** Each test now derives its inputs by parsing its own
+> package at run time (333 / 415 / 476 literals), verified by mutation 9 for 9.
+> That makes #308 the **third** face of the failure T58 called "one failure mode
+> with two faces", and the clearest, because it was filed and implemented by the
+> same session days apart — a list written by inference where a command was
+> available. T60 also recorded its own scope estimate as wrong in the
+> pessimistic direction (*"a failure count is not an edit count"* — ~24
+> assertions inferred, 8 actual, because 24 clustered behind two seed helpers).
+> **Written at T61, one sprint late, and T60 has no `HANDOFF.md` Docs-index row
+> at all** — not a stale one, none — because `sprint-process.md` assigns a
+> sprint's row to the next sprint's Ceremony 1 and T61 held no planning ceremony,
+> a rule with no fallback for the successor that does not run. Both PRs record
+> the integration suite as unrunnable for want of a Docker daemon, which T61
+> falsified one sprint later.
+
+**T61 — no planning ceremony. One instruction: run `make ci-integration`.** The gap six retros had disclaimed as impossible turned out to cost four seconds of daemon start and to be hiding three live production defects.
+
+**Outcome: 3 production defects found and fixed, 1 issue opened (#311), 1 gate weakness closed. No issue closed — none of the three had ever been filed.** Retro: `docs/process/t61-retro.md`.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 requires the retro's own agreed sentence):
+
+> T61 held no planning ceremony. It was one instruction — run
+> `make ci-integration` — against a gap **six retros had disclaimed as
+> impossible in this environment** (T17–T19 and T56–T58, two runs of three with
+> a 36-sprint silence between them). It was not impossible:
+> `dockerd` and `containerd` were on the box, the session ran as uid 0, and the
+> daemon came up in about four seconds. The first run reported **2386 tests, 34
+> failures** (plus 21 errors that were a missing `covdata` binary, built from
+> the toolchain's own source) and surfaced **three live production defects**,
+> none of which had ever been filed, all of which every Docker-free gate had
+> reported green: guests stopped counting toward Game capacity at **T19.1**,
+> when `0023` rebuilt `enforce_game_capacity()` from `0006`'s body and reverted
+> `0012`'s weighted sum, so a 7-person Game accepted 7 registrations bringing 3
+> guests each — **28 people in a 7-person Game**; every Competition-entry
+> payment failed with `23514` from **T10.6**, because `payments.payable_type`'s
+> CHECK was never widened for a value the domain had accepted since that
+> sprint; and a promoted waitlist player's reserved slot could be taken out
+> from under them from **T8.7**, when `0012` itself dropped `0007`'s
+> reservation — so `0012` is simultaneously the fix for one divergence and the
+> cause of another. In all three the Go half of rule 4 was correct and **the
+> authoritative half was the wrong one**. The third was found **by the
+> pre-merge review, diffing all five historical bodies of that function against
+> each other, and no test anywhere would ever have found it** — `0007` shipped
+> the guard untested, so when `0012` dropped it nothing failed; seventeen
+> migrations landed in between. Running the suite was **necessary and not
+> sufficient**. Fixed by `db/migrations/0030` (the union of four predecessors)
+> and `0031`, each with a regression test verified by deletion, and `0031`'s
+> **derives the payable-type set by parsing the domain rather than listing it**,
+> because a hand-maintained table would have been written by the ticket that
+> already forgot the migration. The root cause is recorded as **the third face
+> of the failure T56 and T58 each recorded once**: an assertion about the system
+> its author had not checked — this time about the *environment*, where the
+> claim licensed inaction and so was never on the critical path of anything that
+> would have tested it. `make test` gained `-count=1`, without which Go served
+> the whole suite from the build cache: **2466 tests "green" in two seconds with
+> no container started**, found while performing rule 10's repeats and reported
+> as cached rather than quietly re-run. Verified by **five uncached full runs,
+> 2468 tests, 0 failures, three of them cold**, plus `-count=5 -race` over the
+> four concurrency packages, so each concurrency test ran at least ten times;
+> the no-double-booking invariant T4 proved manually has now actually executed.
+> **This retro's own finding is that T61 shipped a `CLAUDE.md` gotcha with three
+> wrong numbers in it** — "two" defects where there were three, and two sprint
+> counts that were a migration-distance and an invented figure — corrected here
+> in both `CLAUDE.md` and `LESSONS.md` as ticket ranges, with the correction
+> placed where the wrong claim was. **The retro's own review then found two more
+> in the retro's first draft** ("six consecutive retros" for six in two runs of
+> three; a 13/11 file split that is 9/15), so three successive artifacts of this
+> sprint each reached for a number that sounded right instead of running the
+> one-liner that settles it — which is why recommendation 4 is a format rule
+> rather than an exhortation to be careful. `make security` remains not green here
+> (`govulncheck` cannot reach `vuln.go.dev`), self-review stands at six
+> consecutive sprints, and no second party has read a diff on this project since
+> T55.
 
 **T59's Ceremony 1 correction to this section.** The `#149` row in the
 open-issues table below was amended at T58's bookkeeping to say T56–T58
