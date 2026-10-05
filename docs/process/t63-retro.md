@@ -358,8 +358,14 @@ by process — see §8 recommendation 2.
 ## 7. What T63.1's own rule caught, measured on this document
 
 T62.2's retro measured what the quantity rule *cost*. T63.1's extension is
-cheaper to satisfy and caught more, because the claims it governs are the ones a
-sprint is most confident about.
+cheaper to satisfy, because the claims it governs are the ones a sprint is most
+confident about — and confidence is cheap to re-check and expensive to leave
+unchecked.
+
+**Four of the five rows below were found by writing this document under the
+rule. The second predates the rule** — Ceremony 1 found it, which is what
+produced T63.1 — and is listed so the table reads as the rule's case rather
+than only its yield.
 
 | claim | the command it now carries | what re-reading found |
 |---|---|---|
@@ -452,20 +458,32 @@ advertised and no better.
   `docs-index-check` OK across 64 rows / **109** process docs / 17 ADRs — 108
   before this document existed, which is §7's fifth row — `fmt-check`
   and `golangci-lint` clean, web 61 files / 717 tests, `build-web` green.
-  `make ci-integration` green on the final tree **three times — 2500 tests, 0
-  failures each** (101.9s, 96.6s and 93.2s). One of the three was cold in both
-  senses — a just-started daemon and a cleared `go test` cache — and the two
-  runs between were not runs at all, because the daemon had stopped: that is
-  §2's evidence, met rather than read.
+  `make ci-integration` green on the final tree **four times — 2500 tests each**
+  (93.2s, 101.9s, 96.6s, 96.3s). One was cold in both senses — a just-started
+  daemon and a cleared `go test` cache — and the two attempts between were not
+  runs at all, because the daemon had stopped: that is §2's evidence, met rather
+  than read.
 
   ```
   $ go clean -testcache && for i in 1 2; do make ci-integration | tail -1; done
   DONE 2500 tests in 101.922s
   DONE 2500 tests in 96.586s
 
+  $ make ci-integration | tee /tmp/ci-int-full.log | tail -1
+  DONE 2500 tests in 96.283s
+  $ grep -cE "^(FAIL|--- FAIL)|failures" /tmp/ci-int-full.log
+  0
+
   $ SKIP_GOVULNCHECK=1 make security | tail -1
   PASS: no new gating findings (0 baselined, 2 below threshold).
   ```
+
+  **The fourth run exists because "0 failures" was an inference.** `gotestsum`'s
+  `DONE` line omits the failure count when it is zero, so three runs' tails were
+  evidence of a completed suite and not, strictly, of a clean one. The fourth
+  captured the full output and was grepped for failure lines. That is a small
+  instance of the same discipline as the rest of this document: the claim was
+  almost certainly true, and checking it cost 96 seconds.
  Per rule 10 that is evidence, not proof
   for all time.
 - **Mutation verification, per T63.3, on the sprint that adopted it.** Two, both
@@ -554,8 +572,10 @@ For `HANDOFF.md`'s T63 row, to be carried verbatim rather than strengthened:
 > declaration, is the guard**, which is the most dangerous shape a guard can
 > have. Verified by `make ci-checks` green (`gate-coverage` 47/47,
 > `docs-index-check` across 64 rows / 109 docs / 17 ADRs), `make ci-integration`
-> green three times on the final tree (**2500 tests, 0 failures each**, one of
-> them cold in both senses), and
+> green four times on the final tree (**2500 tests each**, one cold in both
+> senses, the fourth's full output grepped for failure lines because "0
+> failures" had until then been an inference from `gotestsum`'s summary line),
+> and
 > `SKIP_GOVULNCHECK=1 make security` **PASS**. Issues 3 → 5 (two closed, two
 > filed), live-counted rather than derived. Eleventh consecutive self-reviewed
 > sprint, and §3 is the concrete cost of that: the review's "no meaningful
