@@ -267,6 +267,42 @@ its filename alone and nothing collides or goes stale silently:
      `$(go env GOROOT)/pkg/tool/linux_amd64/`. **Verify the copy landed** —
      the module-cache `GOROOT` is mode `555`, so a `cp` without that `chmod`
      can report success and leave nothing behind.
+- **`make security`: the Go half cannot run here, and that is not a reason to
+  skip the npm half.** Tested at T63.2, not quoted: `govulncheck` gets
+  `Forbidden` fetching `https://vuln.go.dev/index/modules.json.gz` from this
+  environment. The Makefile's designed response is `SKIP_GOVULNCHECK=1`, which
+  warns loudly and removes the report so `tools/vulngate` gates on npm findings
+  only. **Never set it in CI**, and never set it inside a `ci-*` target — it is
+  for a human in an environment that cannot reach the database.
+
+  Why this is a gotcha and not a footnote: `security-go` runs **before**
+  `security-npm`, so for the life of this project the Go half's failure meant
+  **the npm half had never run at all**. T61's and T62's retros both recorded
+  "govulncheck is owed" without testing it. Running it once, with the documented
+  flag, surfaced **7 vulnerabilities — 5 of them `high`** — in shipped web
+  dependencies. **A broken half of a gate is not permission to skip the whole
+  gate.**
+
+- **npm's own remediation commands crash on this project's dependency graph.**
+  npm 10.9.7, reproducibly: `npm audit fix`, `npm update <pkg>` and a **fresh**
+  `npm install` (no lockfile) all die with
+  `npm error Cannot read properties of null (reading 'edgesOut')`. `npm install`
+  **with the lockfile present** works, and `npm ci` works.
+
+  Consequences, learned the hard way at T63.2:
+  1. **Fix transitive advisories with an `overrides` block in
+     `web/package.json`**, pinned to the first version *above* the vulnerable
+     range in the *same major line* — not to `latest`. All five of T63.2's high
+     findings had a same-major patch fix, so no breaking bump was needed; read
+     the advisory's `range` rather than reaching for the newest version.
+  2. **Do not delete `web/package-lock.json`.** It is what makes installs work
+     here; without it npm cannot resolve this graph at all. T63.2 deleted it
+     while investigating and had to restore it from a copy.
+  3. **`npm audit` on a tree with no `node_modules` reports "clean".** It is
+     auditing nothing. Always check `metadata.dependencies.total` alongside the
+     tally — a clean result over 0 dependencies is the vacuous-green failure
+     this project keeps rediscovering.
+
 - **An in-memory fake is more permissive than Postgres, and that asymmetry
   hides storage bugs.** `0031`'s defect — `payments.payable_type`'s CHECK
   never widened for `competition_entry` — passed every unit-level test for 22

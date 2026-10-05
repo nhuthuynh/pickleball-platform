@@ -185,6 +185,133 @@ func DeclaredConstants(path, typeName string) (map[string]string, error) {
 	return out, nil
 }
 
+// ValidateMapping checks the mapping itself, before any database is consulted.
+//
+// # Why this is narrower than T63.4 first proposed, and why that is deliberate
+//
+// T63's plan asked for a guard against "a plausible-but-wrong row", on the
+// evidence that five of the first twenty-one rows were wrong. **Re-verifying
+// that finding before building to it — per `t62-retro.md` recommendation 4 —
+// showed the five were not of that shape.** Three named a file that does not
+// exist and two named a type that does not exist, and both already fail loudly:
+// DeclaredConstants errors rather than returning an empty set, so a wrong path
+// or a wrong type name cannot pass silently.
+//
+// The plan also asserted that a context-ownership check would catch "the shape
+// four of the five errors had". That was wrong, and the count that shows it is
+// zero: every mapped row currently declares its type inside the bounded context
+// that owns its table.
+//
+// So a context-ownership check would be machinery for a failure that has never
+// occurred — and it would need a hand-maintained `table -> context` list, which
+// is the exact artifact this package exists to avoid. **Declined, with the
+// reasoning recorded** rather than built.
+//
+// # What is genuinely uncovered, and is checked here
+//
+// One case survives and is real: **`Status` is declared in four different
+// bounded contexts** (booking, socialplay, competitions, payments), several
+// with overlapping values. A row for `games.status` pointing at Competitions'
+// `Status` would find real constants — `scheduled`, `cancelled` — that happen
+// to match, and nothing would notice.
+//
+// That cannot be ruled out without knowing which context owns which table, so
+// it is **reported rather than failed**: an ambiguous type name is surfaced in
+// the test's output, naming the file the row chose, so a reader can check the
+// one thing a machine cannot. The two hard errors below do fail.
+func ValidateMapping(pairs []Pair, declared func(Pair) (map[string]string, error)) (findings []Finding, notes []string) {
+	seen := map[string]Pair{}
+	for _, p := range pairs {
+		// Hard error: the same column mapped twice. One correct row would
+		// otherwise mask an incorrect one, since Compare indexes by column.
+		if prev, dup := seen[p.Col()]; dup {
+			findings = append(findings, Finding{p.Col(), fmt.Sprintf(
+				"mapped twice — to %s and to %s. One row would mask the other",
+				prev.TypeName, p.TypeName)})
+			continue
+		}
+		seen[p.Col()] = p
+
+		if p.Why != "" {
+			continue
+		}
+
+		// Hard error: the row's file and type must resolve. This is asserted
+		// here, not only at comparison time, so a mapping is checkable without
+		// a database — which is what makes this function Docker-free.
+		if _, err := declared(p); err != nil {
+			findings = append(findings, Finding{p.Col(), fmt.Sprintf(
+				"mapping does not resolve: %v", err)})
+		}
+	}
+
+	// Note, not error: type names used by more than one row, which is the
+	// signature of an ambiguous name like Status.
+	byType := map[string][]string{}
+	for _, p := range pairs {
+		if p.TypeName != "" {
+			byType[p.TypeName] = append(byType[p.TypeName], p.Col()+" <- "+p.File)
+		}
+	}
+	for ty, uses := range byType {
+		if len(uses) > 1 {
+			sort.Strings(uses)
+			notes = append(notes, fmt.Sprintf(
+				"%q is mapped by %d rows, so the name alone is ambiguous — each row's File "+
+					"is what disambiguates it, and only a human can confirm the choice: %s",
+				ty, len(uses), strings.Join(uses, "; ")))
+		}
+	}
+	sort.Strings(notes)
+	sort.Slice(findings, func(i, j int) bool { return findings[i].Col < findings[j].Col })
+	return findings, notes
+}
+
+// Result is one Verify run: the mapping's own problems, the ambiguity notes,
+// and — only when the mapping held — the domain/schema comparison.
+type Result struct {
+	MapFindings []Finding // the mapping is unusable; nothing was compared
+	Notes       []string  // ambiguous type names, reported not failed
+	Findings    []Finding // domain/schema disagreements
+	// Compared records whether Compare ran at all. A Result with no findings
+	// and Compared false is a rejected mapping, not a clean schema, and a
+	// caller that treats the two alike has the vacuous-green bug this repo
+	// has now shipped three times.
+	Compared bool
+}
+
+// OK reports whether the run found nothing wrong AND actually compared
+// something. Both halves matter: see Compared.
+func (r Result) OK() bool { return r.Compared && len(r.MapFindings) == 0 && len(r.Findings) == 0 }
+
+// Verify is ValidateMapping and Compare in the one order that makes sense:
+// **a mapping that does not hold is not compared.**
+//
+// Comparing against a broken mapping produces noise, not information — an
+// unresolvable row yields an error from Compare for that row and an
+// "unmapped CHECK" finding for the column it was supposed to cover, neither of
+// which names the actual defect. So the short-circuit is real behaviour and
+// belongs here, where a unit test can observe it, rather than as a t.FailNow()
+// in an integration test that only Docker can run.
+//
+// That placement is T63.3's rule applied to T63.4's own code: the branch was
+// written as an untested FailNow first, flagged as untested in PR #321's
+// review, and moved here so it could be removed and watched to fail
+// (TestVerifyDoesNotCompareAgainstABrokenMapping).
+func Verify(constraints []Constraint, pairs []Pair, declared func(Pair) (map[string]string, error)) (Result, error) {
+	var r Result
+	r.MapFindings, r.Notes = ValidateMapping(pairs, declared)
+	if len(r.MapFindings) > 0 {
+		return r, nil
+	}
+	findings, err := Compare(constraints, pairs, declared)
+	if err != nil {
+		return r, err
+	}
+	r.Findings, r.Compared = findings, true
+	return r, nil
+}
+
 // Finding is one disagreement, phrased so the message alone says what to do.
 type Finding struct {
 	Col  string

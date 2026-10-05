@@ -1,6 +1,7 @@
 package enumconformance_test
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,5 +231,188 @@ func TestAgreeingSetsPass(t *testing.T) {
 	}
 	if len(f) != 0 {
 		t.Fatalf("agreeing sets must pass, got %v", f)
+	}
+}
+
+// --- T63.4: the mapping checked without a database ---
+
+func declOK(m map[string]map[string]string) func(enumconformance.Pair) (map[string]string, error) {
+	return func(p enumconformance.Pair) (map[string]string, error) {
+		v, ok := m[p.TypeName]
+		if !ok {
+			return nil, errors.New("found no " + p.TypeName + " constants")
+		}
+		return v, nil
+	}
+}
+
+// The same column mapped twice is a hard error: Compare indexes by column, so
+// one correct row would silently mask an incorrect one.
+func TestValidateMappingRejectsADuplicateColumn(t *testing.T) {
+	t.Parallel()
+
+	f, _ := enumconformance.ValidateMapping([]enumconformance.Pair{
+		{Table: "payments", Column: "status", File: "a.go", TypeName: "Status"},
+		{Table: "payments", Column: "status", File: "b.go", TypeName: "Other"},
+	}, declOK(map[string]map[string]string{"Status": {"A": "a"}, "Other": {"B": "b"}}))
+
+	if len(f) != 1 || !strings.Contains(f[0].What, "mapped twice") {
+		t.Fatalf("a duplicated column must fail, got %v", f)
+	}
+}
+
+// A row whose file or type does not resolve fails here, without a database —
+// which is the shape all five of T62's real mapping errors had.
+func TestValidateMappingRejectsAnUnresolvableRow(t *testing.T) {
+	t.Parallel()
+
+	f, _ := enumconformance.ValidateMapping([]enumconformance.Pair{
+		{Table: "games", Column: "status", File: "socialplay/domain/game.go", TypeName: "GameStatus"},
+	}, declOK(nil)) // nothing resolves
+
+	if len(f) != 1 || !strings.Contains(f[0].What, "does not resolve") {
+		t.Fatalf("an unresolvable row must fail, got %v", f)
+	}
+}
+
+// An ambiguous type name is REPORTED, not failed. `Status` is declared in four
+// bounded contexts, so the name alone cannot identify the right one — but
+// whether a given row chose correctly is not machine-decidable, and failing on
+// ambiguity would fail the 22-row mapping this repo legitimately has.
+func TestValidateMappingReportsAnAmbiguousTypeNameWithoutFailing(t *testing.T) {
+	t.Parallel()
+
+	pairs := []enumconformance.Pair{
+		{Table: "bookings", Column: "status", File: "booking/domain/booking.go", TypeName: "Status"},
+		{Table: "payments", Column: "status", File: "payments/domain/payment.go", TypeName: "Status"},
+	}
+	f, notes := enumconformance.ValidateMapping(pairs,
+		declOK(map[string]map[string]string{"Status": {"A": "a"}}))
+
+	if len(f) != 0 {
+		t.Fatalf("ambiguity must not fail — this repo has 22 legitimate rows including four Status types; got %v", f)
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "ambiguous") {
+		t.Fatalf("ambiguity must be reported so a human can check the choice; got %v", notes)
+	}
+	if !strings.Contains(notes[0], "booking/domain/booking.go") || !strings.Contains(notes[0], "payments/domain/payment.go") {
+		t.Fatalf("the note must name each row's File, since that is what disambiguates; got %q", notes[0])
+	}
+}
+
+// An explicitly exempt row is not resolved, but is still checked for duplication.
+func TestValidateMappingSkipsResolutionForAnExemptRow(t *testing.T) {
+	t.Parallel()
+
+	f, _ := enumconformance.ValidateMapping([]enumconformance.Pair{
+		{Table: "t", Column: "c", Why: "no single governing domain type"},
+	}, declOK(nil))
+
+	if len(f) != 0 {
+		t.Fatalf("an exempt row must not be resolved, got %v", f)
+	}
+}
+
+// The control.
+func TestValidateMappingPassesAGoodMapping(t *testing.T) {
+	t.Parallel()
+
+	f, notes := enumconformance.ValidateMapping([]enumconformance.Pair{
+		{Table: "payments", Column: "method", File: "payments/domain/payment.go", TypeName: "Method"},
+	}, declOK(map[string]map[string]string{"Method": {"MethodOnline": "online"}}))
+
+	if len(f) != 0 || len(notes) != 0 {
+		t.Fatalf("a good unambiguous mapping must be silent, got findings=%v notes=%v", f, notes)
+	}
+}
+
+// TestVerifyDoesNotCompareAgainstABrokenMapping is the branch PR #321's review
+// flagged as untested: when the mapping does not hold, nothing is compared.
+//
+// It was a `t.FailNow()` inside the Docker-only integration test, so no
+// Docker-free gate could reach it and even `make ci-integration` only ever
+// exercised the path where the mapping *was* sound. Moving the short-circuit
+// into Verify is what makes it observable here.
+//
+// Per T63.3 ("a guard is verified by removing it"): deleting the early return
+// in Verify makes this test fail, and the failure it produces is itself the
+// argument for the guard —
+//
+//	a broken mapping is a finding, not an error: found no Nope constants in nope.go
+//
+// i.e. Compare propagates the unresolvable row as a hard error, so the caller
+// gets a Go error about one row instead of a finding list naming every broken
+// row. (The first draft of this comment predicted the three assertions below
+// would fail instead; they are never reached. Removing the guard and reading
+// the output is what corrected it.)
+func TestVerifyDoesNotCompareAgainstABrokenMapping(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	decl := func(p enumconformance.Pair) (map[string]string, error) {
+		calls++
+		return nil, errors.New("found no " + p.TypeName + " constants in " + p.File)
+	}
+
+	// A constraint that Compare would certainly report on, so "no findings"
+	// cannot be an accident of thin input.
+	constraints := []enumconformance.Constraint{
+		{Table: "t", Column: "c", Values: []string{"a"}},
+		{Table: "t", Column: "other", Values: []string{"x"}},
+	}
+	pairs := []enumconformance.Pair{{Table: "t", Column: "c", File: "nope.go", TypeName: "Nope"}}
+
+	r, err := enumconformance.Verify(constraints, pairs, decl)
+	if err != nil {
+		t.Fatalf("a broken mapping is a finding, not an error: %v", err)
+	}
+	if len(r.MapFindings) != 1 {
+		t.Fatalf("want the one mapping finding, got %v", r.MapFindings)
+	}
+	if r.Compared {
+		t.Error("Compared must be false: comparing against a mapping that does not resolve reports noise")
+	}
+	if len(r.Findings) != 0 {
+		t.Errorf("nothing may be compared against a broken mapping; got %v — note that t.other is unmapped, "+
+			"so these findings name a column the reader cannot act on until the mapping is fixed", r.Findings)
+	}
+	if calls != 1 {
+		t.Errorf("declared() called %d times, want 1 (ValidateMapping's only) — Compare must not have run", calls)
+	}
+	if r.OK() {
+		t.Error("a rejected mapping must not report OK")
+	}
+}
+
+// The other half: a mapping that holds IS compared, and a clean run says so.
+// Without this, a Verify that always short-circuited would satisfy the test
+// above — which is the vacuous-green shape this repo has shipped three times.
+func TestVerifyComparesWhenTheMappingHolds(t *testing.T) {
+	t.Parallel()
+
+	decl := declOK(map[string]map[string]string{"S": {"A": "a", "B": "b"}})
+	pairs := []enumconformance.Pair{{Table: "t", Column: "c", File: "s.go", TypeName: "S"}}
+
+	diverged, err := enumconformance.Verify(
+		[]enumconformance.Constraint{{Table: "t", Column: "c", Values: []string{"a"}}}, pairs, decl)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !diverged.Compared || len(diverged.Findings) != 1 {
+		t.Fatalf("a sound mapping over a diverging schema must compare and find the divergence; "+
+			"Compared=%v findings=%v", diverged.Compared, diverged.Findings)
+	}
+	if diverged.OK() {
+		t.Error("a divergence must not report OK")
+	}
+
+	agreed, err := enumconformance.Verify(
+		[]enumconformance.Constraint{{Table: "t", Column: "c", Values: []string{"a", "b"}}}, pairs, decl)
+	if err != nil {
+		t.Fatalf("Verify: %v", err)
+	}
+	if !agreed.OK() {
+		t.Fatalf("agreement must report OK, got mapFindings=%v findings=%v compared=%v",
+			agreed.MapFindings, agreed.Findings, agreed.Compared)
 	}
 }
