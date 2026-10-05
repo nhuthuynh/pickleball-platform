@@ -1,6 +1,12 @@
 # ADR-0006: Waitlists are a first-class entity with an ordered queue and a response timeout
 
 ## Status
+**Accepted — and shipped.** (T62.4 normalised this line to lead with a
+canonical status token. The sentence below was the whole of this ADR's status
+and read "Game waitlists shipped in T6.6."; it classified under neither
+convention, so T62's escalation sweep could not tell this ADR from one still
+awaiting a decision. The prose is unchanged beyond the token.)
+
 **Game waitlists shipped in T6.6.** `internal/socialplay/domain.WaitlistEntry`
 (`waiting | promoted | expired | cancelled`), `domain.JoinWaitlist`, the
 app-layer auto-promotion orchestration (`app.Service.CancelRegistration` /

@@ -1,5 +1,5 @@
 .PHONY: test-domain test-platform test-tools test-adapters test-cmd gate-coverage dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
-        build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check
+        build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
 # This is the T0 resume gate (HANDOFF.md): if this isn't green, nothing else matters.
@@ -94,6 +94,32 @@ test-cmd: generate
 # by adding an exclusion to the tool.
 gate-coverage:
 	go run ./cmd/gatecoverage
+
+# The standing answer to "does HANDOFF.md's Docs index still describe the
+# documents that exist?" Fails, naming each offender, when a sprint's document
+# has no row, a Retro cell does not name the retro that exists, a row's cell
+# count differs from the header's, a narrative keeps a stale "retro not yet
+# written" claim without naming the file, or an ADR carries no status this
+# project can classify.
+#
+# Added T62.1 after T62's Ceremony 1 — the first since T59 — found EIGHT
+# sprints of accumulated debt: T54's Retro cell stale since T54, T58's row
+# carrying four cells against a six-column header, T59's carrying eight, T60's
+# and T61's missing entirely, and T42's narrative note stale for twenty
+# sprints. Row correction is assigned to the next sprint's Ceremony 1, and six
+# consecutive sprints held none. `docs/process/t60-retro.md` recommendation 4
+# proposed a firmer prose rule; a rule six sprints did not follow will not be
+# followed by the seventh for being written more firmly, so this is a gate.
+#
+# Both sides computed at run time — documents from a directory scan, claims
+# from HANDOFF.md itself. **There is no phase list in the tool, and adding one
+# is the one change that would defeat it**, exactly as gate-coverage says of
+# its own. Every check asserts what a cell NAMES, never the absence of a
+# phrase: a correction quotes the claim it retires, so a negative grep
+# false-positives on the fix. Tool in tools/docsindex (covered by
+# `make test-tools`), entry point cmd/docsindex.
+docs-index-check:
+	go run ./cmd/docsindex
 
 # Mints a local-development bearer token against the committed dev key
 # fixture in dev/auth/ (T14.9, issue #160), so an authenticated endpoint can
@@ -332,7 +358,7 @@ loadtest:
 # meta-check on the gate's own shape, not a test — running it last means its
 # report describes the set of targets that just ran, and a genuine test
 # failure surfaces before the structural complaint about coverage does.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage generate-client lint-web test-web build-web
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
