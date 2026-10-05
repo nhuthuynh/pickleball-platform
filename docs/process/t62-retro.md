@@ -298,6 +298,23 @@ held were produced by a program that had loaded the thing it was counting.
    executing the ticket** (§5a). T62.4 would have rewritten eleven ADRs to fix a
    problem they did not have. The plan is the board of record, not an
    instruction that outranks the tree.
+5. **T62.2 has a hole: a quantity describing an action the sprint took cannot
+   be re-derived by a command later.** Found by this PR's own review, auditing
+   this document against the rule. Of ten quantities here, seven carry a
+   command and three do not: one is covered by the rule's existing exemption
+   (#308's figures, attributed to T60.2), and **two are not** — "three
+   `ci-integration` runs, one cold" is a historical fact about what was
+   executed, and "five of my first 21 mapping rows were wrong" describes a
+   state that no longer exists because the sprint fixed it.
+
+   **Suggested shape, deliberately not adopted here:** a quantity describing an
+   action the sprint took carries the command that *was run* plus where its
+   output is recorded — a log path, a PR body — rather than a command that
+   reproduces the figure now. Left to T63's Ceremony 1 on purpose: amending a
+   rule to fit the first document judged against it, inside that document's own
+   PR, is exactly the kind of change that should have a second reader. See
+   recommendation 2 — this is the same test, and the rule being holed on first
+   contact is data for it.
 
 ## 9. Sweep and bookkeeping
 
