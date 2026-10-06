@@ -193,7 +193,11 @@ the shared branch, and re-verified (`go build`/`go vet`/`go test -race`
 plus `npm run build`/`npm run test`) before merging. Known gaps carried
 forward, not silently dropped (see Cross-cutting below): Social Play has no
 price/fee field at all (T8.10 used a disclosed, visibly-labeled placeholder
-amount), no CI is configured on this repo, and the `npm install
+amount), ~~no CI is configured on this repo~~ (**struck at T64's review**: a
+`Jenkinsfile` exists and invokes `make ci-checks` at `:202`; what is still
+missing is the server-side job, webhook and branch protection, which this
+section's own "Not yet built" entry already said and which cannot be
+configured from the repo), and the `npm install
 --legacy-peer-deps` friction from T7 was still open at the end of T8
 (closed since, by T9.10 — see Cross-cutting).
 
@@ -297,20 +301,37 @@ above.
 
 **Not yet built**
 - Statements context.
-- Auth, real migration tooling, observability.
+- ~~Auth~~, real migration tooling, observability. **Auth is struck at T64's
+  review: it is built.** `internal/platform/auth/` holds 11 files plus
+  `auth/rs256`, every context has an `adapter/identity` resolution seam, there
+  is a whole `identity` bounded context, and `cmd/server` refuses to start
+  without a token verifier — proved by
+  `cmd/server/main_test.go`'s `TestAuthenticationPolicyRefusesToStartWithoutAVerifier`.
+  Migration tooling (`golang-migrate`/`goose`) and observability (no
+  OpenTelemetry or Prometheus anywhere) **are** still genuinely absent.
 - CI: the pipeline definition now exists (SCRUM-6 — `Jenkinsfile`,
   `make ci`, `docs/adr/0011-*`), but no Jenkins job/webhook/branch
   protection has been configured, so nothing runs automatically yet. See
   the Cross-cutting entry below for exactly what remains.
 - Competitions↔Payments online-payment wiring (needs a new `PayableType`
   value + port/adapter — see T9's Cross-cutting entry).
-- `internal/gen/**` still needs `make generate` run locally/in CI before
-  `go build ./...` (not just the domain/app packages) will succeed — the
-  postgres/grpcapi adapters and `cmd/server` are unverified beyond
-  `gofmt`/manual reading in this environment (no `buf`/`sqlc` toolchain
-  available here). Run `make generate && go build ./...` as the first
-  real verification step next session, before assuming the full binary
-  compiles. (Note: T7's implementer agents did have buf/sqlc/node/npm
+- `internal/gen/**` still needs `make generate` run before `go build ./...`
+  (not just the domain/app packages) will succeed.
+
+  > **⚠️ CORRECTED AT T64's review — the rest of this bullet was false, and was
+  > the most inaction-licensing sentence in this file.** It said the
+  > postgres/grpcapi adapters and `cmd/server` were *"unverified beyond
+  > `gofmt`/manual reading in this environment (no `buf`/`sqlc` toolchain
+  > available here)"*, and told the next session to run
+  > `make generate && go build ./...` **as its first real verification step** —
+  > i.e. it manufactured a reason to believe the one check it demanded was
+  > impossible. Verified today: `$(go env GOPATH)/bin` holds `buf`, `sqlc`,
+  > `gotestsum` and the four protoc plugins, `internal/gen` is generated,
+  > `go build ./...` exits 0, `go vet -tags=integration ./...` exits 0, and
+  > `make ci-integration` runs the suite green. The toolchain **must** be
+  > installed per container (CLAUDE.md's two setup steps) and
+  > `$(go env GOPATH)/bin` **must** be on `PATH` — that part is true and
+  > binding. What was false is that it could not be done here. (Note: T7's implementer agents did have buf/sqlc/node/npm
   available in their sandboxes and ran real builds — see PRs #41–#46 for
   what was actually verified there; the caveat above is about *this*
   environment, not a claim the toolchain is universally unavailable.)
@@ -4274,15 +4295,17 @@ other four did not have — Payments has no port into Booking. See
 ### Open issues, split by whether anyone can act (per `sprint-process.md`)
 
 Recommendation 4 of `docs/process/t54-retro.md`, applied here because this
-file is where it was asked for. **Five open**, re-derived at T64's Ceremony 1
-(2026-10-06) rather than carried — the previous version of this section said
+file is where it was asked for. **Four open**, re-derived at T64's Ceremony 1 (2026-10-06) and **corrected the
+same day at T64's review**, which is the point of the correction rather than an
+embarrassment to it: the figure below said *five* and #322 closed at 07:45 the
+same morning rather than carried — the previous version of this section said
 **four** and dated itself T58, listed **#296** as open when it was closed on
 2026-09-25, and knew nothing of #320 or #322. Six sprints of drift in a
 section whose whole purpose is to say what is actionable:
 
 ```
-$ (list_issues state=OPEN) -> totalCount
-5          # #322, #320, #149, #145, #134
+$ gh api "repos/.../issues?state=open" --jq '[.[] | select(.pull_request==null)] | length'
+4          # #320, #149, #145, #134   (#322 closed 2026-10-06T07:45:26Z by T64.2)
 ```
 
 **Answerable now** — blocked on nothing but attention or ordinary unbuilt
@@ -4291,15 +4314,15 @@ work:
 | Issue | State |
 |---|---|
 | #322 | **New at T64's Ceremony 1.** `make ci-integration`'s own failure message tells the operator the Docker gap is *"the documented gap in CLAUDE.md's gotchas, not a new problem"* — false since T61, and the 18th instance of a claim T61's sweep retired 17 times without ever looking at the `Makefile`. Premise re-verified at T64: `Makefile:376-377` unchanged, `CLAUDE.md` still refutes it, and a derived grep still finds exactly these two lines outside docs and tests. **T64.2.** |
-| #320 | New at T63.2: two `vitest` moderate advisories that `npm` cannot resolve on this graph. **Premise partly drifted, corrected on the issue at T64's Ceremony 1** — its "what remains" table said *2 moderate, 0 high*, and the live tally is now **3 high + 2 moderate**, because three new advisories landed overnight against unchanged code. The three highs are **not** this issue's subject (T64.1 owns them); the two moderates are unchanged and still need either a newer npm (10.9.7 confirmed again at T64) or a separately-reviewed major bump. |
-| #149 | Premise substantially drifted and corrected in the issue body at T62.3; re-verified at T64 and unchanged. Four of the five caller-supplied ownership facts are gone (T16.2/T17.1); **one** survives — `booking_host_id`, read at `internal/payments/adapter/grpcapi/handler.go:160` and `:284` (verified live). It survives for a structural reason the others did not have: `internal/payments/port/` holds eleven ports and **none of them reads Booking**. Ordinary unbuilt work, not a blocker. |
+| #320 | New at T63.2: two `vitest` moderate advisories that `npm` cannot resolve on this graph. **Premise partly drifted, corrected on the issue at T64's Ceremony 1** — its "what remains" table said *2 moderate, 0 high*, and the tally moved to 3 high + 2 moderate overnight and back to **2 moderate, 0 high** once T64.1 fixed the highs, because three new advisories landed overnight against unchanged code. The three highs are **not** this issue's subject (T64.1 owns them); the two moderates are unchanged and still need either a newer npm (10.9.7 confirmed again at T64) or a separately-reviewed major bump. |
+| #149 | Premise substantially drifted and corrected in the issue body at T62.3; re-verified at T64 and unchanged. Four of the five caller-supplied ownership facts are gone (T16.2/T17.1); **one** survives — `booking_host_id`, read at `internal/payments/adapter/grpcapi/handler.go:160` and `:284` (verified live). It survives for a structural reason the others did not have: `internal/payments/port/` holds **13 interfaces across 12 files** (corrected at T64's review — the earlier "eleven" was counted by eyeballing `ls` instead of piping it to `wc -l`, in a row that cites "prefer a count the running system reports") and **none of them reads Booking**. Ordinary unbuilt work, not a blocker. |
 
 **Indefinitely blocked** — blocked on something this project cannot produce
 or may not be entitled to decide:
 
 | Issue | Why |
 |---|---|
-| #134 | Needs real assistive-technology hardware this environment does not have. Premise re-verified at T64: all three routes are still in `ROUTES_UNDER_TEST` (`web/src/__tests__/accessibility.spec.ts:98-99,197-199`), so the automated half still covers them and the manual half is still owed. |
+| #134 | Needs real assistive-technology hardware this environment does not have. Premise re-verified at T64: all three routes are still in `ROUTES_UNDER_TEST` (`web/src/__tests__/accessibility.spec.ts:92,98,99` — the earlier citation `:98-99,197-199` was wrong twice over: it covered two of the three routes, and `:197-199` is a different array, `T11_NEW_SCREENS`), so the automated half still covers them and the manual half is still owed. |
 | #145 | Needs a real, non-uuid IdP `sub` claim this environment cannot produce. **Its product question was answered at T64's Ceremony 1, as a deliberate deferral with a named trigger**: the ticket that provisions a real identity provider must decide how pre-existing accounts get linked (automatic match on first login / explicit claim step / operator-run linking) **before it merges**, because the provider's own capabilities change which options exist. Recorded on the issue, not only here. Raising it at all was T64's finding — T62's and T63's corrected sweeps both reported no open issue awaiting a product decision, because the question lives in the issue's **body** and the sweep reads the issue's **labels and state**. |
 | ADR-0012 Q1/Q2 | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute. May never be this project's to answer. ADR-0015 warned explicitly against filing D1 alongside these; that warning was right, and this split exists so it is structural rather than prose. |
 
