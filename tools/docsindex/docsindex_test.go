@@ -292,3 +292,105 @@ func TestDuplicateRowFails(t *testing.T) {
 		t.Fatalf("want one duplicate-row finding, got: %v", rep.Findings)
 	}
 }
+
+// TestListingAndGateAgreeOnEveryADR is the test that makes ADRStatuses safe to
+// exist: there must be exactly **one** ADR-status parser in this repo, and the
+// listing must classify an ADR if and only if the gate accepts it.
+//
+// The risk this guards is specific. T62's Ceremony 1 keyed on the heading form
+// alone and silently skipped the six front-matter ADRs — a third of the corpus
+// — reporting a clean sweep; T62.4's response was to make classification a
+// gate. T64.5 then added a *listing*, because the gate could refuse a bad
+// status and could not print a good one. A listing that drifted from the gate
+// would reintroduce the original defect in the very tool built to prevent it:
+// the sweep would read statuses the gate never validated.
+func TestListingAndGateAgreeOnEveryADR(t *testing.T) {
+	t.Parallel()
+
+	adrs := map[string]string{
+		"0001-heading-form.md":     "# ADR-0001: x\n\n## Status\nAccepted (T0)\n\n## Context\n",
+		"0002-front-matter.md":     "# ADR-0002: x\n\n- **Status:** Superseded by ADR-0009\n",
+		"0003-blank-after-head.md": "# ADR-0003: x\n\n## Status\n\nEscalated — awaiting product decision\n",
+		"0004-no-status.md":        "# ADR-0004: x\n\n## Context\nSomething.\n",
+		"0005-prose-first.md":      "# ADR-0005: x\n\n## Status\nGame waitlists shipped in T6.6.\n",
+	}
+	root := fixture{handoff: header, adrs: adrs}.write(t)
+
+	listed, err := docsindex.ADRStatuses(root)
+	if err != nil {
+		t.Fatalf("ADRStatuses: %v", err)
+	}
+	if len(listed) != len(adrs) {
+		t.Fatalf("listed %d ADR(s), want %d — a listing that skips a file is the T62 defect", len(listed), len(adrs))
+	}
+
+	rep, err := docsindex.Check(root)
+	if err != nil {
+		t.Fatalf("Check: %v", err)
+	}
+
+	// The gate's verdict per file, derived from its findings rather than
+	// restated: a file it complains about is one it could not classify.
+	gateRejected := map[string]bool{}
+	for _, f := range rep.Findings {
+		if name, ok := strings.CutPrefix(f.Where, "docs/adr/"); ok {
+			gateRejected[name] = true
+		}
+	}
+
+	for _, a := range listed {
+		if a.Classifiable() == gateRejected[a.File] {
+			t.Errorf("%s: listing says classifiable=%v and the gate says rejected=%v — "+
+				"the two must be exact opposites, or the sweep reads statuses the gate never validated",
+				a.File, a.Classifiable(), gateRejected[a.File])
+		}
+	}
+
+	// And the tokens themselves, so "agrees" is not satisfied by both halves
+	// being uniformly wrong.
+	want := map[string]string{
+		"0001-heading-form.md":     "Accepted",
+		"0002-front-matter.md":     "Superseded",
+		"0003-blank-after-head.md": "Escalated", // the ADR-0012 shape: blank line after `## Status`
+		"0004-no-status.md":        "",
+		"0005-prose-first.md":      "",
+	}
+	for _, a := range listed {
+		if a.Token != want[a.File] {
+			t.Errorf("%s: token %q, want %q", a.File, a.Token, want[a.File])
+		}
+	}
+	if rep.ADRsChecked != len(adrs) {
+		t.Errorf("ADRsChecked = %d, want %d", rep.ADRsChecked, len(adrs))
+	}
+}
+
+// The escalation sweep's whole purpose: an Escalated ADR must be findable by
+// reading Token, never by grepping the body — ADR-0015 and ADR-0016 preserve
+// the words "Escalated — awaiting product decision" beneath a supersession
+// notice, so a grep over prose hits two resolved decisions.
+func TestEscalatedIsFoundByTokenNotByProse(t *testing.T) {
+	t.Parallel()
+
+	root := fixture{handoff: header, adrs: map[string]string{
+		"0015-resolved-but-quotes-it.md": "# ADR-0015: x\n\n- **Status:** **Accepted — D1 answered on 2026-09-04: " +
+			"option (a).** The question below is preserved unedited, including the words " +
+			"\"Escalated — awaiting product decision\".\n",
+		"0099-really-escalated.md": "# ADR-0099: x\n\n- **Status:** Escalated — awaiting product decision\n",
+	}}.write(t)
+
+	listed, err := docsindex.ADRStatuses(root)
+	if err != nil {
+		t.Fatalf("ADRStatuses: %v", err)
+	}
+	var escalated []string
+	for _, a := range listed {
+		if a.Token == "Escalated" {
+			escalated = append(escalated, a.File)
+		}
+	}
+	if len(escalated) != 1 || escalated[0] != "0099-really-escalated.md" {
+		t.Fatalf("escalated = %v, want exactly [0099-really-escalated.md]; "+
+			"a prose grep would also match 0015, which is resolved", escalated)
+	}
+}

@@ -127,6 +127,11 @@ func (r Report) OK() bool { return len(r.Findings) == 0 }
 // classify without either being rewritten.
 var canonicalStatuses = []string{"Accepted", "Superseded", "Proposed", "Escalated", "Rejected"}
 
+// CanonicalStatuses returns the status tokens this project uses, in the order
+// the check reports them. Exported so a caller printing a tally cannot invent a
+// sixth status or miss one — there is one list and this is it.
+func CanonicalStatuses() []string { return append([]string(nil), canonicalStatuses...) }
+
 var (
 	rowRe         = regexp.MustCompile(`^\|\s*T(\d+)\s*\|`)
 	headerRe      = regexp.MustCompile(`^\|\s*Phase\s*\|`)
@@ -317,6 +322,69 @@ func Check(root string) (Report, error) {
 
 	sort.Slice(rep.Findings, func(i, j int) bool { return rep.Findings[i].Where < rep.Findings[j].Where })
 	return rep, nil
+}
+
+// ADR is one architecture decision record's status, as the gate reads it.
+type ADR struct {
+	File   string // base name, e.g. "0015-booking-ownership-for-public-bookings.md"
+	Status string // the full status value, prose and all
+	Form   string // "## heading", "front-matter", or "" when neither is present
+	Token  string // the canonical token Status begins with, or "" if none does
+}
+
+// Classifiable reports whether the gate can read this ADR's status. An ADR for
+// which this is false is a check-5 finding, never a silent skip.
+func (a ADR) Classifiable() bool { return a.Form != "" && a.Token != "" }
+
+// ADRStatuses lists every ADR's status under root, using the same adrStatus and
+// the same canonical token set that Check's ADR check uses.
+//
+// # Why this exists, and why it is here rather than in a second tool
+//
+// T62.4 made ADR status *classification* a gate: Check fails on an ADR whose
+// status it cannot read, which is what stopped a sweep from silently skipping a
+// third of the corpus. But a gate reports pass or fail, and
+// `sprint-process.md`'s escalation sweep needs the **values** — "list every ADR
+// whose status is Escalated" is the first thing Ceremony 1 does.
+//
+// T64's own Ceremony 1 had no supported way to get them. `adrStatus` is
+// unexported, so the options were to re-implement the parser as a shell grep —
+// a bet this project has now lost five times, most recently on an ADR whose
+// `## Status` is followed by a blank line, where `tail -1` took the blank — or
+// to copy this package into a scratch directory, rewrite its package clause and
+// call the real function from a throwaway main. The ceremony did the second
+// thing. **The gate could refuse a bad status and could not show a good one.**
+//
+// So this is deliberately not a second parser and not a second tool: one
+// function, exported, called by both the gate and `cmd/docsindex -statuses`.
+// `TestListingAndGateAgreeOnEveryADR` is what holds those two together.
+func ADRStatuses(root string) ([]ADR, error) {
+	dir := filepath.Join(root, "docs", "adr")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("reading docs/adr: %w", err)
+	}
+	var out []ADR
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", e.Name(), err)
+		}
+		status, form := adrStatus(string(src))
+		a := ADR{File: e.Name(), Status: status, Form: form}
+		for _, c := range canonicalStatuses {
+			if strings.HasPrefix(status, c) {
+				a.Token = c
+				break
+			}
+		}
+		out = append(out, a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].File < out[j].File })
+	return out, nil
 }
 
 // adrStatus returns the status value and which form carried it. Both forms are

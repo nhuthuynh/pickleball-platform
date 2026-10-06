@@ -116,6 +116,22 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   from `ci-checks`, never by adding an exclusion. Tool in
   `tools/gatecoverage` (covered by `make test-tools`), entry point
   `cmd/gatecoverage`. Added T14.1.
+- `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
+  which form carried it) from the **same parser `docs-index-check` uses**. This
+  is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
+  reading the status line rather than grepping the body, because ADR-0015 and
+  ADR-0016 preserve the words *"Escalated — awaiting product decision"* beneath
+  a supersession notice. Added T64.5 — before it the gate could *refuse* an
+  unreadable status and could not *print* a readable one, so T64's own ceremony
+  copied the package into a scratch directory rather than re-implement the
+  parser as a grep (a bet this project has lost five times). Unclassifiable
+  statuses fail this listing too, not just the gate.
+- `make lock-check` — fails when `web/package-lock.json` is missing, or when it
+  and `web/package.json` disagree. Wires `npm ci --dry-run --offline` (npm's own
+  check, no network, ~0.6s) rather than re-implementing semver comparison. Part
+  of `make ci-checks`. Added T64.4: the lockfile is what actually holds an
+  advisory fix in place (see the npm gotcha below), a fresh resolve cannot
+  regenerate it on this graph, and nothing noticed it going missing.
 - `make generate` — buf + sqlc → `internal/gen` and `openapi/`.
 - `make tidy` — `go mod tidy` (run after first generate).
 - `make vet-integration` — `go vet -tags=integration ./...` (depends on

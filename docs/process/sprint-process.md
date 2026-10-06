@@ -210,6 +210,55 @@ this project, sat invisible to its own escalation mechanism, and was answered
 in a single exchange once put to the user — which is also, precisely, what
 happened to D1 over 41 sprints.
 
+#### Read the issue's prose, because that is where the question is written
+
+**Adopted T64.5**, after the *corrected* sweep above missed one.
+
+Point 3 says to consider every open issue rather than every labelled one, and
+it fixed the defect it was written for. T62's and T63's ceremonies then both
+ran the corrected sweep and both reported that **no open issue awaited a
+product decision.** Both were wrong, and in the same way:
+
+> **#145 has carried the sentence *"Needs product input on which"* since
+> 2026-08-14.**
+
+It is unlabelled, its state is `open`, and nothing about the issue *as an
+object* says a decision is pending. The question is a sentence in its body.
+Point 3 removed the dependence on a label and left the sweep reading an
+issue's labels and state — one level more derived, and still not the level the
+question lives at.
+
+**The step.** When Ceremony 1 re-reads each open issue (it already does, for
+the premise check), it **reads the body for an unanswered question** and
+states, per issue, whether one is present. The markers worth looking for,
+non-exhaustively: *needs product input*, *needs a decision*, *open question*,
+*needs product sign-off*, *to be decided*, a question mark in a "Suggested
+shape" or "Options" section.
+
+**Why this is a ceremony step and not a gate**, recorded so it is not
+re-litigated. A checker would have to tell an unanswered question from a
+rhetorical one, from a question that was answered three comments later, and
+from a heading like "What closing it looks like". T63.1 instruction 5 rejected
+a prose-detecting gate for the quantity rule on exactly these grounds, and the
+mis-firing gate that gets disabled within a sprint is worse than no gate.
+
+**And the honest limit, which is larger than the step.** A question phrased
+without any of those markers is still invisible, and no wording list fixes
+that. What this step actually changes is that the reading is **obligatory and
+its result is written down per issue** — the ceremony must say "no question" in
+so many words, rather than reporting "none awaiting a decision" as a property
+of the issue set. T62's and T63's ceremonies could both have written that
+sentence honestly about #145 only by reading it and deciding wrongly; neither
+had to read it at all.
+
+**The answer, when there is one, is a deferral or a decision — never silence.**
+#145's was a deferral *with a named trigger* (the IdP-provisioning ticket must
+answer it before merging), recorded on the issue. The distinction matters
+because D1's trigger was conditioned on an event no ceremony could cause; a
+deferral whose trigger a future sprint can cause is a decision, and one whose
+trigger nobody can cause is the 41-sprint failure wearing a decision's
+clothes.
+
 ### The 0-ticket sprint cap — two consecutive, then stop
 
 Adopted at T55 from `docs/process/t54-retro.md` recommendation 2.
