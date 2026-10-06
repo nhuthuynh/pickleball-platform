@@ -85,7 +85,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T60 | **No sprint-plan document.** Both tickets came from already-filed issues (#305 from T59.1's documented scope exclusion, #308 from T60's own work) | `docs/process/t60-retro.md` (written late, at T61 — finding: deleting actor resolution went from **6 tests catching it to 36**, and the 6 were the booking-backed ones catching it only via Booking's own guard; Social Play's 30-plus authorization assertions caught it **zero** times) | PR #307 (`940c444`, closing #305) → PR #309 (T60.2, `52fcd66`, closing #308), verified against `merged_at`. Reviewed via GitHub PR reviews. **There is no T60.1** — the tickets are labelled T60 and T60.2 | none new | — |
 | T61 | **No sprint-plan document.** One instruction — run `make ci-integration` — against a gap six retros had disclaimed (T17–T19, then T56–T58) | `docs/process/t61-retro.md` (finding: a claim that licenses **inaction** is the least likely claim in a codebase to be re-checked, and therefore the most valuable one to re-check. Also corrects three wrong numbers T61 itself shipped) | PR #310 (`d0b36eb`, three production defects) → #312 (`71c71fe`, retro) → #313 (`bb2bcda`, stale-disclaimer sweep) → #315 (`fcdee67`, the late T55/T59/T60 retros), verified against `merged_at`. Each reviewed via a GitHub PR review disclosing self-review | none new | — |
 | T62 | `docs/process/t62-sprint-plan.md` (Ceremony 1: clears **eight sprints** of accumulated Docs-index debt, found by a derived check rather than by reading. The escalation sweep's own three mechanical defects found by running it. The premise check fires on **two of five** issues — #149 again, and #145. #314 put to the user and answered: widen the quantity rule to all quantities. Takes five tickets, T62.1–T62.5) | `docs/process/t62-retro.md` (finding: every refund of a Social Play Registration had failed against a real database since T6.5 — `registrations.payment_status` accepted only `('unpaid','paid')` while the domain declared `refunded` and `RefundPayment` wrote it, with the Competitions twin twelve lines later working because `0014` included the value. Also: the sprint corrected three of its own written claims, and is the first document subject to T62.2's every-quantity-carries-its-command rule — complying changed it twice) | PR #316 (`ed14f0e`, Ceremony 1) → #317 (`d7dc605`, all five tickets) → #318 (`4621975`, retro), verified against each PR's `merged_at`. Each reviewed via a GitHub PR review disclosing self-review; #316's PE pass **declined its own plan's ticket sequencing** and the plan was amended rather than merged over, and #318's review **audited the retro against T62.2's own rule and found it holed** | none new | — |
-| T63 | `docs/process/t63-sprint-plan.md` (Ceremony 1: runs T62.4's corrected escalation sweep — no ADR escalated, and **every open issue** considered rather than every labelled one. **Finds that T62's retro claimed #311 and #314 "closed… live-verified" when both were still open** — and that figure was one of the few carrying no command, so the uncommanded figure is the one that was wrong. Both closed here. **Tests the `govulncheck` claim two retros had only quoted**, confirms it, and discovers that the Go half's failure had masked the npm half entirely: `make security` has never run on this project and fails with **7 vulnerabilities, 5 of them `high`, all with `fixAvailable: true`**. Takes four tickets, T63.1–T63.4) | `docs/process/t63-retro.md` (finding: `make ci-integration`'s own failure message tells the operator the Docker gap is "the documented gap in CLAUDE.md's gotchas, not a new problem" — **false since T61**, met live, refuted in two seconds by one command, and the 18th instance of a claim T61's sweep retired 17 times without ever looking at the `Makefile`. Also: the mutation PR #321's review called non-existent for a dependency pin **does exist and says something else** — reverting the lockfile returns all five advisories, deleting the `overrides` block changes nothing, so the lockfile and not the declaration is the guard) | not yet opened | none new | — |
+| T63 | `docs/process/t63-sprint-plan.md` (Ceremony 1: runs T62.4's corrected escalation sweep — no ADR escalated, and **every open issue** considered rather than every labelled one. **Finds that T62's retro claimed #311 and #314 "closed… live-verified" when both were still open** — and that figure was one of the few carrying no command, so the uncommanded figure is the one that was wrong. Both closed here. **Tests the `govulncheck` claim two retros had only quoted**, confirms it, and discovers that the Go half's failure had masked the npm half entirely: `make security` has never run on this project and fails with **7 vulnerabilities, 5 of them `high`, all with `fixAvailable: true`**. Takes four tickets, T63.1–T63.4) | `docs/process/t63-retro.md` (finding: `make ci-integration`'s own failure message tells the operator the Docker gap is "the documented gap in CLAUDE.md's gotchas, not a new problem" — **false since T61**, met live, refuted in two seconds by one command, and the 18th instance of a claim T61's sweep retired 17 times without ever looking at the `Makefile`. Also: the mutation PR #321's review called non-existent for a dependency pin **does exist and says something else** — reverting the lockfile returns all five advisories, deleting the `overrides` block changes nothing, so the lockfile and not the declaration is the guard) | PR #319 (`31000d8`, Ceremony 1) → #321 (`e7710af`, all four tickets) → #323 (`a0c497a`, retro) → #324 (`ae5c287`, the retro's one rulebook line, split off because a squash-merged base conflicts on a file the previous PR touched — see `t63-retro.md` §9), verified against each PR's `merged_at` rather than assumed from numbering. All four are author-reviewed, the eleventh consecutive such sprint | none new | — |
+| T64 | `docs/process/t64-sprint-plan.md` (Ceremony 1: **finds `make security` red on a tree nobody touched** — three new `high` advisories inside 20 hours of T63.2 leaving the gate green, `vue` among them and direct, so a green security gate is a statement about a moment rather than about a tree. Also finds that T62.4's **corrected** escalation sweep still missed a product question, because it asks whether an *issue* awaits a decision rather than reading the issue's *text*: #145's "Needs product input on which" survived two corrected sweeps. Put to the Product Owner and answered — **defer until the provider is chosen, with the trigger named**. Takes five tickets, T64.1–T64.5) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -4193,6 +4194,73 @@ Ceremony 1 item 3 requires the retro's own agreed sentence):
 > because the gate was run against the retro before merging it rather than
 > after.
 
+---
+
+**T63 — the sprint in which testing a claim that licensed inaction paid for the whole sprint.** All four tickets delivered.
+
+**Outcome: 4 tickets, 5 `high` npm advisories fixed, 1 ticket declined on its own premise, 2 process rules, 2 issues filed.** Retro: `docs/process/t63-retro.md`. Live issue count after the sprint was **5** (`list_issues state=OPEN -> totalCount`) rather than derived by arithmetic — per T63.1's own rule, adopted that sprint after T62's retro asserted a count it had not checked.
+
+**Read at T64's Ceremony 1, and worth carrying here:** T63.2 left `SKIP_GOVULNCHECK=1 make security` **PASS** on 2026-10-05. On 2026-10-06, with no code change, the same command **FAILs with three new `high` findings** (`vue`, `@vue/server-renderer`, `source-map-js`). The sprint's work was correct and its verification was honest; the advisory database moved. See `docs/process/t64-sprint-plan.md` §2.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 requires the retro's own agreed sentence — these 53
+blockquote lines were lifted programmatically from `t63-retro.md` §10 rather
+than retyped, because retyping is how a stronger version gets introduced):
+
+> T63 was the sprint in which **testing a claim that licensed inaction paid for
+> the whole sprint**. Two retros had recorded that `make security`'s
+> `govulncheck` cannot reach `vuln.go.dev` and had recorded it as *owed without
+> testing it*; T63's Ceremony 1 tested it, found the claim **true**, and found
+> that its truth had masked something: `security-go` runs before `security-npm`,
+> so **the npm half of the gate had never run at all**, concealing **7
+> advisories, 5 of them `high`**, in shipped web dependencies. T63.2 fixed all
+> five with **same-major patch pins** read off each advisory's own `range` —
+> `latest` would have meant a major bump for four of them — after `npm audit
+> fix`, `npm update` and a fresh `npm install` all crashed reproducibly with
+> `Cannot read properties of null (reading 'edgesOut')`; the two remaining
+> `vitest` moderates are **below the gate's own threshold**, dev-only, and filed
+> as #320 rather than baselined. **T63.4's premise turned out to be wrong**: its
+> plan asked for a context-ownership check on the grounds that cross-context
+> mis-mapping was *"the shape four of the five errors had"*, and re-verifying
+> first showed all five were already loud (three nonexistent files, two
+> nonexistent types) and that **zero** rows cross a context boundary — so the
+> check would have been machinery for a failure that has never occurred, needing
+> the one hand-maintained list that package exists to avoid. Declined with the
+> reasoning in the code, and what was built instead reports the genuinely
+> ambiguous case (`Status` is declared in four bounded contexts) rather than
+> failing on it. **This PR's own review found an untested branch in that same
+> code** — the mapping short-circuit was a `t.FailNow()` behind a build tag only
+> Docker could reach — and it was fixed before merge, with `Result.Compared`
+> separating *"nothing was wrong"* from *"nothing was examined"*. **The
+> guard-removal check then refuted the prediction written for it**: the removal
+> fails earlier and differently than its own comment claimed, which is the fourth
+> time this sprint the reasoned answer was wrong and the run was right, inside
+> the ticket that adopted "a guard is verified by removing it". Writing the retro
+> under T63.1's new rule caught two further stale claims: **PR #321's body was
+> true when written and false when merged** (2498 tests against the merged head's
+> 2500, because the commit closing its own review finding added two), and
+> **`make ci-integration`'s own failure message tells the operator the Docker gap
+> is "the documented gap in CLAUDE.md's gotchas, not a new problem"** when
+> `CLAUDE.md` has said the opposite since T61 — met live, refuted in **two
+> seconds** by one command, and the eighteenth instance of a claim T61's sweep
+> retired seventeen times without ever looking at the `Makefile`; filed as #322,
+> deliberately not fixed in the retro. The mutation that PR #321's review called
+> non-existent for a dependency pin **does exist and says something else**:
+> reverting the lockfile returns all five advisories by name, while deleting the
+> `overrides` block changes nothing at all — so **the lockfile, not the
+> declaration, is the guard**, which is the most dangerous shape a guard can
+> have. Verified by `make ci-checks` green (`gate-coverage` 47/47,
+> `docs-index-check` across 64 rows / 109 docs / 17 ADRs), `make ci-integration`
+> green four times on the final tree (**2500 tests each**, one cold in both
+> senses, the fourth's full output grepped for failure lines because "0
+> failures" had until then been an inference from `gotestsum`'s summary line),
+> and
+> `SKIP_GOVULNCHECK=1 make security` **PASS**. Issues 3 → 5 (two closed, two
+> filed), live-counted rather than derived. Eleventh consecutive self-reviewed
+> sprint, and §3 is the concrete cost of that: the review's "no meaningful
+> mutation" went unchallenged until the retro, because there was nobody to
+> challenge it.
+
 **T59's Ceremony 1 correction to this section.** The `#149` row in the
 open-issues table below was amended at T58's bookkeeping to say T56–T58
 "narrowed but did not close" it. That was true and understated: T59's
@@ -4206,25 +4274,33 @@ other four did not have — Payments has no port into Booking. See
 ### Open issues, split by whether anyone can act (per `sprint-process.md`)
 
 Recommendation 4 of `docs/process/t54-retro.md`, applied here because this
-file is where it was asked for. **Four open**, verified live at the time of
-writing (T58) rather than carried from an earlier count — T55 recorded five,
-and #126 closed in T56/T57.
+file is where it was asked for. **Five open**, re-derived at T64's Ceremony 1
+(2026-10-06) rather than carried — the previous version of this section said
+**four** and dated itself T58, listed **#296** as open when it was closed on
+2026-09-25, and knew nothing of #320 or #322. Six sprints of drift in a
+section whose whole purpose is to say what is actionable:
+
+```
+$ (list_issues state=OPEN) -> totalCount
+5          # #322, #320, #149, #145, #134
+```
 
 **Answerable now** — blocked on nothing but attention or ordinary unbuilt
 work:
 
 | Issue | State |
 |---|---|
-| #149 | **Premise substantially drifted — corrected at T59's Ceremony 1.** The issue names five caller-supplied ownership facts; **four are no longer read from the wire**, closed by T16.2 (`game_host_id`, `assigned_game_admin_user_ids`) and T17.1 (`entrant_player_id`, `assigned_competition_admin_user_ids`), which built the very resolver ports #149 proposed. What remains is **one** field, `booking_host_id`, surviving for a structural reason the others did not have: Payments has no port into Booking at all — no `port/booking_lookup.go`, no `adapter/booking/`. T56–T58 added the same seam for *price* (`RegistrationAmountLookup`, `EntryAmountLookup`), so the shape has now been built three times. Ordinary unbuilt work, not a blocker. T59.2 corrects the issue body. |
-| #296 | New in T55, unchanged: `OwnerUserID` has no `uuidShape` guard, so a malformed owner would panic `mustUUID` rather than returning a domain error. Unreachable today — every supplier is structurally a uuid — but it is the same shape as #97/T10.7. |
+| #322 | **New at T64's Ceremony 1.** `make ci-integration`'s own failure message tells the operator the Docker gap is *"the documented gap in CLAUDE.md's gotchas, not a new problem"* — false since T61, and the 18th instance of a claim T61's sweep retired 17 times without ever looking at the `Makefile`. Premise re-verified at T64: `Makefile:376-377` unchanged, `CLAUDE.md` still refutes it, and a derived grep still finds exactly these two lines outside docs and tests. **T64.2.** |
+| #320 | New at T63.2: two `vitest` moderate advisories that `npm` cannot resolve on this graph. **Premise partly drifted, corrected on the issue at T64's Ceremony 1** — its "what remains" table said *2 moderate, 0 high*, and the live tally is now **3 high + 2 moderate**, because three new advisories landed overnight against unchanged code. The three highs are **not** this issue's subject (T64.1 owns them); the two moderates are unchanged and still need either a newer npm (10.9.7 confirmed again at T64) or a separately-reviewed major bump. |
+| #149 | Premise substantially drifted and corrected in the issue body at T62.3; re-verified at T64 and unchanged. Four of the five caller-supplied ownership facts are gone (T16.2/T17.1); **one** survives — `booking_host_id`, read at `internal/payments/adapter/grpcapi/handler.go:160` and `:284` (verified live). It survives for a structural reason the others did not have: `internal/payments/port/` holds eleven ports and **none of them reads Booking**. Ordinary unbuilt work, not a blocker. |
 
 **Indefinitely blocked** — blocked on something this project cannot produce
 or may not be entitled to decide:
 
 | Issue | Why |
 |---|---|
-| #134 | Needs real assistive-technology hardware this environment does not have. |
-| #145 | Needs a real, non-uuid IdP `sub` claim this environment cannot produce. |
+| #134 | Needs real assistive-technology hardware this environment does not have. Premise re-verified at T64: all three routes are still in `ROUTES_UNDER_TEST` (`web/src/__tests__/accessibility.spec.ts:98-99,197-199`), so the automated half still covers them and the manual half is still owed. |
+| #145 | Needs a real, non-uuid IdP `sub` claim this environment cannot produce. **Its product question was answered at T64's Ceremony 1, as a deliberate deferral with a named trigger**: the ticket that provisions a real identity provider must decide how pre-existing accounts get linked (automatic match on first login / explicit claim step / operator-run linking) **before it merges**, because the provider's own capabilities change which options exist. Recorded on the issue, not only here. Raising it at all was T64's finding — T62's and T63's corrected sweeps both reported no open issue awaiting a product decision, because the question lives in the issue's **body** and the sweep reads the issue's **labels and state**. |
 | ADR-0012 Q1/Q2 | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute. May never be this project's to answer. ADR-0015 warned explicitly against filing D1 alongside these; that warning was right, and this split exists so it is structural rather than prose. |
 
 ## Cross-cutting / later
