@@ -973,6 +973,61 @@ If it is not, that is evidence for the narrow form, not a reason to restate
 this one more firmly** — which is the same lesson `make docs-index-check`
 exists to encode about prose rules in this project.
 
+### A claim that a gate passed carries the date it was run
+
+**Adopted T64.3**, from `docs/process/t64-sprint-plan.md` §2, and it is the
+cheapest rule in this document: one word next to a claim that already carries a
+command.
+
+**The rule.** When a document, PR body or review states that a gate passed,
+it states **when**. "The security gate passes" is not a fact about the
+repository; it is a fact about a moment.
+
+**Why, with the instance.** T63.2 fixed five `high` npm advisories and left
+`SKIP_GOVULNCHECK=1 make security` at `PASS`. Its PR, its review and T63's
+retro all record that correctly, with the command. **Twenty hours later, same
+tree, same command:**
+
+```
+2026-10-05  PASS: no new gating findings (0 baselined, 2 below threshold).
+2026-10-06  FAIL: 3 new gating finding(s).
+              @vue/server-renderer (high), source-map-js (high), vue (high)
+```
+
+Nothing in T63 was wrong. The code did not change, the pins did not slip, the
+verification was honest and commanded. **The advisory database moved.**
+
+**How this differs from the rule below**, which is the reason it is a separate
+clause. That rule asks for a live-state command because *the actor's own
+account of what they did* is the unreliable part — T62's retro claimed two
+issues closed that were not. Here the account was accurate and the **world**
+moved underneath it. So a re-read is owed **even when nobody doubts the
+claim**, and the signal that it is owed is the date rather than any suspicion
+about the author.
+
+**Scope.** Any gate whose verdict depends on something outside the repository:
+the security gates above all (both npm and `govulncheck`), and anything reading
+a remote registry, a CVE feed or a published advisory. A gate that reads only
+the tree — `fmt-check`, `gate-coverage`, the unit suites — is reproducible from
+the tree and needs no date, though one costs nothing.
+
+**And the practical consequence**, which is what T64's ceremony actually did
+with it: **run the security gate at the start of a ceremony, not at the end of
+a sprint.** T61 and T62 both deferred it; T63 ran it and found five `high`
+findings; the same deferral would have cost three more in a single day.
+
+**No gate for this, and the decision is recorded so T65 does not re-litigate
+it.** A checker for "every gate claim carries a date" would have to tell a
+gate claim from any other sentence, and a date from a version string, a ticket
+number or a migration number. T63.1 instruction 5 rejected a prose-detecting
+gate for the quantity rule on the same grounds, and nothing here is different.
+
+**The limit, stated as T63.1 states its own.** Neither of these two clauses can
+make a session re-run anything. They make the omission visible on the page — a
+gate claim with no date reads as incomplete, which is the whole mechanism. The
+instance above was found by a ceremony that ran the command, not by a rule that
+told it to.
+
 ### A claim about an action carries the command that re-reads the live state
 
 **Adopted T63.1**, from the failure in `docs/process/t63-sprint-plan.md` §2.
@@ -1111,6 +1166,44 @@ applied this voluntarily and it found something every time:
 
    **A guard needs both.** Mutation answers "would this fail if the thing
    broke?"; a vacuity guard answers "is this looking at the thing at all?"
+
+### A dependency pin is mutated by reverting the lockfile, not the declaration
+
+**Adopted T64.3**, from `docs/process/t63-retro.md` §8 recommendation 3. The
+rule above has a blind spot that its own first application fell into.
+
+T63.2 fixed five `high` npm advisories with an `overrides` block, and **PR
+#321's review recorded that no meaningful mutation existed** for a dependency
+pin — flagging it as a limit of the rule rather than claiming compliance. That
+was generous about the rule and wrong about the facts: a mutation exists, it is
+just not the obvious one. T63's retro §3 ran it a day later, in a scratch copy:
+
+| mutation | `high` findings |
+|---|---|
+| none (the fixed tree) | **0** |
+| revert `web/package-lock.json` to its pre-fix state | **5**, by name |
+| delete the `overrides` block, keep the fixed lockfile | **0** |
+
+**The third row is the rule.** `npm install --package-lock-only` will not
+downgrade a package that already satisfies its range, so removing the
+declaration is a **silent no-op today** that takes effect only at the next
+fresh resolve. The lockfile holds the fix; the declaration records the intent.
+
+So: **to verify a version pin, revert the lockfile and show the advisories
+returning by name.** Reverting the declaration proves nothing. `CLAUDE.md`'s
+npm gotcha carries the measurement; this is the requirement.
+
+**Confirmed on its first application, T64.1**, which pinned `vue` and
+`source-map-js` against three new `high` advisories:
+
+```
+HEAD package.json + HEAD lockfile  -> high: [@vue/server-renderer, source-map-js, vue]
+NEW  package.json + HEAD lockfile  -> high: [@vue/server-renderer, source-map-js, vue]
+the fixed tree                     -> high: []   (2 moderate, 368 deps audited)
+```
+
+The middle row is the clause earning itself: **the new declaration against the
+old lockfile fixes nothing at all.**
 
 ### If this is deferred again
 
