@@ -358,20 +358,339 @@ pass over the merged diff, a compliance audit of T64's own documents against
 the four evidence rules, and a derived stale-claim sweep over `CLAUDE.md` and
 `HANDOFF.md`.
 
-<!-- T64-RETRO-AGENT-FINDINGS -->
+### The stale-claim sweep: nine findings, nine reproduced
+
+**Every finding below was re-verified by this session before being written
+here.** An agent's report is model output, not evidence; the commands are the
+evidence. Nine of nine reproduced, which is itself the most useful fact about
+the exercise.
+
+**The headline, and it lands on T64.2's own rule.** The retired
+integration-file count *"11 files across 4 contexts (socialplay 5, payments 3,
+competitions 2, booking 1)"* **is still live in `Makefile:214`**:
+
+```
+$ sed -n 214p Makefile
+# integration-tagged file reported green everywhere until a human happened to
+  … 11 files across 4 contexts (socialplay 5, payments 3, competitions 2, booking 1) …
+
+$ for f in $(find . -name '*_test.go'); do head -5 "$f" | grep -q '^//go:build integration' && echo "$f"; done \
+    | sed 's|^\./internal/\([^/]*\)/.*|\1|' | sort | uniq -c
+      4 booking   4 competitions   2 facilities   7 payments   10 socialplay      # 27 total
+```
+
+**That is the second instance of #322's exact shape in two days** — a retired
+claim surviving in the `Makefile` after a sweep that covered the documents.
+T64.2 adopted "derive the scope, don't list it" *this morning*, ran its
+derivation against the phrase *"no Docker daemon"*, and did not think to run it
+against **the other** claim the same file carries. The rule was right and its
+first application was one claim wide.
+
+**And `CLAUDE.md`'s own count is off by one, broken by my own hand.** It says
+*"26 test files across 5 contexts … payments (6)"*; the tree says **27**, with
+payments at **7**. The seventh is
+`internal/payments/adapter/postgres/enum_conformance_integration_test.go`,
+which **T62.5 added** — i.e. the paragraph went stale the sprint after T61
+re-derived it, and the same person wrote both. Worse, the verification command
+the paragraph prescribes cannot produce its own figure:
+
+```
+$ grep -rl "go:build integration" . | grep -v node_modules | wc -l
+45          # docs, Makefile, Jenkinsfile, a migration, the gatecoverage fixtures …
+```
+
+### The finding that matters most, because it is a gate reporting nothing
+
+`CLAUDE.md` says: *"As of T14.1 `make gate-coverage` reports these packages
+explicitly as **compiled-but-never-executed** … That state is deliberately a
+NOTE and not a failure."*
+
+```
+$ make gate-coverage | grep -iE "NOTE|compiled|never"
+                                        # no output
+```
+
+The cause is in the tool: `gatecoverage.go:584` classifies a package as
+`CompiledOnly` only when it holds **no** runnable tests, and every
+integration-bearing package also holds untagged ones —
+
+```
+internal/socialplay/adapter/postgres   tagged=10 untagged=1
+internal/payments/adapter/postgres     tagged=5  untagged=1
+internal/booking/adapter/postgres      tagged=4  untagged=5
+internal/competitions/adapter/postgres tagged=4  untagged=1
+internal/facilities/adapter/postgres   tagged=2  untagged=3
+```
+
+— so each one passes on its untagged siblings and **all 27 integration files
+are invisible to `gate-coverage`.** The gate is not wrong; the sentence in
+`CLAUDE.md` describing what it reports is. This is the vacuous-green shape
+inside the tool built to prevent it, and T14.1's claim has been inaccurate for
+as long as those packages have had a single untagged test.
+
+### Two claims I wrote myself that do not reproduce
+
+1. **The npm vacuous-audit claim is not reproducible in either
+   configuration.** `CLAUDE.md` (T63.2, mine) says *"`npm audit` on a tree with
+   no `node_modules` reports 'clean'. It is auditing nothing."*
+
+   ```
+   $ # lockfile present, node_modules absent
+   tally: {'moderate': 2, 'high': 0, 'total': 2}   deps: 368
+   $ # no lockfile either
+   npm error code ENOLOCK — audit This command requires an existing lockfile.
+   ```
+
+   npm audits **from the lockfile**, so it is correct without `node_modules`,
+   and without a lockfile it refuses rather than lying. The defensive habit —
+   read `metadata.dependencies.total` beside the tally — stays sound and is
+   what caught the real problem at T63.2. **The mechanism I wrote down for it
+   is wrong**, and it is the third instance of "vacuous green" in a list where
+   the other two reproduce, which makes this one a misattribution rather than
+   an instance.
+
+2. **`npm update <pkg>` is not a blanket crash.** Same gotcha says `npm audit
+   fix`, `npm update <pkg>` and a fresh `npm install` *all* die with
+   `edgesOut`. The first and third do. `npm update` **succeeded** for `nanoid`,
+   `vue`, `js-yaml` and `undici`, and crashed only for `vitest`. Stated as
+   universal, it tells a reader not to try the command that would have worked.
+
+### Five more, all confirmed
+
+| claim | where | reality |
+|---|---|---|
+| *"Auth, real migration tooling, observability"* listed as **not yet built** | `HANDOFF.md` "Current state" | auth **is** built: 11 files in `internal/platform/auth/` + `rs256`, a whole `identity` context, and `cmd/server` refusing to start without a verifier. Migration tooling and observability genuinely are absent |
+| *"unverified beyond `gofmt`/manual reading … no `buf`/`sqlc` toolchain available here"* | `HANDOFF.md:309-310` | **false**, and the most inaction-licensing sentence in either document: it tells a reader the one verification the file demands is impossible. `go build ./...` exits 0 |
+| T61 *"reported 34 failures — including **three** live production defects"* | `CLAUDE.md` Docker gotcha | the suite found **two**. `t61-retro.md` §4 is titled *"The third defect — found by the review, and **not findable by the suite**"*. The sentence credits the suite with a defect only a hand diff could catch |
+| ADR-0015 **and ADR-0016** preserve *"Escalated — awaiting **product** decision"* | `CLAUDE.md`, `sprint-process.md` | 0015 is verbatim; **0016 says "awaiting the user's decision"**. The rule it justifies still holds |
+| #149 *"holds **eleven** ports"*, #134's citation `:98-99,197-199`, #320's *"3 high + 2 moderate"*, "Five open" | `HANDOFF.md` "Open issues", written **this morning** | 13 interfaces in 12 files; the discounts route is at `:92` and `:197-199` is a different array (`T11_NEW_SCREENS`); the tally is now **0 high** because T64.1 fixed them; **four** open since #322 closed at 07:45 |
+
+That last row is the sharpest thing in the sweep. **The section I re-derived
+this morning to end six sprints of drift had drifted again within hours** — and
+three of its five rows now carry a wrong number or a wrong citation while their
+conclusions remain correct, which is the most dangerous kind of staleness
+because the reasoning still reads as verified. Two of the four wrong figures
+were wrong when written: I counted ports by eyeballing an `ls` instead of
+piping it to `wc -l`, which is precisely what T63.1's "prefer a count the
+running system reports" exists to prevent, in the document that cites that
+rule.
+
+### What the sweep could not test, and one thing it must not
+
+The agent flagged `vuln.go.dev`'s `Forbidden` as the one unresolved
+inaction-licensing claim: it is confirmed as *"does not, as configured"* rather
+than *"cannot"*, because checking whether the host is allowlistable means
+reading the proxy's own status endpoint — and **that request was denied to the
+agent by the sandbox classifier, as it was denied to this session earlier.**
+
+**It stays unchecked, and it is being surfaced rather than retried.** A
+subagent reporting that it was denied an action is not authority for the parent
+session to perform it; that is permission laundering, and the fact that the
+agent's reasoning for wanting it is sound does not change what the denial
+means. The honest state of that claim is in §11 recommendation 6.
+
+### The adversarial pass: four real defects in the gate I had mutation-verified
+
+T64.4 shipped `make lock-check` with two mutations quoted and an NFR satisfied.
+The QA pass found four defects in it anyway, and I reproduced each one.
+
+**1. The gate is missing from `.PHONY`, so a file can switch it off.** It is the
+only target in the `Makefile` not declared phony:
+
+```
+$ sed -n 1,3p Makefile | tr ' ' '\n' | grep -c "^lock-check$"
+0
+$ touch lock-check && make lock-check; echo "exit=$?"
+make: 'lock-check' is up to date.
+exit=0
+```
+
+**A gate added to stop a vacuous green can be silenced by `touch`**, inside
+`ci-checks`, in the sprint whose retro has a section about measurements that
+report success having examined nothing. This is the single most deserved
+finding of the sprint.
+
+**2. It passes when `package.json` drops a dependency the lockfile still
+carries.** `npm ci` tolerates a lockfile that is a strict *superset* — it plans
+removals and exits 0:
+
+```
+$ # in a scratch copy: delete "openapi-fetch" from web/package.json, leave the lockfile
+$ make lock-check; echo "exit=$?"
+lock-check: OK — web/package-lock.json is present and in sync with package.json.
+exit=0
+```
+
+So the gate's own success message — *"in sync with package.json"* — and
+`CLAUDE.md`'s entry — *"fails … when it and `web/package.json` disagree"* — are
+both broader than its behaviour. The recipe's grep even looks for a `Removed`
+line, so I expected this direction to be covered; npm emits a lowercase,
+non-error `remove …` plan instead.
+
+**3. The diagnosis is silently empty for the most likely real case.** Hand-add
+a dependency without re-resolving — *exactly the editing order T64.1 used* —
+and `--offline` makes npm fail with `ENOTCACHED` before it reaches its sync
+check, so the recipe's grep matches nothing and prints a blank diagnosis under
+the headline "disagree". Same for a `{}` or zero-byte lockfile, where the
+headline is also factually wrong: the lockfile is corrupt, not out of sync.
+
+**4. A missing `npm` is reported as a lockfile disagreement**, with a remedy
+that cannot run: exit 127 takes the failure branch, the diagnosis pipeline is
+also 127 and prints nothing, and the gate tells the reader to run
+`npm --prefix web install`, which will also fail with "command not found". The
+first branch guards its precondition with `test -f`; the second guards none.
+
+**And one more in T64.2's own guard message:** the remedy it prints —
+`until docker ps >/dev/null 2>&1; do sleep 1; done` — **loops forever** if
+`dockerd` fails to start, so the next paragraph ("if it genuinely cannot start,
+report the error dockerd gave") is unreachable by a reader following the
+instructions in order. For a ticket whose entire purpose was that a guard's
+text should guide action, the action it guides toward hangs.
+
+The pass also found: `cmd/docsindex`'s 52 new lines have **no tests at all**
+(and `gate-coverage` structurally cannot report a package with zero tests, so
+it is invisible there — rules 1 and 8); the `Jenkinsfile`'s hand-written list
+of what `ci-checks` covers **omits 6 of 17 prerequisites**, `lock-check`
+included, in the comment whose own argument is that hand-maintained duplicates
+of the gate drift; and that **two of the seventeen real ADRs carry both status
+forms with disagreeing tokens** (0015, 0016 — bullet says `Accepted`, heading
+says `Superseded`), where `adrStatus` takes the bullet unconditionally and is
+right by luck of convention rather than by rule.
+
+**What it checked and found clean matters as much**, because it is what makes
+the findings credible: the reverted-lockfile detection works with named-advisory
+diagnoses; `--offline` does not fail on a cold cache; `package.json` is valid
+and canonically formatted; no unmet peer dependency; 61 files / 717 tests
+re-run; `fmt-check`, `lint`, `gate-coverage`, and the full `make test` at 2502
+re-run; the listing and the gate agree on every ADR shape it could construct,
+including CRLF, a `.md` directory, a `.md` symlink and a non-prefix token; and
+both of its mutations of `TestListingAndGateAgreeOnEveryADR` killed the test.
+
+### The compliance audit: every figure that failed carried no command
+
+274 numerals extracted mechanically across six artifacts, then judged. **Of the
+eight figures flagged as load-bearing, all eight reproduced exactly** —
+including all five mutations and the three-row lockfile table, character for
+character. Every figure that failed was one carrying **no command, or a command
+nobody ran**:
+
+| figure | verdict |
+|---|---|
+| *"three of the **five** ceremonies that have run it"* | **wrong denominator.** Only T59, T62, T63 and T64 have plan documents — T60 and T61 held none, as `HANDOFF.md` says in one line. It is three of **four**, a *higher* rate, so the conclusion held and the number was invented |
+| *"`internal/payments/port/` holds **eleven** ports (`ls`)"* | **the command disagrees with the figure.** 12 files, 13 interfaces. I counted by eyeballing `ls` output instead of piping it to `wc -l` — in a document that cites "prefer a count the running system reports" |
+| *"a derived grep still returns **exactly 2 lines** outside docs and tests"* | **unreproducible.** The grep is named and never written down; the sprint's own published 7-term version returns **9** such lines |
+| *"roughly **95 seconds** (**2500 tests**)"* — shipped in the new guard message | **stale on arrival.** The same PR raised the count to 2502 and did not update the message |
+| lock-check *"~0.6s"* | **≈2× out.** Re-measured at 1.18–1.23s |
+| *"twenty hours later"* | **not derivable.** Merge timestamps bound it at ≈17.7h; T63 never recorded the clock time of its own `make security` run — which is precisely the gap T64.3's clause exists to close |
+| *"**57 sprints** of unexecuted integration tests"* | **a span presented as a count** (T4..T60 inclusive). `HANDOFF.md` says the gap was disclaimed by *six* retros. The exact shape `t61-retro.md` §4 corrected |
+| *"a bet this project has **lost five times**"* — in `CLAUDE.md` | **unenumerated, and against this project's own instruction.** `sprint-process.md`'s own text says: *"If such a count cannot be enumerated … write 'repeatedly' rather than 'five times'."* The violation is in the durable rulebook |
+
+### The worst of it: T64.2 derived its scope and then hand-classified the result
+
+This is the audit's top-ranked finding and it is correct.
+
+T64.2's published table — now the rulebook's **worked example** of the rule —
+accounts for the test-file matches as *"the 17 test headers T61 rewrote to
+quote-then-refute"*. But 26 `_test.go` files match, T61 rewrote 17, and of the
+remainder **several still state the retired claim in the present tense with no
+refutation beside it.** Four I read in full:
+
+```
+payments/adapter/postgres/concurrency_integration_test.go:22
+  "This authoring environment has no Docker daemon, so this committed test
+   could not itself be executed here"
+payments/adapter/postgres/smoke_integration_test.go:13
+  "This authoring environment has no Docker daemon … so this file could not
+   itself be run here"
+socialplay/adapter/postgres/concurrency_integration_test.go:12
+  "Manually verified in this environment (no Docker daemon, so testcontainers
+   itself couldn't run here …)"
+socialplay/adapter/postgres/waitlist_position_concurrency_integration_test.go:16
+  "This environment has no Docker daemon (docker CLI present, `docker ps`
+   fails to dial the socket …)"
+```
+
+**These are the exact copies the rule says are worth more than documents** — a
+session that opens an integration test in order to run it reads, in the file it
+is about to run, that the daemon is not available here. T64.2's own text says
+*"classifying is half the rule"*, and that half was done by hand, from a
+per-file listing, without opening the files. The derivation was right and the
+classification was wrong, and the rulebook ships the wrong classification as
+its exemplar.
+
+**I would rather have this finding than the clean report**, and it is the
+strongest single argument in this retro for having had a second reader at all.
+
+### Two structural defects in the rulebook T64 edited
+
+- **The rule-section navigation is broken at the point where it explains what
+  the rules cannot do.** T64.3 inserted the date clause at line 1025, *above*
+  the two rules that the pre-existing closing subsection *"What these two rules
+  cannot do"* (1135) was written about. A reader now meets **three** `###`
+  rules before it and cannot tell which two are meant. T64.3's own section then
+  says *"Neither of these two clauses"*, meaning a different pair 266 lines
+  apart. Two incompatible referents under one parent heading.
+- **T64.3 re-recorded a decision whose existing text names T64 as the sprint
+  that must not re-record it.** Line 1147 already says the no-gate decision is
+  *"Recorded so T64 does not re-litigate it"*; line 1068, added by T64.3, says
+  the same thing with the same reasoning and the same cited precedent under a
+  new heading. Verified:
+
+  ```
+  $ grep -n "re-litigate" docs/process/sprint-process.md
+  239:   … (T64.5's, legitimate)
+  1068:  No gate for this, and the decision is recorded so T65 does not re-litigate
+  1147:  T64 does not re-litigate it.
+  ```
+
+Also noted and confirmed: the date clause's **own first application misses a
+gate its own scope covers** — `ci-integration` pulls images from a remote
+registry, and its four runs are undated; the ADR-0016 quote error was **copied
+from `sprint-process.md` into `CLAUDE.md` rather than re-read**; "the other
+hundred matches" is 96; and a quoted mutation output was abridged without an
+ellipsis.
+
+### Scoreboard, since it is the only honest way to report a review
+
+| | |
+|---|---|
+| findings raised across three agents | **42** |
+| findings I reproduced before writing them here | **15 of 15 attempted** |
+| findings in T64's own new code | **5** (4 in `lock-check`, 1 in the guard's remedy) |
+| findings in T64's own figures | **8**, every one of them uncommanded |
+| findings against the rulebook T64 edited | **4** |
+| load-bearing figures that reproduced exactly | **8 of 8**, plus all 5 mutations |
+
+**Nothing the agents reported was accepted on their word.** Their reports are
+model output; the commands are the evidence, and the ones I re-ran are quoted
+above. Where I could not reproduce something — an exit code of 141 from a
+mis-measurement earlier in the sprint — the audit says so and so does this
+retro.
 
 ## 9. What a reviewer agent is worth, stated honestly
 
 This is the twelfth consecutive sprint with no human reviewer, and the first
 with any second reader at all. Both halves of that deserve to be said.
 
-**What it is worth.** An agent that was not the thing that wrote the code reads
-without the author's memory of intending the code to work. It re-runs commands
-rather than trusting them, and it has no stake in the sprint looking good.
+**What it is worth — and this is now measured rather than argued.** The three
+passes raised **42 findings**. Five are defects in code this sprint shipped
+*and mutation-verified*, including a gate that `touch` can silence. Eight are
+figures this sprint asserted without a command, one of which contradicts its
+own published rule. Four are structural defects in the rulebook this sprint
+edited. And the top-ranked one says the sprint's flagship rule shipped its
+worked example mis-classified.
+
+**None of that was findable by the author**, and the reason is specific rather
+than general: every one of those findings came from *running something the
+author had reasoned about instead of running*. I mutation-verified `lock-check`
+twice and never typed `touch lock-check`. I derived the sweep's scope and never
+opened the files it matched. I wrote "eleven ports (`ls`)" without piping `ls`
+to `wc -l`.
+
 Three of this project's most expensive defects — the invented
 `pg_get_constraintdef` fixture, the `0012` migration that silently dropped
-`0007`'s reservation, the `payable_type` CHECK — were all things a sceptical
-reader with a terminal would plausibly have caught.
+`0007`'s reservation, the `payable_type` CHECK — are the same shape: a claim
+nobody executed.
 
 **What it is not worth.** It is one model reading another instance of itself,
 given a framing written by the author, pointed at the files the author named.
@@ -384,7 +703,18 @@ record one as if it were.
 **The honest reading** is that this closes the cheapest half of the gap — the
 half about commands not being re-run and figures not being re-derived — and
 leaves the expensive half, which is a reader who disagrees about what the
-sprint should have been.
+sprint should have been. The cheap half turned out to be worth 42 findings, so
+"cheapest" is not "small".
+
+**One thing the arrangement got right and should be kept.** All three agents
+were briefed as **report-only**, per golden rule 9, and all three stayed inside
+it: no commits, no pushes, no repository edits, every destructive test in a
+scratch copy, and each report ends with `git status --porcelain` empty. Two of
+them independently flagged that the working tree moved under them mid-review
+(this retro's own branch), and both re-verified that the files they audited
+were byte-identical to the reviewed commit before standing by their findings.
+That is the behaviour rule 9 was written to get, and it is the first time the
+rule has been exercised since the incident that produced it.
 
 ## 10. What went well
 
@@ -459,7 +789,49 @@ sprint should have been.
    explicitly. One sentence: a live-state command run in the same breath as the
    action can return the pre-action state; read the object, not the list, or
    read twice.
-5. **The squash-ancestry mechanic deserves a documented procedure, not a
+5. **Correct the two documents every session is told to read first, and treat
+   the structural half as a design decision rather than a correction** (§8).
+   The mechanical corrections are unambiguous: `Makefile:214`'s retired count,
+   `CLAUDE.md`'s 26→27 and its unusable verification command, the
+   `gate-coverage` sentence that describes a NOTE the tool no longer emits, the
+   two npm sub-claims that do not reproduce, the T61 three-defects
+   misattribution, ADR-0016's wording, and four wrong figures in a section
+   written this morning. The structural half is not a correction and should not
+   be smuggled in as one: `CLAUDE.md`'s "Current state" is a per-sprint status
+   list inside a document that calls itself the durable rulebook, and
+   `HANDOFF.md`'s "Current state" is a per-sprint prose block append, which is
+   *why* both go stale. Deleting the first in favour of the Docs index — which
+   is derived and current to T64 — removes the content and the mechanism
+   together. That is a decision for a ticket, with its own review.
+
+6. **`vuln.go.dev`'s "cannot run here" is confirmed only as "does not, as
+   configured"** (§8). Whether the host can be allowlisted needs the proxy's
+   own status endpoint, which is denied to this session and to its agents.
+   Carrying it as "cannot" is how a claim survives 57 sprints, so carry it as
+   **"does not, as configured; allowlisting unchecked because the check is
+   denied here"** until someone with that permission says otherwise.
+
+7. **Fix what the review found, in a PR of its own, and ticket the rest**
+   (§8). The defects in T64's own work are unambiguous and belong in a
+   follow-up sweep PR, not in a retro: `.PHONY`, the three `lock-check`
+   edge cases, the guard remedy that loops forever, the mis-classified test
+   headers, `Makefile:214`'s retired count, and every uncommanded figure the
+   audit named. What is **not** a correction and needs a ticket with its own
+   review: tests for `cmd/docsindex`'s 52 untested lines (rules 1 and 8), the
+   both-forms ADR precedence, a **derived** list of `ci-checks` prerequisites
+   in the `Jenkinsfile` instead of a hand-maintained comment, and whether
+   `lock-check` should detect a superset lockfile at all — which needs a policy
+   about load-bearing resolutions, i.e. a list, so it may be the wrong gate to
+   widen.
+
+8. **Brief a reviewer agent on the premise, not just the diff.** §9's limit was
+   real but narrower than written: the agents found 42 findings *because* they
+   were pointed at specific files with specific questions. The one thing none
+   of them asked was whether T64's tickets were the right five. A fourth brief
+   — "argue the sprint should have done something else" — costs one agent and
+   is the only part of the gap left.
+
+9. **The squash-ancestry mechanic deserves a documented procedure, not a
    rediscovery each time** (§6). Three sprints in a row have now hit it. The
    procedure is short — verify the base's file is byte-identical to the
    branch's pre-edit version, then rebuild the change on the base rather than
