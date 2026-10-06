@@ -1065,11 +1065,11 @@ with it: **run the security gate at the start of a ceremony, not at the end of
 a sprint.** T61 and T62 both deferred it; T63 ran it and found five `high`
 findings; the same deferral would have cost three more in a single day.
 
-**No gate for this, and the decision is recorded so T65 does not re-litigate
-it.** A checker for "every gate claim carries a date" would have to tell a
-gate claim from any other sentence, and a date from a version string, a ticket
-number or a migration number. T63.1 instruction 5 rejected a prose-detecting
-gate for the quantity rule on the same grounds, and nothing here is different.
+**No gate for this** — see *"What none of the rules in this section can do"*
+below, which records that decision once for every rule in this section. (T64.3
+first recorded it again here, in its own words, three paragraphs after the
+existing text said it was recorded so T64 would not re-litigate it. T64's
+review caught the duplicate.)
 
 **The limit, stated as T63.1 states its own.** Neither of these two clauses can
 make a session re-run anything. They make the omission visible on the page — a
@@ -1132,19 +1132,33 @@ wrong, each corrected by the running system's own report:
 was counting beats a figure produced by matching text that describes it.** Where
 both are available, cite the former.
 
-### What these two rules cannot do
+### What none of the rules in this section can do
 
-They cannot make a session run the command. They can only make the omission
-visible on the page, and make a wrong figure correctable by the next reader
-rather than inherited by them.
+**Renamed at T64's review**, which found that T64.3 had inserted the date
+clause *above* this subsection, so "these two rules" silently came to sit after
+**three** `###` rules with no way for a reader to tell which two were meant.
+The scope is now every rule under this heading, which is what a reader needs
+anyway.
 
-**No gate is proposed, and that is a decision rather than an omission.** A
-checker for "every number has an adjacent command" would have to tell a
-*quantity* from any other number in prose — a version string, a file path, a
-ticket number, a year. A gate that mis-fires on prose gets disabled inside a
-sprint, which is worse than no gate, and `t56-retro.md` recommendation 4 already
-records this project rejecting a broad rule for exactly that reason. Recorded so
-T64 does not re-litigate it.
+None of them can make a session run the command. They can only make the
+omission visible on the page, and make a wrong figure correctable by the next
+reader rather than inherited by them.
+
+**No gate is proposed for any of them, and that is a decision rather than an
+omission.** A checker for "every number has an adjacent command" would have to
+tell a *quantity* from any other number in prose — a version string, a file
+path, a ticket number, a year — and the same objection applies to a checker for
+"every gate claim has a date". A gate that mis-fires on prose gets disabled
+inside a sprint, which is worse than no gate, and `t56-retro.md`
+recommendation 4 already records this project rejecting a broad rule for
+exactly that reason.
+
+**Recorded once, here, for all of these rules.** T64.3 re-recorded this same
+decision under its own heading with the same reasoning and the same cited
+precedent, three paragraphs after this text said *"Recorded so T64 does not
+re-litigate it"* — which is what a decision recorded in a place nobody is sent
+to look gets you. A future sprint proposing such a gate re-opens **this**
+paragraph.
 
 ### Counts of narrative events are in scope, and here is how to satisfy them
 
@@ -1232,17 +1246,51 @@ touched by any previous sweep**:
 | `Jenkinsfile` | `agent any` justified by *"sandboxes that repeatedly turn out to have no Docker daemon"* | **premise corrected, decision kept** — `agent any` is still right because a Jenkins agent may genuinely lack Docker |
 
 **And classifying is half the rule, because most matches must not be edited.**
-The remaining hundred are legitimate: retros and sprint plans recording what was
-believed at the time; the 17 test headers T61 rewrote to **quote the claim
-beneath its refutation** (the assert-the-positive pattern — see T62.1); two
-migration comments that date themselves by their own file number; and
-`CLAUDE.md`'s refutation itself, which necessarily contains the words. **A
-sweep that edited every match would destroy the project's own record of having
-been wrong**, which is the thing these documents are for.
+Of the remaining 96 lines in 61 files, most are legitimate: retros and sprint
+plans recording what was believed at the time; the 17 test headers T61 rewrote
+to **quote the claim beneath its refutation** (the assert-the-positive pattern
+— see T62.1); two migration comments that date themselves by their own file
+number; and `CLAUDE.md`'s refutation itself, which necessarily contains the
+words. **A sweep that edited every match would destroy the project's own record
+of having been wrong**, which is the thing these documents are for.
 
 So the output of a retirement sweep is a **table like the one above**, not a
 diff count: what matched, which ones are live, and why each of the rest is
 correctly left alone.
+
+### This section's own first version got the classification wrong
+
+**Corrected at T64's review (`docs/process/t64-retro.md` §8), and it is the
+most instructive part of this rule.** The paragraph above originally read *"the
+remaining hundred are legitimate"* and accounted for every test-file match as
+*"the 17 test headers T61 rewrote"*. **Twenty-six `_test.go` files match and
+T61 rewrote seventeen**, and several of the remainder state the retired claim
+in the **present tense with no refutation beside it** — four read in full
+during the review:
+
+```
+payments/adapter/postgres/concurrency_integration_test.go:22
+  "This authoring environment has no Docker daemon, so this committed test
+   could not itself be executed here"
+socialplay/adapter/postgres/concurrency_integration_test.go:12
+  "Manually verified in this environment (no Docker daemon, so testcontainers
+   itself couldn't run here …)"
+```
+
+Those are **exactly the copies this rule says are worth more than documents**:
+a session that opens an integration test *in order to run it* reads there that
+the daemon is unavailable. They are fixed in the same PR as this correction.
+
+So the failure was not the derivation — 103/64 reproduces exactly — but that
+**the classification was done from a per-file listing without opening the
+files.** Two consequences, and they are the rule:
+
+1. **Classify by reading the match, not by reading the path.** A per-file count
+   tells you where to look and nothing about what is there.
+2. **"Legitimate" needs a stated test, applied per match.** The test is: does
+   this line, read where it sits, tell a current reader something false? A
+   retro saying "we believed X at T19" passes. A test-file header saying "this
+   environment has no Docker daemon" fails, whatever its date.
 
 ## A guard is verified by removing it
 
