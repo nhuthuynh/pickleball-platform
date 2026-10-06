@@ -91,9 +91,11 @@ and "green in CI" mean the same thing:
 make ci
 ```
 
-The Docker-dependent half is separate, because a large share of this
-project's development environments have no Docker daemon (see CLAUDE.md's
-gotchas) and the pipeline skips the same stage on the same condition:
+The Docker-dependent half is a separate target because a CI agent may not
+have a Docker daemon and the pipeline skips that stage on the same condition.
+**It is not separate because it cannot run here** — that claim was this
+project's standing belief until T61 tested it, and the daemon starts in about
+four seconds (see CLAUDE.md's "Docker works here"). Run it:
 
 ```bash
 make ci-integration    # testcontainers concurrency + integration suite

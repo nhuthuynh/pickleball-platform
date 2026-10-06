@@ -210,6 +210,55 @@ this project, sat invisible to its own escalation mechanism, and was answered
 in a single exchange once put to the user — which is also, precisely, what
 happened to D1 over 41 sprints.
 
+#### Read the issue's prose, because that is where the question is written
+
+**Adopted T64.5**, after the *corrected* sweep above missed one.
+
+Point 3 says to consider every open issue rather than every labelled one, and
+it fixed the defect it was written for. T62's and T63's ceremonies then both
+ran the corrected sweep and both reported that **no open issue awaited a
+product decision.** Both were wrong, and in the same way:
+
+> **#145 has carried the sentence *"Needs product input on which"* since
+> 2026-08-14.**
+
+It is unlabelled, its state is `open`, and nothing about the issue *as an
+object* says a decision is pending. The question is a sentence in its body.
+Point 3 removed the dependence on a label and left the sweep reading an
+issue's labels and state — one level more derived, and still not the level the
+question lives at.
+
+**The step.** When Ceremony 1 re-reads each open issue (it already does, for
+the premise check), it **reads the body for an unanswered question** and
+states, per issue, whether one is present. The markers worth looking for,
+non-exhaustively: *needs product input*, *needs a decision*, *open question*,
+*needs product sign-off*, *to be decided*, a question mark in a "Suggested
+shape" or "Options" section.
+
+**Why this is a ceremony step and not a gate**, recorded so it is not
+re-litigated. A checker would have to tell an unanswered question from a
+rhetorical one, from a question that was answered three comments later, and
+from a heading like "What closing it looks like". T63.1 instruction 5 rejected
+a prose-detecting gate for the quantity rule on exactly these grounds, and the
+mis-firing gate that gets disabled within a sprint is worse than no gate.
+
+**And the honest limit, which is larger than the step.** A question phrased
+without any of those markers is still invisible, and no wording list fixes
+that. What this step actually changes is that the reading is **obligatory and
+its result is written down per issue** — the ceremony must say "no question" in
+so many words, rather than reporting "none awaiting a decision" as a property
+of the issue set. T62's and T63's ceremonies could both have written that
+sentence honestly about #145 only by reading it and deciding wrongly; neither
+had to read it at all.
+
+**The answer, when there is one, is a deferral or a decision — never silence.**
+#145's was a deferral *with a named trigger* (the IdP-provisioning ticket must
+answer it before merging), recorded on the issue. The distinction matters
+because D1's trigger was conditioned on an event no ceremony could cause; a
+deferral whose trigger a future sprint can cause is a decision, and one whose
+trigger nobody can cause is the 41-sprint failure wearing a decision's
+clothes.
+
 ### The 0-ticket sprint cap — two consecutive, then stop
 
 Adopted at T55 from `docs/process/t54-retro.md` recommendation 2.
@@ -973,6 +1022,61 @@ If it is not, that is evidence for the narrow form, not a reason to restate
 this one more firmly** — which is the same lesson `make docs-index-check`
 exists to encode about prose rules in this project.
 
+### A claim that a gate passed carries the date it was run
+
+**Adopted T64.3**, from `docs/process/t64-sprint-plan.md` §2, and it is the
+cheapest rule in this document: one word next to a claim that already carries a
+command.
+
+**The rule.** When a document, PR body or review states that a gate passed,
+it states **when**. "The security gate passes" is not a fact about the
+repository; it is a fact about a moment.
+
+**Why, with the instance.** T63.2 fixed five `high` npm advisories and left
+`SKIP_GOVULNCHECK=1 make security` at `PASS`. Its PR, its review and T63's
+retro all record that correctly, with the command. **Twenty hours later, same
+tree, same command:**
+
+```
+2026-10-05  PASS: no new gating findings (0 baselined, 2 below threshold).
+2026-10-06  FAIL: 3 new gating finding(s).
+              @vue/server-renderer (high), source-map-js (high), vue (high)
+```
+
+Nothing in T63 was wrong. The code did not change, the pins did not slip, the
+verification was honest and commanded. **The advisory database moved.**
+
+**How this differs from the rule below**, which is the reason it is a separate
+clause. That rule asks for a live-state command because *the actor's own
+account of what they did* is the unreliable part — T62's retro claimed two
+issues closed that were not. Here the account was accurate and the **world**
+moved underneath it. So a re-read is owed **even when nobody doubts the
+claim**, and the signal that it is owed is the date rather than any suspicion
+about the author.
+
+**Scope.** Any gate whose verdict depends on something outside the repository:
+the security gates above all (both npm and `govulncheck`), and anything reading
+a remote registry, a CVE feed or a published advisory. A gate that reads only
+the tree — `fmt-check`, `gate-coverage`, the unit suites — is reproducible from
+the tree and needs no date, though one costs nothing.
+
+**And the practical consequence**, which is what T64's ceremony actually did
+with it: **run the security gate at the start of a ceremony, not at the end of
+a sprint.** T61 and T62 both deferred it; T63 ran it and found five `high`
+findings; the same deferral would have cost three more in a single day.
+
+**No gate for this, and the decision is recorded so T65 does not re-litigate
+it.** A checker for "every gate claim carries a date" would have to tell a
+gate claim from any other sentence, and a date from a version string, a ticket
+number or a migration number. T63.1 instruction 5 rejected a prose-detecting
+gate for the quantity rule on the same grounds, and nothing here is different.
+
+**The limit, stated as T63.1 states its own.** Neither of these two clauses can
+make a session re-run anything. They make the omission visible on the page — a
+gate claim with no date reads as incomplete, which is the whole mechanism. The
+instance above was found by a ceremony that ran the command, not by a rule that
+told it to.
+
 ### A claim about an action carries the command that re-reads the live state
 
 **Adopted T63.1**, from the failure in `docs/process/t63-sprint-plan.md` §2.
@@ -1068,6 +1172,78 @@ command that reproduces it; a quantity about the *past* has a citation that
 records it. Neither is exempt from carrying its evidence; they carry different
 kinds.
 
+## When a claim is retired, the sweep's scope is derived, not listed
+
+**Adopted T64.2**, from `docs/process/t63-retro.md` §8 recommendation 1 and
+issue #322.
+
+**The rule.** When this project establishes that a claim it has been repeating
+is false, the sweep that retires it covers **every file that can utter it,
+found by a repo-wide search**, not the files someone remembers. State the
+search and its result, and classify what it finds rather than editing
+everything it matches.
+
+**Why, with the instance that cost the most.** T61 established that "no Docker
+daemon available here" was false — the daemon starts in about four seconds —
+and PR #313 retired the claim across **17 test files**. That sweep touched
+`HANDOFF.md`, one retro and seventeen `*_test.go` files. It did not touch the
+`Makefile`, where `ci-integration`'s own guard printed *"This is the documented
+gap in CLAUDE.md's gotchas, not a new problem"* — sending its reader to a
+document that refutes it, at the exact moment that reader is blocked and
+deciding whether to act. Two sprints later a session met it live (#322), and
+the remedy was one command and two seconds.
+
+> **A stale sentence in a document misleads someone reading history. A stale
+> sentence in a gate, a Makefile message, a CI config or an error string
+> misleads someone who is blocked right now.** The second kind is worth more
+> and is the kind a documentation sweep structurally cannot reach, because such
+> a sweep is scoped to documents.
+
+**What the derived version found when T64.2 ran it.** The same claim, searched
+across the whole tree rather than across documents and tests:
+
+```
+$ cd <a pristine checkout of 1febf8e>                 # so the sweep does not count itself
+$ grep -rIn --exclude-dir=node_modules \
+    -e "no Docker daemon" -e "No Docker daemon" -e "cannot run here" \
+    -e "not a new problem" -e "documented gap" \
+    -e "on a machine with a Docker daemon" -e "Docker daemon available" . | wc -l
+103        # across 64 files
+```
+
+**That figure is derived, and the first version of this paragraph was not.**
+The draft said "66 lines in 63 files", a number nobody had computed — written
+while looking at a per-file listing and never totalled. The command above
+returns 103. A sweep-scope rule whose own scope figure was invented would have
+been a poor advertisement for itself.
+
+Note also **why the count is taken against a pristine checkout**: run in the
+working tree, this very section's text matches its own search terms, so the
+number rises as the write-up is written. Same shape as `docs-index-check`
+counting the retro that cites it (`t63-retro.md` §7).
+
+Three of the 103 were live and action-guiding, and **none of the three had been
+touched by any previous sweep**:
+
+| file | what it said | disposition |
+|---|---|---|
+| `Makefile` | the gate's own failure message, and `make ci`'s closing line | rewritten to carry **the remedy** |
+| `README.md` | *"a large share of this project's development environments have no Docker daemon"* | rewritten; it is the first thing a new reader meets |
+| `Jenkinsfile` | `agent any` justified by *"sandboxes that repeatedly turn out to have no Docker daemon"* | **premise corrected, decision kept** — `agent any` is still right because a Jenkins agent may genuinely lack Docker |
+
+**And classifying is half the rule, because most matches must not be edited.**
+The remaining hundred are legitimate: retros and sprint plans recording what was
+believed at the time; the 17 test headers T61 rewrote to **quote the claim
+beneath its refutation** (the assert-the-positive pattern — see T62.1); two
+migration comments that date themselves by their own file number; and
+`CLAUDE.md`'s refutation itself, which necessarily contains the words. **A
+sweep that edited every match would destroy the project's own record of having
+been wrong**, which is the thing these documents are for.
+
+So the output of a retirement sweep is a **table like the one above**, not a
+diff count: what matched, which ones are live, and why each of the rest is
+correctly left alone.
+
 ## A guard is verified by removing it
 
 **Adopted T63.3**, from `docs/process/t60-retro.md` recommendation 1 after **two
@@ -1111,6 +1287,44 @@ applied this voluntarily and it found something every time:
 
    **A guard needs both.** Mutation answers "would this fail if the thing
    broke?"; a vacuity guard answers "is this looking at the thing at all?"
+
+### A dependency pin is mutated by reverting the lockfile, not the declaration
+
+**Adopted T64.3**, from `docs/process/t63-retro.md` §8 recommendation 3. The
+rule above has a blind spot that its own first application fell into.
+
+T63.2 fixed five `high` npm advisories with an `overrides` block, and **PR
+#321's review recorded that no meaningful mutation existed** for a dependency
+pin — flagging it as a limit of the rule rather than claiming compliance. That
+was generous about the rule and wrong about the facts: a mutation exists, it is
+just not the obvious one. T63's retro §3 ran it a day later, in a scratch copy:
+
+| mutation | `high` findings |
+|---|---|
+| none (the fixed tree) | **0** |
+| revert `web/package-lock.json` to its pre-fix state | **5**, by name |
+| delete the `overrides` block, keep the fixed lockfile | **0** |
+
+**The third row is the rule.** `npm install --package-lock-only` will not
+downgrade a package that already satisfies its range, so removing the
+declaration is a **silent no-op today** that takes effect only at the next
+fresh resolve. The lockfile holds the fix; the declaration records the intent.
+
+So: **to verify a version pin, revert the lockfile and show the advisories
+returning by name.** Reverting the declaration proves nothing. `CLAUDE.md`'s
+npm gotcha carries the measurement; this is the requirement.
+
+**Confirmed on its first application, T64.1**, which pinned `vue` and
+`source-map-js` against three new `high` advisories:
+
+```
+HEAD package.json + HEAD lockfile  -> high: [@vue/server-renderer, source-map-js, vue]
+NEW  package.json + HEAD lockfile  -> high: [@vue/server-renderer, source-map-js, vue]
+the fixed tree                     -> high: []   (2 moderate, 368 deps audited)
+```
+
+The middle row is the clause earning itself: **the new declaration against the
+old lockfile fixes nothing at all.**
 
 ### If this is deferred again
 
