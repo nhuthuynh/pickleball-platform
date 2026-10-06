@@ -86,7 +86,8 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T61 | **No sprint-plan document.** One instruction — run `make ci-integration` — against a gap six retros had disclaimed (T17–T19, then T56–T58) | `docs/process/t61-retro.md` (finding: a claim that licenses **inaction** is the least likely claim in a codebase to be re-checked, and therefore the most valuable one to re-check. Also corrects three wrong numbers T61 itself shipped) | PR #310 (`d0b36eb`, three production defects) → #312 (`71c71fe`, retro) → #313 (`bb2bcda`, stale-disclaimer sweep) → #315 (`fcdee67`, the late T55/T59/T60 retros), verified against `merged_at`. Each reviewed via a GitHub PR review disclosing self-review | none new | — |
 | T62 | `docs/process/t62-sprint-plan.md` (Ceremony 1: clears **eight sprints** of accumulated Docs-index debt, found by a derived check rather than by reading. The escalation sweep's own three mechanical defects found by running it. The premise check fires on **two of five** issues — #149 again, and #145. #314 put to the user and answered: widen the quantity rule to all quantities. Takes five tickets, T62.1–T62.5) | `docs/process/t62-retro.md` (finding: every refund of a Social Play Registration had failed against a real database since T6.5 — `registrations.payment_status` accepted only `('unpaid','paid')` while the domain declared `refunded` and `RefundPayment` wrote it, with the Competitions twin twelve lines later working because `0014` included the value. Also: the sprint corrected three of its own written claims, and is the first document subject to T62.2's every-quantity-carries-its-command rule — complying changed it twice) | PR #316 (`ed14f0e`, Ceremony 1) → #317 (`d7dc605`, all five tickets) → #318 (`4621975`, retro), verified against each PR's `merged_at`. Each reviewed via a GitHub PR review disclosing self-review; #316's PE pass **declined its own plan's ticket sequencing** and the plan was amended rather than merged over, and #318's review **audited the retro against T62.2's own rule and found it holed** | none new | — |
 | T63 | `docs/process/t63-sprint-plan.md` (Ceremony 1: runs T62.4's corrected escalation sweep — no ADR escalated, and **every open issue** considered rather than every labelled one. **Finds that T62's retro claimed #311 and #314 "closed… live-verified" when both were still open** — and that figure was one of the few carrying no command, so the uncommanded figure is the one that was wrong. Both closed here. **Tests the `govulncheck` claim two retros had only quoted**, confirms it, and discovers that the Go half's failure had masked the npm half entirely: `make security` has never run on this project and fails with **7 vulnerabilities, 5 of them `high`, all with `fixAvailable: true`**. Takes four tickets, T63.1–T63.4) | `docs/process/t63-retro.md` (finding: `make ci-integration`'s own failure message tells the operator the Docker gap is "the documented gap in CLAUDE.md's gotchas, not a new problem" — **false since T61**, met live, refuted in two seconds by one command, and the 18th instance of a claim T61's sweep retired 17 times without ever looking at the `Makefile`. Also: the mutation PR #321's review called non-existent for a dependency pin **does exist and says something else** — reverting the lockfile returns all five advisories, deleting the `overrides` block changes nothing, so the lockfile and not the declaration is the guard) | PR #319 (`31000d8`, Ceremony 1) → #321 (`e7710af`, all four tickets) → #323 (`a0c497a`, retro) → #324 (`ae5c287`, the retro's one rulebook line, split off because a squash-merged base conflicts on a file the previous PR touched — see `t63-retro.md` §9), verified against each PR's `merged_at` rather than assumed from numbering. All four are author-reviewed, the eleventh consecutive such sprint | none new | — |
-| T64 | `docs/process/t64-sprint-plan.md` (Ceremony 1: **finds `make security` red on a tree nobody touched** — three new `high` advisories inside 20 hours of T63.2 leaving the gate green, `vue` among them and direct, so a green security gate is a statement about a moment rather than about a tree. Also finds that T62.4's **corrected** escalation sweep still missed a product question, because it asks whether an *issue* awaits a decision rather than reading the issue's *text*: #145's "Needs product input on which" survived two corrected sweeps. Put to the Product Owner and answered — **defer until the provider is chosen, with the trigger named**. Takes five tickets, T64.1–T64.5) | `docs/process/t64-retro.md` (finding: **a green gate is a statement about a moment, not about a tree** — T63.2's security PASS went red in 20 hours with no code change, and the account was accurate while the world moved under it, which is a different failure from the one T63.1 guards. Also: the **corrected** escalation sweep still missed a product question, three sweeps each fixing one level of derivation and stopping one short; a derived sweep found two live instances the issue that prompted it had not predicted; and T63.3's failed first application was repaired and re-applied inside one sprint. First sprint in twelve with any second reader — three report-only agent reviewers, §9 on what that is and is not worth) | not yet opened | none new | — |
+| T64 | `docs/process/t64-sprint-plan.md` (Ceremony 1: **finds `make security` red on a tree nobody touched** — three new `high` advisories inside 20 hours of T63.2 leaving the gate green, `vue` among them and direct, so a green security gate is a statement about a moment rather than about a tree. Also finds that T62.4's **corrected** escalation sweep still missed a product question, because it asks whether an *issue* awaits a decision rather than reading the issue's *text*: #145's "Needs product input on which" survived two corrected sweeps. Put to the Product Owner and answered — **defer until the provider is chosen, with the trigger named**. Takes five tickets, T64.1–T64.5) | `docs/process/t64-retro.md` (finding: **a green gate is a statement about a moment, not about a tree** — T63.2's security PASS went red in 20 hours with no code change, and the account was accurate while the world moved under it, which is a different failure from the one T63.1 guards. Also: the **corrected** escalation sweep still missed a product question, three sweeps each fixing one level of derivation and stopping one short; a derived sweep found two live instances the issue that prompted it had not predicted; and T63.3's failed first application was repaired and re-applied inside one sprint. First sprint in twelve with any second reader — three report-only agent reviewers, §9 on what that is and is not worth) | PR #325 (`1febf8e`, Ceremony 1) → #326 (`2e9b59f`, all five tickets) → #327 (`bdab076`, retro) → #331 (`64ad1ce`, the review fixes), verified against each PR's `merged_at`. **#326 and #331 carry the first non-author reviews in this project's history** — three report-only agents, 42 findings, five of them defects in code T64 had already mutation-verified. #325/#327 are author-reviewed | none new | — |
+| T65 | `docs/process/t65-sprint-plan.md` (Ceremony 1: **runs the security gate as its first command**, per T64's retro — PASS, and the point is that T64's ceremony found it red by doing the same thing. First real use of `cmd/docsindex -statuses` for the ADR half of the escalation sweep, and first application of T64.5's **read-the-issue-body** step: no product decision awaits an answer, three issues carry engineering options a ticket must settle. The premise check fires on **zero of seven** — every premise verified against the tree — because all seven issues were written or corrected inside the last 24 hours. Takes five tickets, T65.1–T65.5) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -4281,6 +4282,72 @@ than retyped, because retyping is how a stronger version gets introduced):
 > sprint, and §3 is the concrete cost of that: the review's "no meaningful
 > mutation" went unchallenged until the retro, because there was nobody to
 > challenge it.
+
+---
+
+**T64 — the sprint that found its predecessor's green security gate had gone red on an untouched tree, and the first in twelve to be read by something other than its author.** All five tickets delivered, plus a retro and a review-fix sweep.
+
+**Outcome: 5 tickets, 3 `high` advisories fixed, 1 issue closed, 2 new rules, 1 new gate, 5 mutations — then 42 review findings, of which 5 were defects in T64's own mutation-verified code.** Retro: `docs/process/t64-retro.md`. Review fixes: PR #331.
+
+**The single most deserved finding**, and worth carrying here because the shape recurs: `make lock-check`, added by T64.4 to stop a vacuous green, was the only `Makefile` target missing from `.PHONY`, so `touch lock-check` silenced a gate inside `ci-checks`. Fixed in #331.
+
+**State the outcome in this form, not a stronger one** (`sprint-process.md`
+Ceremony 1 item 3 — these blockquote lines were lifted programmatically from
+`t64-retro.md` §13, not retyped):
+
+> T64 was the sprint that found **its predecessor's green security gate had
+> gone red on a tree nobody had touched** — three new `high` advisories within
+> twenty hours of T63.2 leaving the gate passing, `vue` among them and direct,
+> with an XSS at CVSS 7.2 and a DoS at 7.5. Nothing in T63 was wrong: the code
+> did not change and its verification was honest and commanded; **the advisory
+> database moved.** So **a green gate is a statement about a moment, not about
+> a tree** — a sharper claim than T63.1's rule, because there the actor's
+> account was the unreliable part and here the account was accurate and the
+> world moved under it, which means a re-read is owed **even when nobody doubts
+> the claim**. T64.3 wrote that in as a date beside the claim, and T64.1 fixed
+> all three advisories with **minimal same-major versions** read off each
+> advisory's own `range`. Its ceremony also found that T62.4's **corrected**
+> escalation sweep had still missed a product question — #145 has carried
+> *"Needs product input on which"* since 2026-08-14, and the corrected sweep
+> reads an issue's labels and state, one level short of where the question
+> lives — which makes three sweeps in a row each fixing one level of derivation
+> and stopping one short. Put to the Product Owner and answered as a deferral
+> **with a trigger a future sprint can cause**, which is the specific thing
+> DECISION D1 lacked for 41 sprints. T64.2's derived sweep then **found two
+> live instances the issue that prompted it had not predicted** — the `README`
+> and the `Jenkinsfile`, whose `agent any` rationale rested on this project's
+> false belief about its own sandboxes, so the premise was corrected and the
+> decision kept: **a decision can survive its own rationale**. Of 103 matching
+> lines across 64 files, three were edited and a hundred deliberately left,
+> because a sweep that edited every match would destroy the project's own
+> record of having been wrong. **T63.3's rule, whose first application had
+> failed, was repaired and re-applied inside one sprint**: the mutation for a
+> dependency pin is reverting the lockfile, and T64.1's middle row proves it —
+> the new declaration against the old lockfile fixes nothing at all. The sprint
+> corrected three of its own claims: a scope figure of "66 lines in 63 files"
+> that nobody had computed (it is 103/64); an exit code of **141** that was
+> SIGPIPE from the measurement's own `head`, not a third failure mode of the
+> gate; and a **live issue count read one second after the write, which
+> returned the pre-action state** — the first qualification this project has
+> found on T63.1's own rule. PR #325 could not merge at all until a
+> squash-ancestry conflict on byte-identical content was resolved by a `git
+> fetch` this session had earlier been denied, which is worth recording as **a
+> denial of a mechanism not being a denial of a purpose**. Verified by
+> `make ci-checks` green (`gate-coverage` 47/47, `docs-index-check` 65/110/17,
+> `lock-check` OK), `make ci-integration` green on four runs with **2502 tests
+> and zero failure lines in the two where the total was captured**, and
+> `SKIP_GOVULNCHECK=1 make security` **PASS as of 2026-10-06T07:28:59Z**. Five
+> mutations, each quoted. While the retro was being written, **#320's own
+> preferred remedy was tested and works** — npm 12.2.0 resolves the `vitest`
+> bump that npm 10.9.7 crashes on, in a scratch prefix, `found 0
+> vulnerabilities`; the 717 web tests on that version remain unrun, which is
+> #320's actual acceptance criterion, so the issue is now bounded rather than
+> blocked and was deliberately left to its own ticket. **The first sprint in
+> twelve with any second reader**
+> — three report-only agent reviewers — and §9 says what that is and is not
+> worth: one model reading another instance of itself, given the author's
+> framing, which closes the half of the gap about commands not being re-run and
+> leaves the half about a reader who disagrees with the premise.
 
 **T59's Ceremony 1 correction to this section.** The `#149` row in the
 open-issues table below was amended at T58's bookkeeping to say T56–T58
