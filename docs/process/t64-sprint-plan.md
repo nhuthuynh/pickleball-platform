@@ -108,7 +108,11 @@ its review and T63's retro all record that, correctly, with the command:
 PASS: no new gating findings (0 baselined, 2 below threshold).
 ```
 
-Twenty hours later, same tree, same command:
+Under a day later — **≈17.7 h by the only timestamps that exist**, PR #321's
+`merged_at` to PR #325's; "twenty hours" stood here until T64's review pointed
+out that T63 never recorded the clock time of its own `make security` run,
+which is exactly the gap T64.3's clause exists to close — same tree, same
+command:
 
 ```
 2026-10-06 $ SKIP_GOVULNCHECK=1 make security | tail -6
@@ -214,7 +218,7 @@ what the issue describes still true of the tree, verified against the code.
 
 | Issue | Blocker | Premise |
 |---|---|---|
-| #322 | none | **Verified true.** `sed -n 376,377p Makefile` unchanged; `grep -c "Docker works here" CLAUDE.md` → 1; the derived grep still returns exactly 2 lines outside docs and tests. |
+| #322 | none | **Verified true.** `sed -n 376,377p Makefile` unchanged; `grep -c "Docker works here" CLAUDE.md` → 1. **Corrected at T64's review:** this row also claimed *"the derived grep still returns exactly 2 lines outside docs and tests"* — the grep was named and never written down, and the sprint's own published 7-term version returns **9** such lines (Makefile 3, Jenkinsfile 4, README 1, `tools/docsindex` 1). The claim was unreproducible as stated. |
 | #320 | npm 10.9.7 confirmed again (`npm -v`) | **Surrounding tally drifted; the issue's own claims did not.** Its figures are labelled *"Verification state when filed"* — the dated form `sprint-process.md` asks of a filing session — so they became **historical, not false**, and nothing needed striking. Corrected by [comment](https://github.com/nhuthuynh/pickleball-platform/issues/320#issuecomment-6011228605) rather than a body edit, with that reasoning stated. The three new highs are not its subject (T64.1 owns them); its own two moderates are unchanged in severity and still below threshold. |
 | #149 | `internal/payments/port/` holds 11 ports, none reading Booking (`ls`) | **Verified true.** `grep -rn "BookingHostID: req.GetBookingHostId()"` → `handler.go:160` and `:284`, exactly the two the T62 correction names. |
 | #145 | real IdP, unobtainable here | **Verified true.** All five `adapter/identity` seams exist (`ls -d internal/*/adapter/identity \| wc -l` → 5); `db/migrations/0019_identity_subject.sql` present. Its product question is now answered as a deferral with a trigger (§1). |
@@ -224,9 +228,13 @@ what the issue describes still true of the tree, verified against the code.
 §2. Worth separating the two shapes, because the remedy differs: #320's *own*
 assertions are intact and only the world around them moved, which a dated claim
 survives; #149's and #145's were assertions about the tree that had quietly
-become false, which is what a body correction is for. The premise check has now fired in three of the five ceremonies that have
-run it (T59 #149, T62 #149 + #145, T64 #320), which is a strong enough rate to
-stop treating a clean sweep as the expected outcome.
+become false, which is what a body correction is for. The premise check has now fired in three of the **four** ceremonies that have
+run it (T59 #149, T62 #149 + #145, T64 #320) — **corrected at T64's review**:
+this read *"three of the five"*, and only T59, T62, T63 and T64 have plan
+documents, since `HANDOFF.md` records that T60 and T61 held no ceremony. The
+denominator was invented, the real rate is **higher** than the one claimed, and
+the figure carried no command. Either way it is a strong enough rate to stop
+treating a clean sweep as the expected outcome.
 
 ## §5 — Tickets
 
@@ -408,8 +416,10 @@ test (it will pick the package up with no edit; that is the design).
    framework, and a red gate on the shared branch. Nothing else here has a cost
    that accrues while it waits.
 2. **T64.2** — the message that tells a blocked session to stay blocked. Cheap,
-   and it has already cost this project 57 sprints of unexecuted integration
-   tests once.
+   and the disclaimer it embodies went unchallenged from T4 to T60 — **a span,
+   not a count** (corrected at T64's review; `HANDOFF.md` records the gap as
+   disclaimed by *six* retros, and `t61-retro.md` §4 corrected this project for
+   the identical mislabelling once already).
 3. **T64.3** — two clauses already paid for by T63; delay costs only that T65
    rediscovers them.
 4. **T64.4** — guards a known-load-bearing file whose loss this project has

@@ -29,6 +29,16 @@
 // production code: payments_payable_unique_idx already correctly enforces
 // the invariant under test; only the committed regression proof was
 // missing.
+//
+// T64 REVIEW FIX — SUPERSEDES THE "no Docker daemon" CLAUSE ABOVE. That claim
+// was false, and it is the claim T61 retired across 17 test files without
+// reaching this one: Docker runs here and this file runs with it (CLAUDE.md's
+// "Docker works here"). T64's own sweep derived the right scope and then
+// mis-classified this file as already-refuted history — see
+// docs/process/t64-retro.md section 8. The clause is kept because a reader
+// needs to know the manual verification it describes was real; it is no
+// longer this test's only evidence, and "run it" is the correct response to
+// seeing it.
 package postgres_test
 
 import (
