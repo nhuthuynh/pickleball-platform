@@ -156,6 +156,40 @@ generate-client:
 tidy:
 	go mod tidy
 
+# T64.4 — `web/package-lock.json` is load-bearing, and nothing noticed it going
+# missing. It, not `package.json`, is what carries the resolved versions that
+# fix an advisory (CLAUDE.md's npm gotcha: deleting an `overrides` entry changes
+# nothing against an already-resolved tree), and a *fresh* resolve crashes on
+# this dependency graph — so losing the file loses both the pins and the ability
+# to re-derive them. T63.2 deleted it while investigating and recovered from a
+# copy it happened to have taken, which is luck rather than process.
+#
+# This wires npm's OWN check rather than parsing semver ranges here, which is
+# what the ticket asked for after testing it: `npm ci --dry-run --offline`
+# reports both failures with precise diagnoses, needs no network (verified with
+# an empty cache) and takes about 0.6s. A hand-written comparator would be a
+# second implementation of semver in this repo.
+lock-check:
+	@test -f web/package-lock.json || { \
+	  echo "web/package-lock.json is MISSING."; \
+	  echo ""; \
+	  echo "Do not regenerate it with a fresh resolve: npm cannot resolve this graph"; \
+	  echo "from scratch (CLAUDE.md's npm gotcha). Restore it from git:"; \
+	  echo ""; \
+	  echo "    git checkout HEAD -- web/package-lock.json"; \
+	  echo ""; \
+	  exit 1; }
+	@npm --prefix web ci --dry-run --offline >/dev/null 2>&1 || { \
+	  echo "web/package.json and web/package-lock.json disagree. npm's own diagnosis:"; \
+	  echo ""; \
+	  npm --prefix web ci --dry-run --offline 2>&1 | grep -E "^npm error (Invalid|Missing|Added|Removed)|not in sync|can only install" | head -10; \
+	  echo ""; \
+	  echo "Fix with 'npm --prefix web install' (WITH the lockfile present), never by"; \
+	  echo "deleting the lockfile."; \
+	  exit 1; }
+	@echo "lock-check: OK — web/package-lock.json is present and in sync with package.json."
+
+
 # Full suite: everything, including packages that depend on generated code
 # and the testcontainers-based concurrency integration test (T4), which
 # needs Docker. Requires `make generate` to have been run first.
@@ -358,7 +392,7 @@ loadtest:
 # meta-check on the gate's own shape, not a test — running it last means its
 # report describes the set of targets that just ran, and a genuine test
 # failure surfaces before the structural complaint about coverage does.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check generate-client lint-web test-web build-web
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check lock-check generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
