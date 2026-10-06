@@ -119,12 +119,19 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
 - `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
   which form carried it) from the **same parser `docs-index-check` uses**. This
   is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
-  reading the status line rather than grepping the body, because ADR-0015 and
-  ADR-0016 preserve the words *"Escalated — awaiting product decision"* beneath
-  a supersession notice. Added T64.5 — before it the gate could *refuse* an
+  reading the status line rather than grepping the body: **ADR-0015** preserves
+  *"Escalated — awaiting product decision"* and **ADR-0016** preserves
+  *"Escalated — awaiting the user's decision"*, both beneath a supersession
+  notice, so a grep for either string hits a resolved decision. (This bullet
+  attributed one quote to both files until T64's review read them; the quote
+  was copied from `sprint-process.md` rather than verified.) Added T64.5 — before it the gate could *refuse* an
   unreadable status and could not *print* a readable one, so T64's own ceremony
   copied the package into a scratch directory rather than re-implement the
-  parser as a grep (a bet this project has lost five times). Unclassifiable
+  parser as a grep — a bet this project has lost **repeatedly**, most recently
+  on ADR-0012, whose `## Status` is followed by a blank line so `tail -1` took
+  the blank. (*"Five times"* stood here until T64's review pointed out that
+  `sprint-process.md` says in as many words: if a count cannot be enumerated,
+  write *"repeatedly"* rather than *"five times"*.) Unclassifiable
   statuses fail this listing too, not just the gate.
 - `make lock-check` — fails when `web/package-lock.json` is missing, or when it
   and `web/package.json` disagree. Wires `npm ci --dry-run --offline` (npm's own
@@ -229,12 +236,22 @@ its filename alone and nothing collides or goes stale silently:
   Don't write adapter code assuming one row type across queries — see
   `fromFields` in `internal/booking/adapter/postgres/repository.go` for the
   pattern (convert from the shared columns, not a shared struct).
-- **26 test files across 5 contexts** are gated behind `//go:build
-  integration` — socialplay (10), payments (6), booking (4), competitions (4),
-  facilities (2), all under `adapter/`. Verify with
-  `grep -rl "go:build integration"` — this count read 11 across 4 contexts from
-  T12.1 until T61 re-ran that grep, which is the caveat at the end of this
-  paragraph working as intended rather than a separate failure. They
+- **Integration-tagged test files are counted by this command, not by this
+  paragraph** (T64 review fix — the paragraph said 26 across 5 contexts with
+  payments at 6, and the tree said 27 with payments at 7, because T62.5 added
+  one *after* T61 re-derived the figure):
+
+  ```
+  $ for f in $(find . -name '*_test.go'); do \
+      head -5 "$f" | grep -q '^//go:build integration' && echo "$f"; done \
+      | sed 's|^\./internal/\([^/]*\)/.*|\1|' | sort | uniq -c
+  ```
+
+  **`grep -rl "go:build integration"` — which this paragraph used to prescribe
+  — cannot produce that number**: it returns 45 paths, because the string also
+  appears in docs, the `Makefile`, the `Jenkinsfile`, a migration and
+  `tools/gatecoverage`'s own fixtures. A prescribed verification command that
+  does not reproduce the figure is worse than none. They
   need Docker (testcontainers-go) to *run*, so they are excluded from
   `make test-domain` and from plain `go test ./...`/`go vet ./...` — which
   means a break in one of them is invisible to every gate a machine without a
@@ -244,11 +261,22 @@ its filename alone and nothing collides or goes stale silently:
   still needs Docker: `make ci-integration`, or `make test`. Added T12.1 after
   booking's `concurrency_integration_test.go` broke twice in T11 with every
   runnable command reporting green — see `docs/process/t11-retro.md` finding 2.
-  As of T14.1 `make gate-coverage` reports these packages explicitly as
-  **compiled-but-never-executed** rather than leaving the distinction to this
-  paragraph. That state is deliberately a NOTE and not a failure; a package
-  whose *only* tests sit behind the tag is correctly not expected to run in a
-  Docker-free gate. **The counts above are narrative, not a gate** — do not
+  **`make gate-coverage` does NOT report these packages, and the sentence that
+  used to say it did was false** (T64 review fix). The tool classifies a
+  package as compiled-but-never-executed only when it holds **no** runnable
+  tests — `tools/gatecoverage/gatecoverage.go`'s `CompiledOnly` branch — and
+  every integration-bearing package here also holds untagged tests
+  (socialplay/adapter/postgres 10 tagged + 1 untagged, booking 4 + 5,
+  facilities 2 + 3, and so on). So each one passes on its untagged siblings and
+  **every integration file is invisible to `gate-coverage`**:
+
+  ```
+  $ make gate-coverage | grep -iE "NOTE|compiled|never"     # no output
+  ```
+
+  That is not a defect in the tool — a package with runnable tests that run is
+  correctly covered — but do not read `gate-coverage: OK` as saying anything
+  about the tagged files. Only `make ci-integration` does. **The counts above are narrative, not a gate** — do not
   hand-edit them into a checklist, and never add an exclusion list to
   `tools/gatecoverage` to keep them true.
 - **Docker works here. Start it and run `make ci-integration`.** Every sprint
@@ -256,9 +284,15 @@ its filename alone and nothing collides or goes stale silently:
   integration tests nobody had executed. The `dockerd`/`containerd` binaries
   were present the whole time; the daemon starts in about four seconds
   (`dockerd` detached, then poll `docker ps`), and the full suite takes
-  roughly 80 seconds. T61 ran it for the first time and it reported 34
-  failures — including **three live production defects**, two of them in one
-  trigger (`db/migrations/0030` fixes both, `db/migrations/0031` the third).
+  a couple of minutes (measured 100–106s on a quiet container; the run prints
+  its own count, so no number is carried here). T61 ran it for the first time
+  and it reported 34 failures — including **two live production defects**. A
+  **third** was found in the same sprint by the *review* of the fix, which
+  diffed every historical body of `enforce_game_capacity()`, and
+  `t61-retro.md` §4 is titled *"The third defect — found by the review, and not
+  findable by the suite"* — so crediting the suite with three, as this
+  paragraph used to, overstates what running it buys (T64 review fix).
+  `db/migrations/0030` fixes two of the three, `0031` the third.
   Each had been reported green by every Docker-free gate from the sprint that
   broke it — **T8.7, T19.1 and T10.6 respectively** — until T61. (Those are
   ticket numbers, not a count of elapsed sprints: T61's own first draft of this
@@ -299,11 +333,20 @@ its filename alone and nothing collides or goes stale silently:
   dependencies. **A broken half of a gate is not permission to skip the whole
   gate.**
 
-- **npm's own remediation commands crash on this project's dependency graph.**
-  npm 10.9.7, reproducibly: `npm audit fix`, `npm update <pkg>` and a **fresh**
-  `npm install` (no lockfile) all die with
+- **Some of npm's remediation commands crash on this project's dependency
+  graph.** npm 10.9.7, reproducibly: `npm audit fix` and a **fresh**
+  `npm install` (no lockfile) die with
   `npm error Cannot read properties of null (reading 'edgesOut')`. `npm install`
   **with the lockfile present** works, and `npm ci` works.
+
+  **`npm update <pkg>` is package-dependent, not a blanket crash** (T64 review
+  fix): it crashes on `vitest` and **succeeds** on `nanoid`, `vue`, `js-yaml`
+  and `undici`. Stated as universal — as it was here until T64's review tested
+  each one — it tells a reader not to try the command that would have worked.
+  **And npm ≥ 11 resolves the case 10.9.7 crashes on**: npm 12.2.0 in a scratch
+  prefix completes the `vitest` bump with `found 0 vulnerabilities` (see #320,
+  where the remaining half — running the web suite on that version — is still
+  owed).
 
   Consequences, learned the hard way at T63.2:
   1. **Fix transitive advisories with an `overrides` block in
@@ -314,10 +357,20 @@ its filename alone and nothing collides or goes stale silently:
   2. **Do not delete `web/package-lock.json`.** It is what makes installs work
      here; without it npm cannot resolve this graph at all. T63.2 deleted it
      while investigating and had to restore it from a copy.
-  3. **`npm audit` on a tree with no `node_modules` reports "clean".** It is
-     auditing nothing. Always check `metadata.dependencies.total` alongside the
-     tally — a clean result over 0 dependencies is the vacuous-green failure
-     this project keeps rediscovering.
+  3. **Read `metadata.dependencies.total` beside every `npm audit` tally.**
+     The habit is sound and is what caught T63.2's real problem; **the
+     mechanism this bullet used to assert is not reproducible** (T64 review
+     fix). Tested both configurations on npm 10.9.7:
+
+     ```
+     lockfile present, node_modules absent -> {moderate: 2, high: 0}, deps 368   # correct
+     no lockfile, no node_modules          -> npm error code ENOLOCK, exit 1     # refuses
+     ```
+
+     npm audits **from the lockfile**, so it is right without `node_modules`,
+     and without a lockfile it refuses rather than lying. So this was a
+     misattribution, not a third instance of vacuous green — keep the habit,
+     drop the claim.
 
 - **An in-memory fake is more permissive than Postgres, and that asymmetry
   hides storage bugs.** `0031`'s defect — `payments.payable_type`'s CHECK
