@@ -76,10 +76,69 @@ $ for n in 330 329 328 320 149 145 134; do gh api .../issues/$n --jq .body \
 | #145 | **Answered at T64**, as a deferral with a trigger a future sprint can cause. The strike-through above is the step working. |
 | #134 | No. Blocked on hardware. |
 
-**No product decision awaits an answer.** Three issues carry *engineering*
-options — which the step surfaces and the old label-and-state sweep would not
-have — and each is assigned to the ticket that settles it rather than left as
-an open question in a body.
+Three issues carry *engineering* options — which the step surfaces and the old
+label-and-state sweep would not have — and each is assigned to the ticket that
+settles it.
+
+### ⚠️ And the sentence that was going to go here was false
+
+**The draft of this section read "No product decision awaits an answer."** The
+premise-challenge pass (§6) found **two** awaiting one, and both were inside
+ADRs this ceremony's own listing reports as `Accepted`:
+
+```
+$ for f in docs/adr/*.md; do n=$(grep -ciE "escalated to (the user|pm/po)|awaiting (the user|product)|unanswered|needs (product|the user)" "$f");     [ "$n" -gt 0 ] && echo "$n $f"; done
+2  docs/adr/0009-social-channel-integration-deferred.md      # LIVE
+4  docs/adr/0012-identity-users-...-escalated-decisions.md    # Q1 LIVE, Q2 deliberately not asked
+4  docs/adr/0010-...-deferred-to-identity-context.md          # superseded by 0012
+5  docs/adr/0015-booking-ownership-for-public-bookings.md     # answered T55
+4  docs/adr/0016-reviewer-authored-code-...-pull-request.md   # answered T55
+```
+
+**This is the same one-level-short failure, for the third time, in the sweep
+rebuilt to prevent it.** T62.4 moved from *labels* to *the open-issue list*;
+T64.5 moved from *an issue's state* to *an issue's prose*; and the ADR half
+still reads **only the status line**. T64.5 fixed prose-reading for issues
+only, and this ceremony celebrated the ADR half as *"one command"* — which is
+exactly what made it shallow.
+
+**ADR-0012 Q1 is not Q2, and `HANDOFF.md` applied Q2's description to both.**
+
+| | question | character |
+|---|---|---|
+| **Q1** | *"How is the Player Level formula weighted?"* — tenure + win rate | **an ordinary product-weighting question** |
+| **Q2** | whether to collect and algorithmically act on a **protected attribute** (gender-mix matching) | genuinely may never be this project's to answer |
+
+`HANDOFF.md`'s "Indefinitely blocked" table carried them as one row —
+*"ADR-0012 Q1/Q2 — Legal/ethical dimension … May never be this project's to
+answer"* — and `t59-sprint-plan.md:110-113` is where the collapse was written
+down, as *"a legal/ethical question"*, singular. T62, T63, T64 and the draft of
+this plan all inherited it. ADR-0012's own trigger says the opposite in as many
+words: *"If only one of Q1/Q2 is answered, build the part that answer
+unblocks."*
+
+**Open since 2026-08-10 — longer than DECISION D1's 41 sprints**, by the same
+mechanism, through four consecutive ceremonies with hardened sweeps. It gates
+**matchmaking**, a locked v1 scope item.
+
+### Both were put to the Product Owner before any ticket was finalised, and both were answered
+
+| decision | answer |
+|---|---|
+| **ADR-0012 Q1** — Player Level weighting | **Balance win rate with experience**: win rate is the signal, but a player needs a reasonable number of games before the rating is trusted, and early results move it less. The conventional recreational-ladder choice, chosen over win-rate-dominant for being harder to game and kinder to beginners |
+| **ADR-0009** — market scope | **Both, with one built first**: the channel is a pluggable port and one implementation ships first |
+| **ADR-0012 Q2** | **Deliberately not asked.** It is the protected-attribute question, and nothing in this sprint needs it. Recorded as separate, which is the thing four ceremonies failed to do |
+
+**One sub-decision stays open and is named rather than guessed: which channel
+is built first.** The option the Product Owner chose asks for it, and the
+answer was not given. It blocks nothing in T65 — no messaging ticket is in this
+slate — so it is put when the messaging ticket is refined, not resolved here by
+inference. **That is a deferral with a trigger a future ceremony causes**, the
+distinction ADR-0015 lacked.
+
+**Q1's answer has a standing consequence this sprint must honour.** ADR-0012:
+*"The sprint immediately following the user's answers … must implement that
+answer."* T65 is that sprint. T65.2 below is it.
 
 **And the limit, which this ceremony can state first-hand.** All seven bodies
 were written or corrected within the last 24 hours, by this session. The step
@@ -154,213 +213,210 @@ it.
 
 ## §4 — Tickets
 
-Five. Ordered by value below; the numbering follows discovery.
+**The slate was rebuilt after the premise challenge (§6) and the two answers in
+§1.** The draft's five tickets were two documents, an internal tool's tests, a
+dev-only dependency bump, two internal lists and two process clauses — **zero
+of five touching the product**, in a project whose purpose is a pickleball
+platform. Four tickets now, 15 points, **two of them product**.
 
-### T65.3 — The two documents every session reads first describe a T4-era prototype
+### T65.1 — The Vue client cannot authenticate, so every write path in the shipped UI is `Unauthenticated`
 
-**Story.** As a session starting work on this repository, I want the first two
-documents I am told to read to describe the system that exists, so that I do
-not begin from a four-sprint-old prototype's premises.
+**Story.** As a player, I want to sign in, so that booking a court, joining a
+game, paying, entering a competition or editing my profile does something other
+than fail.
 
-**Description.** `t64-retro.md` §8 and recommendation 5. `CLAUDE.md`'s "What
-this is" says *"a runnable vertical slice through the **Booking** bounded
-context"*; its "Current state" enumerates T0–T4 and ends *"Next phase: see
-`HANDOFF.md` task backlog (T5 onward)"*. `HANDOFF.md`'s "Current state" stops
-at T9. The tree:
+**Description.** Found by the premise challenge and verified here. The server
+enforces authentication on **31 RPCs** across all six contexts; the client
+cannot send a token at all.
 
 ```
-$ ls internal/ | tr '\n' ' '
-booking competitions facilities gen identity payments platform socialplay
-$ ls db/migrations/*.sql | wc -l
-33
-$ grep -rh '^func Test' --include=*_test.go internal cmd tools | wc -l
-1039
+$ grep -rn "Authorization" web/src --include=*.ts --include=*.vue | grep -v api/generated
+web/src/composables/useGamePayment.ts:15:/** Authorization facts for a … checkout
+                                        # a comment. That is the only match.
+$ grep -rln "\.POST(" web/src --include=*.ts --include=*.vue | grep -v __tests__ | wc -l
+12
+$ for c in booking socialplay competitions payments facilities identity; do \
+    awk '/func AuthenticatedMethods\(\) \[\]string \{/,/^\}/' internal/$c/adapter/grpcapi/*.go \
+    | grep -c "_FullMethodName,"; done        # 8 9 6 4 4 0
+31
+$ grep -rn "MOCK_OWNER_ID\|MOCK_PLAYER_ID" web/src --include=*.ts | grep -v __tests__ | wc -l
+10
 ```
 
-Six bounded contexts, 33 migrations, 1039 test functions, a working auth spine
-and a green integration suite. **This is not a correction, which is why T64's
-sweep did not do it**: the content is stale because of *where it lives*, and a
-patch would be stale again in two sprints.
+Twelve write call sites — book a court, join a game, pay for a game, enter a
+competition, create a facility, add a court, create a game, create a
+competition, set a discount, request a club rental, approve one, edit a profile
+— and ten of them still send `actorUserId: MOCK_*`, a wire field the handlers
+have ignored since T12.8. **Owed since T55 (2026-09-04)**, recorded in
+`HANDOFF.md`'s "Cross-cutting / later", which **no ceremony step reads**:
+
+```
+$ grep -n "Cross-cutting" docs/process/sprint-process.md | wc -l
+0
+```
+
+**Why no gate noticed, and this is the sharper half.** All 717 web tests mount
+with a fixture client, and `web/` has no e2e tooling at all. That is
+`CLAUDE.md`'s own best lesson one layer up — *"an in-memory fake is more
+permissive than Postgres, and that asymmetry hides storage bugs"* — except the
+fake here is the **client**, and what it hides is that the product's entire
+write surface is unreachable. The project learned this about Postgres at T61
+after 57 sprints and has not applied it to the browser.
 
 **Instructions.**
-1. **`CLAUDE.md`'s "What this is"**: one sentence, derived — the contexts that
-   exist, named. Keep it short enough that it stays true.
-2. **Delete `CLAUDE.md`'s "Current state" section** and point at
-   `HANDOFF.md`'s Docs index. The argument to state in the commit: a per-sprint
-   status list inside a document that calls itself *the durable rulebook* is
-   guaranteed to go stale, and the index next door is **derived, gated by
-   `make docs-index-check`, and current to T65**. Removing the section removes
-   the content *and the mechanism*.
-3. **`HANDOFF.md`'s "Current state"**: cut the per-sprint prose blocks (each
-   duplicates that sprint's retro, which the Docs index already links) down to
-   a current statement of what exists and what does not, **re-derived against
-   the tree** rather than carried. The "Not yet built" list must be re-verified
-   per item — T64's review found "Auth" on it.
-4. **State what is lost.** The prose blocks contain judgements that are not in
-   the retros. Anything worth keeping moves to the retro it belongs to, or is
-   quoted in the new section with its sprint named. **Do not delete a judgement
-   silently to make a section shorter.**
-5. **Do not add a gate for this.** `docs-index-check` covers the index and the
-   narratives; extending it to prose about "current state" would need it to
-   know what is true of the tree, which is the whole repository. Record the
+1. `web/src/state/authSession.ts` — a token `ref` plus `localStorage`,
+   mirroring `web/src/state/roleEvidence.ts`, which already exists and is the
+   convention to copy rather than invent.
+2. Attach `Authorization: Bearer <token>` in `web/src/api/client.ts` via
+   `openapi-fetch`'s `.use()` middleware. **Confirm 0.17's middleware API
+   first** — `^0.17.0` is declared and 0.17.0 is installed; verify, do not
+   assume.
+3. A **401 → "sign in required"** branch in the shared error path, not per
+   composable.
+4. A **dev-only token-entry route** fed by `make dev-token`, which already
+   exists and whose `Makefile` comment documents the exact
+   `Authorization: Bearer` form.
+5. **Delete the `actorUserId: MOCK_*` arguments**, which the handlers ignore.
+   Deleting a field the server ignores is safe; leaving it is a lie on the
+   wire.
+6. **One real end-to-end check, or an honest statement that there is none.**
+   717 green tests against a fixture client is precisely what hid this. Either
+   drive one authenticated write against a running server (`make up` supplies
+   the auth env from `dev/auth/`, `make dev-token` mints the token) and quote
+   it, **or** say in the PR that the change is unproven against a real
+   gateway — and if so, that gap gets an issue.
+
+**NFRs.** Real-IdP work is **excluded and named**: no redirect flow, no remote
+JWKS `KeySource` (#145, #137). This is the dev-fixture token path only, which
+is what `dev/auth/` exists for. 61 files / 717 tests stay green.
+**Points: 5.** `role:senior-product-engineer`, `type:story`.
+
+### T65.2 — Player Level, per ADR-0012 Q1's answer
+
+**Story.** As a player, I want my level to reflect how I actually do, so that
+matchmaking suggests opponents near my standard.
+
+**Description.** §1. Q1 was answered **"balance win rate with experience"**,
+and ADR-0012's trigger says the sprint immediately following the answer
+implements what it unblocks. **Q2 remains unasked**, so this ships
+**level-only** matching and touches nothing gender-related.
+
+**Instructions.**
+1. The formula lives in `internal/identity/domain` as a **pure function** —
+   rule 2. Win rate is the signal; a confidence ramp makes early results move
+   the value less, so a player below the threshold is weighted toward their
+   self-reported starting level (the locked cold-start mechanism) rather than
+   toward their first result.
+2. **Table-driven tests first** (rule 1), and the cases that encode the
+   answer: a 1-win player must not outrank a long-run strong player; a
+   100%-win-rate newcomer must sit below a proven regular; the value must be
+   monotonic in wins at fixed games played.
+3. **Pick the threshold and the ramp shape in the PR, with the reasoning**, and
+   state that the Product Owner chose the *character* of the formula, not its
+   constants. Do not present a constant as though it were decided for you.
+4. Automated suggestion must stay **manually overridable** — a locked v1
    decision.
+5. **No `Gender` field anywhere** — schema, domain or proto. ADR-0012
+   instruction: *"until Q1 and Q2 are answered, no PR may…"*, and Q2 is
+   unanswered.
+6. Update ADR-0012: Q1 **answered**, with the answer, the date and what it
+   unblocks; Q2 **still escalated**, now visibly separate.
 
-**NFRs.** `make docs-index-check` must stay green. No claim in either rewritten
-section without a command or a path that supports it; where a claim is about
-the environment rather than the tree, it carries the date it was tested.
-**Points: 5.** `role:principal-engineer`, `type:chore`.
+**NFRs.** `internal/identity/domain` imports nothing outside the standard
+library. Rule 4 applies if any value is persisted: the schema half ships in the
+same ticket.
+**Points: 5.** `role:principal-engineer`, `type:story`.
 
-### T65.2 — #328: tests for `cmd/docsindex`, and decide what `gate-coverage` owes
+### T65.3 — Record both answers where the next reader meets them
+
+**Story.** As a future ceremony, I want these two decisions to be findable
+without re-deriving them, so the next sweep does not report them absent for a
+fifth time.
+
+**Description.** The bookkeeping half of §1, and it is not optional: the reason
+Q1 went unasked for 55 sprint-labels is that **its record said it was
+unanswerable.**
+
+**Instructions.**
+1. **ADR-0009**: status and resolution updated with the market-scope answer
+   (both markets; pluggable channel; one implementation first) and the named
+   open sub-decision (**which one first**), with its trigger.
+2. **`HANDOFF.md`'s "Indefinitely blocked" table**: split the `ADR-0012 Q1/Q2`
+   row. Q1 → answered, with its answer. Q2 → stays, with Q2's own description
+   and **not Q1's**. Say that the collapse is what hid an answerable question.
+3. **`sprint-process.md`**: the escalation sweep must read an **ADR's body**,
+   not only its status line — the same step T64.5 added for issues, which the
+   ADR half never got. Carry the derived grep from §1 as the worked example and
+   the three-step history (labels → issue list → prose) as the reason.
+4. **Also fix what the listing got wrong**: `cmd/docsindex -statuses` reports
+   `Accepted=17`, and **ADR-0010 is `Accepted … Superseded by ADR-0012`** — one
+   status line carrying two tokens, so the tally overcounts live decisions. Not
+   what #329 covers (that is two *forms* disagreeing); add it there.
+
+**NFRs.** `make docs-index-check` stays green. No new claim without its command.
+**Points: 2.** `role:principal-engineer`, `type:chore`.
+
+### T65.4 — #328: tests for `cmd/docsindex`, and decide what `gate-coverage` owes
 
 **Story.** As a maintainer, I want the 52 lines T64.5 shipped untested to be
-tested, and I want to know whether the project's standing answer to "what is
-untested?" is supposed to cover `main` packages at all.
+tested, and to know whether the project's standing answer to "what is
+untested?" covers `main` packages at all.
 
 **Description.** #328, premise re-verified in §3 and **worse than filed**: four
-of five `cmd/*` packages hold zero tests, so `gate-coverage: OK` is silent
-about all of them by construction. Rules 1 and 8 were not met by T64.5.
+of five `cmd/*` packages hold zero tests (`cmd/server` has 4), so
+`gate-coverage: OK` is silent about all of them by construction. Rules 1 and 8
+were not met by T64.5 — which makes this the one piece of self-maintenance that
+survives the premise challenge, because it is a rule violation rather than a
+tidiness.
 
 **Instructions.**
-1. Test `-statuses`: the listing's lines, the tally, and — most important —
-   the **non-zero exit** on an unclassifiable status. A listing that exits 0
-   while skipping an unreadable ADR is the defect T62.4 was written to stop.
+1. Test `-statuses`: the listing, the tally, and above all the **non-zero exit**
+   on an unclassifiable status.
 2. **Mutation-verify each** (T63.3), quoting the failure.
-3. **Then decide the blind spot explicitly, and record the decision**: leave it
-   and say so in `CLAUDE.md`'s `gate-coverage` entry; extend the tool with a
-   separate "zero-test package" report; or make `main`-package exemption an
-   explicit convention. #328 names the trade-offs.
-4. **Do not add an exclusion list to `tools/gatecoverage`.** Its doc comment
-   forbids it and three sprints of history back that up.
+3. **Decide the blind spot explicitly and record it**: say so in `CLAUDE.md`, or
+   add a separate zero-test-package report, or make `main`-package exemption an
+   explicit convention.
+4. **No exclusion list in `tools/gatecoverage`.**
 
-**NFRs.** `make gate-coverage` must still pass; the new tests must be reachable
-from `ci-checks` without widening any pattern by hand (they will be — `cmd/...`
-is already a `test-cmd` pattern, which is itself worth confirming rather than
-assuming).
+**NFRs.** `make gate-coverage` must still pass. Confirm `test-cmd`'s `./cmd/...`
+pattern picks the new test up without a Makefile edit — a step, not an
+assumption.
 **Points: 3.** `role:principal-engineer`, `type:chore`.
-
-### T65.1 — #320: take the `vitest` bump, now that the remedy is verified
-
-**Story.** As an operator, I want the last two advisories in the web client
-closed, so that `make security` reports nothing rather than two
-below-threshold findings.
-
-**Description.** #320's preferred remedy — *"a newer npm; verify on npm ≥ 11"*
-— was tested while T64's retro was being written and **works**: npm 12.2.0 in
-a scratch prefix resolves the bump with `found 0 vulnerabilities`. What remains
-unverified is the half that matters: **the 717 web tests on `vitest` 4.1.11.**
-
-**Instructions.**
-1. **Decide and record how a newer npm enters this environment** before
-   touching the lockfile — a pinned `npx npm@12`, a scratch prefix on `PATH`,
-   or a global install. `make lock-check` runs `npm ci --dry-run` with whatever
-   npm is on `PATH`, so **two npm versions can produce two lockfiles**; the
-   project must target one. Verify, do not assume.
-2. Bump `vitest` to the first fixed version in its current major line
-   (`^4.1.11`), with `@vitest/mocker` overridden if it does not follow.
-3. **Mutation-verify by reverting the lockfile** (T64.3's clause), showing both
-   advisories returning by name.
-4. Run `make test-web` and `make build-web` and report both. **If a web test
-   breaks, stop and report — do not fix the test in this PR.** Standing
-   instruction from T63.2; this project has one recorded instance of a suite
-   asserting a defect as correct (`t58-retro.md` §3).
-5. Re-run `SKIP_GOVULNCHECK=1 make security` **with its date**.
-
-**NFRs.** 61 files / 717 tests stay green. No baseline entry. The lockfile is
-regenerated by the npm the project decided on in step 1, not by whichever was
-handy.
-**Points: 3.** `role:principal-engineer`, `type:bug`.
-
-### T65.4 — #329 and #330: two lists that are right by luck
-
-**Story.** As a ceremony, I want the ADR status parser and the Jenkinsfile's
-account of `ci-checks` to be right by construction rather than by convention.
-
-**Description.** Both are "a hand-maintained or convention-dependent answer
-that happens to be correct today". #329: two of seventeen ADRs carry **both**
-status forms with disagreeing tokens, and `adrStatus` takes front-matter
-unconditionally and silently — right because of which form this project
-happens to use for the live value. #330: the Jenkinsfile's comment omits **6 of
-17** prerequisites (§3), in the comment whose own argument is that such lists
-drift.
-
-**Instructions.**
-1. **#329:** when both forms are present, surface it. Prefer the **note** form
-   over failing the gate, since both current instances are benign and a red
-   gate on the shared branch blocks every PR — but say which you chose and why.
-   Add the both-forms fixture T64.5's tests lack. The fenced-code-block variant
-   is the same fix region; cover it or record why not.
-2. **#330:** **delete the prose list** rather than re-typing it, and have the
-   pipeline print the real one (`make -n ci-checks`, or a small `print-ci-checks`
-   target). A list that cannot go stale beats a list that is currently correct.
-3. Record the finding that `lock-check` **can never fire in the real pipeline**
-   (`npm ci` runs two stages earlier), and either reorder the stages or say
-   plainly in `CLAUDE.md` that it is a local-developer gate. It currently reads
-   as though CI is where it earns its keep.
-
-**NFRs.** `docs-index-check` stays green — if #329 is implemented as a failure
-rather than a note, the two existing ADRs must be normalised **in the same PR**,
-because a rule that ships the gate red is worse than the gap.
-**Points: 3.** `role:principal-engineer`, `type:chore`.
-
-### T65.5 — The two process debts T64's retro left open
-
-**Story.** As a future ceremony, I want the two mechanics T64 learned the hard
-way written down, so the next session does not rediscover them.
-
-**Description.** `t64-retro.md` recommendations 4 and 9, both deliberately left
-to a sprint that did not discover them.
-
-**Instructions.**
-1. **The stale-read qualification on T63.1.** A live-state command run in the
-   same breath as the action it verifies can return the **pre-action** state —
-   T64 closed #322 and read the issue count as 5, then 4 moments later. One
-   sentence: read the object rather than the list, or read twice. **Or decide
-   against it and say why**: it is a habit, and this document already warns
-   against rules that cannot be followed mechanically.
-2. **The squash-ancestry procedure.** Three sprints running have hit it: every
-   PR squash-merges, so a branch cut from the previous PR's tip shares no
-   commit with the squashed result and conflicts on byte-identical content.
-   The procedure is short — verify the base's file is byte-identical to the
-   branch's pre-edit version (`git diff --stat <base> <branch-tip>`), then
-   rebuild the change on the base rather than resolving markers by hand — and
-   it currently lives only in two retros and a PR body.
-3. Keep both short. `t56-retro.md`'s complaint about rules becoming wallpaper
-   is the constraint; two paragraphs each is the budget.
-
-**NFRs.** Prose only. Each clause cites the instance that produced it.
-**Points: 2.** `role:principal-engineer`, `type:chore`.
 
 ### PM value ordering, if the sprint has to be cut
 
-1. **T65.3** — every session pays for this one on arrival, and it is the only
-   ticket whose cost is borne by *all future work* rather than by this sprint.
-2. **T65.2** — rules 1 and 8 were not met last sprint; the longer that stands,
-   the weaker both rules are.
-3. **T65.1** — real advisories, but dev-only and below the gate's own
-   threshold, with the remedy already verified.
-4. **T65.4** — two latent correctness gaps in tooling the ceremony now depends
-   on.
-5. **T65.5** — valuable, cheap, and nothing degrades while it waits.
+1. **T65.1** — twelve write call sites, behind 31 enforced RPCs, are
+   unreachable from the browser and have been for ten sprints. Nothing else
+   here is a user-visible defect.
+2. **T65.2** — a standing ADR commitment triggered by an answer given today,
+   and the first new capability since T58.
+3. **T65.3** — cheap, and it is what stops the fifth repetition of §1's
+   failure.
+4. **T65.4** — a rule-1/rule-8 violation from last sprint.
 
-**PE sign-off, with two sequencing constraints.** T65.3 and T65.2 both touch
-`CLAUDE.md`'s `gate-coverage` entry — T65.3 first, so T65.2's decision is
-recorded in a section that has already been rewritten. T65.4 and T65.1 are
-independent of everything.
+**Deferred to T66, deliberately**: the `CLAUDE.md`/`HANDOFF.md` structural
+rewrite (the draft's T65.3 — see §6 for why it was cut rather than reordered),
+#320's `vitest` bump (dev-only, below the gate's threshold, and it changes which
+npm the project targets — the challenge made the case that 3 points is
+optimistic), #329/#330, and T64's two process debts. **Four of those five are
+process or tooling work, which is the point.**
+
+**PE sign-off, with one sequencing constraint.** T65.2 and T65.3 both touch
+ADR-0012; T65.2 first, so T65.3 records an answer the code already honours.
+T65.1 and T65.4 are independent.
 
 **Dependency-completeness check** (both questions):
 
 | Ticket | Producer exists? | Consumer can reach it? |
 |---|---|---|
-| T65.3 | `HANDOFF.md`'s Docs index is derived and gated | yes — the index is already the designated map, and `docs-index-check` covers it |
-| T65.2 | `tools/docsindex`'s fixture helpers; `ADRStatuses` is exported | **to be confirmed by the ticket**: that `test-cmd`'s `./cmd/...` pattern picks up a new `cmd/docsindex` test without a Makefile edit. Stated as a step, not assumed |
-| T65.1 | npm 12.2.0 verified resolvable in a scratch prefix | **the open question is the consumer**: which npm `make lock-check` and CI will run. Instruction 1, before any lockfile change |
-| T65.4 | `adrStatus` is the single parser; `gatecoverage` already parses the Makefile | yes for #329; for #330 the pipeline needs a target to call — naming it is instruction 2 |
-| T65.5 | both `sprint-process.md` sections exist | yes — prose |
+| T65.1 | `dev/auth/` fixture, `make dev-token`, `cmd/devtoken`, and a server that enforces 31 methods | **the open question is the client**: whether `openapi-fetch@0.17.0` exposes `.use()` middleware. Instruction 2's own first step, not asserted here |
+| T65.2 | `internal/identity/domain` exists; the self-reported starting level is the locked cold-start input | **to be confirmed by the ticket**: that match history is actually *stored* in a form the formula can read. If it is not, the ticket's first finding is that Q1's answer unblocks a formula with no input, and that is worth knowing on day one |
+| T65.3 | ADR-0009, ADR-0012, `HANDOFF.md`, `sprint-process.md` all exist | yes — prose |
+| T65.4 | `tools/docsindex` fixtures; `ADRStatuses` exported | **to be confirmed**: `test-cmd`'s pattern picking up a new test |
 
-The two honest gaps are T65.2's and T65.1's, and both are written as the
-ticket's **first instruction** rather than resolved here, per T15.5's lesson
-that a planning check asserting an unread capability is how a ticket gets
-cleared and then hits a wall.
+**Three gaps, all named as first instructions** rather than resolved here. T65.2's
+is the one that could change the ticket: per T15.5, a planning check that asserts
+an unread capability is how a ticket gets cleared and then hits a wall.
 
 ## §5 — Deliberately out of scope, with the decision recorded
 
@@ -393,25 +449,129 @@ something, and argue the sprint is too big. The agent was given the plan before
 it was proposed for merge, so its objections can change the tickets rather than
 annotate them.
 
-<!-- T65-PREMISE-CHALLENGE -->
+### Verdict: the slate was wrong, and the ceremony's own steps are why
+
+The pass's one-paragraph verdict, which this ceremony accepts:
+
+> The five tickets are individually well-formed, correctly premise-checked, and
+> correctly sized — and collectively they are the wrong sprint.
+
+**Not a judgement failure. A sourcing failure, and a structural one.** Ceremony
+1 sources tickets from open issues, the previous retro's recommendations, and
+escalated ADR statuses — **all three artifacts the process generates about
+itself.** The one place this project parks product work it has chosen not to do
+is `HANDOFF.md`'s "Cross-cutting / later", and no ceremony step reads it:
+
+```
+$ grep -n "Cross-cutting" docs/process/sprint-process.md | wc -l
+0
+```
+
+**And the 0-ticket cap does not fire**, because it counts tickets rather than
+product tickets, and *"a sprint that takes even one ticket resets the count"*.
+T65's draft took five. The cap — adopted precisely because T30–T53 were 24
+consecutive sprints of ceremony documents — was satisfied while the failure mode
+it was written against was fully intact. The cap's own text is the argument:
+*"Every one of those ceremonies did what this document told it to do, and did it
+honestly … That is exactly why a cap is needed rather than better judgement."*
+Replace "0-ticket" with "0-product-ticket" and it describes this plan's draft.
+
+**T65 would have been the seventh consecutive sprint with no new user-facing
+capability** — the last was T58's per-head entry fees — and the first of the
+seven with no product surface to stumble over: T61 and T62 at least found live
+defects while doing infrastructure work.
+
+### What changed, and what was defended
+
+| objection | outcome |
+|---|---|
+| the slate is self-referential, zero of five touch the product | **accepted.** Rebuilt: 4 tickets, two of them product |
+| the client cannot authenticate; owed since T55; invisible to every sweep | **accepted and taken** as T65.1 — verified independently here (31 enforced RPCs, 12 write call sites, 10 `MOCK_*` arguments, zero `Authorization` headers) |
+| T65.3's "every session pays on arrival" is true of 34 lines and false of 239 | **accepted.** The `CLAUDE.md` section is auto-injected; the 239-line `HANDOFF.md` section is opt-in, and most of the 5 points were in the opt-in half |
+| T65.3's NFR is vacuous | **accepted, and it is the sharper point.** `docsindex`'s only narrative content check is `stalePhraseRe = (?i)retro not yet written`, which occurs **zero** times in the section being rewritten. The ticket's only stated verification could not fail — in a sprint whose predecessor's retro is largely about vacuous green |
+| deleting a section of the instruction file is a product-owner call | **accepted.** Deferred rather than taken; if it returns, it returns as a question, not a ticket |
+| §1's "no product decision awaits an answer" is false, twice | **accepted** — see §1. This is the pass's most valuable finding and the reason the brief existed |
+| 16 points is too big | **partly.** The arithmetic is within precedent (T62 took 17 and delivered five); the composition was the problem — 5 of 16 points were work no gate in this project can check |
+| promote T65.1 (`vitest`) instead | **declined, with its own evidence**: both findings are in the test runner, 29 production dependencies, zero affected, nothing in the shipped bundle. The pass argued this against itself and was right to |
+| #330's instruction, T65.4, T65.5, §0, and §1/§3's self-discipline | **defended by the pass and kept** — #329/#330 and the process debts move to T66 on priority, not on merit |
+
+### Two things the pass got wrong, checked before they were repeated
+
+1. **It said `internal/payments/port/` holds no Booking reader and 13
+   interfaces** — correct. But it also said *"none of `db/queries/booking.sql`
+   is owner-scoped"*, and my first check (`grep -c owner_user_id` → 6) appeared
+   to refute it. Reading the file settles it in the pass's favour: all six hits
+   are column lists in `INSERT`/`SELECT`/`RETURNING`, and
+   `grep -c "WHERE.*owner_user_id"` → **0**. The index at `0027:79` serves no
+   query. **A count was nearly used to refute a claim it did not address** —
+   the exact failure this project keeps finding, one level in.
+2. **It said 33 authenticated RPCs; the count is 31** (8+9+6+4+4+0). Its
+   decomposition put 2 in booking and 2 in identity; the real split is 8 and 0.
+   Immaterial to the argument, and recorded because an uncorrected figure is how
+   the next document inherits it.
+
+### What this says about the review arrangement
+
+T64's retro said a reviewer agent *"cannot ask why is this sprint's premise the
+right premise"*, and listed the question nobody asked. **Briefed to ask exactly
+that, it did** — and found a false sentence, a 55-sprint escalation failure, a
+structurally self-referential sourcing step, and a vacuous NFR, in a plan that
+had already been written to this project's own rules.
+
+So the limit in T64 §9 was **narrower than stated**: the constraint was not
+that an agent cannot challenge a premise, it was that nobody had asked one to.
+What remains true is that this one was pointed at a plan by its author and told
+which five objections to attack — it did not choose its own target. That is the
+next thing to test.
+
+
 
 ## §7 — What this ceremony produced
 
 1. **The security gate run first, and dated** — PASS, where T64's ceremony
    found it red by doing the same thing one sprint earlier.
-2. **The ADR half of the escalation sweep answered by one command**, the first
-   use of the listing T64.5 built after the previous ceremony had to copy a
-   package to a scratch directory.
-3. **T64.5's prose step applied**, surfacing three engineering decisions in
-   issue bodies and confirming #145's product question answered — **and stating
-   that it proved nothing here**, because this session wrote all seven bodies
-   within a day.
-4. **The premise check fired on zero of seven, recorded as arithmetic rather
-   than evidence** for the same reason.
-5. **T64's row completed**, including that **#326 and #331 carry the first
-   non-author reviews in this project's history**.
-6. **The compliance question answered honestly: the sprint that did not write
-   these rules has not happened yet**, so the only real evidence remains that
-   T64's derived audit found every uncommanded figure and nothing else.
-7. **Five tickets**, 16 points, with two dependency gaps named as first
-   instructions, and five documented exclusions.
+2. **Two live product decisions found, raised and answered** (§1) — ADR-0012
+   Q1, open since 2026-08-10 and therefore longer than D1's 41 sprints, and
+   ADR-0009's market scope, escalated at T7. Both sat inside ADRs this
+   ceremony's own listing reports as `Accepted`, and **four consecutive
+   ceremonies with progressively hardened sweeps declared no such decision
+   existed.**
+3. **The reason, stated structurally rather than as an oversight:** the
+   escalation sweep has now been fixed three times and each fix stopped one
+   level short — labels → the open-issue list → an issue's prose — and the ADR
+   half still reads only a status line. T65.3 carries it.
+4. **Q1 and Q2 separated.** `HANDOFF.md` carried them as one
+   "legal/ethical, may never be ours to answer" row; Q1 is an ordinary
+   weighting question and ADR-0012 says in as many words that answering one
+   unblocks its half.
+5. **The slate rebuilt after a premise challenge** (§6): from five tickets with
+   **zero** product work to four with two, including a client that cannot
+   authenticate against 31 enforced RPCs and has not been able to since T55.
+6. **The 0-ticket cap shown to be satisfiable while its failure mode is
+   intact**, because it counts tickets rather than product tickets — and the
+   place this project parks deferred product work is read by no ceremony step.
+7. **T64's row completed**, recording that #326 and #331 carry the first
+   non-author reviews in this project's history.
+8. **Four tickets**, 15 points, three dependency gaps named as first
+   instructions, and the compliance question answered honestly: the sprint that
+   did not write these rules has still not happened.
+
+## §8 — Recommendations for T66's Ceremony 1
+
+1. **Add a sourcing step: name the highest-value unbuilt *product* capability
+   and say why it is not this sprint's work.** §6's finding is that the
+   ceremony's three ticket sources are all self-generated. One sentence per
+   ceremony makes the omission visible, which is all any rule in this document
+   does.
+2. **Make the 0-ticket cap count product tickets**, or add a second counter
+   that does, with a threshold and an action — per this document's own rule
+   that a counter without those is bookkeeping.
+3. **Read ADR bodies in the escalation sweep** (T65.3 instruction 3 does this;
+   T66 should check it was actually followed by a ceremony that did not write
+   it).
+4. **Put the deferred structural doc rewrite to the Product Owner as a
+   question, not a ticket** — deleting a section of the instruction file is
+   their call, and §6 is the argument for asking rather than doing.
+5. **The one open sub-decision: which messaging channel is built first.** Put
+   it when the messaging ticket is refined. It blocks nothing now, and the
+   trigger is a ceremony's own act rather than an event nobody can cause.
