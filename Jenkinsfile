@@ -8,12 +8,17 @@
 // ---------------------------------------------------------------------------
 // AGENT ASSUMPTIONS — read before wiring this to a real Jenkins
 // ---------------------------------------------------------------------------
-// `agent any`, deliberately, NOT `agent { docker { ... } }`. This project is
-// developed in sandboxes that repeatedly turn out to have no Docker daemon
-// (see CLAUDE.md's gotchas and HANDOFF.md), and a Jenkins agent may be the
-// same. A docker-agent pipeline cannot even start there; this one runs every
-// stage that does not intrinsically need Docker, and skips only the one that
-// does, loudly.
+// `agent any`, deliberately, NOT `agent { docker { ... } }`. The reason is
+// that a Jenkins agent may not have a Docker daemon, and a docker-agent
+// pipeline cannot even start there; this one runs every stage that does not
+// intrinsically need Docker, and skips only the one that does, loudly.
+//
+// This comment used to justify the choice differently — "this project is
+// developed in sandboxes that repeatedly turn out to have no Docker daemon".
+// **That premise was false and was retired at T61**: the daemon was present
+// the whole time and starts in about four seconds (CLAUDE.md's "Docker works
+// here"). The decision survives its own rationale, which is why the rationale
+// is corrected here rather than the decision reopened.
 //
 // The agent MUST provide:
 //   - Go >= 1.25 on PATH (go.mod says 1.25.0)
@@ -235,7 +240,10 @@ pipeline {
                     } else {
                         def msg = 'No Docker daemon on this agent: the integration/concurrency ' +
                                   'tests did NOT run. The no-double-booking invariant is therefore ' +
-                                  'UNVERIFIED by this build. See CLAUDE.md gotchas.'
+                                  'UNVERIFIED by this build. Fix the agent (provision Docker, or ' +
+                                  'start the daemon) rather than accepting this as expected — ' +
+                                  'T61 found three live production defects behind exactly this ' +
+                                  'disclaimer. See CLAUDE.md\'s "Docker works here" gotcha.'
                         if (params.FAIL_ON_SKIPPED_INTEGRATION) {
                             error(msg)
                         }

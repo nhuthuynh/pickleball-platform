@@ -1123,6 +1123,78 @@ command that reproduces it; a quantity about the *past* has a citation that
 records it. Neither is exempt from carrying its evidence; they carry different
 kinds.
 
+## When a claim is retired, the sweep's scope is derived, not listed
+
+**Adopted T64.2**, from `docs/process/t63-retro.md` §8 recommendation 1 and
+issue #322.
+
+**The rule.** When this project establishes that a claim it has been repeating
+is false, the sweep that retires it covers **every file that can utter it,
+found by a repo-wide search**, not the files someone remembers. State the
+search and its result, and classify what it finds rather than editing
+everything it matches.
+
+**Why, with the instance that cost the most.** T61 established that "no Docker
+daemon available here" was false — the daemon starts in about four seconds —
+and PR #313 retired the claim across **17 test files**. That sweep touched
+`HANDOFF.md`, one retro and seventeen `*_test.go` files. It did not touch the
+`Makefile`, where `ci-integration`'s own guard printed *"This is the documented
+gap in CLAUDE.md's gotchas, not a new problem"* — sending its reader to a
+document that refutes it, at the exact moment that reader is blocked and
+deciding whether to act. Two sprints later a session met it live (#322), and
+the remedy was one command and two seconds.
+
+> **A stale sentence in a document misleads someone reading history. A stale
+> sentence in a gate, a Makefile message, a CI config or an error string
+> misleads someone who is blocked right now.** The second kind is worth more
+> and is the kind a documentation sweep structurally cannot reach, because such
+> a sweep is scoped to documents.
+
+**What the derived version found when T64.2 ran it.** The same claim, searched
+across the whole tree rather than across documents and tests:
+
+```
+$ cd <a pristine checkout of 1febf8e>                 # so the sweep does not count itself
+$ grep -rIn --exclude-dir=node_modules \
+    -e "no Docker daemon" -e "No Docker daemon" -e "cannot run here" \
+    -e "not a new problem" -e "documented gap" \
+    -e "on a machine with a Docker daemon" -e "Docker daemon available" . | wc -l
+103        # across 64 files
+```
+
+**That figure is derived, and the first version of this paragraph was not.**
+The draft said "66 lines in 63 files", a number nobody had computed — written
+while looking at a per-file listing and never totalled. The command above
+returns 103. A sweep-scope rule whose own scope figure was invented would have
+been a poor advertisement for itself.
+
+Note also **why the count is taken against a pristine checkout**: run in the
+working tree, this very section's text matches its own search terms, so the
+number rises as the write-up is written. Same shape as `docs-index-check`
+counting the retro that cites it (`t63-retro.md` §7).
+
+Three of the 103 were live and action-guiding, and **none of the three had been
+touched by any previous sweep**:
+
+| file | what it said | disposition |
+|---|---|---|
+| `Makefile` | the gate's own failure message, and `make ci`'s closing line | rewritten to carry **the remedy** |
+| `README.md` | *"a large share of this project's development environments have no Docker daemon"* | rewritten; it is the first thing a new reader meets |
+| `Jenkinsfile` | `agent any` justified by *"sandboxes that repeatedly turn out to have no Docker daemon"* | **premise corrected, decision kept** — `agent any` is still right because a Jenkins agent may genuinely lack Docker |
+
+**And classifying is half the rule, because most matches must not be edited.**
+The remaining hundred are legitimate: retros and sprint plans recording what was
+believed at the time; the 17 test headers T61 rewrote to **quote the claim
+beneath its refutation** (the assert-the-positive pattern — see T62.1); two
+migration comments that date themselves by their own file number; and
+`CLAUDE.md`'s refutation itself, which necessarily contains the words. **A
+sweep that edited every match would destroy the project's own record of having
+been wrong**, which is the thing these documents are for.
+
+So the output of a retirement sweep is a **table like the one above**, not a
+diff count: what matched, which ones are live, and why each of the rest is
+correctly left alone.
+
 ## A guard is verified by removing it
 
 **Adopted T63.3**, from `docs/process/t60-retro.md` recommendation 1 after **two

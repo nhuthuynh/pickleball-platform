@@ -367,14 +367,24 @@ ci: ci-checks
 	@echo
 	@echo "make ci: OK — lint, unit tests, codegen, build, and the security gate all passed."
 	@echo "The //go:build integration files ARE compiled here (vet-integration), but NOT executed."
-	@echo "Run 'make ci-integration' on a machine with a Docker daemon to actually execute them."
+	@echo "Run 'make ci-integration' to actually execute them — if the daemon is down,"
+	@echo "that target's own message says how to start it (seconds, not a blocker)."
 
 # The Docker-dependent half: the testcontainers-backed integration and
 # concurrency tests that actually prove the no-double-booking invariant.
 ci-integration:
 	@docker info >/dev/null 2>&1 || { \
-	  echo "No Docker daemon reachable — the integration tests (testcontainers) cannot run here."; \
-	  echo "This is the documented gap in CLAUDE.md's gotchas, not a new problem."; \
+	  echo "No Docker daemon reachable YET — which is a thing to fix, not a thing to report."; \
+	  echo ""; \
+	  echo "  (dockerd >/tmp/dockerd.log 2>&1 &) ; until docker ps >/dev/null 2>&1; do sleep 1; done"; \
+	  echo "  make ci-integration"; \
+	  echo ""; \
+	  echo "On this project's own containers the daemon starts in about four seconds and"; \
+	  echo "the suite takes roughly 95 seconds (2500 tests)."; \
+	  echo ""; \
+	  echo "If it genuinely cannot start, report the error dockerd gave. Do NOT record the"; \
+	  echo "suite as unrunnable: every sprint from T4 to T60 did that, and T61 ran it and"; \
+	  echo "found three live production defects behind the disclaimer."; \
 	  exit 1; }
 	$(MAKE) test
 
