@@ -1,5 +1,5 @@
 .PHONY: test-domain test-platform test-tools test-adapters test-cmd gate-coverage dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
-        build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check
+        build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
 # This is the T0 resume gate (HANDOFF.md): if this isn't green, nothing else matters.
@@ -179,15 +179,31 @@ lock-check:
 	  echo "    git checkout HEAD -- web/package-lock.json"; \
 	  echo ""; \
 	  exit 1; }
-	@npm --prefix web ci --dry-run --offline >/dev/null 2>&1 || { \
-	  echo "web/package.json and web/package-lock.json disagree. npm's own diagnosis:"; \
+	@command -v npm >/dev/null 2>&1 || { \
+	  echo "lock-check CANNOT RUN: npm is not on PATH."; \
 	  echo ""; \
-	  npm --prefix web ci --dry-run --offline 2>&1 | grep -E "^npm error (Invalid|Missing|Added|Removed)|not in sync|can only install" | head -10; \
+	  echo "This is a missing tool, NOT a lockfile problem — the earlier version of this"; \
+	  echo "target blamed the lockfile and told you to run npm, which also would not have"; \
+	  echo "run. See 'make tools-check'."; \
+	  exit 1; }
+	@npm --prefix web ci --dry-run --offline >/dev/null 2>&1 || { \
+	  echo "lock-check FAILED: npm cannot install web/ from the committed lockfile."; \
+	  echo ""; \
+	  d=$$(npm --prefix web ci --dry-run --offline 2>&1); \
+	  echo "$$d" | grep -E "^npm error (Invalid|Missing|Added|Removed)|not in sync|can only install|npm-shrinkwrap" | head -12; \
+	  echo "$$d" | grep -qE "^npm error (Invalid|Missing)|not in sync" || { \
+	    echo "  (npm did not report a package.json/lockfile mismatch — so this is most"; \
+	    echo "   likely a corrupt or unresolvable lockfile, or a dependency added to"; \
+	    echo "   package.json without re-resolving. npm's raw first lines:)"; \
+	    echo "$$d" | grep -E "^npm (error|warn)" | head -4; }; \
 	  echo ""; \
 	  echo "Fix with 'npm --prefix web install' (WITH the lockfile present), never by"; \
 	  echo "deleting the lockfile."; \
 	  exit 1; }
-	@echo "lock-check: OK — web/package-lock.json is present and in sync with package.json."
+	@echo "lock-check: OK — web/package-lock.json is present, and npm can install from it."
+	@echo "            (This does NOT prove the two files agree in both directions: npm ci"
+	@echo "             tolerates a lockfile that is a strict superset of package.json. See"
+	@echo "             docs/process/t64-retro.md §8.)"
 
 
 # Full suite: everything, including packages that depend on generated code
@@ -211,9 +227,16 @@ test:
 # these files, and both are hard-gated on a Docker daemon — so on a machine
 # without one (which is most of them, and every agent session so far) a broken
 # integration-tagged file reported green everywhere until a human happened to
-# notice. 11 files across 4 contexts (socialplay 5, payments 3, competitions 2,
-# booking 1) sit behind that tag; booking's concurrency test broke twice in T11
-# for exactly this reason. See docs/process/t11-retro.md finding 2.
+# notice; booking's concurrency test broke twice in T11 for exactly this
+# reason. See docs/process/t11-retro.md finding 2.
+#
+# This comment used to carry a count ("11 files across 4 contexts"). It was
+# retired at T61 and stale again by T62, and it survived HERE after the sweep
+# that fixed the documents — the second instance of that shape in two days
+# (#322 was the first). Counts belong in a command, not in a comment:
+#
+#   for f in $(find . -name '*_test.go'); do \
+#     head -5 "$f" | grep -q '^//go:build integration' && echo "$f"; done | wc -l
 #
 # Depends on `generate` deliberately: internal/gen/** is gitignored (see
 # CLAUDE.md gotchas), so on a clean checkout the bare `go vet -tags=integration
@@ -410,15 +433,22 @@ ci-integration:
 	@docker info >/dev/null 2>&1 || { \
 	  echo "No Docker daemon reachable YET — which is a thing to fix, not a thing to report."; \
 	  echo ""; \
-	  echo "  (dockerd >/tmp/dockerd.log 2>&1 &) ; until docker ps >/dev/null 2>&1; do sleep 1; done"; \
+	  echo "  (dockerd >/tmp/dockerd.log 2>&1 &) ; for i in \$$(seq 1 30); do \\"; \
+	  echo "    docker ps >/dev/null 2>&1 && break; sleep 1; done; docker ps >/dev/null || tail -20 /tmp/dockerd.log"; \
 	  echo "  make ci-integration"; \
 	  echo ""; \
-	  echo "On this project's own containers the daemon starts in about four seconds and"; \
-	  echo "the suite takes roughly 95 seconds (2500 tests)."; \
+	  echo "The loop above is BOUNDED (30s) on purpose: an unbounded 'until docker ps'"; \
+	  echo "hangs forever when dockerd fails, which is how the next paragraph became"; \
+	  echo "unreachable in the first version of this message."; \
+	  echo ""; \
+	  echo "On this project's own containers the daemon starts in a few seconds and the"; \
+	  echo "suite takes a couple of minutes; the run prints its own test count, so this"; \
+	  echo "message deliberately does not carry one."; \
 	  echo ""; \
 	  echo "If it genuinely cannot start, report the error dockerd gave. Do NOT record the"; \
 	  echo "suite as unrunnable: every sprint from T4 to T60 did that, and T61 ran it and"; \
-	  echo "found three live production defects behind the disclaimer."; \
+	  echo "found two live production defects behind the disclaimer (a third came from the"; \
+	  echo "review of the fix, not from the suite — docs/process/t61-retro.md section 4)."; \
 	  exit 1; }
 	$(MAKE) test
 
