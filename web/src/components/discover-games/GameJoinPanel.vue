@@ -33,6 +33,7 @@ import { useJoinGame, MOCK_PLAYER_ID } from '../../composables/useJoinGame'
 import { entryFeeLabel } from '../../models/game'
 import type { GameSummary, ConfirmedRegistration } from '../../models/game'
 import type { SocialPlayClient } from '../../api/socialplayClient'
+import { actingUserId } from '../../state/authSession'
 
 const props = defineProps<{
   game: GameSummary
@@ -109,11 +110,11 @@ function onIncrement(): void {
 }
 
 function onJoin(): void {
-  void register(MOCK_PLAYER_ID)
+  void register(actingUserId(MOCK_PLAYER_ID))
 }
 
 function onJoinWaitlist(): void {
-  void joinWaitlist(MOCK_PLAYER_ID)
+  void joinWaitlist(actingUserId(MOCK_PLAYER_ID))
 }
 
 function onPayOnline(): void {

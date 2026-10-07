@@ -76,6 +76,7 @@ import type { FacilitiesClient } from '../api/facilitiesClient'
 // renders its "we could not confirm a club role" state against a real backend,
 // which is the honest outcome, not a bug being routed around.
 import { MOCK_PLAYER_ID } from '../composables/useProfile'
+import { actingUserId } from '../state/authSession'
 
 const STEP_ORDER = ['new', 'list'] as const
 type Step = (typeof STEP_ORDER)[number]
@@ -95,7 +96,7 @@ const props = withDefaults(
      * import note above. */
     actorUserId?: string
   }>(),
-  { client: undefined, identity: undefined, facilities: undefined, actorUserId: MOCK_PLAYER_ID },
+  { client: undefined, identity: undefined, facilities: undefined, actorUserId: actingUserId(MOCK_PLAYER_ID) },
 )
 
 const { breakpoint } = useBreakpoint()

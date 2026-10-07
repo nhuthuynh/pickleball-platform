@@ -33,12 +33,17 @@ import CompetitionCreation from '../views/CompetitionCreation.vue'
 import CompetitionCheckout from '../views/CompetitionCheckout.vue'
 import CompetitionManage from '../views/CompetitionManage.vue'
 import DiscoverCompetitions from '../components/discover-competitions/DiscoverCompetitions.vue'
+import DevSignIn from '../views/DevSignIn.vue'
 import CompetitionLanding from '../views/CompetitionLanding.vue'
 import Profile from '../views/Profile.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/facilities' },
+  // T65.1 — dev-only sign-in. The server has enforced auth on 31 RPCs since
+  // T55.1; until this route existed the client had no way to send a token and
+  // every write path answered Unauthenticated. See views/DevSignIn.vue.
+  { path: '/sign-in', name: 'dev-sign-in', component: DevSignIn, meta: { title: 'Sign in (development)' } },
   // meta.title on these two (T11.7 fix): every other route already carried
   // one; these were the only two gaps, silently relying on index.html's
   // static <title> never actually updating on navigation — see this file's

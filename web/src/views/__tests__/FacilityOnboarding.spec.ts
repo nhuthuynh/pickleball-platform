@@ -202,10 +202,10 @@ describe('FacilityOnboarding — camera-consent checkbox (round-10 §2b, load-be
       '/v1/facilities/{facilityId}/attestCameraConsent',
       '/v1/facilities/{facilityId}/cameraLinks',
     ])
-    expect(facilityCalls[0]?.[1].body.actorUserId).toBe('owner-mock-1')
+    // T65.1: the deprecated, server-ignored actor claim is no longer sent.
+    expect(facilityCalls[0]?.[1].body.actorUserId).toBeUndefined()
     expect(facilityCalls[1]?.[1].body).toMatchObject({
       url: 'https://cam.example.com/1',
-      actorUserId: 'owner-mock-1',
     })
     expect(wrapper.get('[role="status"]').text()).toBe('Camera link added.')
   })
@@ -356,8 +356,22 @@ describe('FacilityOnboarding — courts step', () => {
 // asserting the same MOCK_OWNER_ID used for CreateFacility's ownerId is
 // also sent as actorUserId on AddCourt and AddCameraLink, so the acting
 // caller matches the facility's owner and EnsureOwner passes.
-describe('FacilityOnboarding — actorUserId on AddCourt/AddCameraLink (T7.7 ownership check)', () => {
-  it('sends actorUserId matching the facility owner on AttestCameraConsent and AddCameraLink', async () => {
+// T65.1 INVERTED THIS BLOCK, and the inversion is the point.
+//
+// It asserted that the client SENDS `actorUserId` on AddCourt, AddCameraLink
+// and AttestCameraConsent — the T7.7 shape, when the server trusted a
+// caller-supplied actor. It has not since T12.8: the handlers take the actor
+// from the verified principal, every `GetActorUserId()` mention in
+// `internal/*/adapter/grpcapi/handler.go` is a comment saying so, and
+// facilities' own proto marks the field `[deprecated = true]`.
+//
+// So the old assertions pinned a lie on the wire, and a test that pins a lie
+// will defend it. These now assert the POSITIVE of the current contract: the
+// deprecated claim is absent, and the request carries a real bearer token
+// instead. Weakening would have been deleting these; this is the stronger
+// claim, and it fails if anyone re-adds the field.
+describe('FacilityOnboarding — no deprecated actor claim on the wire (T65.1, was T7.7)', () => {
+  it('omits actorUserId on AttestCameraConsent and AddCameraLink', async () => {
     const client = makeFakeClient()
     const wrapper = mount(FacilityOnboarding, { props: { client } })
     await advanceToCameras(wrapper)
@@ -378,11 +392,11 @@ describe('FacilityOnboarding — actorUserId on AddCourt/AddCameraLink (T7.7 own
     expect(cameraLinkCalls).toHaveLength(1)
     const [, attestInit] = attestCalls[0] as [string, { body: Record<string, unknown> }]
     const [, linkInit] = cameraLinkCalls[0] as [string, { body: Record<string, unknown> }]
-    expect(attestInit.body.actorUserId).toBe('owner-mock-1')
-    expect(linkInit.body.actorUserId).toBe('owner-mock-1')
+    expect(attestInit.body.actorUserId).toBeUndefined()
+    expect(linkInit.body.actorUserId).toBeUndefined()
   })
 
-  it('sends actorUserId matching the facility owner on AddCourt', async () => {
+  it('omits actorUserId on AddCourt', async () => {
     const client = makeFakeClient()
     const wrapper = mount(FacilityOnboarding, { props: { client } })
     await advanceToCameras(wrapper)
@@ -397,6 +411,6 @@ describe('FacilityOnboarding — actorUserId on AddCourt/AddCameraLink (T7.7 own
     )
     expect(addCourtCalls).toHaveLength(1)
     const [, init] = addCourtCalls[0] as [string, { body: Record<string, unknown> }]
-    expect(init.body.actorUserId).toBe('owner-mock-1')
+    expect(init.body.actorUserId).toBeUndefined()
   })
 })

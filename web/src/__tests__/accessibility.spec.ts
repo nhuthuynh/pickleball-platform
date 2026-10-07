@@ -97,6 +97,10 @@ const ROUTES_UNDER_TEST: { path: string; label: string }[] = [
   // a new route cannot land without landing here too.
   { path: '/facilities/facility-1/rental-requests', label: 'facility-rental-requests' },
   { path: '/clubs/rentals', label: 'club-rentals' },
+  // T65.1 — the dev sign-in screen. Added here because this list is
+  // path-identity-checked against the real router, so a new route cannot
+  // escape the axe-core sweep: that check failing is what caught this one.
+  { path: '/sign-in', label: 'dev-sign-in' },
   { path: '/games', label: 'games' },
   { path: '/games/new', label: 'games-new' },
   { path: '/games/game-1/checkout', label: 'game-checkout' },

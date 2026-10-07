@@ -27,6 +27,7 @@
 // succeeds, making the checkbox + form actually work end-to-end for the
 // first time.
 import { reactive, ref } from 'vue'
+import { actingUserId } from '../state/authSession'
 import { facilitiesClient, type FacilitiesClient } from '../api/facilitiesClient'
 import { useBreakpoint } from '../composables/useBreakpoint'
 
@@ -37,6 +38,8 @@ import { useBreakpoint } from '../composables/useBreakpoint'
 // facilities.proto's AddCourtRequest/AddCameraLinkRequest) so those calls'
 // caller-claimed identity matches the Facility's ownerId set here on
 // CreateFacility — Facility.EnsureOwner 403s on a mismatch/empty actor.
+// Placeholder owner id, used only when nobody is signed in — see
+// state/authSession.ts's actingUserId().
 const MOCK_OWNER_ID = 'owner-mock-1'
 
 const STEP_ORDER = ['details', 'photos', 'cameras', 'courts'] as const
@@ -161,7 +164,7 @@ async function submitFacility() {
   try {
     const { data, error } = await props.client.POST('/v1/facilities', {
       body: {
-        ownerId: MOCK_OWNER_ID,
+        ownerId: actingUserId(MOCK_OWNER_ID),
         name: form.name,
         description: form.description,
         address: form.address,
@@ -222,7 +225,9 @@ async function submitCameraLink() {
       '/v1/facilities/{facilityId}/attestCameraConsent',
       {
         params: { path: { facilityId: facility.value.id } },
-        body: { actorUserId: MOCK_OWNER_ID },
+        // actor_user_id is [deprecated = true] and ignored since T12.8 — the
+        // server uses the verified principal. Sending it was a lie on the wire.
+        body: {},
       },
     )
 
@@ -237,7 +242,7 @@ async function submitCameraLink() {
 
     const { data, error } = await props.client.POST('/v1/facilities/{facilityId}/cameraLinks', {
       params: { path: { facilityId: facility.value.id } },
-      body: { url, actorUserId: MOCK_OWNER_ID },
+      body: { url },
     })
 
     if (error || !data?.facility) {
@@ -264,7 +269,7 @@ async function addCourt() {
   try {
     const { data, error } = await props.client.POST('/v1/facilities/{facilityId}/courts', {
       params: { path: { facilityId: facility.value.id } },
-      body: { name, actorUserId: MOCK_OWNER_ID },
+      body: { name },
     })
 
     if (error || !data?.court) {
