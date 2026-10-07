@@ -653,6 +653,18 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrEmptyPlayers),
 		errors.Is(err, domain.ErrTooFewPlayers),
 		errors.Is(err, domain.ErrEmptyScore),
+		// T65.2 — SuggestMatchups's two rejections. Both are request
+		// defects in the plainest sense: a player named twice, or a pinned
+		// pairing naming someone outside the set being arranged, is wrong
+		// against any system state, so neither is the state-dependent case
+		// T14.7's ErrIllegalStatusTransition argument carves out. No RPC
+		// produces either one yet — level-only matching ships as a pure
+		// domain function (ADR-0012, #333) — and they are mapped anyway,
+		// because the alternative is a 500 for a condition the domain
+		// explicitly anticipated, which is exactly what
+		// TestSentinelToCodeTableCoversEveryDomainSentinel refuses.
+		errors.Is(err, domain.ErrDuplicatePlayer),
+		errors.Is(err, domain.ErrUnknownPinnedPlayer),
 		// T14.4 (#168) — both join the InvalidArgument group, and the second
 		// one is a judgement call worth stating rather than assuming.
 		//
