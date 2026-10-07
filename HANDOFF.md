@@ -4391,7 +4391,44 @@ or may not be entitled to decide:
 |---|---|
 | #134 | Needs real assistive-technology hardware this environment does not have. Premise re-verified at T64: all three routes are still in `ROUTES_UNDER_TEST` (`web/src/__tests__/accessibility.spec.ts:92,98,99` — the earlier citation `:98-99,197-199` was wrong twice over: it covered two of the three routes, and `:197-199` is a different array, `T11_NEW_SCREENS`), so the automated half still covers them and the manual half is still owed. |
 | #145 | Needs a real, non-uuid IdP `sub` claim this environment cannot produce. **Its product question was answered at T64's Ceremony 1, as a deliberate deferral with a named trigger**: the ticket that provisions a real identity provider must decide how pre-existing accounts get linked (automatic match on first login / explicit claim step / operator-run linking) **before it merges**, because the provider's own capabilities change which options exist. Recorded on the issue, not only here. Raising it at all was T64's finding — T62's and T63's corrected sweeps both reported no open issue awaiting a product decision, because the question lives in the issue's **body** and the sweep reads the issue's **labels and state**. |
-| ADR-0012 Q1/Q2 | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute. May never be this project's to answer. ADR-0015 warned explicitly against filing D1 alongside these; that warning was right, and this split exists so it is structural rather than prose. |
+| ADR-0012 **Q2** | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute (`Gender`, a matching-mode flag). May never be this project's to answer, and **deliberately not asked** at T65's Ceremony 1: nothing in that sprint needed it, and asking a legal/ethical question in order to clear a backlog row is how a decision gets made badly. ADR-0015 warned explicitly against filing D1 alongside this; that warning was right, and this split exists so it is structural rather than prose. |
+
+**And the row above used to say "ADR-0012 Q1/Q2", which is how an
+answerable question stayed unasked for 55 sprint-labels.** Q1 — *how is the
+Player Level formula weighted?* — is an **ordinary product-weighting
+question**, not a legal one. Carrying it in one row with Q2 meant it
+inherited Q2's description (*"Legal/ethical dimension … May never be this
+project's to answer"*), and four consecutive ceremonies read that and
+reported no product decision awaiting an answer. The collapse was written
+down at `docs/process/t59-sprint-plan.md:110-113`, as *"a legal/ethical
+question"*, singular; T62, T63, T64 and T65's own first draft inherited it.
+ADR-0012's text said the opposite in as many words the whole time — *"If
+only one of Q1/Q2 is answered, build the part that answer unblocks"*.
+
+**Q1 was answered on 2026-10-07 and built the same sprint (T65.2):**
+*balance win rate with experience* — win rate is the signal, but a player
+needs a reasonable number of games before the rating is trusted, and early
+results move it less. The formula, the win rule (highest points wins; ties
+count for everyone tied), the `Provisional` flag, the recompute-surviving
+manual override and the level-only pinned-pairing suggestion are all in
+`internal/identity/domain/player_level.go` and
+`internal/socialplay/domain/matchmaking.go`. The three-part input gap it
+exposed — no per-player match query, no bridge from Social Play's opaque
+player ids to `identity_users.id`, nowhere to put a computed level — is
+#333. **No `Gender` field anywhere**, since Q2 is still open; two tests
+assert that by reflection.
+
+**ADR-0009's market-scope question was answered the same day** (both
+markets, one channel built first; which one first is a deferral whose
+trigger is the ceremony that refines the first messaging ticket). It had
+been open since **T7** and **never appeared in this table at all** — which
+is the sharper half of the same lesson: a question only reaches this list if
+somebody puts it here, so the escalation sweep must read the ADRs
+themselves. `docs/process/sprint-process.md` now requires that.
+
+**The general rule this cost two decisions to learn: never describe two
+escalations in one row.** One of them inherits the other's reason for being
+unanswerable, and the cheaper question is the one that disappears.
 
 ## Cross-cutting / later
 - **The Vue booking client needs a sign-in step before its confirm call

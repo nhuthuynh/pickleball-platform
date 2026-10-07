@@ -6,6 +6,15 @@ Accepted as a deferred, tracked decision with a named trigger condition
 ADR — no vendor account, no credentials, no adapter package, no proto was
 created by it.
 
+**Amended 2026-10-07 (T65.3): the market-scope question §4 escalated — open
+since T7 — is ANSWERED.** Both markets are in scope; the channel is a
+pluggable port and one implementation ships first. **Which one ships first
+is a named open sub-decision with a trigger, not an escalation waiting on
+anyone today** — see "Market scope answered" below. Everything the
+Decision section defers (no OAuth token storage, no inbound messaging, no
+package) is UNCHANGED: the answer settles scope, not timing, and §5's
+three-part trigger still gates the build.
+
 **This ADR does not reopen a locked decision, and is not a new position on
 one.** `docs/design/v1-system-design.md` §4 and
 `docs/design/v1-external-reference-reconciliation.md`'s "One direct,
@@ -156,15 +165,23 @@ addressed to the user.** The tradeoff is stated once, above, from T7's
 research; it is not re-derived here. The choice is gated on a
 product/market question this team cannot answer:
 
-> **OPEN QUESTION FOR PM/PO — unanswered since T7, restated here so it is
-> discoverable from the ADR index rather than only from a sprint plan:**
-> is this platform's v1 user base **Vietnam-concentrated** or **global**?
-> Zalo OA only pays for its heavier verification and follow-based opt-in
+> **~~OPEN QUESTION FOR PM/PO — unanswered since T7, restated here so it is
+> discoverable from the ADR index rather than only from a sprint plan:~~**
+> ~~is this platform's v1 user base **Vietnam-concentrated** or **global**?~~
+> ~~Zalo OA only pays for its heavier verification and follow-based opt-in
 > cost if the answer is Vietnam-concentrated; WhatsApp Cloud API is the
-> default otherwise. This ADR deliberately does **not** pick for you.
+> default otherwise. This ADR deliberately does **not** pick for you.~~
+>
+> **ANSWERED 2026-10-07: both markets, one channel built first** — see
+> "Market scope answered" above. The binary this question posed was
+> rejected rather than picked: both are in scope and the channel is a
+> pluggable port. **No escalation is live in this file.** The remaining
+> sub-decision — *which* channel first — is a deferral with a trigger (the
+> ceremony that refines the first messaging ticket), not a question waiting
+> on the user today.
 
-Whoever picks up the eventual build ticket must get an answer to that
-question first, and must still prototype exactly one platform.
+Whoever picks up the eventual build ticket must still prototype exactly one
+platform, and must settle which one as that ticket is refined.
 
 **5. Trigger condition — when this ADR is revisited.** This is revisited in
 **the sprint that lands real authentication**, currently recommended as
@@ -191,6 +208,63 @@ merely planned:
 
 If any of the three is missing when the topic is raised again, the answer
 is still no, and this ADR is the reason to point at.
+
+## Market scope answered (2026-10-07) — and the one sub-decision that is not
+
+**Put to the Product Owner at T65's Ceremony 1 and answered the same day.**
+The question had been open since T7 and was restated in §4 of the Decision
+below *"so it is discoverable from the ADR index rather than only from a
+sprint plan"* — which turned out not to be enough on its own: four
+consecutive escalation sweeps (T62, T63, T64, and T65's own first draft)
+reported no product decision awaiting an answer, because each read only
+every ADR's **status line**. It was the premise-challenge pass, reading
+bodies, that found this one and ADR-0012's Q1 together. `sprint-process.md`
+now requires the sweep to read an ADR's body; that change is the other half
+of this ticket.
+
+### The answer
+
+> **Both markets, with one channel built first.** The platform is not scoped
+> to Vietnam or to "global" — it serves both. The messaging channel is a
+> pluggable port with one implementation shipped first, and a second added
+> when a market needs it.
+
+### What that settles
+
+§4 asked *"is this platform's v1 user base Vietnam-concentrated or
+global?"*, as a binary, in order to pick one platform. **The answer rejects
+the binary** and keeps the mechanism §3 already chose: `port.MessagingChannel`
+is the anti-corruption boundary, so WhatsApp and Zalo are two adapters
+behind one port rather than a fork in the product. That is the
+`port.PaymentProcessor` precedent applied, and it means the choice of *which
+adapter first* is reversible — which is exactly why it no longer needs to be
+escalated.
+
+§4's instruction to **prototype exactly one platform, not both** stands
+unchanged, and is now better founded: it is a sequencing choice behind a
+port, not a bet on a market.
+
+### The sub-decision that stays open, named rather than guessed
+
+**Which channel is built first was not given, and this ADR does not infer
+it.** The Product Owner chose "both, one first" and did not say which. An
+inference is available — WhatsApp Cloud API is message-based opt-in and
+lighter to bring up, per T7's research summarised in Context — and is
+deliberately **not** recorded as the answer, because T7's research is an
+argument about cost, not a statement about where this platform's first users
+are.
+
+**Trigger: the ceremony that refines the first messaging ticket asks it.**
+Nothing in T65 is blocked by it — no messaging ticket is in the slate — and
+§5's three-part gate (verified identity, an encrypted-token-at-rest
+decision, a revocation path) has to be cleared before any such ticket can
+exist in the first place. So this is a deferral with a trigger a future
+ceremony **causes**, not one that waits on a sprint boundary to notice it —
+the distinction ADR-0015 lacked and #145's deferral now has.
+
+**Answering it does not reopen this ADR.** It picks the first adapter behind
+a port that already exists on paper, which is an implementation choice the
+build ticket owns.
 
 ## Consequences
 

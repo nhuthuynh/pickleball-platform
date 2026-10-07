@@ -259,6 +259,93 @@ deferral whose trigger a future sprint can cause is a decision, and one whose
 trigger nobody can cause is the 41-sprint failure wearing a decision's
 clothes.
 
+#### Read the ADR's body too — a decision can be escalated inside an Accepted ADR
+
+**Adopted T65.3**, after the sweep rebuilt twice above missed **two** live
+product decisions on its third hardening.
+
+Point 1 of "How to run the sweep" says *"Read the ADR's status, not its
+prose."* That instruction is correct and stays — and read as the whole of
+the ADR half, it is what hid these two. An ADR's status answers *"is this
+ADR escalated?"*. It does not answer *"does this ADR contain a question
+awaiting an answer?"*, and **both of the questions found at T65 sat inside
+ADRs whose status is `Accepted`**:
+
+| Where | Question | Open since |
+|---|---|---|
+| ADR-0012, "Open questions escalated to the user" | **Q1** — how is the Player Level formula weighted? | 2026-08-10 |
+| ADR-0009 §4 of the Decision | market scope: Vietnam-concentrated or global? | T7 |
+
+Neither is a defect in point 1's mechanism. An ADR that **decides something**
+and **escalates something else** is a perfectly ordinary and good shape —
+ADR-0012 is exactly the shape ADR-0010's trigger demanded, "build everything
+that does not require the answer, name precisely what remains blocked". The
+sweep simply never read the "name precisely what remains blocked" part.
+
+**The step.** The ADR half of the sweep is now two readings, not one:
+
+1. **The status line**, exactly as point 1 specifies, and
+   `go run ./cmd/docsindex -statuses` is how to get it (T64.5) — not a grep,
+   for the reasons that bullet records.
+2. **The body of every ADR**, for a question awaiting an answer, with the
+   result **written down per ADR** — the same obligation the issue half
+   carries, and for the same reason: the value of the step is that the
+   ceremony must say "no question" in so many words.
+
+The worked example, derived at T65's Ceremony 1 rather than invented:
+
+```
+$ for f in docs/adr/*.md; do \
+    n=$(grep -ciE "escalated to (the user|pm/po)|awaiting (the user|product)|unanswered|needs (product|the user)" "$f"); \
+    [ "$n" -gt 0 ] && echo "$n $f"; done
+```
+
+**It hits resolved decisions too, and that is the point at which the reading
+has to happen.** At T65's Ceremony 1 it returned five files: two live
+(ADR-0009's market scope, ADR-0012's Q1), one superseded (ADR-0010), and two
+answered at T55 (ADR-0015, ADR-0016, which preserve *"Escalated — awaiting product decision"* and
+*"Escalated — awaiting the user's decision"* respectively beneath a
+supersession notice, deliberately, as the record of the question as it
+stood). A grep cannot tell those apart — **which is precisely why point 1
+forbids grepping for the status** — so the output is a reading list, never a
+verdict. Four of the five entries were correctly discarded by reading them.
+
+**Run today, the same command still returns those five files and a different
+split** — both of T65's live questions were answered that day, so ADR-0009
+carries none and ADR-0012 carries only Q2. The file list is not the answer
+and never was; this is what "a reading list, never a verdict" means in
+practice.
+
+**The corollary, for whoever answers one of these.** When an in-body
+escalation is answered, **strike the old question through and say that no
+escalation is live in that file**, so the next sweep's reading list shrinks
+instead of carrying the same four false hits forever. ADR-0009's §4 and
+ADR-0012's Q1 were amended that way at T65.3; both now state the answer, its
+date, and what it unblocks, immediately beside the struck question.
+
+**The three-step history, because the shape of the failure is the lesson.**
+The sweep has been hardened three times and each time at one level of
+indirection too shallow:
+
+| Sprint | Moved from | To | Still read |
+|---|---|---|---|
+| T62.4 | an issue's **labels** | the **open-issue list** | an issue's labels and state |
+| T64.5 | an issue's **state** | an issue's **prose** | an ADR's status line |
+| T65.3 | an ADR's **status line** | an ADR's **body** | — |
+
+**T65's own first draft of its Ceremony 1 wrote the sentence "No product
+decision awaits an answer"**, having run the status listing and celebrated it
+as *"one command instead of a twelve-step workaround"*. It was the
+premise-challenge pass that found both. A sweep that gets cheaper is not
+automatically a sweep that got better, and the two hardenings before this one
+were each written by the sprint that had just been burned by the previous
+level — which is the pattern to expect the next time this list grows a row.
+
+**And the limit, stated because it bounds everything above.** All of T65's
+own ADR bodies were written or corrected by the session running the sweep, so
+the step cost nothing there and proved nothing either. Its first real test is
+a ceremony reading an ADR body it did not write.
+
 ### The 0-ticket sprint cap — two consecutive, then stop
 
 Adopted at T55 from `docs/process/t54-retro.md` recommendation 2.
