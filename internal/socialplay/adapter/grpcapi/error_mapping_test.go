@@ -481,6 +481,34 @@ func errorMappingCases() []errorMappingCase {
 			wantCode: codes.InvalidArgument,
 		},
 		{
+			name:     "a player appears more than once in a matchup suggestion",
+			sentinel: "ErrDuplicatePlayer",
+			err:      domain.ErrDuplicatePlayer,
+			wantCode: codes.InvalidArgument,
+			why: "scheduling one person into two places at once is wrong against any system state, so this " +
+				"is a request defect rather than the state-dependent case ErrIllegalStatusTransition carves out. " +
+				"No RPC produces it yet (T65.2 ships level-only matching as a pure domain function, #333); it is " +
+				"mapped anyway, because the alternative is Internal for a condition the domain anticipated",
+		},
+		{
+			name:     "a non-finite player level in a matchup suggestion",
+			sentinel: "ErrInvalidPlayerLevel",
+			err:      domain.ErrInvalidPlayerLevel,
+			wantCode: codes.InvalidArgument,
+			why: "a NaN or infinite level is a malformed input, not a state conflict. The sentinel exists " +
+				"because a NaN comparator is not a strict weak ordering, so sort.Slice's behaviour is " +
+				"undefined and one input set produced three different suggestions",
+		},
+		{
+			name:     "a pinned pairing names a player outside the set",
+			sentinel: "ErrUnknownPinnedPlayer",
+			err:      domain.ErrUnknownPinnedPlayer,
+			wantCode: codes.InvalidArgument,
+			why: "same reasoning, and the sentinel exists at all because dropping the unknown pin would " +
+				"silently discard an organiser's manual override — the locked matchmaking decision is worth " +
+				"nothing if an override can vanish on a typo",
+		},
+		{
 			name:     "guest count exceeds the allowance",
 			sentinel: "ErrGuestAllowanceExceeded",
 			err:      domain.ErrGuestAllowanceExceeded,

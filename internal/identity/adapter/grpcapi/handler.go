@@ -173,7 +173,19 @@ func toStatus(err error) error {
 		errors.Is(err, domain.ErrEmptyRoles),
 		errors.Is(err, domain.ErrInvalidRole),
 		errors.Is(err, domain.ErrRoleNotSelfAssignable),
-		errors.Is(err, domain.ErrInvalidSelfReportedStartingLevel):
+		errors.Is(err, domain.ErrInvalidSelfReportedStartingLevel),
+		// T65.2 — the Player Level formula's two rejections. No RPC
+		// produces either one yet: ComputeLevel's inputs are derived
+		// server-side from Match history, never taken off the wire, and
+		// there is no history to derive from (#333). Mapped anyway, for
+		// the reason socialplay's own table states: an unmapped sentinel
+		// falls through to Internal (HTTP 500) for a condition the domain
+		// explicitly anticipated. This context has no exhaustive
+		// sentinel-conformance test to catch the omission — four of six
+		// contexts do and Identity is not one of them (#335), so this row
+		// is a discipline here rather than a gate.
+		errors.Is(err, domain.ErrImpossibleRecord),
+		errors.Is(err, domain.ErrInvalidLevel):
 		return status.Error(codes.InvalidArgument, err.Error())
 	default:
 		return status.Error(codes.Internal, err.Error())

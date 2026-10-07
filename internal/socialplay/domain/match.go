@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Match records a real result played within an existing Game (T10.3): which
 // players played, what the score was, and when the result was recorded.
@@ -98,4 +101,104 @@ func RecordMatch(gameID string, players []string, score map[string]int, recorded
 		Score:      score,
 		RecordedAt: recordedAt,
 	}, nil
+}
+
+// Winners returns the player ids holding the highest score in this Match,
+// sorted so the result is reproducible (Go randomises map iteration, and a
+// caller counting wins across a history must get the same answer twice).
+//
+// THE RULE, answered by the Product Owner on 2026-10-07: *highest points
+// wins, and a tie counts for everyone tied.* So a tied match returns every
+// tied player and there is no draw category.
+//
+// WHY THAT NEEDED NO CHANGE TO WHAT IS STORED, stated precisely because the
+// loose version of this sentence was a review finding. A doubles result
+// records both partners at their side's point total, so both hold the
+// maximum and either both win or neither does — and this rule reaches that
+// answer without any notion of a side, a team or a partner. But that is a
+// CALLER CONVENTION, not a property this type enforces: nothing in Match or
+// RecordMatch requires two partners to carry equal scores, and a caller
+// that recorded per-player points within a doubles pair would credit the win
+// to one partner only. Whichever ticket records a real doubles result owns
+// that convention (#333); this method owns the rule.
+//
+// Scope, stated because it is easy to over-read: a "win" is a fact about
+// this one Match. Accumulating wins into a player's record, and weighting
+// that record into a Level, is Identity's job
+// (internal/identity/domain.PlayerRecord/ComputeLevel) — this package does
+// not import that one, and nothing here computes a rating (CLAUDE.md
+// rule 3; ADR-0012's "no PlayerRating field" still holds, since a
+// PlayerRecord is a count, not a stored rating).
+//
+// Score and Players constrain each other in NEITHER direction, which the
+// Score field's own doc comment states and which matters more here than
+// there, because this is the method a win count would be built from:
+//
+//   - a player in Players with no Score key has no recorded result, so they
+//     are not a winner (and Won is false for them);
+//   - a Score key naming nobody in Players is still scored, so it CAN win —
+//     `Winners()` reports it. That is this method faithfully reporting what
+//     was stored, and it means a win count and a games-played count derived
+//     from the two halves need not agree about who participated. The
+//     boundary type that joins them (identity.PlayerRecord) hard-refuses an
+//     impossible pair, so the mismatch surfaces as an error rather than a
+//     wrong level — but reconciling the two sets belongs to whichever ticket
+//     builds that record, and is named in #333.
+//
+// A nil or empty Score — which RecordMatch refuses, but a zero-value Match
+// can carry — yields an empty, non-nil slice. There is no early return for
+// it: ranging a nil map is legal, so the guard that used to sit here was
+// dead code whose only effect was returning nil where this comment promises
+// a slice. T65.2's review removed it and nothing failed, which is how that
+// was established.
+func (m Match) Winners() []string {
+	best := 0
+	first := true
+	for _, points := range m.Score {
+		if first || points > best {
+			best, first = points, false
+		}
+	}
+
+	winners := make([]string, 0, len(m.Score))
+	for playerID, points := range m.Score {
+		if points == best {
+			winners = append(winners, playerID)
+		}
+	}
+	sort.Strings(winners)
+	return winners
+}
+
+// Won reports whether playerID is among this Match's Winners, and is exactly
+// that — the two agree for every input, which T65.2's review found they did
+// not.
+//
+// A player with no recorded score has no result, so Won is false for them:
+// "absent from Score" must never read as "won", which is the shape a
+// win-counting loop over a Game's Players would otherwise get wrong. That
+// presence check is load-bearing rather than defensive — where every
+// recorded score is at or below zero, a missing player's implicit 0 is the
+// maximum.
+//
+// An empty playerID used to be refused here as a special case, and that was
+// the inconsistency: RecordMatch validates only the LENGTH of players and
+// score, never an id, so `Players: ["", "p1"]` with `Score: {"": 11}` is a
+// state this package will construct — and Winners reported "" as the winner
+// while Won("") denied it. The special case is gone; an empty id is now
+// treated like any other, so this method's first sentence is true. Refusing
+// empty ids at construction is a separate, wider change (RecordMatch's
+// contract, and every caller of it) that belongs with #333's reconciliation
+// of Players and Score, not here.
+func (m Match) Won(playerID string) bool {
+	points, ok := m.Score[playerID]
+	if !ok {
+		return false
+	}
+	for _, other := range m.Score {
+		if other > points {
+			return false
+		}
+	}
+	return true
 }

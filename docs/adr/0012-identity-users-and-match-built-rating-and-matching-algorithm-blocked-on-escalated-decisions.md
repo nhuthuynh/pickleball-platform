@@ -2,7 +2,10 @@
 
 ## Status
 
-**Accepted (T10 Ceremony 1, 2026-08-10). Supersedes ADR-0010.** ADR-0010's
+**Accepted (T10 Ceremony 1, 2026-08-10). Supersedes ADR-0010. Q1 answered
+2026-10-07 and built in T65.2; Q2 still escalated — awaiting the user's
+decision. See "Q1 answered" below; the two questions are separate and must
+not be carried as one row again.** ADR-0010's
 sequencing analysis (§(a)–(c): why `Level` is structurally an Identity
 concept, why parking it in the wrong context is a bill this project has
 already paid once, why T9 had no call site to justify building early) is
@@ -11,6 +14,131 @@ this ADR does not relitigate it. What changes is the trigger's resolution:
 ADR-0010 required T10's Ceremony 1 to either build auto-matching in full or
 supersede it with a new ADR stating a new decision and its own trigger.
 This is that new ADR.
+
+## Q1 answered (2026-10-07), built in T65.2 — and Q2 deliberately not asked
+
+**Amendment, not a rewrite.** Everything below the next heading is the
+original ADR as accepted on 2026-08-10 and is left standing; this section
+records the trigger firing.
+
+### The answer
+
+> **Balance win rate with experience.** Win rate is the signal, but a
+> player needs a reasonable number of games before the rating is trusted,
+> and early results move it less.
+
+Put to the Product Owner at T65's Ceremony 1 and answered the same day. The
+options offered alongside it were win-rate-dominant (rejected as easier to
+game and harsher on beginners) and tenure-dominant (rejected as rewarding
+attendance rather than standard).
+
+**A second, smaller product answer arrived with it**, because T65.2 could
+not count a win without it: *highest points wins, and a tie counts for
+everyone tied.* That answer needed no change to what is stored — partners
+in doubles share one side's point total, so both appear in a Match's `Score`
+with the same value and either both win or neither does.
+
+### What that answers, and what it does not
+
+The answer fixes the formula's **character**. It does not fix its
+**constants**. `ConfidenceGames = 20` and the linear shape of the ramp were
+chosen by the engineer who wrote `internal/identity/domain/player_level.go`,
+with the reasoning stated on each declaration, and either may be retuned
+without going back to the Product Owner. What *would* need sign-off again is
+changing the character — making win rate not the signal, or removing the
+ramp. The code says so in as many words, so a future reader cannot mistake a
+tuned constant for a decided one.
+
+### What was built (T65.2)
+
+Per the trigger's own clause — *"If only one of Q1/Q2 is answered, build the
+part that answer unblocks (e.g., an answered Q1 with an unanswered Q2 ships
+level-only automated matching, still with no `Gender` field)"*:
+
+| Piece | Where |
+|---|---|
+| The Level formula — a pure function, `seed + c*(observed − seed)` with `c = min(games, 20)/20` and `observed = 1 + winRate*4` | `internal/identity/domain/player_level.go` |
+| `Provisional`, so a value still partly made of a player's own claim is never presented as a measurement | same file, `PlayerLevel` |
+| Manual override that **survives a recompute** (`RecomputeLevel`), which is what makes `CLAUDE.md`'s "always manually overridable" true rather than vacuous | same file |
+| The win rule — `Match.Winners()` / `Match.Won()`, ties counting for everyone tied | `internal/socialplay/domain/match.go` |
+| Level-only automated match suggestion, with **pinning**: an organiser's own pairings are carried through untouched and the algorithm arranges only the rest | `internal/socialplay/domain/matchmaking.go` |
+
+**No `PlayerRating` field or table was added.** The decision's §4 list
+forbids one — and §4's "compute a Level from `Match` history" clause is the
+one Q1's answer releases, so §4 has been amended below rather than left to
+contradict this section. (That contradiction was a review finding: §4 as
+written forbade this ticket outright while the trigger required it.)
+Nothing here needs a stored rating: a `PlayerRecord` is a count of games and
+wins, and a `PlayerLevel` is computed from it on demand. Rule 4's Postgres
+half is therefore not owed by this ticket — there is no persisted derived
+value for a constraint to protect. The ticket that *stores* a level owes the
+schema half, and owes it in the same ticket.
+
+### Q2 is unchanged, and is now visibly separate
+
+**Q2 — is gender-mix matching in scope at all? — was deliberately not put to
+the Product Owner**, and nothing in T65 needs it. It is the
+protected-attribute question: whether this platform should collect and
+algorithmically act on `Gender`, in the jurisdictions it launches in. It
+remains escalated, and the §4 prohibition on a `Gender` field anywhere
+remains in force. T65.2 asserts it in two packages —
+`TestNoGenderFieldAnywhereInThisRepository`, which parses every Go file's
+field and type declarations and scans every migration and `.proto`, and
+`TestNoGenderAnywhereInThisPackage` for Social Play's own source — rather
+than leaving it to a reviewer's eye. Both parse the tree.
+
+**The first versions listed types by hand, and two review passes were
+needed to make them worth having.** The first demonstrated two bypasses by
+running them (a new `Gender`-bearing type in the same package, and a
+`Gender` field on `socialplay.Registration`) and observed that the tests
+asserted nothing at all about the schema or any proto. The second, against
+the rewritten guard, demonstrated five more — a Go package in a directory
+the walk skipped by basename; a column hidden behind a `DEFAULT
+'https://…'`; `Sex` and `BiologicalSex`, the same attribute under another
+name; a `const`/`var`/`func`; and an embedded field — plus one false
+positive, where a migration documenting its own compliance *inside a block
+comment* turned the gate red. All seven are now cases in the suite, and the
+scan covers `.go` declarations, `.sql`, `.proto`, `.ts` and `.vue`.
+*(Earlier wording here credited the first pass with four demonstrations; it
+ran two and reasoned about the other two. The distinction is the kind this
+project's rules exist to keep.)*
+
+### Why this sat unanswered for 55 sprint-labels, which is the part worth keeping
+
+Q1 is an **ordinary product-weighting question**. Q2 is a legal/ethical one
+that may never be this project's to answer. `HANDOFF.md` carried them as a
+single "Indefinitely blocked" row described in Q2's terms —
+*"Legal/ethical dimension … May never be this project's to answer"* — and
+`docs/process/t59-sprint-plan.md:110-113` is where the collapse was written
+down, as *"a legal/ethical question"*, singular. Four consecutive
+ceremonies (T62, T63, T64 and T65's own first draft) inherited it and
+reported no product decision awaiting an answer. The question was answerable
+the whole time; its **record** said it was not.
+
+The ADR's own text said the opposite in as many words — *"If only one of
+Q1/Q2 is answered, build the part that answer unblocks"* — and no sweep read
+it, because the escalation sweep read only each ADR's **status line**. T65.3
+is the fix: the sweep reads an ADR's body, the same step T64.5 added for
+issues.
+
+### The input gap, named rather than invented
+
+The formula is pure and tested, and **nothing in this repository can yet
+build a real player's `PlayerRecord`.** Three gaps, each verified against
+the tree rather than assumed:
+
+1. No query reads one player's match history — `db/queries/socialplay.sql`
+   has `CreateMatch` and `ListMatchesForGame` only.
+2. Social Play's player ids are opaque `registrations.player_id` strings,
+   not `identity_users.id`; `match.go`'s own comment records that "there is
+   no Users bounded context wiring these ids to real UUIDs yet".
+3. There is nowhere to put a computed level, by design — see the
+   no-`PlayerRating` note above.
+
+Filed as #333 rather than built here: T65.2's scope is what Q1's answer
+unblocks, and a cross-context identifier bridge is a design change that
+wants its own ticket. Shipping the formula now is what the trigger requires;
+pretending it has an input would not be.
 
 ## Why this isn't exit (a) as originally framed, and isn't a fourth deferral either
 
@@ -100,6 +228,20 @@ seeded correctly, and that this happened without repeating the
    that `Level` (self-reported) and `Match` (raw results) have moved from
    "blocked" to "built."
 
+   **AMENDED 2026-10-07 — Q1 is answered, so this list is narrowed again.**
+   T65.2's review found that §4 as written forbids the very thing that
+   sprint was required to build, and that the amendment above then cited §4
+   *in the other direction* to justify not persisting anything. A reader
+   could not tell whether §4 was in force. It is, minus what Q1's answer
+   released. Each clause, and where it stands now:
+
+   | Clause | Status |
+   |---|---|
+   | compute a "Level" from `Match` history | **released by Q1's answer.** This is the piece the decomposition table attributes to "Q1 explicitly", and the trigger requires the next sprint to build it. T65.2 did |
+   | add a `PlayerRating` field/table anywhere | **still in force, and not merely tolerated — honoured.** There is one value, computed on demand, and nothing persisted. Rule 4's Postgres half is therefore genuinely not owed by T65.2. A later ticket that caches a level must revisit this clause explicitly rather than quietly outgrow it |
+   | add a matchmaking RPC / request field / UI control that implies matching happens | **still in force.** T65.2 ships pure domain functions and no RPC, no proto field and no UI control. Not as caution: there is no readable input yet (#333), so a control would imply a capability that does not exist |
+   | add a `Gender` field/table anywhere | **still in force, unchanged, because Q2 is unanswered.** Asserted by tests in two packages, one of which parses every Go file's field declarations plus every migration and `.proto` — the listed-type version of that guard let a new `Gender`-bearing type through, which is why it was replaced |
+
 ## Trigger condition
 
 **The sprint immediately following the user's answers to both Q1 and Q2
@@ -117,9 +259,12 @@ If only one of Q1/Q2 is answered, build the part that answer unblocks
 (e.g., an answered Q1 with an unanswered Q2 ships level-only automated
 matching, still with no `Gender` field) rather than waiting for both.
 
-## Open questions escalated to the user — unchanged, restated for continuity
+## Open questions escalated to the user — Q1 ANSWERED 2026-10-07, Q2 still open
 
-Both remain exactly as ADR-0010 posed them; this ADR resolves neither.
+As posed by ADR-0010 and restated here. This ADR resolved neither when it
+was accepted; **Q1 has since been answered** (see "Q1 answered" above) and
+Q2 has not. They are listed separately and described in their own terms,
+because carrying them as one row is what hid Q1 for 55 sprint-labels.
 
 **Q1 — How is the Player Level formula weighted?** Tenure + win rate,
 per `docs/design/handoff-2026-08/README.md:83`; also unresolved since
@@ -127,14 +272,30 @@ per `docs/design/handoff-2026-08/README.md:83`; also unresolved since
 player-facing tenure+wins score, a restatement of the internal
 DUPR-style `PlayerRating`, or both.
 
+> **ANSWERED 2026-10-07: balance win rate with experience** — win rate is
+> the signal, but a player needs a reasonable number of games before the
+> rating is trusted, and early results move it less. Built in T65.2. The
+> §5/§7 Q6 half is answered by the same ticket's shape: there is **one**
+> value, a Level on the self-reported 1..5 scale, computed on demand from
+> match history and seeded by the self-reported level — not two fields, and
+> no separately stored `PlayerRating`.
+
 **Q2 — Is gender-mix matching in scope at all?** Requirement #15 and Flows
 3/4 of the design handoff show it; the question is whether collecting and
 algorithmically acting on a protected attribute is something this
 platform should do, in the jurisdictions it will launch in — a
 product/legal call, not an engineering one.
 
-Neither question blocks what this ADR decides to build (Identity/Users,
-`Match`); both block the sprint after the one that receives the answers.
+> **STILL ESCALATED — awaiting the user's decision.** Deliberately not
+> asked at T65's Ceremony 1: nothing in that sprint needed it, and asking a
+> legal/ethical question to clear a backlog row is how a decision gets made
+> badly. The §4 prohibition on a `Gender` field anywhere remains in force
+> and is asserted by tests in two packages. **This is the live escalation in
+> this file**; Q1's text above is history.
+
+Neither question blocked what this ADR decided to build (Identity/Users,
+`Match`). Q1's answer unblocked T65.2; Q2 still blocks gender-mix matching
+and nothing else.
 
 ## Not a scope reversal
 

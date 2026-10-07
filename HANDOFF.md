@@ -87,7 +87,7 @@ own append-only convention). File-naming rules are in CLAUDE.md.
 | T62 | `docs/process/t62-sprint-plan.md` (Ceremony 1: clears **eight sprints** of accumulated Docs-index debt, found by a derived check rather than by reading. The escalation sweep's own three mechanical defects found by running it. The premise check fires on **two of five** issues — #149 again, and #145. #314 put to the user and answered: widen the quantity rule to all quantities. Takes five tickets, T62.1–T62.5) | `docs/process/t62-retro.md` (finding: every refund of a Social Play Registration had failed against a real database since T6.5 — `registrations.payment_status` accepted only `('unpaid','paid')` while the domain declared `refunded` and `RefundPayment` wrote it, with the Competitions twin twelve lines later working because `0014` included the value. Also: the sprint corrected three of its own written claims, and is the first document subject to T62.2's every-quantity-carries-its-command rule — complying changed it twice) | PR #316 (`ed14f0e`, Ceremony 1) → #317 (`d7dc605`, all five tickets) → #318 (`4621975`, retro), verified against each PR's `merged_at`. Each reviewed via a GitHub PR review disclosing self-review; #316's PE pass **declined its own plan's ticket sequencing** and the plan was amended rather than merged over, and #318's review **audited the retro against T62.2's own rule and found it holed** | none new | — |
 | T63 | `docs/process/t63-sprint-plan.md` (Ceremony 1: runs T62.4's corrected escalation sweep — no ADR escalated, and **every open issue** considered rather than every labelled one. **Finds that T62's retro claimed #311 and #314 "closed… live-verified" when both were still open** — and that figure was one of the few carrying no command, so the uncommanded figure is the one that was wrong. Both closed here. **Tests the `govulncheck` claim two retros had only quoted**, confirms it, and discovers that the Go half's failure had masked the npm half entirely: `make security` has never run on this project and fails with **7 vulnerabilities, 5 of them `high`, all with `fixAvailable: true`**. Takes four tickets, T63.1–T63.4) | `docs/process/t63-retro.md` (finding: `make ci-integration`'s own failure message tells the operator the Docker gap is "the documented gap in CLAUDE.md's gotchas, not a new problem" — **false since T61**, met live, refuted in two seconds by one command, and the 18th instance of a claim T61's sweep retired 17 times without ever looking at the `Makefile`. Also: the mutation PR #321's review called non-existent for a dependency pin **does exist and says something else** — reverting the lockfile returns all five advisories, deleting the `overrides` block changes nothing, so the lockfile and not the declaration is the guard) | PR #319 (`31000d8`, Ceremony 1) → #321 (`e7710af`, all four tickets) → #323 (`a0c497a`, retro) → #324 (`ae5c287`, the retro's one rulebook line, split off because a squash-merged base conflicts on a file the previous PR touched — see `t63-retro.md` §9), verified against each PR's `merged_at` rather than assumed from numbering. All four are author-reviewed, the eleventh consecutive such sprint | none new | — |
 | T64 | `docs/process/t64-sprint-plan.md` (Ceremony 1: **finds `make security` red on a tree nobody touched** — three new `high` advisories inside 20 hours of T63.2 leaving the gate green, `vue` among them and direct, so a green security gate is a statement about a moment rather than about a tree. Also finds that T62.4's **corrected** escalation sweep still missed a product question, because it asks whether an *issue* awaits a decision rather than reading the issue's *text*: #145's "Needs product input on which" survived two corrected sweeps. Put to the Product Owner and answered — **defer until the provider is chosen, with the trigger named**. Takes five tickets, T64.1–T64.5) | `docs/process/t64-retro.md` (finding: **a green gate is a statement about a moment, not about a tree** — T63.2's security PASS went red in 20 hours with no code change, and the account was accurate while the world moved under it, which is a different failure from the one T63.1 guards. Also: the **corrected** escalation sweep still missed a product question, three sweeps each fixing one level of derivation and stopping one short; a derived sweep found two live instances the issue that prompted it had not predicted; and T63.3's failed first application was repaired and re-applied inside one sprint. First sprint in twelve with any second reader — three report-only agent reviewers, §9 on what that is and is not worth) | PR #325 (`1febf8e`, Ceremony 1) → #326 (`2e9b59f`, all five tickets) → #327 (`bdab076`, retro) → #331 (`64ad1ce`, the review fixes), verified against each PR's `merged_at`. **#326 and #331 carry the first non-author reviews in this project's history** — three report-only agents, 42 findings, five of them defects in code T64 had already mutation-verified. #325/#327 are author-reviewed | none new | — |
-| T65 | `docs/process/t65-sprint-plan.md` (Ceremony 1: **runs the security gate first** per T64's retro — PASS, dated. **Then a premise-challenge pass found the draft slate had zero of five tickets touching the product, and two live product decisions the sweep had declared absent**: ADR-0012 **Q1** (Player Level weighting, open since 2026-08-10 — longer than D1's 41 sprints) and ADR-0009's market scope. `HANDOFF.md` had collapsed Q1 into Q2's *"legal/ethical, may never be ours"* framing; they are different questions and ADR-0012 says answering one unblocks its half. Both raised and **answered**: Q1 → balance win rate with experience; market → both, pluggable, one first. Q2 deliberately unasked. Slate rebuilt to four tickets, 15 points, **two of them product** — starting with a Vue client that cannot send an `Authorization` header to 31 enforced RPCs and has not since T55) | not yet written | not yet opened | none new | — |
+| T65 | `docs/process/t65-sprint-plan.md` (Ceremony 1: **runs the security gate first** per T64's retro — PASS, dated. **Then a premise-challenge pass found the draft slate had zero of five tickets touching the product, and two live product decisions the sweep had declared absent**: ADR-0012 **Q1** (Player Level weighting, open since 2026-08-10 — longer than D1's 41 sprints) and ADR-0009's market scope. `HANDOFF.md` had collapsed Q1 into Q2's *"legal/ethical, may never be ours"* framing; they are different questions and ADR-0012 says answering one unblocks its half. Both raised and **answered**: Q1 → balance win rate with experience; market → both, pluggable, one first. Q2 deliberately unasked. Slate rebuilt to four tickets, 15 points, **two of them product** — starting with a Vue client that cannot send an `Authorization` header to 33 enforced RPCs (the server's own count; a "correction" to 31 at Ceremony 1 was a source grep missing identity's two concatenated method names) and has not since T55) | not yet written | not yet opened | none new | — |
 
 | SCRUM-6 (CI/CD, cross-cutting — not a phase) | — (Jira ticket, not a sprint) | — | PR for `SCRUM-6-cicd-pipeline` (GitHub review comments, see naming convention) | `adr/0011` (CI pipeline shape + security gating: `agent any` over a Docker agent, Generate-before-Lint, skipped stages mark UNSTABLE not green, reachability as the Go severity signal, baselines must carry a written reason, load tests opt-in) | `loadtest/README.md` (k6 choice + its verification-status table) |
 
@@ -4391,7 +4391,61 @@ or may not be entitled to decide:
 |---|---|
 | #134 | Needs real assistive-technology hardware this environment does not have. Premise re-verified at T64: all three routes are still in `ROUTES_UNDER_TEST` (`web/src/__tests__/accessibility.spec.ts:92,98,99` — the earlier citation `:98-99,197-199` was wrong twice over: it covered two of the three routes, and `:197-199` is a different array, `T11_NEW_SCREENS`), so the automated half still covers them and the manual half is still owed. |
 | #145 | Needs a real, non-uuid IdP `sub` claim this environment cannot produce. **Its product question was answered at T64's Ceremony 1, as a deliberate deferral with a named trigger**: the ticket that provisions a real identity provider must decide how pre-existing accounts get linked (automatic match on first login / explicit claim step / operator-run linking) **before it merges**, because the provider's own capabilities change which options exist. Recorded on the issue, not only here. Raising it at all was T64's finding — T62's and T63's corrected sweeps both reported no open issue awaiting a product decision, because the question lives in the issue's **body** and the sweep reads the issue's **labels and state**. |
-| ADR-0012 Q1/Q2 | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute. May never be this project's to answer. ADR-0015 warned explicitly against filing D1 alongside these; that warning was right, and this split exists so it is structural rather than prose. |
+| ADR-0012 **Q2** | Legal/ethical dimension — whether this platform should collect and algorithmically act on a protected attribute (`Gender`, a matching-mode flag). May never be this project's to answer, and **deliberately not asked** at T65's Ceremony 1: nothing in that sprint needed it, and asking a legal/ethical question in order to clear a backlog row is how a decision gets made badly. ADR-0015 warned explicitly against filing D1 alongside this; that warning was right, and this split exists so it is structural rather than prose. |
+
+**And the row above used to say "ADR-0012 Q1/Q2", which is how an
+answerable question stayed unasked for 55 sprint-labels.** Q1 — *how is the
+Player Level formula weighted?* — is an **ordinary product-weighting
+question**, not a legal one. Carrying it in one row with Q2 meant it
+inherited Q2's description (*"Legal/ethical dimension … May never be this
+project's to answer"*), and the **ADR half** of four consecutive
+ceremonies' escalation sweeps read nothing but each ADR's status line, so Q1
+was never reachable by it. (Not "four ceremonies reported no product
+decision awaiting an answer", which T65.3's review falsified: **T64's
+ceremony surfaced one and got it answered** — #145's, as the row above this
+one states — from an issue's prose. Its sweep was not blind; its ADR half
+was.) The collapse was written
+down at `docs/process/t59-sprint-plan.md:110-113`, as *"a legal/ethical
+question"*, singular — and T59's own §4 reported *"**None.** … There is no
+question waiting on the user"*, which makes T59 the first instance of the
+failure as well as its origin. T62, T63, T64 and T65's own first draft
+inherited the collapse.
+ADR-0012's text said the opposite in as many words the whole time — *"If
+only one of Q1/Q2 is answered, build the part that answer unblocks"*.
+
+**Q1 was answered on 2026-10-07 and built the same sprint (T65.2):**
+*balance win rate with experience* — win rate is the signal, but a player
+needs a reasonable number of games before the rating is trusted, and early
+results move it less. The formula, the win rule (highest points wins; ties
+count for everyone tied), the `Provisional` flag, the recompute-surviving
+manual override and the level-only pinned-pairing suggestion are all in
+`internal/identity/domain/player_level.go` and
+`internal/socialplay/domain/matchmaking.go`. The three-part input gap it
+exposed — no per-player match query, no bridge from Social Play's opaque
+player ids to `identity_users.id`, nowhere to put a computed level — is
+#333. **No `Gender` field anywhere**, since Q2 is still open, held by two
+tests that parse the tree — one of them every Go file's declarations plus
+every migration, `.proto`, `.ts` and `.vue`. Their first versions listed
+types by hand, and **two** review passes were needed: the first walked a
+new `Gender`-bearing type and a `Gender` field on `Registration` past them,
+the second walked five more past the rewrite (a skipped directory basename,
+a column behind a `DEFAULT 'https://…'`, `Sex`, a `const`/`var`/`func`, an
+embedded field) and found a false positive where a migration documenting
+its own compliance in a block comment turned the gate red.
+
+**ADR-0009's market-scope question was answered the same day** (both
+markets, one channel built first; which one first is a deferral whose
+trigger is the ceremony that refines the first messaging ticket). It had
+been open since **T7** and **never appeared in this table at all** — which
+is the sharper half of the same lesson: a question only reaches this list if
+somebody puts it here, so the escalation sweep must read the ADRs
+themselves. `#55 sprint-labels` above is T10 (ADR-0012 accepted, 2026-08-10)
+to T65 inclusive; it is a count of sprint labels, not of elapsed sprints,
+per `t61-retro.md`'s rule about figures that cannot be enumerated. `docs/process/sprint-process.md` now requires that.
+
+**The general rule this cost two decisions to learn: never describe two
+escalations in one row.** One of them inherits the other's reason for being
+unanswerable, and the cheaper question is the one that disappears.
 
 ## Cross-cutting / later
 - **The Vue booking client needs a sign-in step before its confirm call

@@ -44,6 +44,7 @@ import { entryFeeLabel } from '../models/competition'
 import { formatMoneyCents, DEFAULT_CURRENCY_CODE } from '../models/payment'
 import type { CompetitionsClient } from '../api/competitionsClient'
 import type { PaymentsClient } from '../api/paymentsClient'
+import { actingUserId } from '../state/authSession'
 
 const props = defineProps<{
   /** Injectable for tests; defaults to the real competitionsClient. */
@@ -133,7 +134,7 @@ onMounted(async () => {
     entryId.value,
     owed,
     amountOwedCurrency.value,
-    { actorUserId: MOCK_PLAYER_ID, entrantPlayerId: MOCK_PLAYER_ID },
+    { actorUserId: actingUserId(MOCK_PLAYER_ID), entrantPlayerId: actingUserId(MOCK_PLAYER_ID) },
   )
 })
 </script>

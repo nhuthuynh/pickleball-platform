@@ -116,4 +116,26 @@ var (
 	// with an elevated role is a different, auth-gated capability this
 	// ticket does not build.
 	ErrRoleNotSelfAssignable = errors.New("identity: role is not self-assignable via public registration")
+
+	// ErrImpossibleRecord is returned by ComputeLevel for a PlayerRecord
+	// that cannot have happened: a negative games-played or wins count, or
+	// more wins than games. Refused rather than clamped, because every way
+	// of producing such a record is a bug in whatever counted the matches
+	// — and the win rule it would have to have broken is itself a product
+	// decision (highest points wins; a tie counts for everyone tied), so a
+	// clamp here would quietly absorb a miscount of that rule instead of
+	// surfacing it. Maps to codes.InvalidArgument if it ever reaches a
+	// handler, though no RPC produces one today: ComputeLevel's input is
+	// derived server-side from Match history, never taken off the wire.
+	ErrImpossibleRecord = errors.New("identity: impossible player record")
+
+	// ErrInvalidLevel is returned by PlayerLevel.WithManualOverride for a
+	// Level outside the closed [MinLevel, MaxLevel] range (NaN included).
+	// Distinct from ErrInvalidSelfReportedStartingLevel, which is about the
+	// player's own 1..5 *seed*: the two values share a scale but not a
+	// source — one is a player's claim at signup, the other is an operator
+	// overriding a computed value — so a caller that gets one of these
+	// errors must be able to tell which input was wrong (the same
+	// reasoning ErrEmptySubject records for ID vs. Subject).
+	ErrInvalidLevel = errors.New("identity: level must be between 1 and 5")
 )

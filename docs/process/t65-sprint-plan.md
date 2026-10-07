@@ -505,10 +505,23 @@ defects while doing infrastructure work.
    `grep -c "WHERE.*owner_user_id"` → **0**. The index at `0027:79` serves no
    query. **A count was nearly used to refute a claim it did not address** —
    the exact failure this project keeps finding, one level in.
-2. **It said 33 authenticated RPCs; the count is 31** (8+9+6+4+4+0). Its
-   decomposition put 2 in booking and 2 in identity; the real split is 8 and 0.
-   Immaterial to the argument, and recorded because an uncorrected figure is how
-   the next document inherits it.
+2. **It said 33 authenticated RPCs. I "corrected" that to 31, and I was the one
+   who was wrong** — corrected again at T65.1, by the running server:
+
+   ```
+   $ (cmd/server, started against a real database with dev/auth/'s fixture)
+   {"level":"INFO","msg":"auth: enforcement active","authenticated_methods":33}
+   ```
+
+   My grep counted `_FullMethodName` constants and missed identity's two,
+   which are written `serviceName + "CreateUser"` — string concatenation, not
+   constants. **The agent's figure and its decomposition were both right.**
+
+   This is the project's own rule arriving as a lesson rather than a sentence:
+   *prefer a count the running system reports over one grepped from source*
+   (T63.1). A source grep was used to overrule a correct claim, and the
+   authoritative answer was one log line from the process that enforces the
+   policy.
 
 ### What this says about the review arrangement
 

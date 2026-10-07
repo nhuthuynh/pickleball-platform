@@ -9,8 +9,9 @@
 // AppNav) plus a <RouterView /> for whichever screen the current route
 // matches. Screens themselves live under src/router/index.ts's route
 // table, not here.
-import { RouterView } from 'vue-router'
+import { RouterLink, RouterView } from 'vue-router'
 import RoleIndicator from './components/RoleIndicator.vue'
+import { authRejected, clearAuthRejected, isSignedIn } from './state/authSession'
 import AppNav from './components/nav/AppNav.vue'
 </script>
 
@@ -21,7 +22,18 @@ import AppNav from './components/nav/AppNav.vue'
       <!-- Mock/hardcoded role data — see RoleIndicator.vue's own comment
            header for why, and what it must not be used for. -->
       <RoleIndicator />
+      <!-- T65.1 — one place that says "sign in", rather than twelve write
+           call sites each inventing a message. `authRejected` is set by the
+           API client's middleware on a 401 and is deliberately distinct from
+           "no token present": a rejected token is the case that needs
+           explaining. -->
+      <RouterLink v-if="!isSignedIn()" class="app-shell__sign-in" to="/sign-in">Sign in</RouterLink>
     </header>
+
+    <p v-if="authRejected" class="app-shell__auth-alert" role="alert">
+      That request was rejected because you are not signed in, or your token
+      has expired. <RouterLink to="/sign-in" @click="clearAuthRejected()">Sign in again</RouterLink>.
+    </p>
 
     <div class="app-shell__body">
       <AppNav />
@@ -34,6 +46,25 @@ import AppNav from './components/nav/AppNav.vue'
 </template>
 
 <style scoped>
+.app-shell__sign-in {
+  margin-left: auto;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding-inline: 0.75rem;
+}
+.app-shell__sign-in:focus-visible,
+.app-shell__auth-alert a:focus-visible {
+  outline: 3px solid var(--court, #2f855a);
+  outline-offset: 2px;
+}
+.app-shell__auth-alert {
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: var(--danger-surface, #fef2f2);
+  color: var(--danger, #b91c1c);
+  font-weight: 600;
+}
 .app-shell {
   min-height: 100vh;
   background: var(--paper);

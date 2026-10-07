@@ -10,6 +10,22 @@
 /bin/
 /clients/
 
+# Compiled command binaries at the repository root. `go build ./cmd/<x>`
+# with no -o drops the executable HERE, named after the package, and a
+# `git add -A` then tracks it — which is how T65.4 committed a 3 MB
+# `docsindex` ELF (caught by that sprint's own review, not by any gate).
+# Tracked is the dangerous part: `git status` stays clean, so the next
+# build lands a 3 MB binary diff in an unrelated commit, and the stale
+# executable sits where `./docsindex -statuses` works — an answer from code
+# that no longer exists, for the one tool CLAUDE.md tells Ceremony 1 to run.
+# Derived from the tree, not listed: every directory under cmd/ is one
+# possible binary name.
+/devtoken
+/docsindex
+/gatecoverage
+/server
+/vulngate
+
 # Generated TypeScript API client (openapi-typescript output from
 # openapi/**/*.swagger.json). Never hand-edited, never committed — same
 # convention as /internal/gen/ above. Regenerate with

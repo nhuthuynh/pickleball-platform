@@ -40,6 +40,7 @@ import { computed, ref } from 'vue'
 import { useEnterCompetition, MOCK_PLAYER_ID } from '../../composables/useEnterCompetition'
 import { entryFeeLabel, type CompetitionSummary, type ConfirmedEntry, type EntrySource } from '../../models/competition'
 import type { CompetitionsClient } from '../../api/competitionsClient'
+import { actingUserId } from '../../state/authSession'
 
 const props = defineProps<{
   competition: CompetitionSummary
@@ -116,7 +117,7 @@ function onIncrement(): void {
 }
 
 function onEnter(): void {
-  void enter(MOCK_PLAYER_ID)
+  void enter(actingUserId(MOCK_PLAYER_ID))
 }
 
 function onPayOnline(): void {

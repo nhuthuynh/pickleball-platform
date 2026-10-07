@@ -1,4 +1,4 @@
-.PHONY: test-domain test-platform test-tools test-adapters test-cmd gate-coverage dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
+.PHONY: test-domain test-platform test-tools test-adapters test-cmd gate-coverage binary-check dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
         build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
@@ -169,6 +169,41 @@ tidy:
 # reports both failures with precise diagnoses, needs no network (verified with
 # an empty cache) and takes about 0.6s. A hand-written comparator would be a
 # second implementation of semver in this repo.
+# Fails when a tracked file is a compiled ELF binary.
+#
+# Added T65.4's review pass, which found a 3 MB `docsindex` executable
+# committed at the repository root by this very sprint. `go build ./cmd/<x>`
+# with no -o drops the binary there, named after the package, and `git add
+# -A` tracks it. Nothing noticed: it is not generated code, not a test, not
+# a doc, and once TRACKED `git status` stays clean, so the next build lands
+# a 3 MB diff in an unrelated commit.
+#
+# .gitignore now lists the five cmd/ names, and that list is exactly what
+# this check exists not to depend on: it tests the PROPERTY (the ELF magic
+# number, four bytes), so a sixth command, a renamed one, or a binary
+# committed from anywhere else fails it too. Images, fonts and PDFs are
+# binary and are not ELF, so there are no false positives to exempt — and
+# an exemption list here would be the same mistake .gitignore's list
+# already is.
+binary-check:
+	@bad=""; \
+	for f in $$(git ls-files); do \
+	  [ -f "$$f" ] || continue; \
+	  magic=$$(head -c 4 "$$f" | od -An -tx1 | tr -d ' \n'); \
+	  [ "$$magic" = "7f454c46" ] && bad="$$bad $$f"; \
+	done; \
+	if [ -n "$$bad" ]; then \
+	  echo "binary-check: FAIL — tracked ELF executable(s):"; \
+	  for f in $$bad; do echo "    $$f"; done; \
+	  echo ""; \
+	  echo "A compiled binary must not be committed. Remove it with"; \
+	  echo "\`git rm --cached <file>\` and add it to .gitignore. If it came from"; \
+	  echo "\`go build ./cmd/<x>\`, build to a scratch path instead:"; \
+	  echo "    go build -o /tmp/<x> ./cmd/<x>"; \
+	  exit 1; \
+	fi; \
+	echo "binary-check: OK — no tracked file carries the ELF magic number."
+
 lock-check:
 	@test -f web/package-lock.json || { \
 	  echo "web/package-lock.json is MISSING."; \
@@ -415,7 +450,7 @@ loadtest:
 # meta-check on the gate's own shape, not a test — running it last means its
 # report describes the set of targets that just ran, and a genuine test
 # failure surfaces before the structural complaint about coverage does.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check lock-check generate-client lint-web test-web build-web
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check lock-check binary-check generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
