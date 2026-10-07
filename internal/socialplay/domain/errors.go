@@ -345,4 +345,20 @@ var (
 	// NotFound would turn every actor-taking RPC into a user-enumeration
 	// oracle.
 	ErrUserNotFound = errors.New("socialplay: user not found")
+
+	// ErrDuplicatePlayer is returned by SuggestMatchups when one player
+	// appears twice in the player set, twice within a pinned pair, or in
+	// two different pinned pairs. All three are the same mistake —
+	// scheduling one person into two places at once — and a suggestion
+	// that silently resolved it would hand an organiser a schedule that
+	// cannot be played.
+	ErrDuplicatePlayer = errors.New("socialplay: a player appears more than once")
+
+	// ErrUnknownPinnedPlayer is returned by SuggestMatchups when a pinned
+	// pairing names a player who is not in the set being arranged.
+	// Refused rather than ignored: dropping the pin would silently
+	// discard the organiser's manual choice, and "always manually
+	// overridable" (CLAUDE.md's locked matchmaking decision) is worth
+	// nothing if an override can vanish on a typo.
+	ErrUnknownPinnedPlayer = errors.New("socialplay: pinned pairing names a player who is not in this set")
 )

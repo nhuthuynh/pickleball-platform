@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"sort"
+	"time"
+)
 
 // Match records a real result played within an existing Game (T10.3): which
 // players played, what the score was, and when the result was recorded.
@@ -98,4 +101,72 @@ func RecordMatch(gameID string, players []string, score map[string]int, recorded
 		Score:      score,
 		RecordedAt: recordedAt,
 	}, nil
+}
+
+// Winners returns the player ids holding the highest score in this Match,
+// sorted so the result is reproducible (Go randomises map iteration, and a
+// caller counting wins across a history must get the same answer twice).
+//
+// THE RULE, answered by the Product Owner on 2026-10-07: *highest points
+// wins, and a tie counts for everyone tied.* So a tied match returns every
+// tied player and there is no draw category — which is exactly why the
+// answer needed no change to what is stored. In particular it works for
+// doubles unchanged: partners share one side's point total, so both appear
+// in Score with the same value and either both win or neither does. This
+// type needs no notion of a side, a team or a partner, and deliberately
+// does not gain one here.
+//
+// Scope, stated because it is easy to over-read: a "win" is a fact about
+// this one Match. Accumulating wins into a player's record, and weighting
+// that record into a Level, is Identity's job
+// (internal/identity/domain.PlayerRecord/ComputeLevel) — this package does
+// not import that one, and nothing here computes a rating (CLAUDE.md
+// rule 3; ADR-0012's "no PlayerRating field" still holds, since a
+// PlayerRecord is a count, not a stored rating).
+//
+// Score is not required to cover every entry in Players (see the field's
+// own doc comment), so Winners reports on who was actually scored. An empty
+// or nil Score — which RecordMatch refuses but a zero-value Match can
+// carry — returns an empty slice rather than panicking.
+func (m Match) Winners() []string {
+	if len(m.Score) == 0 {
+		return nil
+	}
+
+	best := 0
+	first := true
+	for _, points := range m.Score {
+		if first || points > best {
+			best, first = points, false
+		}
+	}
+
+	winners := make([]string, 0, len(m.Score))
+	for playerID, points := range m.Score {
+		if points == best {
+			winners = append(winners, playerID)
+		}
+	}
+	sort.Strings(winners)
+	return winners
+}
+
+// Won reports whether playerID is among this Match's Winners. A player with
+// no recorded score has no result, so Won is false for them — "absent from
+// Score" must never read as "won", which is the shape a win-counting loop
+// over a Game's Players would otherwise get wrong.
+func (m Match) Won(playerID string) bool {
+	if playerID == "" {
+		return false
+	}
+	points, ok := m.Score[playerID]
+	if !ok {
+		return false
+	}
+	for _, other := range m.Score {
+		if other > points {
+			return false
+		}
+	}
+	return true
 }
