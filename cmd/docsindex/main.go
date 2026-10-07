@@ -18,6 +18,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/nhuthuynh/white-label/tools/docsindex"
@@ -30,7 +31,7 @@ func main() {
 	flag.Parse()
 
 	if *statuses {
-		if err := listStatuses(*root); err != nil {
+		if err := listStatuses(*root, os.Stdout); err != nil {
 			fmt.Fprintf(os.Stderr, "docs-index-check: %v\n", err)
 			os.Exit(2)
 		}
@@ -71,7 +72,10 @@ func main() {
 // print a readable one, so T64's own ceremony copied tools/docsindex into a
 // scratch directory to avoid re-implementing the parser as a grep. See
 // docsindex.ADRStatuses for why that is the one thing worth not doing.
-func listStatuses(root string) error {
+// out is a parameter rather than os.Stdout directly so the listing's own
+// content is assertable — #328: this function and its non-zero exit shipped
+// untested at T64.5, which rules 1 and 8 do not allow. See main_test.go.
+func listStatuses(root string, out io.Writer) error {
 	adrs, err := docsindex.ADRStatuses(root)
 	if err != nil {
 		return err
@@ -86,15 +90,15 @@ func listStatuses(root string) error {
 			}
 		}
 		counts[token]++
-		fmt.Printf("%-14s %-13s %s\n", token, form, a.File)
+		fmt.Fprintf(out, "%-14s %-13s %s\n", token, form, a.File)
 	}
-	fmt.Printf("\n%d ADR(s):", len(adrs))
+	fmt.Fprintf(out, "\n%d ADR(s):", len(adrs))
 	for _, t := range append(docsindex.CanonicalStatuses(), "UNCLASSIFIABLE") {
 		if counts[t] > 0 {
-			fmt.Printf(" %s=%d", t, counts[t])
+			fmt.Fprintf(out, " %s=%d", t, counts[t])
 		}
 	}
-	fmt.Println()
+	fmt.Fprintln(out)
 
 	// An unclassifiable status is a failure here too, not just in the check —
 	// a listing that quietly omitted one would be the silent skip T62.4 was

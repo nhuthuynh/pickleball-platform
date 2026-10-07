@@ -592,3 +592,233 @@ func TestRepoMakefileIsStillParseable(t *testing.T) {
 		}
 	}
 }
+
+// --- The zero-test blind spot (#328, decided at T65.4) --------------------
+
+// TestUntestedNamesPackagesHoldingNoTestFunction is the pure half of the
+// decision #328 asked for. This check's question is "which tests does no gate
+// run?", and a package with no tests has none to run — so it was invisible
+// here by construction, and `gate-coverage: OK` was silent about four of five
+// `cmd` packages. The decision was to REPORT them, never to fail on them: a
+// gate that failed would be satisfied by a stub test, which is worse than the
+// silence it replaced.
+func TestUntestedNamesPackagesHoldingNoTestFunction(t *testing.T) {
+	all := []string{
+		"cmd/devtoken",
+		"cmd/docsindex",
+		"cmd/server",
+		"internal/booking/domain",
+		"internal/platform/pg",
+	}
+	pkgs := []TestPackage{
+		{Dir: "cmd/docsindex", RunnableTests: []string{"TestA"}},
+		{Dir: "cmd/server", RunnableTests: []string{"TestB"}},
+		{Dir: "internal/booking/domain", RunnableTests: []string{"TestC"}},
+	}
+
+	got := Untested(all, pkgs)
+	want := []string{"cmd/devtoken", "internal/platform/pg"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("Untested() = %v, want %v", got, want)
+	}
+}
+
+// TestUntestedCountsATaggedOnlyPackageAsTested: a package whose every test is
+// behind a build tag HAS tests — it is the CompiledOnly case, which this check
+// already reports under its own heading. Double-reporting it would make the
+// new note's count meaningless.
+func TestUntestedCountsATaggedOnlyPackageAsTested(t *testing.T) {
+	got := Untested(
+		[]string{"internal/onlytagged"},
+		[]TestPackage{{Dir: "internal/onlytagged", ConstrainedTests: []string{"TestE"}}},
+	)
+	if len(got) != 0 {
+		t.Fatalf("Untested() = %v, want none — a tagged-only package is CompiledOnly, not untested", got)
+	}
+}
+
+// TestUntestedIsSortedAndDeduplicated: the output is read by humans and
+// compared run to run, so churn in it would be indistinguishable from a real
+// change.
+func TestUntestedIsSortedAndDeduplicated(t *testing.T) {
+	got := Untested([]string{"z/pkg", "a/pkg", "z/pkg", "m/pkg"}, nil)
+	if want := "a/pkg,m/pkg,z/pkg"; strings.Join(got, ",") != want {
+		t.Fatalf("Untested() = %v, want %v", got, want)
+	}
+}
+
+// TestUntestedPackagesAreReportedAndDoNotFailTheCheck is the decision itself,
+// asserted on the rendered report: the packages are named, the output says in
+// so many words that this is not a failure, and OK() is unaffected.
+func TestUntestedPackagesAreReportedAndDoNotFailTheCheck(t *testing.T) {
+	rep := Analyze([]TestPackage{
+		{Dir: "internal/booking/domain", RunnableTests: []string{"TestA"}},
+	}, []string{"internal/booking/domain"})
+	rep.GateRoot = "ci-checks"
+	rep.Untested = []string{"cmd/devtoken", "cmd/vulngate"}
+
+	if !rep.OK() {
+		t.Fatalf("an untested package must not fail the check; got:\n%s", rep)
+	}
+
+	out := rep.String()
+	for _, want := range []string{
+		"no test function at all",
+		"cmd/devtoken",
+		"cmd/vulngate",
+		"2 package(s)",
+		"OK",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("report missing %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "FAIL") {
+		t.Fatalf("the untested note must not read as a failure; got:\n%s", out)
+	}
+}
+
+// TestNoUntestedPackagesPrintsNoNote: a note that prints "0 package(s)" every
+// run is noise, and noise is what gets skimmed.
+func TestNoUntestedPackagesPrintsNoNote(t *testing.T) {
+	rep := Analyze([]TestPackage{
+		{Dir: "internal/booking/domain", RunnableTests: []string{"TestA"}},
+	}, []string{"internal/booking/domain"})
+	rep.GateRoot = "ci-checks"
+
+	if out := rep.String(); strings.Contains(out, "no test function at all") {
+		t.Fatalf("the note printed with nothing to report:\n%s", out)
+	}
+}
+
+// TestRunReportsTheRealRepositorysUntestedPackages is the end-to-end half,
+// against this checkout. #328's premise — four of five `cmd` packages hold
+// zero tests — was true when filed; T65.4 tested one of them, so the figure
+// the test asserts is derived here rather than written down.
+func TestRunReportsTheRealRepositorysUntestedPackages(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(root, filepath.Join(root, "Makefile"), DefaultGateRoot, GoList(root))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if len(rep.Untested) == 0 {
+		t.Fatalf("this repository has packages with no tests (cmd/devtoken for one) and none were reported")
+	}
+	var found bool
+	for _, d := range rep.Untested {
+		if d == "cmd/devtoken" {
+			found = true
+		}
+		for _, p := range rep.Scanned {
+			if p.Dir == d {
+				t.Fatalf("%s is reported as untested and also holds test functions", d)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("cmd/devtoken holds no test function and is not in Untested = %v", rep.Untested)
+	}
+	if !rep.OK() {
+		t.Fatalf("the real repository must still pass:\n%s", rep)
+	}
+}
+
+// TestSplitGeneratedUsesGosOwnMarkerRatherThanAPathList is the other half of
+// T65.4's decision. The real repository has 27 packages with no tests and 13
+// of them are `internal/gen/**`, which is generated and gitignored (CLAUDE.md
+// rule 6: never hand-edit it). Printing those alongside the hand-written ones
+// buries the list a reader can act on under one they cannot.
+//
+// The split is derived from Go's own documented generated-file marker — a
+// property of the files — and NOT from a path prefix. A path list in this tool
+// is the single change that would defeat it, and "internal/gen" would be one.
+func TestSplitGeneratedUsesGosOwnMarkerRatherThanAPathList(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"gen/sqlc/db.go":    "// Code generated by sqlc. DO NOT EDIT.\n\npackage sqlcgen\n",
+		"gen/proto/x.pb.go": "// Code generated by protoc-gen-go. DO NOT EDIT.\n// versions:\n\npackage protogen\n",
+		"handwritten/a.go":  "package handwritten\n\nfunc A() {}\n",
+		"mixed/gen.go":      "// Code generated by thing. DO NOT EDIT.\n\npackage mixed\n",
+		"mixed/hand.go":     "package mixed\n\nfunc B() {}\n",
+		"mentions/m.go":     "package mentions\n\n// This file talks about Code generated by sqlc. DO NOT EDIT. in prose.\nfunc C() {}\n",
+		"notatop/n.go":      "package notatop\n\n// Code generated by sqlc. DO NOT EDIT.\nfunc D() {}\n",
+	})
+
+	hand, generated := SplitGenerated(root, []string{
+		"gen/proto", "gen/sqlc", "handwritten", "mentions", "mixed", "notatop",
+	})
+
+	if want := "gen/proto,gen/sqlc,mixed"; strings.Join(generated, ",") != want {
+		t.Fatalf("generated = %v, want %v", generated, want)
+	}
+	if want := "handwritten,mentions,notatop"; strings.Join(hand, ",") != want {
+		t.Fatalf("handWritten = %v, want %v — the marker must be a header, not a mention", hand, want)
+	}
+}
+
+// TestSplitGeneratedReportsAnUnreadableDirectoryAsHandWritten: the
+// conservative direction. A directory this cannot read is one it knows nothing
+// about, and the note is supposed to surface packages, not hide them.
+func TestSplitGeneratedReportsAnUnreadableDirectoryAsHandWritten(t *testing.T) {
+	hand, generated := SplitGenerated(t.TempDir(), []string{"does/not/exist"})
+	if strings.Join(hand, ",") != "does/not/exist" || len(generated) != 0 {
+		t.Fatalf("hand = %v, generated = %v; want the unreadable directory reported", hand, generated)
+	}
+}
+
+// TestTheGeneratedNoteIsACountAndNotAList: thirteen generated package names
+// every run is noise, and noise is what gets skimmed. The hand-written ones
+// are named; the generated ones are counted.
+func TestTheGeneratedNoteIsACountAndNotAList(t *testing.T) {
+	rep := Analyze([]TestPackage{
+		{Dir: "internal/booking/domain", RunnableTests: []string{"TestA"}},
+	}, []string{"internal/booking/domain"})
+	rep.GateRoot = "ci-checks"
+	rep.Untested = []string{"cmd/devtoken"}
+	rep.UntestedGenerated = []string{"internal/gen/bookingdb", "internal/gen/identitydb"}
+
+	out := rep.String()
+	if !strings.Contains(out, "cmd/devtoken") {
+		t.Fatalf("the hand-written package is not named:\n%s", out)
+	}
+	if !strings.Contains(out, "2 generated") {
+		t.Fatalf("the generated packages are not counted:\n%s", out)
+	}
+	if strings.Contains(out, "internal/gen/bookingdb") {
+		t.Fatalf("a generated package is listed by name:\n%s", out)
+	}
+	if !rep.OK() {
+		t.Fatalf("neither note may fail the check:\n%s", out)
+	}
+}
+
+// TestRunSplitsTheRealRepositorysUntestedPackages, derived rather than
+// asserted from the issue: every `internal/gen` package must land on the
+// generated side and `cmd/devtoken` on the hand-written one.
+func TestRunSplitsTheRealRepositorysUntestedPackages(t *testing.T) {
+	root, err := filepath.Abs("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Run(root, filepath.Join(root, "Makefile"), DefaultGateRoot, GoList(root))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, d := range rep.Untested {
+		if strings.HasPrefix(d, "internal/gen/") {
+			t.Errorf("%s is generated and was reported as hand-written", d)
+		}
+	}
+	if len(rep.UntestedGenerated) == 0 {
+		t.Errorf("no generated package was recognised; internal/gen/** carries sqlc and protoc headers")
+	}
+	for _, d := range rep.UntestedGenerated {
+		if !strings.HasPrefix(d, "internal/gen/") {
+			t.Errorf("%s was classified as generated; only internal/gen/** is, in this tree", d)
+		}
+	}
+}

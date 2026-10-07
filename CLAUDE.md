@@ -116,6 +116,25 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   from `ci-checks`, never by adding an exclusion. Tool in
   `tools/gatecoverage` (covered by `make test-tools`), entry point
   `cmd/gatecoverage`. Added T14.1.
+
+  **It also reports, without failing, every package holding no test function
+  at all** — T65.4's answer to #328's blind spot, which is real: the tool's
+  question is "which TESTS does no gate run?", and a package with none has
+  none to run, so `gate-coverage: OK` was silent about **four of five `cmd`
+  packages** and about `internal/identity/adapter/postgres`, an adapter. The
+  decision, recorded rather than left as a convention: **report, never fail.**
+  A gate that failed here is satisfied by a stub `func TestNothing`, and it
+  would assert a policy — every package must have a test — that nobody decided
+  and that is wrong for a thin `main` wrapper. Generated packages are counted
+  rather than listed, and are recognised by **Go's own `DO NOT EDIT` header**,
+  not by a path prefix: `internal/gen` as a hardcoded skip would be exactly
+  the package list this tool must not grow. Current state, from the running
+  command rather than from this paragraph:
+
+  ```
+  $ make gate-coverage | grep "no test function"
+  gate-coverage: NOTE — 27 package(s) hold no test function at all.
+  ```
 - `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
   which form carried it) from the **same parser `docs-index-check` uses**. This
   is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
@@ -132,7 +151,11 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   the blank. (*"Five times"* stood here until T64's review pointed out that
   `sprint-process.md` says in as many words: if a count cannot be enumerated,
   write *"repeatedly"* rather than *"five times"*.) Unclassifiable
-  statuses fail this listing too, not just the gate.
+  statuses fail this listing too, not just the gate. **Tested as of T65.4**
+  (#328): `cmd/docsindex/main_test.go` drives the listing, the tally and — in
+  a subprocess, because an exit code is the only part of this program a
+  Makefile can see — the **exit 2** on an unclassifiable status. It shipped at
+  T64.5 with no test at all, which rules 1 and 8 do not allow.
 - `make lock-check` — fails when `web/package-lock.json` is missing, or when it
   and `web/package.json` disagree. Wires `npm ci --dry-run --offline` (npm's own
   check, no network, ~0.6s) rather than re-implementing semver comparison. Part
@@ -271,8 +294,14 @@ its filename alone and nothing collides or goes stale silently:
   **every integration file is invisible to `gate-coverage`**:
 
   ```
-  $ make gate-coverage | grep -iE "NOTE|compiled|never"     # no output
+  $ make gate-coverage | grep -iE "ONLY build-tagged|compiled"     # no output
   ```
+
+  **The grep above was `-iE "NOTE|compiled|never"` until T65.4**, which added a
+  second, unrelated NOTE to this tool's output (packages holding no test
+  function at all, #328) and so made the old command print a line that has
+  nothing to do with integration tests. Narrowed to the `CompiledOnly`
+  section's own wording, which is what the claim is about.
 
   That is not a defect in the tool — a package with runnable tests that run is
   correctly covered — but do not read `gate-coverage: OK` as saying anything
