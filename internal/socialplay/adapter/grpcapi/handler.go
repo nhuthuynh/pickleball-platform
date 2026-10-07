@@ -665,6 +665,7 @@ func toStatus(err error) error {
 		// TestSentinelToCodeTableCoversEveryDomainSentinel refuses.
 		errors.Is(err, domain.ErrDuplicatePlayer),
 		errors.Is(err, domain.ErrUnknownPinnedPlayer),
+		errors.Is(err, domain.ErrInvalidPlayerLevel),
 		// T14.4 (#168) — both join the InvalidArgument group, and the second
 		// one is a judgement call worth stating rather than assuming.
 		//

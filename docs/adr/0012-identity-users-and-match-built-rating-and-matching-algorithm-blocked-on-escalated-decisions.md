@@ -64,11 +64,15 @@ level-only automated matching, still with no `Gender` field)"*:
 | Level-only automated match suggestion, with **pinning**: an organiser's own pairings are carried through untouched and the algorithm arranges only the rest | `internal/socialplay/domain/matchmaking.go` |
 
 **No `PlayerRating` field or table was added.** The decision's §4 list
-forbids one, and nothing here needs one: a `PlayerRecord` is a count of
-games and wins, and a `PlayerLevel` is computed from it on demand. Rule 4's
-Postgres half is therefore not owed by this ticket — there is no persisted
-derived value for a constraint to protect. The ticket that *stores* a level
-owes the schema half, and owes it in the same ticket.
+forbids one — and §4's "compute a Level from `Match` history" clause is the
+one Q1's answer releases, so §4 has been amended below rather than left to
+contradict this section. (That contradiction was a review finding: §4 as
+written forbade this ticket outright while the trigger required it.)
+Nothing here needs a stored rating: a `PlayerRecord` is a count of games and
+wins, and a `PlayerLevel` is computed from it on demand. Rule 4's Postgres
+half is therefore not owed by this ticket — there is no persisted derived
+value for a constraint to protect. The ticket that *stores* a level owes the
+schema half, and owes it in the same ticket.
 
 ### Q2 is unchanged, and is now visibly separate
 
@@ -77,9 +81,14 @@ the Product Owner**, and nothing in T65 needs it. It is the
 protected-attribute question: whether this platform should collect and
 algorithmically act on `Gender`, in the jurisdictions it launches in. It
 remains escalated, and the §4 prohibition on a `Gender` field anywhere
-remains in force. T65.2 asserts it by reflection in two packages
-(`TestNoGenderFieldOnAnyLevelType`, `TestNoGenderAnywhereInMatchmaking`)
-rather than leaving it to a reviewer's eye.
+remains in force. T65.2 asserts it in two packages —
+`TestNoGenderFieldAnywhereInThisRepository`, which parses every Go file's
+field and type declarations and scans every migration and `.proto`, and
+`TestNoGenderAnywhereInThisPackage` for Social Play's own source — rather
+than leaving it to a reviewer's eye. Both parse the tree; the first
+versions listed types by hand and T65.2's review walked a new
+`Gender`-bearing type, a `Gender` column and a `gender` proto field past
+them.
 
 ### Why this sat unanswered for 55 sprint-labels, which is the part worth keeping
 
@@ -205,6 +214,20 @@ seeded correctly, and that this happened without repeating the
    restates ADR-0010's own "concretely, no PR may" list, narrowed now
    that `Level` (self-reported) and `Match` (raw results) have moved from
    "blocked" to "built."
+
+   **AMENDED 2026-10-07 — Q1 is answered, so this list is narrowed again.**
+   T65.2's review found that §4 as written forbids the very thing that
+   sprint was required to build, and that the amendment above then cited §4
+   *in the other direction* to justify not persisting anything. A reader
+   could not tell whether §4 was in force. It is, minus what Q1's answer
+   released. Each clause, and where it stands now:
+
+   | Clause | Status |
+   |---|---|
+   | compute a "Level" from `Match` history | **released by Q1's answer.** This is the piece the decomposition table attributes to "Q1 explicitly", and the trigger requires the next sprint to build it. T65.2 did |
+   | add a `PlayerRating` field/table anywhere | **still in force, and not merely tolerated — honoured.** There is one value, computed on demand, and nothing persisted. Rule 4's Postgres half is therefore genuinely not owed by T65.2. A later ticket that caches a level must revisit this clause explicitly rather than quietly outgrow it |
+   | add a matchmaking RPC / request field / UI control that implies matching happens | **still in force.** T65.2 ships pure domain functions and no RPC, no proto field and no UI control. Not as caution: there is no readable input yet (#333), so a control would imply a capability that does not exist |
+   | add a `Gender` field/table anywhere | **still in force, unchanged, because Q2 is unanswered.** Asserted by tests in two packages, one of which parses every Go file's field declarations plus every migration and `.proto` — the listed-type version of that guard let a new `Gender`-bearing type through, which is why it was replaced |
 
 ## Trigger condition
 

@@ -361,4 +361,13 @@ var (
 	// overridable" (CLAUDE.md's locked matchmaking decision) is worth
 	// nothing if an override can vanish on a typo.
 	ErrUnknownPinnedPlayer = errors.New("socialplay: pinned pairing names a player who is not in this set")
+
+	// ErrInvalidPlayerLevel is returned by SuggestMatchups for a NaN or
+	// infinite RatedPlayer.Level. The RANGE of a level is deliberately not
+	// this package's business (Identity owns the scale), but its
+	// finiteness is: a NaN makes the level comparator stop being a strict
+	// weak ordering, which is undefined behaviour for sort.Slice and
+	// produced three different arrangements for one input set in T65.2's
+	// review. A suggestion that is not reproducible is not a suggestion.
+	ErrInvalidPlayerLevel = errors.New("socialplay: player level must be a finite number")
 )

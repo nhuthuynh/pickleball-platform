@@ -4415,8 +4415,11 @@ manual override and the level-only pinned-pairing suggestion are all in
 `internal/socialplay/domain/matchmaking.go`. The three-part input gap it
 exposed — no per-player match query, no bridge from Social Play's opaque
 player ids to `identity_users.id`, nowhere to put a computed level — is
-#333. **No `Gender` field anywhere**, since Q2 is still open; two tests
-assert that by reflection.
+#333. **No `Gender` field anywhere**, since Q2 is still open, held by two
+tests that parse the tree — one of them every Go file's field declarations
+plus every migration and `.proto`. Their first versions listed types by
+hand and T65.2's review walked a new `Gender`-bearing type, a `Gender`
+column and a `gender` proto field straight past them.
 
 **ADR-0009's market-scope question was answered the same day** (both
 markets, one channel built first; which one first is a deferral whose

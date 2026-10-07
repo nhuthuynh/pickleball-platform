@@ -2,6 +2,11 @@ package domain_test
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"math"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -355,8 +360,25 @@ func TestSuggestMatchupsRejects(t *testing.T) {
 		{"no players", nil, nil, domain.ErrEmptyPlayers},
 		{"one player", []domain.RatedPlayer{rated("a", 3)}, nil, domain.ErrTooFewPlayers},
 		{
+			// ErrEmptyPlayerID, not ErrEmptyPlayers, which this case
+			// expected until T65.2's review pointed out that
+			// ErrEmptyPlayers' own message — "at least one player is
+			// required" — tells a caller with a blank id to add a player.
+			// The right sentinel already existed in this package.
 			"an empty player id",
-			[]domain.RatedPlayer{rated("a", 3), rated("", 3)}, nil, domain.ErrEmptyPlayers,
+			[]domain.RatedPlayer{rated("a", 3), rated("", 3)}, nil, domain.ErrEmptyPlayerID,
+		},
+		{
+			"a single player with a blank id is still too few players",
+			[]domain.RatedPlayer{rated("", 3)}, nil, domain.ErrTooFewPlayers,
+		},
+		{
+			"a NaN level",
+			[]domain.RatedPlayer{rated("a", 3), rated("b", math.NaN())}, nil, domain.ErrInvalidPlayerLevel,
+		},
+		{
+			"an infinite level",
+			[]domain.RatedPlayer{rated("a", 3), rated("b", math.Inf(1))}, nil, domain.ErrInvalidPlayerLevel,
 		},
 		{
 			"the same player listed twice",
@@ -380,7 +402,7 @@ func TestSuggestMatchupsRejects(t *testing.T) {
 		{
 			"a pinned pair with an empty id",
 			[]domain.RatedPlayer{rated("a", 3), rated("b", 3)},
-			[][2]string{{"a", ""}}, domain.ErrEmptyPlayers,
+			[][2]string{{"a", ""}}, domain.ErrEmptyPlayerID,
 		},
 	}
 
@@ -432,20 +454,282 @@ func TestMatchupLevelGapIsAbsolute(t *testing.T) {
 	}
 }
 
-// TestNoGenderAnywhereInMatchmaking is ADR-0012 Q2's guard on this side of
-// the boundary: Q1 is answered and Q2 is not, so matching here is
-// level-only and no type may carry a protected attribute. Identity has the
-// same assertion over its own types.
-func TestNoGenderAnywhereInMatchmaking(t *testing.T) {
+// TestPinnedFaultPrecedenceIsPositionIndependent: two faults in one call
+// must give the same answer however the bad id is arranged. They did not —
+// `[{a,b},{stranger,b}]` returned ErrUnknownPinnedPlayer and
+// `[{a,b},{b,stranger}]` returned ErrDuplicatePlayer, because both checks
+// sat in the same per-id loop.
+func TestPinnedFaultPrecedenceIsPositionIndependent(t *testing.T) {
 	t.Parallel()
 
-	for _, v := range []any{domain.RatedPlayer{}, domain.Matchup{}, domain.MatchupSuggestion{}, domain.Match{}} {
-		typ := reflect.TypeOf(v)
-		for i := 0; i < typ.NumField(); i++ {
-			if name := typ.Field(i).Name; strings.Contains(strings.ToLower(name), "gender") {
-				t.Fatalf("%s.%s: ADR-0012 Q2 is unanswered, so matching here must stay level-only",
-					typ.Name(), name)
+	players := []domain.RatedPlayer{rated("a", 1), rated("b", 2), rated("c", 3), rated("d", 4)}
+
+	for _, pinned := range [][][2]string{
+		{{"a", "b"}, {"stranger", "b"}},
+		{{"a", "b"}, {"b", "stranger"}},
+		{{"stranger", "b"}, {"a", "b"}},
+	} {
+		_, err := domain.SuggestMatchups(players, pinned)
+		if !errors.Is(err, domain.ErrUnknownPinnedPlayer) {
+			t.Fatalf("pinned %v: err = %v, want ErrUnknownPinnedPlayer — membership is checked across every "+
+				"pin before any duplicate", pinned, err)
+		}
+	}
+}
+
+// TestSuggestMatchupsIsOrderIndependent is the determinism this function
+// promises, driven over permutations of one set rather than asserted. It is
+// here because NaN broke exactly this property before SuggestMatchups
+// refused one: three input orders of a single set produced three different
+// arrangements, since a NaN comparator is not a strict weak ordering and
+// sort.Slice's behaviour is then undefined.
+func TestSuggestMatchupsIsOrderIndependent(t *testing.T) {
+	t.Parallel()
+
+	base := []domain.RatedPlayer{
+		rated("a", 1.0), rated("b", 1.0), rated("c", 3.0),
+		rated("d", 3.0), rated("e", 4.9), rated("f", 5.0),
+	}
+	want, err := domain.SuggestMatchups(base, nil)
+	if err != nil {
+		t.Fatalf("baseline: %v", err)
+	}
+
+	for _, order := range [][]int{
+		{5, 4, 3, 2, 1, 0},
+		{1, 4, 0, 2, 5, 3},
+		{2, 0, 5, 1, 3, 4},
+	} {
+		shuffled := make([]domain.RatedPlayer, 0, len(base))
+		for _, i := range order {
+			shuffled = append(shuffled, base[i])
+		}
+		got, err := domain.SuggestMatchups(shuffled, nil)
+		if err != nil {
+			t.Fatalf("order %v: %v", order, err)
+		}
+		if !reflect.DeepEqual(pairIDs(got), pairIDs(want)) {
+			t.Fatalf("order %v gave %v, want %v", order, pairIDs(got), pairIDs(want))
+		}
+	}
+}
+
+// TestTotalLevelGap: production code whose own doc says it "is what makes
+// 'the suggestion is balanced' a checkable claim rather than an adjective",
+// and which nothing checked — a surviving mutant in T65.2's review.
+func TestTotalLevelGap(t *testing.T) {
+	t.Parallel()
+
+	var empty domain.MatchupSuggestion
+	if got := empty.TotalLevelGap(); got != 0 {
+		t.Fatalf("TotalLevelGap() = %v on an empty suggestion, want 0", got)
+	}
+
+	s := domain.MatchupSuggestion{Matchups: []domain.Matchup{
+		{A: rated("a", 1.0), B: rated("b", 1.5)},
+		{A: rated("c", 4.0), B: rated("d", 3.0), Pinned: true},
+	}}
+	if got := s.TotalLevelGap(); got < 1.5-1e-9 || got > 1.5+1e-9 {
+		t.Fatalf("TotalLevelGap() = %v, want 1.5 (0.5 + 1.0, pinned matchups included)", got)
+	}
+}
+
+// TestSuggestMatchupsMinimisesTheTotalGap is the optimality claim in
+// SuggestMatchups' doc comment, held by brute force rather than by the
+// comment. Every arrangement of every small set is enumerated and compared
+// against what the function returns.
+//
+// It exists because the claim had NO test evidence at all: the table above
+// asserts specific pairings, which says nothing about whether another
+// arrangement would have been better.
+func TestSuggestMatchupsMinimisesTheTotalGap(t *testing.T) {
+	t.Parallel()
+
+	// A deterministic spread of levels, including ties and clusters, rather
+	// than random input: a property test that cannot be re-run on the same
+	// data is a property test whose failures cannot be reproduced.
+	levelSets := [][]float64{
+		{1, 2},
+		{1, 1, 5, 5},
+		{2, 3.7, 3.2, 3.2, 5},
+		{1, 1.1, 3, 4.9, 5},
+		{1, 2, 3, 4, 5, 5},
+		{5, 1, 3, 3, 3, 1, 2},
+		{2.5, 2.5, 2.5, 2.5},
+		{1, 5, 3, 3.01, 2.99, 4, 1.5, 4.5},
+	}
+
+	for _, levels := range levelSets {
+		players := make([]domain.RatedPlayer, 0, len(levels))
+		for i, l := range levels {
+			players = append(players, rated(string(rune('a'+i)), l))
+		}
+
+		got, err := domain.SuggestMatchups(players, nil)
+		if err != nil {
+			t.Fatalf("levels %v: %v", levels, err)
+		}
+		best := bestTotalGap(levels)
+		if total := got.TotalLevelGap(); total > best+1e-9 {
+			t.Fatalf("levels %v: total gap %v, but %v is achievable (%v)", levels, total, best, pairIDs(got))
+		}
+	}
+}
+
+// TestTheWorstMatchIsNotTheObjective pins the counterexample T65.2's review
+// brute-forced, so the doc comment's narrowed claim stays honest. On an odd
+// set, minimising the total gap and minimising the WORST match come apart,
+// and this code chooses the total.
+func TestTheWorstMatchIsNotTheObjective(t *testing.T) {
+	t.Parallel()
+
+	got, err := domain.SuggestMatchups([]domain.RatedPlayer{
+		rated("low", 2.0), rated("mid1", 3.2), rated("mid2", 3.2),
+		rated("mid3", 3.7), rated("high", 5.0),
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	if len(got.Unpaired) != 1 || got.Unpaired[0].PlayerID != "low" {
+		t.Fatalf("unpaired = %v, want [low] — the total-gap optimum sits out the outlier", got.Unpaired)
+	}
+	var worst float64
+	for _, m := range got.Matchups {
+		if g := m.LevelGap(); g > worst {
+			worst = g
+		}
+	}
+	if worst < 1.3-1e-9 {
+		t.Fatalf("worst gap = %v; this test records that the total-gap objective accepts 1.3 here "+
+			"when a 1.2 arrangement exists. If it now fails, the objective changed and the doc "+
+			"comment naming it is stale", worst)
+	}
+}
+
+// bestTotalGap enumerates every pairing (and every sit-out, for an odd set)
+// and returns the smallest achievable total gap. Exponential, which is fine
+// for the sizes above and is the point: it shares no code or reasoning with
+// the implementation it checks.
+func bestTotalGap(levels []float64) float64 {
+	if len(levels)%2 == 1 {
+		best := math.Inf(1)
+		for i := range levels {
+			rest := make([]float64, 0, len(levels)-1)
+			rest = append(rest, levels[:i]...)
+			rest = append(rest, levels[i+1:]...)
+			if g := bestTotalGap(rest); g < best {
+				best = g
 			}
 		}
+		return best
+	}
+	if len(levels) == 0 {
+		return 0
+	}
+	best := math.Inf(1)
+	for j := 1; j < len(levels); j++ {
+		gap := math.Abs(levels[0] - levels[j])
+		rest := make([]float64, 0, len(levels)-2)
+		rest = append(rest, levels[1:j]...)
+		rest = append(rest, levels[j+1:]...)
+		if total := gap + bestTotalGap(rest); total < best {
+			best = total
+		}
+	}
+	return best
+}
+
+// TestWinnersAndWonAgreeOnAnEmptyPlayerID: RecordMatch validates only the
+// LENGTH of players and score, so a blank id is a state this package will
+// construct — and Winners reported it as the winner while Won denied it.
+func TestWinnersAndWonAgreeOnAnEmptyPlayerID(t *testing.T) {
+	t.Parallel()
+
+	m, err := domain.RecordMatch("g1", []string{"", "p1"}, map[string]int{"": 11, "p1": 3}, time.Now())
+	if err != nil {
+		t.Fatalf("RecordMatch: %v — if this now errors, empty ids are refused at construction "+
+			"and this test's premise is gone", err)
+	}
+	winners := m.Winners()
+	if len(winners) != 1 || winners[0] != "" {
+		t.Fatalf("Winners() = %q, want the blank id — it holds the maximum", winners)
+	}
+	if !m.Won("") {
+		t.Fatalf(`Won("") = false while Winners() reports it; the two must agree for every input`)
+	}
+}
+
+// TestAScoreKeyNamingNobodyStillWins records the other direction of the
+// Players/Score mismatch, which is unconstrained in both and matters because
+// a win count would be built from Score while a games-played count would be
+// built from Players. Named in #333; pinned here so the behaviour is a
+// recorded fact rather than a surprise.
+func TestAScoreKeyNamingNobodyStillWins(t *testing.T) {
+	t.Parallel()
+
+	m, err := domain.RecordMatch("g1", []string{"p1", "p2"},
+		map[string]int{"p1": 3, "ghost": 11}, time.Now())
+	if err != nil {
+		t.Fatalf("RecordMatch: %v", err)
+	}
+	if got := m.Winners(); len(got) != 1 || got[0] != "ghost" {
+		t.Fatalf("Winners() = %v, want [ghost] — Winners reports what was scored, faithfully", got)
+	}
+	if !m.Won("ghost") {
+		t.Fatalf("Won(ghost) = false while Winners() reports it")
+	}
+}
+
+// TestNoGenderAnywhereInThisPackage is ADR-0012 Q2's guard on this side of
+// the boundary: Q1 is answered and Q2 is not, so matching here is
+// level-only and nothing may carry a protected attribute.
+//
+// It parses this package's own source rather than listing types, which is
+// what it did until T65.2's review added a Gender field to Registration —
+// the natural home for a gender-mix feature, since a Registration is how a
+// player joins a Game — and watched the listed version pass. Identity holds
+// the repo-wide version of this check, covering the schema and the protos
+// too; this one is local, so a change to this package fails in this
+// package.
+func TestNoGenderAnywhereInThisPackage(t *testing.T) {
+	t.Parallel()
+
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := 0
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), e.Name(), nil, parser.SkipObjectResolution)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", e.Name(), err)
+		}
+		parsed++
+		name := e.Name()
+		ast.Inspect(file, func(n ast.Node) bool {
+			switch node := n.(type) {
+			case *ast.StructType:
+				for _, f := range node.Fields.List {
+					for _, id := range f.Names {
+						if strings.Contains(strings.ToLower(id.Name), "gender") {
+							t.Errorf("%s: struct field %q — ADR-0012 Q2 is unanswered, so matching here "+
+								"stays level-only", name, id.Name)
+						}
+					}
+				}
+			case *ast.TypeSpec:
+				if strings.Contains(strings.ToLower(node.Name.Name), "gender") {
+					t.Errorf("%s: type %q — same prohibition", name, node.Name.Name)
+				}
+			}
+			return true
+		})
+	}
+	if parsed < 10 {
+		t.Fatalf("parsed only %d file(s) in this package; the scan is broken and proved nothing", parsed)
 	}
 }

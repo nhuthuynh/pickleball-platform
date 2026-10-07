@@ -16,17 +16,21 @@ package domain
 // is deliberately still unanswered (it is the protected-attribute
 // question, and nothing in this file needs it). ADR-0012's trigger says an
 // answered Q1 with an unanswered Q2 ships level-only matching, so there is
-// no Gender field here, in the schema, or in any proto; see
-// player_level_test.go's TestNoGenderFieldOnAnyLevelType, which asserts
-// that by reflection rather than leaving it to a reviewer's eye.
+// no Gender field here, in the schema, or in any proto. That three-part
+// claim is held by player_level_test.go's TestNoGenderFieldAnywhereInThisRepository,
+// which parses every Go file's declarations and scans every migration and
+// .proto — not by a list of types, which is what it checked until T65.2's
+// review walked a new Gender-bearing type straight past it.
 //
 // WHERE THE INPUT COMES FROM — and the gap, named rather than invented.
 // This package computes a Level from a PlayerRecord it is handed. Nothing
 // in this repository can yet BUILD that record for a real player: a Match
 // (internal/socialplay/domain) stores Score as a per-player point map with
 // no winner concept until T65's Match.Winners, there is no query that
-// reads one player's matches (db/queries/socialplay.sql has CreateMatch
-// and ListMatchesForGame only), and socialplay's player ids are opaque
+// reads one player's matches (db/queries/socialplay.sql holds exactly two
+// match queries, CreateMatch and ListMatchesForGame, both Game-scoped —
+// `grep -n "^-- name:.*[Mm]atch" db/queries/socialplay.sql`), and
+// socialplay's player ids are opaque
 // registration ids rather than identity_users.id. Those three gaps are
 // filed as #333, not papered over. The formula is pure and testable
 // without them, which is why it ships now: ADR-0012's trigger requires the
@@ -66,19 +70,47 @@ func (l Level) IsValid() bool {
 //
 // 20 was chosen here, not handed down, for three reasons:
 //
-//  1. It is where the statistics stop being embarrassing. The standard
-//     error of a win rate at 20 games is at worst sqrt(0.25/20) ≈ 0.112,
-//     i.e. about ±0.9 of a level at 95% confidence on this 4-wide scale.
-//     That is still coarse — which is the honest argument for the ramp
-//     existing at all — but it is the point where one more win stops
-//     moving the number by a visible step.
+//  1. It caps how far a single result can move the value, and the cap is
+//     exactly 4/ConfidenceGames. Substituting observed = 1 + 4w/n into
+//     the blend cancels n:
+//
+//     level = seed + (n/20)(1 + 4w/n − seed) = seed(1 − n/20) + n/20 + w/5
+//
+//     so one more win is worth 0.2 of a level — 5% of the scale — for
+//     EVERY n from 1 to 20, and less than that above it. A player cannot
+//     be moved a grade by one evening.
+//
 //  2. It is reachable. A weekly recreational player clears 20 games in a
 //     season; a league regular clears it in weeks. A threshold nobody
 //     reaches would make every level permanently provisional, which is the
 //     same as having no ramp.
+//
 //  3. It is explainable in one sentence to a player: "after 20 games your
 //     level is entirely your results; before that we blend in the level
 //     you started at."
+//
+// AND THE HONEST COUNT AGAINST IT, because reason 1 said something false
+// until T65.2's review did the arithmetic. It read "it is the point where
+// one more win stops moving the number by a visible step", citing the
+// standard error of a win rate at 20 games (sqrt(0.25/20) ≈ 0.112, about
+// ±0.9 of a level at 95% confidence on this 4-wide scale). Both figures are
+// right and the conclusion was wrong twice over:
+//
+//   - The per-win step does not shrink at 20. It is 0.2 flat below the
+//     threshold and only begins to shrink above it (0.190 at n=21, 0.040
+//     at n=100). 20 is where the step STARTS to fall, not where it stops
+//     being visible.
+//   - On the standard error's own terms, the emitted value's confidence
+//     interval is WIDEST at n = ConfidenceGames (≈0.88 of a level) and
+//     narrower at every n below it, because the ramp shrinks the interval
+//     along with the signal. 20 is the worst-conditioned point on the
+//     ramp, not the point where the statistics stop being embarrassing.
+//
+// Worth saying out loud rather than leaving a reader to infer it: ±0.9 of a
+// level of uncertainty against a 0.2 per-win step means the number moves
+// far less than its own error bar. That is the ramp working as intended —
+// it is a smoothed estimate, not a measurement — and it is also why
+// Provisional exists.
 //
 // Retuning it is a code change with no product sign-off needed. What WOULD
 // need sign-off is changing the character of the formula — e.g. making win
@@ -123,7 +155,14 @@ func (r PlayerRecord) Valid() bool {
 // PlayerLevel is a computed Level together with the two facts a consumer
 // needs in order to use it honestly.
 type PlayerLevel struct {
-	// Value is the level itself, always within [MinLevel, MaxLevel].
+	// Value is the level itself, within [MinLevel, MaxLevel] for every
+	// PlayerLevel a constructor RETURNED SUCCESSFULLY. ComputeLevel and
+	// RecomputeLevel return the zero PlayerLevel alongside their error, so
+	// Value is 0 — off the scale — on a caller that ignores the error.
+	// That matters downstream rather than here: socialplay.RatedPlayer
+	// deliberately does not validate the level it is handed, so an ignored
+	// error sorts a player below everyone real instead of being refused.
+	// Check the error.
 	Value Level
 
 	// GamesPlayed is the history Value was computed from. Carried on the
@@ -161,8 +200,20 @@ func levelFromWinRate(winRate float64) Level {
 // Linear, rather than sqrt or exponential, for one reason worth more than
 // its mathematical elegance: it has an exact, quotable hand-over point.
 // "After 20 games it is all your results" is checkable by a player and by
-// a test (see the at-exactly-ConfidenceGames case); "asymptotically
-// approaches your results" is neither.
+// a test; "asymptotically approaches your results" is neither.
+//
+// Both guards below are DEFENSIVE, not load-bearing, and T65.2's review
+// proved it by removing each one and watching the suite stay green:
+//
+//   - `>= ConfidenceGames` could be `> ConfidenceGames` with no behaviour
+//     change, because 20/20 is exactly 1. The clamp earns its place above
+//     the threshold, not at it — and the at-exactly-ConfidenceGames test
+//     case does NOT hold the clamp; the 40-game and 200-game rows do,
+//     which is where that claim used to be made and was wrong.
+//   - `gamesPlayed <= 0` is unreachable through ComputeLevel, which
+//     refuses a negative count (ErrImpossibleRecord) before calling this,
+//     and 0/20 is already 0. It stays because this function's correctness
+//     should not depend on its only caller's validation order.
 func confidence(gamesPlayed int) float64 {
 	if gamesPlayed >= ConfidenceGames {
 		return 1
@@ -188,8 +239,11 @@ func confidence(gamesPlayed int) float64 {
 // Because level is a weighted mean of two values that are both on the
 // scale, the result is always on the scale; no clamp is needed and none is
 // applied (a clamp would hide an arithmetic mistake rather than prevent
-// one — the sweep in TestEveryComputedValueStaysOnTheScale is what holds
-// this).
+// one). What holds it is the argument, not only the sweep in
+// TestEveryComputedValueStaysOnTheScale: above ConfidenceGames the value
+// depends on nothing but the win rate, which is bounded in [0,1], so a
+// sweep that reaches past the threshold has covered every shape the
+// arithmetic can take. The test says so and bounds itself accordingly.
 //
 // Errors: ErrInvalidSelfReportedStartingLevel for a seed off the 1..5
 // scale, ErrImpossibleRecord for a record that cannot have happened

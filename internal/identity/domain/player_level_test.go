@@ -2,8 +2,13 @@ package domain_test
 
 import (
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"math"
-	"reflect"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -142,6 +147,12 @@ func TestComputeLevel_Rejects(t *testing.T) {
 		{"negative wins", 3, domain.PlayerRecord{GamesPlayed: 2, Wins: -1}, domain.ErrImpossibleRecord},
 		{"more wins than games", 3, domain.PlayerRecord{GamesPlayed: 2, Wins: 3}, domain.ErrImpossibleRecord},
 		{"wins with no games", 3, domain.PlayerRecord{GamesPlayed: 0, Wins: 1}, domain.ErrImpossibleRecord},
+		// The precedence ComputeLevel's doc claims, which nothing held
+		// until T65.2's review found that swapping the two validation
+		// blocks was a surviving mutant: BOTH inputs are invalid here, and
+		// the seed — the more fundamental one — must be the error reported.
+		{"both invalid: the seed is reported first", 0,
+			domain.PlayerRecord{GamesPlayed: 2, Wins: 3}, domain.ErrInvalidSelfReportedStartingLevel},
 	}
 
 	for _, tc := range cases {
@@ -292,9 +303,22 @@ func TestMonotonicInWinsAtFixedGamesPlayed(t *testing.T) {
 	}
 }
 
-// TestEveryComputedValueStaysOnTheScale sweeps the whole input space the
-// formula can be handed and proves it never leaves [MinLevel, MaxLevel] —
-// the invariant every consumer (matchmaking, a UI badge) will rely on.
+// TestEveryComputedValueStaysOnTheScale sweeps every seed and every
+// games/wins pair up to 45 games, proving the value never leaves
+// [MinLevel, MaxLevel] — the invariant every consumer (matchmaking, a UI
+// badge) relies on, and the reason ComputeLevel applies no clamp.
+//
+// 45 rather than "the whole input space", which is what this comment
+// claimed until T65.2's review pointed out that the space is every int ≥ 0.
+// The bound is sufficient for a reason the arithmetic gives: at and above
+// ConfidenceGames the seed carries no weight at all, so the value is
+// 1 + 4*winRate and depends on NOTHING but a ratio bounded in [0,1]. A
+// sweep that passes the threshold has therefore covered every shape the
+// formula can take; the rows beyond 20 here are the ones that matter, and
+// 45 is simply comfortably past it. (The review ran the wider sweep —
+// games to 3,000,000 and both int limits — and the invariant held, which
+// is evidence for the argument rather than a reason to encode a slower
+// test.)
 func TestEveryComputedValueStaysOnTheScale(t *testing.T) {
 	t.Parallel()
 
@@ -371,6 +395,26 @@ func TestManualOverrideWins(t *testing.T) {
 	if overridden.GamesPlayed != 30 {
 		t.Fatalf("GamesPlayed = %d, want 30 — an override changes the value, not the history", overridden.GamesPlayed)
 	}
+	// Provisional must survive too, and this is the assertion that matters
+	// most of the three: the field's own doc says a UI showing a Level
+	// without it "is presenting a claim as a measurement". Setting
+	// Provisional = false inside WithManualOverride was a surviving mutant
+	// in T65.2's review.
+	if overridden.Provisional != computed.Provisional {
+		t.Fatalf("Provisional = %v after an override, want %v — an override does not lengthen the history",
+			overridden.Provisional, computed.Provisional)
+	}
+	shortRun, err := domain.ComputeLevel(3, domain.PlayerRecord{GamesPlayed: 2, Wins: 1})
+	if err != nil {
+		t.Fatalf("short run: %v", err)
+	}
+	short, err := shortRun.WithManualOverride(4)
+	if err != nil {
+		t.Fatalf("override on a short run: %v", err)
+	}
+	if !short.Provisional {
+		t.Fatalf("Provisional = false after overriding a 2-game player; an override is not evidence")
+	}
 
 	recomputed, err := domain.RecomputeLevel(overridden, 3, domain.PlayerRecord{GamesPlayed: 31, Wins: 16})
 	if err != nil {
@@ -381,6 +425,25 @@ func TestManualOverrideWins(t *testing.T) {
 	}
 	if recomputed.GamesPlayed != 31 {
 		t.Fatalf("GamesPlayed = %d, want 31 — the history still advances under an override", recomputed.GamesPlayed)
+	}
+
+	// The flag has to survive too, and this assertion is here because its
+	// absence was a surviving mutant in T65.2's review: dropping
+	// `fresh.ManuallySet = true` from RecomputeLevel left the suite green,
+	// and an override would then last exactly ONE recompute before the
+	// second silently replaced it with the formula value. That is precisely
+	// the failure RecomputeLevel's doc comment exists to prevent, so a
+	// second recompute is driven here rather than trusted.
+	if !recomputed.ManuallySet {
+		t.Fatalf("ManuallySet = false after a recompute; the override would be dropped at the next one")
+	}
+	again, err := domain.RecomputeLevel(recomputed, 3, domain.PlayerRecord{GamesPlayed: 32, Wins: 16})
+	if err != nil {
+		t.Fatalf("second recompute: %v", err)
+	}
+	if !closeTo(again.Value, 4.5) || !again.ManuallySet {
+		t.Fatalf("the override did not survive a second recompute: Value = %v, ManuallySet = %v",
+			again.Value, again.ManuallySet)
 	}
 }
 
@@ -430,38 +493,136 @@ func TestManualOverrideRejectsOffScaleValues(t *testing.T) {
 	}
 }
 
-// TestNoGenderFieldOnAnyLevelType is ADR-0012's Q2 guard, asserted rather
-// than trusted: Q1 is answered and Q2 is NOT, so this ticket ships
-// level-only matching and nothing may carry a protected attribute. The
-// check is by reflection over this package's level types, so it fails if a
-// future change adds the field rather than relying on a reviewer noticing.
-func TestNoGenderFieldOnAnyLevelType(t *testing.T) {
+// TestNoGenderFieldAnywhereInThisRepository is ADR-0012's Q2 guard, and it
+// replaces a weaker one that T65.2's review walked straight past.
+//
+// The first version listed three types and checked them by reflection. A
+// brand-new Gender-bearing type in the same package passed it silently, and
+// so did a Gender field on socialplay.Registration — the natural home for a
+// gender-mix feature, since a Registration is how a player joins a Game.
+// CLAUDE.md states the rule that version broke, about this project's other
+// standing gate: "there is no package list in the tool, and adding one is
+// the one change that would defeat it." A list of types is the same mistake
+// in a smaller box.
+//
+// So this derives its subject from the tree. Every Go file's STRUCT FIELD
+// and TYPE declarations, every migration, every .proto — which is also what
+// makes player_level.go's three-part claim ("no Gender field here, in the
+// schema, or in any proto") true; the listed version asserted nothing at all
+// about the schema or a proto, and three documents repeated that it did.
+//
+// Declarations rather than text, for Go: this very file says "gender" a
+// dozen times, and so do the ADR-quoting comments in user.go,
+// matchmaking.go, identity.proto and 0016_identity.sql. The prohibition is
+// on a field or a table, not on the word, and ADR-0012 §4 says so: "add a
+// Gender field/table anywhere".
+func TestNoGenderFieldAnywhereInThisRepository(t *testing.T) {
 	t.Parallel()
 
-	for _, v := range []any{domain.PlayerLevel{}, domain.PlayerRecord{}, domain.User{}} {
-		assertNoGenderField(t, v)
+	root := repoRoot(t)
+	goFiles := 0
+
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "dist", "coverage":
+				return fs.SkipDir
+			}
+			return nil
+		}
+		switch filepath.Ext(path) {
+		case ".go":
+			file, parseErr := parser.ParseFile(token.NewFileSet(), path, nil, parser.SkipObjectResolution)
+			if parseErr != nil {
+				return nil // a partial internal/gen on a pre-`make generate` tree
+			}
+			goFiles++
+			rel, _ := filepath.Rel(root, path)
+			ast.Inspect(file, func(n ast.Node) bool {
+				switch node := n.(type) {
+				case *ast.StructType:
+					for _, f := range node.Fields.List {
+						for _, name := range f.Names {
+							if mentionsGender(name.Name) {
+								t.Errorf("%s: struct field %q — ADR-0012 Q2 is unanswered, so no field "+
+									"may name a protected attribute", rel, name.Name)
+							}
+						}
+					}
+				case *ast.TypeSpec:
+					if mentionsGender(node.Name.Name) {
+						t.Errorf("%s: type %q — same prohibition", rel, node.Name.Name)
+					}
+				}
+				return true
+			})
+		case ".sql", ".proto":
+			src, readErr := os.ReadFile(path)
+			if readErr != nil {
+				return nil
+			}
+			rel, _ := filepath.Rel(root, path)
+			for n, line := range strings.Split(string(src), "\n") {
+				if code := stripLineComment(line); mentionsGender(code) {
+					t.Errorf("%s:%d: %q — ADR-0012 §4 forbids a Gender field or table in the schema "+
+						"or in any proto while Q2 is unanswered", rel, n+1, strings.TrimSpace(code))
+				}
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", root, err)
+	}
+
+	// A guard that parsed nothing would pass, which is the vacuous green
+	// this project has been bitten by repeatedly. The bound is deliberately
+	// far below the real count so it fails on a broken walk, not on a sprint
+	// that deletes a package.
+	if goFiles < 100 {
+		t.Fatalf("parsed only %d Go file(s) under %s; the walk is broken and this test proved nothing",
+			goFiles, root)
 	}
 }
 
-// assertNoGenderField fails if any exported or unexported field of v (or of
-// a struct it embeds by value) has a name mentioning gender. Reflection
-// rather than a grep so the assertion lives with the types it constrains
-// and runs in `make test-domain`.
-func assertNoGenderField(t *testing.T, v any) {
+func mentionsGender(s string) bool {
+	return strings.Contains(strings.ToLower(s), "gender")
+}
+
+// stripLineComment removes a `--` or `//` line comment, which is where every
+// legitimate mention of the word in a .sql or .proto file lives: both
+// 0016_identity.sql and identity.proto carry ADR-0012's own prohibition in
+// prose, and a text scan that did not strip comments would fail on the
+// documents recording the rule it enforces.
+func stripLineComment(line string) string {
+	for _, marker := range []string{"--", "//"} {
+		if i := strings.Index(line, marker); i >= 0 {
+			line = line[:i]
+		}
+	}
+	return line
+}
+
+// repoRoot walks up from the test's working directory to the module root,
+// so this test does not hard-code its own depth below it.
+func repoRoot(t *testing.T) string {
 	t.Helper()
 
-	typ := reflect.TypeOf(v)
-	if typ.Kind() != reflect.Struct {
-		return
+	dir, err := filepath.Abs(".")
+	if err != nil {
+		t.Fatal(err)
 	}
-	for i := 0; i < typ.NumField(); i++ {
-		f := typ.Field(i)
-		if strings.Contains(strings.ToLower(f.Name), "gender") {
-			t.Fatalf("%s.%s: ADR-0012 Q2 is unanswered, so no type here may carry a gender field",
-				typ.Name(), f.Name)
+	for {
+		if _, statErr := os.Stat(filepath.Join(dir, "go.mod")); statErr == nil {
+			return dir
 		}
-		if f.Type.Kind() == reflect.Struct {
-			assertNoGenderField(t, reflect.New(f.Type).Elem().Interface())
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatalf("no go.mod above %s", dir)
 		}
+		dir = parent
 	}
 }

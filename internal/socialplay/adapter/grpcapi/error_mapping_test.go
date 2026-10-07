@@ -491,6 +491,15 @@ func errorMappingCases() []errorMappingCase {
 				"mapped anyway, because the alternative is Internal for a condition the domain anticipated",
 		},
 		{
+			name:     "a non-finite player level in a matchup suggestion",
+			sentinel: "ErrInvalidPlayerLevel",
+			err:      domain.ErrInvalidPlayerLevel,
+			wantCode: codes.InvalidArgument,
+			why: "a NaN or infinite level is a malformed input, not a state conflict. The sentinel exists " +
+				"because a NaN comparator is not a strict weak ordering, so sort.Slice's behaviour is " +
+				"undefined and one input set produced three different suggestions",
+		},
+		{
 			name:     "a pinned pairing names a player outside the set",
 			sentinel: "ErrUnknownPinnedPlayer",
 			err:      domain.ErrUnknownPinnedPlayer,
