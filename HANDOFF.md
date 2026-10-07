@@ -4398,10 +4398,18 @@ answerable question stayed unasked for 55 sprint-labels.** Q1 — *how is the
 Player Level formula weighted?* — is an **ordinary product-weighting
 question**, not a legal one. Carrying it in one row with Q2 meant it
 inherited Q2's description (*"Legal/ethical dimension … May never be this
-project's to answer"*), and four consecutive ceremonies read that and
-reported no product decision awaiting an answer. The collapse was written
+project's to answer"*), and the **ADR half** of four consecutive
+ceremonies' escalation sweeps read nothing but each ADR's status line, so Q1
+was never reachable by it. (Not "four ceremonies reported no product
+decision awaiting an answer", which T65.3's review falsified: **T64's
+ceremony surfaced one and got it answered** — #145's, as the row above this
+one states — from an issue's prose. Its sweep was not blind; its ADR half
+was.) The collapse was written
 down at `docs/process/t59-sprint-plan.md:110-113`, as *"a legal/ethical
-question"*, singular; T62, T63, T64 and T65's own first draft inherited it.
+question"*, singular — and T59's own §4 reported *"**None.** … There is no
+question waiting on the user"*, which makes T59 the first instance of the
+failure as well as its origin. T62, T63, T64 and T65's own first draft
+inherited the collapse.
 ADR-0012's text said the opposite in as many words the whole time — *"If
 only one of Q1/Q2 is answered, build the part that answer unblocks"*.
 
@@ -4416,10 +4424,14 @@ manual override and the level-only pinned-pairing suggestion are all in
 exposed — no per-player match query, no bridge from Social Play's opaque
 player ids to `identity_users.id`, nowhere to put a computed level — is
 #333. **No `Gender` field anywhere**, since Q2 is still open, held by two
-tests that parse the tree — one of them every Go file's field declarations
-plus every migration and `.proto`. Their first versions listed types by
-hand and T65.2's review walked a new `Gender`-bearing type, a `Gender`
-column and a `gender` proto field straight past them.
+tests that parse the tree — one of them every Go file's declarations plus
+every migration, `.proto`, `.ts` and `.vue`. Their first versions listed
+types by hand, and **two** review passes were needed: the first walked a
+new `Gender`-bearing type and a `Gender` field on `Registration` past them,
+the second walked five more past the rewrite (a skipped directory basename,
+a column behind a `DEFAULT 'https://…'`, `Sex`, a `const`/`var`/`func`, an
+embedded field) and found a false positive where a migration documenting
+its own compliance in a block comment turned the gate red.
 
 **ADR-0009's market-scope question was answered the same day** (both
 markets, one channel built first; which one first is a deferral whose
@@ -4427,7 +4439,9 @@ trigger is the ceremony that refines the first messaging ticket). It had
 been open since **T7** and **never appeared in this table at all** — which
 is the sharper half of the same lesson: a question only reaches this list if
 somebody puts it here, so the escalation sweep must read the ADRs
-themselves. `docs/process/sprint-process.md` now requires that.
+themselves. `#55 sprint-labels` above is T10 (ADR-0012 accepted, 2026-08-10)
+to T65 inclusive; it is a count of sprint labels, not of elapsed sprints,
+per `t61-retro.md`'s rule about figures that cannot be enumerated. `docs/process/sprint-process.md` now requires that.
 
 **The general rule this cost two decisions to learn: never describe two
 escalations in one row.** One of them inherits the other's reason for being

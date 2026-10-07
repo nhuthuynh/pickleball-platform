@@ -77,8 +77,17 @@ func (l Level) IsValid() bool {
 //     level = seed + (n/20)(1 + 4w/n − seed) = seed(1 − n/20) + n/20 + w/5
 //
 //     so one more win is worth 0.2 of a level — 5% of the scale — for
-//     EVERY n from 1 to 20, and less than that above it. A player cannot
-//     be moved a grade by one evening.
+//     EVERY n from 1 to 20, and less than that above it. **No single
+//     result can move a player by more than a twentieth of the scale**,
+//     win or loss, at any point on the ramp.
+//
+//     That cap is per RESULT and does not compose, which the first draft of
+//     this bullet got wrong by saying "a player cannot be moved a grade by
+//     one evening". They can: at seed 1, five straight wins reach 2.0 and
+//     ten reach 3.0 — a whole grade and two — and five to ten short games
+//     is an ordinary club evening in this sport. The per-result cap is the
+//     true claim and it is strong enough on its own; stretching it to an
+//     evening was the same overshoot as the sentence it replaced.
 //
 //  2. It is reachable. A weekly recreational player clears 20 games in a
 //     season; a league regular clears it in weeks. A threshold nobody
@@ -239,11 +248,13 @@ func confidence(gamesPlayed int) float64 {
 // Because level is a weighted mean of two values that are both on the
 // scale, the result is always on the scale; no clamp is needed and none is
 // applied (a clamp would hide an arithmetic mistake rather than prevent
-// one). What holds it is the argument, not only the sweep in
-// TestEveryComputedValueStaysOnTheScale: above ConfidenceGames the value
-// depends on nothing but the win rate, which is bounded in [0,1], so a
-// sweep that reaches past the threshold has covered every shape the
-// arithmetic can take. The test says so and bounds itself accordingly.
+// one). What holds it is the argument plus a sweep: above ConfidenceGames
+// the value depends on nothing but the win rate, which is bounded in [0,1],
+// so a sweep reaching past the threshold has covered every shape the real
+// arithmetic can take — and because a clamp would really be guarding
+// floating-point rounding rather than that arithmetic, the argument is not
+// sufficient alone. TestEveryComputedValueStaysOnTheScale sweeps to 45
+// games and states the wider range the review measured.
 //
 // Errors: ErrInvalidSelfReportedStartingLevel for a seed off the 1..5
 // scale, ErrImpossibleRecord for a record that cannot have happened

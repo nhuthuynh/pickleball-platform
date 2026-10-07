@@ -85,10 +85,23 @@ remains in force. T65.2 asserts it in two packages —
 `TestNoGenderFieldAnywhereInThisRepository`, which parses every Go file's
 field and type declarations and scans every migration and `.proto`, and
 `TestNoGenderAnywhereInThisPackage` for Social Play's own source — rather
-than leaving it to a reviewer's eye. Both parse the tree; the first
-versions listed types by hand and T65.2's review walked a new
-`Gender`-bearing type, a `Gender` column and a `gender` proto field past
-them.
+than leaving it to a reviewer's eye. Both parse the tree.
+
+**The first versions listed types by hand, and two review passes were
+needed to make them worth having.** The first demonstrated two bypasses by
+running them (a new `Gender`-bearing type in the same package, and a
+`Gender` field on `socialplay.Registration`) and observed that the tests
+asserted nothing at all about the schema or any proto. The second, against
+the rewritten guard, demonstrated five more — a Go package in a directory
+the walk skipped by basename; a column hidden behind a `DEFAULT
+'https://…'`; `Sex` and `BiologicalSex`, the same attribute under another
+name; a `const`/`var`/`func`; and an embedded field — plus one false
+positive, where a migration documenting its own compliance *inside a block
+comment* turned the gate red. All seven are now cases in the suite, and the
+scan covers `.go` declarations, `.sql`, `.proto`, `.ts` and `.vue`.
+*(Earlier wording here credited the first pass with four demonstrations; it
+ran two and reasoned about the other two. The distinction is the kind this
+project's rules exist to keep.)*
 
 ### Why this sat unanswered for 55 sprint-labels, which is the part worth keeping
 

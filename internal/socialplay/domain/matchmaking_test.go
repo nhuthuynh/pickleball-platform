@@ -179,8 +179,16 @@ func TestWinnersOfAnEmptyScore(t *testing.T) {
 	t.Parallel()
 
 	var m domain.Match
-	if got := m.Winners(); len(got) != 0 {
+	got := m.Winners()
+	if len(got) != 0 {
 		t.Fatalf("Winners() = %v, want empty", got)
+	}
+	// Non-nil, because the doc comment now promises "an empty, non-nil
+	// slice" and reinstating the deleted early return was a surviving
+	// mutant. A caller comparing with reflect.DeepEqual against []string{}
+	// is the shape that would break on nil.
+	if got == nil {
+		t.Fatalf("Winners() = nil; the doc promises an empty, non-nil slice")
 	}
 }
 
@@ -477,6 +485,72 @@ func TestPinnedFaultPrecedenceIsPositionIndependent(t *testing.T) {
 	}
 }
 
+// TestFaultPrecedenceHoldsAcrossCategories is the test the one above should
+// have been. Fixing the two reported positional cases left the CLASS intact:
+// with validation interleaved per element, a NaN on the first player beat a
+// blank id on the second, because each player was validated completely
+// before the next was looked at. Four such cases survived the first fix, and
+// the doc comment had meanwhile been strengthened to claim the class.
+//
+// Every case here puts two faults in DIFFERENT elements, so the only way to
+// pass is for each category to be its own pass over the whole input.
+func TestFaultPrecedenceHoldsAcrossCategories(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		players []domain.RatedPlayer
+		pinned  [][2]string
+		want    error
+	}{
+		{
+			"a blank id on a later player beats a NaN on an earlier one",
+			[]domain.RatedPlayer{rated("a", math.NaN()), rated("", 3)}, nil,
+			domain.ErrEmptyPlayerID,
+		},
+		{
+			"a blank id beats a duplicate that appears before it",
+			[]domain.RatedPlayer{rated("a", 3), rated("a", 3), rated("", 3)}, nil,
+			domain.ErrEmptyPlayerID,
+		},
+		{
+			"a NaN on a later player beats a duplicate that appears before it",
+			[]domain.RatedPlayer{rated("a", 3), rated("a", 3), rated("b", math.NaN())}, nil,
+			domain.ErrInvalidPlayerLevel,
+		},
+		{
+			"a blank id in a later pin beats an unknown id in an earlier one",
+			[]domain.RatedPlayer{rated("a", 1), rated("b", 2)},
+			[][2]string{{"a", "stranger"}, {"", "b"}},
+			domain.ErrEmptyPlayerID,
+		},
+		{
+			"a blank id in a pin beats a NaN in the player set",
+			[]domain.RatedPlayer{rated("a", 1), rated("b", math.NaN())},
+			[][2]string{{"a", ""}},
+			domain.ErrEmptyPlayerID,
+		},
+		{
+			"an unknown pinned id beats a pin duplicate that appears before it",
+			[]domain.RatedPlayer{rated("a", 1), rated("b", 2), rated("c", 3)},
+			[][2]string{{"a", "b"}, {"a", "stranger"}},
+			domain.ErrUnknownPinnedPlayer,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := domain.SuggestMatchups(tc.players, tc.pinned)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v — each category must be its own pass over the whole input, "+
+					"or the documented precedence is only a description of one loop's body", err, tc.want)
+			}
+		})
+	}
+}
+
 // TestSuggestMatchupsIsOrderIndependent is the determinism this function
 // promises, driven over permutations of one set rather than asserted. It is
 // here because NaN broke exactly this property before SuggestMatchups
@@ -568,6 +642,13 @@ func TestSuggestMatchupsMinimisesTheTotalGap(t *testing.T) {
 		got, err := domain.SuggestMatchups(players, nil)
 		if err != nil {
 			t.Fatalf("levels %v: %v", levels, err)
+		}
+		// The count is asserted because the gap check is one-sided: a
+		// mutant returning FEWER matchups would have a smaller total and
+		// pass. TestSuggestMatchupsPairsNearestLevels catches that today,
+		// but this test's comment implies it stands alone, so it should.
+		if wantPairs := len(levels) / 2; len(got.Matchups) != wantPairs {
+			t.Fatalf("levels %v: %d matchup(s), want %d", levels, len(got.Matchups), wantPairs)
 		}
 		best := bestTotalGap(levels)
 		if total := got.TotalLevelGap(); total > best+1e-9 {

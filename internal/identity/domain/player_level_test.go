@@ -2,6 +2,7 @@ package domain_test
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -9,8 +10,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode"
 
 	"github.com/nhuthuynh/white-label/internal/identity/domain"
 )
@@ -314,11 +317,17 @@ func TestMonotonicInWinsAtFixedGamesPlayed(t *testing.T) {
 // ConfidenceGames the seed carries no weight at all, so the value is
 // 1 + 4*winRate and depends on NOTHING but a ratio bounded in [0,1]. A
 // sweep that passes the threshold has therefore covered every shape the
-// formula can take; the rows beyond 20 here are the ones that matter, and
-// 45 is simply comfortably past it. (The review ran the wider sweep —
-// games to 3,000,000 and both int limits — and the invariant held, which
-// is evidence for the argument rather than a reason to encode a slower
-// test.)
+// real arithmetic can take; 45 is comfortably past it.
+//
+// The algebra alone does not settle it, because a clamp would guard
+// floating-point rounding rather than real arithmetic, and w/n at n=45 and
+// at n=10^6 are different sets of representable ratios. The wider range
+// rests on the review's own run: exhaustive to 3,000 games (every seed ×
+// every win count), sampled from 3,001 to 2,000,000 (step 997, 1,001 win
+// rates each), plus both int limits; the invariant held throughout. (This
+// comment said "games to 3,000,000", which is neither of those two figures
+// — it welded them together. Corrected on the review's second pass.) Not
+// encoded here because a slower test buys nothing the argument does not.
 func TestEveryComputedValueStaysOnTheScale(t *testing.T) {
 	t.Parallel()
 
@@ -513,22 +522,44 @@ func TestManualOverrideRejectsOffScaleValues(t *testing.T) {
 //
 // Declarations rather than text, for Go: this very file says "gender" a
 // dozen times, and so do the ADR-quoting comments in user.go,
-// matchmaking.go, identity.proto and 0016_identity.sql. The prohibition is
-// on a field or a table, not on the word, and ADR-0012 §4 says so: "add a
-// Gender field/table anywhere".
+// matchmaking.go, identity.proto, 0016_identity.sql and four Vue views. The
+// prohibition is on a field or a table, not on the word, and ADR-0012 §4
+// says so: "add a Gender field/table anywhere".
+//
+// The non-Go half is a comment-stripped text scan over `.sql`, `.proto`,
+// `.ts` and `.vue`, which is what makes the name "AnywhereInThisRepository"
+// true. It did not cover `.ts` or `.vue` at first, and T65.2's review
+// pointed out that the name then overstated by 150 files — `findGenderControls`
+// covers rendered *controls*, not a `gender` field on a TypeScript type or
+// a store, so the web side was not the backstop it looked like. The
+// remaining honest limits: uppercase extensions are unscanned (nothing else
+// reads them either — initdb applies `*.sql`), and a `map[string]string`
+// carrying a "gender" key, or a `jsonb` column, is outside any
+// name-based check. That last one is the obvious smuggling route and no
+// scan of names closes it.
 func TestNoGenderFieldAnywhereInThisRepository(t *testing.T) {
 	t.Parallel()
 
 	root := repoRoot(t)
 	goFiles := 0
+	// perDir counts parsed files per bounded context, so the vacuity check
+	// at the end can be derived from the tree rather than from a magic
+	// number.
+	perDir := map[string]int{}
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
 		}
 		if d.IsDir() {
+			// Only .git and node_modules are skipped. The list included
+			// "dist" and "coverage", which T65.2's review showed is a hole
+			// rather than a tidiness: fs.SkipDir matches a BASENAME
+			// anywhere in the tree, and `internal/identity/coverage` is a
+			// legal Go package — a Gender field in one was invisible.
+			// Neither remaining name can be a package of this project's own.
 			switch d.Name() {
-			case ".git", "node_modules", "dist", "coverage":
+			case ".git", "node_modules":
 				return fs.SkipDir
 			}
 			return nil
@@ -541,34 +572,37 @@ func TestNoGenderFieldAnywhereInThisRepository(t *testing.T) {
 			}
 			goFiles++
 			rel, _ := filepath.Rel(root, path)
-			ast.Inspect(file, func(n ast.Node) bool {
-				switch node := n.(type) {
-				case *ast.StructType:
-					for _, f := range node.Fields.List {
-						for _, name := range f.Names {
-							if mentionsGender(name.Name) {
-								t.Errorf("%s: struct field %q — ADR-0012 Q2 is unanswered, so no field "+
-									"may name a protected attribute", rel, name.Name)
-							}
-						}
-					}
-				case *ast.TypeSpec:
-					if mentionsGender(node.Name.Name) {
-						t.Errorf("%s: type %q — same prohibition", rel, node.Name.Name)
-					}
-				}
-				return true
-			})
-		case ".sql", ".proto":
+			if parts := strings.Split(filepath.ToSlash(rel), "/"); len(parts) > 1 && parts[0] == "internal" {
+				perDir[parts[1]]++
+			}
+			for _, f := range genderFindingsInGo(file, strings.HasSuffix(path, "_test.go")) {
+				t.Errorf("%s: %s", rel, f)
+			}
+		case ".sql", ".proto", ".ts", ".vue":
 			src, readErr := os.ReadFile(path)
 			if readErr != nil {
 				return nil
 			}
 			rel, _ := filepath.Rel(root, path)
-			for n, line := range strings.Split(string(src), "\n") {
-				if code := stripLineComment(line); mentionsGender(code) {
-					t.Errorf("%s:%d: %q — ADR-0012 §4 forbids a Gender field or table in the schema "+
-						"or in any proto while Q2 is unanswered", rel, n+1, strings.TrimSpace(code))
+			if isWebTestSupport(rel) {
+				// The web side has its OWN ADR-0012 guard —
+				// web/src/test-support/genderControlAssertions.ts and the
+				// specs that call findGenderControls() to assert zero
+				// gender controls — and its identifiers name the attribute
+				// in code, not in a comment. Exempt for the same reason
+				// _test.go files are exempt for funcs and consts above:
+				// this is the machinery of the check, not a field. The
+				// limit that buys: a `gender:` property added inside a spec
+				// would be missed. Specs ship no schema, so that is the
+				// cheaper of the two errors.
+				return nil
+			}
+			ext := filepath.Ext(path)
+			for n, line := range strings.Split(stripBlockComments(string(src)), "\n") {
+				if code := stripLineComment(line, ext); mentionsGender(code) {
+					t.Errorf("%s:%d: %q — ADR-0012 §4 forbids this protected attribute as a field or "+
+						"table in the schema or in any proto while Q2 is unanswered",
+						rel, n+1, strings.TrimSpace(code))
 				}
 			}
 		}
@@ -579,31 +613,304 @@ func TestNoGenderFieldAnywhereInThisRepository(t *testing.T) {
 	}
 
 	// A guard that parsed nothing would pass, which is the vacuous green
-	// this project has been bitten by repeatedly. The bound is deliberately
-	// far below the real count so it fails on a broken walk, not on a sprint
-	// that deletes a package.
-	if goFiles < 100 {
+	// this project has been bitten by repeatedly — and a flat floor is too
+	// loose to catch the realistic version. T65.2's review made the point
+	// with numbers: 417 Go files with internal/gen present, 370 without, so
+	// a `goFiles < 100` floor would still report green after losing
+	// internal/socialplay (77 files) AND internal/identity (18). That is
+	// precisely the skipped-subtree bug the same review found.
+	//
+	// So the floor is derived: every bounded context under internal/ must
+	// have contributed at least one parsed file, and the set of contexts is
+	// read from disk rather than listed, so a new one is covered the day it
+	// exists.
+	contexts, err := os.ReadDir(filepath.Join(root, "internal"))
+	if err != nil {
+		t.Fatalf("reading internal/: %v", err)
+	}
+	checked := 0
+	for _, c := range contexts {
+		if !c.IsDir() || c.Name() == "gen" {
+			continue // internal/gen is gitignored and need not exist
+		}
+		checked++
+		if perDir[c.Name()] == 0 {
+			t.Errorf("the walk parsed no Go file under internal/%s; a skipped subtree would hide "+
+				"every declaration in it", c.Name())
+		}
+	}
+	if checked < 2 {
+		t.Fatalf("found only %d bounded context(s) under internal/; the directory read is broken", checked)
+	}
+	if goFiles < checked {
 		t.Fatalf("parsed only %d Go file(s) under %s; the walk is broken and this test proved nothing",
 			goFiles, root)
 	}
 }
 
-func mentionsGender(s string) bool {
-	return strings.Contains(strings.ToLower(s), "gender")
+// genderFindingsInGo returns one finding per declaration in file whose name
+// mentions the protected attribute.
+//
+// Extracted from the walk so the shapes it covers can be driven directly
+// (TestTheGenderScanCoversEveryDeclarationShape): an embedded field naming a
+// type from a package the walk never parses cannot be probed by planting a
+// file, because the plant would not compile.
+func genderFindingsInGo(file *ast.File, isTest bool) []string {
+	var findings []string
+	ast.Inspect(file, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.StructType:
+			for _, f := range node.Fields.List {
+				if len(f.Names) == 0 {
+					// An embedded field has no name of its own; its
+					// identity is its type. `struct{ pkg.Gender }` was
+					// invisible until T65.2's review named it.
+					if name := embeddedName(f.Type); mentionsGender(name) {
+						findings = append(findings, fmt.Sprintf("embedded field %q — ADR-0012 Q2 is "+
+							"unanswered, so nothing may name this protected attribute", name))
+					}
+					continue
+				}
+				for _, name := range f.Names {
+					if mentionsGender(name.Name) {
+						findings = append(findings, fmt.Sprintf("struct field %q — ADR-0012 Q2 is "+
+							"unanswered, so nothing may name this protected attribute", name.Name))
+					}
+				}
+			}
+		case *ast.TypeSpec:
+			if mentionsGender(node.Name.Name) {
+				findings = append(findings, fmt.Sprintf("type %q — same prohibition", node.Name.Name))
+			}
+		case *ast.ValueSpec:
+			// ADR-0012 §4 bans "a matching-mode flag" separately from a
+			// field, and a const or var is how one would be written. Test
+			// files are exempt for these and for funcs, and ONLY for those:
+			// this guard's own identifiers are its machinery, while every
+			// struct field, everywhere, is still checked.
+			if isTest {
+				return true
+			}
+			for _, name := range node.Names {
+				if mentionsGender(name.Name) {
+					findings = append(findings, fmt.Sprintf("const/var %q — ADR-0012 §4 bans a "+
+						"matching-mode flag as well as a field", name.Name))
+				}
+			}
+		case *ast.FuncDecl:
+			if isTest || node.Name == nil {
+				return true
+			}
+			if mentionsGender(node.Name.Name) {
+				findings = append(findings, fmt.Sprintf("func %q — same prohibition", node.Name.Name))
+			}
+		}
+		return true
+	})
+	return findings
 }
 
-// stripLineComment removes a `--` or `//` line comment, which is where every
-// legitimate mention of the word in a .sql or .proto file lives: both
+// embeddedName renders an embedded field's type as a bare identifier:
+// `Gender`, `pkg.Gender` and `*pkg.Gender` all yield "Gender".
+func embeddedName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.Ident:
+		return t.Name
+	case *ast.StarExpr:
+		return embeddedName(t.X)
+	case *ast.SelectorExpr:
+		if t.Sel != nil {
+			return t.Sel.Name
+		}
+	}
+	return ""
+}
+
+// TestTheGenderScanCoversEveryDeclarationShape drives the scan over
+// synthetic sources — the only way to cover some of them, and the way to
+// cover the rest without planting files in the tree.
+func TestTheGenderScanCoversEveryDeclarationShape(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name     string
+		src      string
+		isTest   bool
+		wantFind bool
+	}{
+		{"a named struct field", "package p\ntype T struct{ Gender string }\n", false, true},
+		{"an embedded local type", "package p\ntype GenderMix int\ntype T struct{ GenderMix }\n", false, true},
+		{"an embedded type from another package", "package p\ntype T struct{ other.GenderMix }\n", false, true},
+		{"an embedded pointer to another package's type", "package p\ntype T struct{ *other.Gender }\n", false, true},
+		{"a const", "package p\nconst GenderMixEnabled = true\n", false, true},
+		{"a var", "package p\nvar DefaultGenderMix = \"mixed\"\n", false, true},
+		{"a func", "package p\nfunc GenderOf() string { return \"\" }\n", false, true},
+		{"Sex as a whole word", "package p\ntype T struct{ Sex string }\n", false, true},
+		{"BiologicalSex", "package p\ntype T struct{ BiologicalSex string }\n", false, true},
+		{"mixed_sex_only, snake-cased", "package p\ntype T struct{ mixed_sex_only bool }\n", false, true},
+		{"a CRLF-terminated file", "package p\r\ntype T struct{ Gender string }\r\n", false, true},
+		{
+			"a build-constrained file",
+			"//go:build neverbuilt\n\npackage p\ntype T struct{ Gender string }\n", false, true,
+		},
+		{"Unisex is not the attribute", "package p\ntype T struct{ UnisexOnly bool }\n", false, false},
+		{"an unrelated field", "package p\ntype T struct{ DisplayName string }\n", false, false},
+		{"a test file's own func name is exempt", "package p\nfunc TestNoGenderThing() {}\n", true, false},
+		{
+			"but a test file's struct field is NOT exempt",
+			"package p\ntype fixture struct{ Gender string }\n", true, true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			file, err := parser.ParseFile(token.NewFileSet(), "x.go", tc.src, parser.SkipObjectResolution)
+			if err != nil {
+				t.Fatalf("parsing the fixture: %v", err)
+			}
+			if got := genderFindingsInGo(file, tc.isTest); (len(got) > 0) != tc.wantFind {
+				t.Fatalf("findings = %v, want a finding: %v", got, tc.wantFind)
+			}
+		})
+	}
+}
+
+// mentionsGender matches "gender" as a substring, and "sex" as a whole word
+// within a camel- or snake-cased identifier.
+//
+// "sex" is here because the failure messages say "this protected
+// attribute", and `Sex`, `BiologicalSex` and `MixedSexOnly` are the same
+// attribute under another name — all three passed until T65.2's review
+// named them. Whole-word only, so `UnisexOnly` does not trip it; that is a
+// deliberate limit, and no wording list closes the general case.
+func mentionsGender(s string) bool {
+	if strings.Contains(strings.ToLower(s), "gender") {
+		return true
+	}
+	for _, word := range splitIdentifier(s) {
+		if word == "sex" {
+			return true
+		}
+	}
+	return false
+}
+
+// splitIdentifier breaks a string into lower-cased words at case changes and
+// at every non-letter, so BiologicalSex, mixed_sex_only and
+// "ADD COLUMN sex text" all yield a bare "sex".
+func splitIdentifier(s string) []string {
+	var words []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			words = append(words, strings.ToLower(cur.String()))
+			cur.Reset()
+		}
+	}
+	var prev rune
+	for _, r := range s {
+		switch {
+		case !unicode.IsLetter(r):
+			flush()
+		case unicode.IsUpper(r) && unicode.IsLower(prev):
+			flush()
+			cur.WriteRune(r)
+		default:
+			cur.WriteRune(r)
+		}
+		prev = r
+	}
+	flush()
+	return words
+}
+
+// stripBlockComments removes /* ... */ and <!-- --> regions, which are
+// legitimate prose in every scanned file type — and whose absence was a FALSE POSITIVE found by
+// T65.2's review: a migration noting "this migration deliberately adds no
+// gender column" inside a block comment turned this test red. This project
+// writes exactly that kind of note.
+func stripBlockComments(src string) string {
+	for _, delim := range [][2]string{{"/*", "*/"}, {"<!--", "-->"}} {
+		src = stripRegions(src, delim[0], delim[1])
+	}
+	return src
+}
+
+// stripRegions removes every open..close region, replacing it with the
+// newlines it spanned so reported line numbers stay right.
+func stripRegions(src, open, close string) string {
+	var b strings.Builder
+	for {
+		i := strings.Index(src, open)
+		if i < 0 {
+			b.WriteString(src)
+			return b.String()
+		}
+		b.WriteString(src[:i])
+		rest := src[i+len(open):]
+		j := strings.Index(rest, close)
+		if j < 0 {
+			return b.String() // unterminated: the remainder is all comment
+		}
+		b.WriteString(strings.Repeat("\n", strings.Count(rest[:j], "\n")))
+		src = rest[j+len(close):]
+	}
+}
+
+// stripLineComment removes a line comment, which is where every legitimate
+// mention of the word in a .sql or .proto file lives: both
 // 0016_identity.sql and identity.proto carry ADR-0012's own prohibition in
 // prose, and a text scan that did not strip comments would fail on the
 // documents recording the rule it enforces.
-func stripLineComment(line string) string {
-	for _, marker := range []string{"--", "//"} {
-		if i := strings.Index(line, marker); i >= 0 {
-			line = line[:i]
-		}
+//
+// Quoted strings are removed FIRST, and only then the comment marker — the
+// reverse order let a `DEFAULT 'https://cdn.example.com/a.png'` hide
+// everything after it on the line, `ADD COLUMN gender text` included
+// (T65.2's review; a https:// default in a migration is not exotic). `//`
+// is also not a SQL comment at all, so `--` is used for .sql and `//` for
+// the rest.
+//
+// Quoted text is NOT removed from a .vue file, and that asymmetry is the
+// point: in a template every attribute value is quoted, so stripping them
+// would hide `<select name="gender">` — the exact control ADR-0012 §4
+// forbids and T8.8/T10.5's in-product note says does not exist. Nothing is
+// lost by keeping them, because every legitimate mention in a .vue file in
+// this tree is inside a `//` or `<!-- -->` comment, while the one
+// user-facing string that names the attribute lives in a .ts file
+// (web/src/copy/matchingDisclosure.ts), where quotes still are stripped.
+func stripLineComment(line, ext string) string {
+	if ext != ".vue" {
+		line = quotedText.ReplaceAllString(line, "''")
+	}
+	marker := "//"
+	if ext == ".sql" {
+		marker = "--"
+	}
+	if i := strings.Index(line, marker); i >= 0 {
+		line = line[:i]
 	}
 	return line
+}
+
+// quotedText matches a single- or double-quoted literal, so its contents
+// cannot be mistaken for code or for a comment marker. It is also what lets
+// web/src/copy/matchingDisclosure.ts keep saying "whether gender-mix
+// matching is in scope" to users, which is T10.5's in-product disclosure of
+// this very ADR.
+var quotedText = regexp.MustCompile(`'[^']*'|"[^"]*"`)
+
+// isWebTestSupport reports whether a path is part of the web suite's own
+// test machinery, by the conventions this project already uses — a
+// `__tests__` directory, a `.spec.ts` suffix, or `test-support/`. Derived
+// from the path, not a list of files, so a new spec is covered the day it
+// is written.
+func isWebTestSupport(rel string) bool {
+	slashed := filepath.ToSlash(rel)
+	return strings.HasSuffix(slashed, ".spec.ts") ||
+		strings.Contains(slashed, "/__tests__/") ||
+		strings.Contains(slashed, "/test-support/")
 }
 
 // repoRoot walks up from the test's working directory to the module root,

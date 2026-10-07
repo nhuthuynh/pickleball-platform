@@ -277,10 +277,17 @@ ADRs whose status is `Accepted`**:
 | ADR-0009 §4 of the Decision | market scope: Vietnam-concentrated or global? | T7 |
 
 Neither is a defect in point 1's mechanism. An ADR that **decides something**
-and **escalates something else** is a perfectly ordinary and good shape —
-ADR-0012 is exactly the shape ADR-0010's trigger demanded, "build everything
-that does not require the answer, name precisely what remains blocked". The
-sweep simply never read the "name precisely what remains blocked" part.
+and **escalates something else** is a perfectly ordinary and good shape, and
+ADR-0012 states its own as *"build everything that does not require Q1 or
+Q2's answer, name precisely what remains blocked and why, and set a trigger
+tied to an external event"* (`docs/adr/0012-…:144-146`). The sweep simply
+never read the "name precisely what remains blocked" part.
+
+*(That quotation was attributed to ADR-0010's trigger, and paraphrased, until
+T65.3's review checked it. ADR-0010's trigger offers two exits — build it, or
+supersede with a new numbered ADR — and contains neither phrase. The
+formulation is ADR-0012's own restatement of what exit (b) had to deliver.
+`grep -rn "name precisely what remains blocked" docs/` is the check.)*
 
 **The step.** The ADR half of the sweep is now two readings, not one:
 
@@ -308,7 +315,11 @@ answered at T55 (ADR-0015, ADR-0016, which preserve *"Escalated — awaiting pro
 supersession notice, deliberately, as the record of the question as it
 stood). A grep cannot tell those apart — **which is precisely why point 1
 forbids grepping for the status** — so the output is a reading list, never a
-verdict. Four of the five entries were correctly discarded by reading them.
+verdict. Three of the five were correctly discarded by reading them —
+ADR-0010 as superseded and ADR-0015/0016 as answered at T55. *(This said
+"four of the five", which does not subtract: five files minus two live ones
+is three. Caught by T65.3's review; the same arithmetic slip is in that
+ticket's commit message, where it cannot be corrected.)*
 
 **Run today, the same command still returns those five files and a different
 split** — both of T65's live questions were answered that day, so ADR-0009
@@ -317,11 +328,20 @@ and never was; this is what "a reading list, never a verdict" means in
 practice.
 
 **The corollary, for whoever answers one of these.** When an in-body
-escalation is answered, **strike the old question through and say that no
-escalation is live in that file**, so the next sweep's reading list shrinks
-instead of carrying the same four false hits forever. ADR-0009's §4 and
-ADR-0012's Q1 were amended that way at T65.3; both now state the answer, its
-date, and what it unblocks, immediately beside the struck question.
+escalation is answered, **strike the old question through and say, in that
+file, that no escalation is live in it** — and put the answer, its date and
+what it unblocks immediately beside the struck question. ADR-0009's §4 and
+ADR-0012's Q1 were amended that way at T65.3.
+
+**This does NOT shorten the reading list, and the first draft of this
+paragraph claimed it did.** The grep still matches struck text, so the file
+count is unchanged — five before T65.3 and five after — and the number of
+FALSE hits went *up*, from three to four, because two live questions became
+answered ones. What the corollary buys is that the reading is instant: a
+reader who opens the file meets the answer, not a question they have to go
+and resolve. The command's output is a reading list and shrinking it is not
+the goal; ADR-0015 and ADR-0016 have been on it since T55 for exactly the
+right reason.
 
 **The three-step history, because the shape of the failure is the lesson.**
 The sweep has been hardened three times and each time at one level of

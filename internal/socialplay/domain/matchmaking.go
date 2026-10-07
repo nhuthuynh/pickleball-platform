@@ -159,16 +159,23 @@ func (s MatchupSuggestion) TotalLevelGap() float64 {
 //     sentinel for a blank id already existed in this package.
 //  4. ErrInvalidPlayerLevel — a NaN or infinite level.
 //  5. ErrDuplicatePlayer — a player listed twice in the set.
-//  6. ErrUnknownPinnedPlayer — any pinned id not in the set. Checked across
-//     EVERY pin before duplicates are considered, so that two faults in one
-//     call give the same answer regardless of which slot the bad id sits
-//     in. It did not: `[{a,b},{stranger,b}]` and `[{a,b},{b,stranger}]` are
-//     the same two faults and returned different sentinels.
+//  6. ErrUnknownPinnedPlayer — any pinned id not in the set.
 //  7. ErrDuplicatePlayer again — a player pinned twice, or a pin naming one
 //     player on both sides.
 //
-// A caller with several faults therefore gets the most fundamental one, and
-// gets it deterministically.
+// Each of those is a SEPARATE PASS over the whole input, which is what makes
+// this list a precedence rather than a description of one loop's body. A
+// caller with several faults gets the most fundamental one, whichever
+// players or pins they sit in.
+//
+// Two review passes were needed to get this right, and the shape of the
+// mistake is worth more than the fix. The list was wrong; the first
+// correction hoisted pinned membership above pinned duplicates, fixing the
+// two reported cases; the second review found four more — among them
+// `players [{a, NaN}, {"", 3}]` giving ErrInvalidPlayerLevel where the list
+// says ErrEmptyPlayerID — because fixing a reported INSTANCE is not the same
+// as fixing the CLASS, and the prose had meanwhile been strengthened to
+// claim the class.
 //
 // Neither argument is modified (the sort runs on a copy) — a Game's own
 // player list is a common thing to pass in, and reordering the caller's
@@ -181,28 +188,41 @@ func SuggestMatchups(players []RatedPlayer, pinned [][2]string) (MatchupSuggesti
 		return MatchupSuggestion{}, ErrTooFewPlayers
 	}
 
-	byID := make(map[string]RatedPlayer, len(players))
+	// ONE PASS PER CATEGORY, not one pass per element. The first attempt at
+	// this hoisted pinned membership above pinned duplicates and fixed the
+	// two cases that had been reported — while leaving the CLASS intact:
+	// with the checks interleaved per element, `[{a, NaN}, {"", 3}]` still
+	// returned ErrInvalidPlayerLevel where the documented order says
+	// ErrEmptyPlayerID, because the first player was validated completely
+	// before the second was looked at. Four such cases survived. Five short
+	// loops cost nothing at a Game's scale and make the documented
+	// precedence true rather than approximately true.
 	for _, p := range players {
 		if p.PlayerID == "" {
 			return MatchupSuggestion{}, ErrEmptyPlayerID
 		}
-		if math.IsNaN(p.Level) || math.IsInf(p.Level, 0) {
-			return MatchupSuggestion{}, ErrInvalidPlayerLevel
-		}
-		if _, seen := byID[p.PlayerID]; seen {
-			return MatchupSuggestion{}, ErrDuplicatePlayer
-		}
-		byID[p.PlayerID] = p
 	}
-
-	// Every pinned id is checked for emptiness and membership BEFORE any
-	// duplicate is considered, so the answer does not depend on which slot a
-	// bad id happens to occupy. Two passes rather than one is the whole cost.
 	for _, pair := range pinned {
 		for _, id := range pair {
 			if id == "" {
 				return MatchupSuggestion{}, ErrEmptyPlayerID
 			}
+		}
+	}
+	for _, p := range players {
+		if math.IsNaN(p.Level) || math.IsInf(p.Level, 0) {
+			return MatchupSuggestion{}, ErrInvalidPlayerLevel
+		}
+	}
+	byID := make(map[string]RatedPlayer, len(players))
+	for _, p := range players {
+		if _, seen := byID[p.PlayerID]; seen {
+			return MatchupSuggestion{}, ErrDuplicatePlayer
+		}
+		byID[p.PlayerID] = p
+	}
+	for _, pair := range pinned {
+		for _, id := range pair {
 			if _, ok := byID[id]; !ok {
 				return MatchupSuggestion{}, ErrUnknownPinnedPlayer
 			}

@@ -620,7 +620,14 @@ func SplitGenerated(moduleRoot string, dirs []string) (handWritten, generated []
 // first line is its package clause; the test fixture that caught that is
 // TestSplitGeneratedUsesGosOwnMarkerRatherThanAPathList's "notatop" case.
 func headerSaysGenerated(src string) bool {
+	// \r is trimmed because the marker regexp anchors on "EDIT.$": a
+	// CRLF-terminated generated file leaves a trailing \r that defeats the
+	// match, so sqlc output written on Windows would read as hand-written.
+	// A BOM is trimmed for the same reason, one position earlier. Both
+	// found by T65.4's review.
+	src = strings.TrimPrefix(src, "\ufeff")
 	for _, line := range strings.Split(src, "\n") {
+		line = strings.TrimRight(line, "\r")
 		if strings.HasPrefix(line, "package ") {
 			return false
 		}
@@ -656,28 +663,69 @@ func dirIsGenerated(dir string) bool {
 	return false
 }
 
+// withoutSkipped drops directories the test scan itself skips — testdata,
+// node_modules, vendor, and anything dot- or underscore-prefixed.
+//
+// It exists because `go list ./...` does NOT honour that rule, which
+// ScanTests' own doc comment calls load-bearing: an npm dependency shipping
+// Go source would otherwise put third-party packages into this project's
+// untested-package list. Dormant today (`find web -name '*.go'` is empty
+// across 227 installed packages) and demonstrated by T65.4's review, which
+// planted one and watched it appear.
+//
+// The rule is skipDir's, applied to every path segment, so the two sides of
+// the report agree about what counts as a package of this project's own —
+// and so this is not a second list.
+func withoutSkipped(dirs []string) []string {
+	out := make([]string, 0, len(dirs))
+	for _, d := range dirs {
+		skipped := false
+		for _, seg := range strings.Split(d, "/") {
+			if skipDir(seg) {
+				skipped = true
+				break
+			}
+		}
+		if !skipped {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
 // Untested returns the entries of allDirs that no TestPackage covers —
 // packages holding no test function at all — sorted and deduplicated.
 //
 // THE BLIND SPOT, AND THE DECISION (#328, T65.4). This check's question is
 // "which packages hold tests that no gate executes?", and it answers it
 // correctly. A package with NO tests has none to execute, so it was invisible
-// here by construction: `gate-coverage: OK` was silent about four of five
-// `cmd` packages, a fact that was news to the issue that filed it.
+// here by construction: `gate-coverage: OK` was silent about every `cmd`
+// package that holds no test, which was four of five when #328 was filed —
+// T65.4 tested one, so the running tool now names three. The figure is not
+// repeated anywhere it could go stale; `make gate-coverage` prints it.
 //
-// The decision is to **report, never fail.** The two rejected alternatives
-// and why:
+// The decision is to **report, never fail**, which is #328's option (b) —
+// "a separate zero-test-package report". Its other two options, and why
+// neither was taken:
 //
-//   - *Fail on a package with no tests.* A gate that fails this way is
-//     satisfied by a stub `func TestNothing(t *testing.T) {}`, which buys
-//     nothing and makes the gate's green meaningless. It would also assert a
-//     policy — every package must have a test — that nobody decided and that
-//     is wrong for a thin `main` wrapper.
-//   - *Exempt `main` packages by convention and say nothing.* That is the
-//     silence this fixes, written down. And `cmd/server` has real tests
-//     (#136: the server refuses to start without an auth verifier), so
-//     `main` is not a category that cannot be tested — it is one that
-//     happens not to be.
+//   - *(a) Leave the blind spot and record it in CLAUDE.md.* Rejected
+//     because a figure in prose is a cached derived result, which is the
+//     failure mode HANDOFF.md's "Open issues" section demonstrates
+//     (re-derived at one ceremony, wrong by that afternoon). The number
+//     here is recomputed every run and cannot drift. CLAUDE.md records the
+//     DECISION, not the count.
+//   - *(c) Make `main`-package exemption an explicit convention.* Rejected
+//     because `cmd/server` has real tests (#136: the server refuses to
+//     start without an auth verifier), so `main` is not a category that
+//     cannot be tested — it is one that happens not to be. An exemption
+//     would also have to name the packages, which is the list this tool
+//     must not grow.
+//
+// And the option nobody offered, rejected pre-emptively because it is the
+// obvious thing to reach for: *fail on a package with no tests.* A gate
+// that fails this way is satisfied by a stub `func TestNothing(t
+// *testing.T) {}`, and it asserts a policy — every package must have a
+// test — that nobody decided.
 //
 // What a report buys that prose cannot: the number is recomputed every run,
 // so it cannot go stale the way three sprints of hand-written globs did
@@ -838,6 +886,6 @@ func Run(moduleRoot, makefilePath, gateRoot string, list Lister) (Report, error)
 	if err != nil {
 		return Report{}, fmt.Errorf("listing every package: %w", err)
 	}
-	rep.Untested, rep.UntestedGenerated = SplitGenerated(moduleRoot, Untested(allDirs, pkgs))
+	rep.Untested, rep.UntestedGenerated = SplitGenerated(moduleRoot, Untested(withoutSkipped(allDirs), pkgs))
 	return rep, nil
 }

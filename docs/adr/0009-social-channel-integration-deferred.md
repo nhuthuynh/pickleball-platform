@@ -47,10 +47,16 @@ to make this ADR readable; read that section for the substance:
   message them at all); Zalo OA additionally has tiered trial-vs-verified
   account levels gating rate limits and messaging permissions, a heavier
   bring-up cost for a first integration.
-- **Market scope is the deciding variable and it is unanswered.** Zalo is
-  Vietnam-specific, WhatsApp is global. T7 escalated this to PM/PO as a
-  product/go-to-market question and it has not come back. See the Decision
-  section — this ADR does not answer it either.
+- **Market scope is the deciding variable.** Zalo is Vietnam-specific,
+  WhatsApp is global. T7 escalated this to PM/PO as a product/go-to-market
+  question. ~~and it has not come back. See the Decision section — this ADR
+  does not answer it either.~~ **ANSWERED 2026-10-07: both markets, one
+  channel built first** — see "Market scope answered" below. *(This bullet
+  still said "it is unanswered … it has not come back" after that section
+  was added, which T65.3's review caught: Context precedes Decision, so a
+  sweep following `sprint-process.md`'s new read-the-body step would hit the
+  stale sentence first and never reach the strikethrough — the exact failure
+  this ticket was written to prevent, reintroduced in the same commit.)*
 - T7's own recommendation, carried into T8's roadmap and re-affirmed here:
   spike first, produce a `port.MessagingChannel` shape, and prototype
   against **one** platform, not both.
@@ -173,7 +179,7 @@ product/market question this team cannot answer:
 > default otherwise. This ADR deliberately does **not** pick for you.~~
 >
 > **ANSWERED 2026-10-07: both markets, one channel built first** — see
-> "Market scope answered" above. The binary this question posed was
+> "Market scope answered" below. The binary this question posed was
 > rejected rather than picked: both are in scope and the channel is a
 > pluggable port. **No escalation is live in this file.** The remaining
 > sub-decision — *which* channel first — is a deferral with a trigger (the
@@ -213,12 +219,20 @@ is still no, and this ADR is the reason to point at.
 
 **Put to the Product Owner at T65's Ceremony 1 and answered the same day.**
 The question had been open since T7 and was restated in §4 of the Decision
-below *"so it is discoverable from the ADR index rather than only from a
-sprint plan"* — which turned out not to be enough on its own: four
-consecutive escalation sweeps (T62, T63, T64, and T65's own first draft)
-reported no product decision awaiting an answer, because each read only
-every ADR's **status line**. It was the premise-challenge pass, reading
-bodies, that found this one and ADR-0012's Q1 together. `sprint-process.md`
+above *"so it is discoverable from the ADR index rather than only from a
+sprint plan"* — which turned out not to be enough on its own: the
+**ADR half** of four consecutive escalation sweeps (T62, T63, T64, and
+T65's own first draft) read nothing but each ADR's **status line**, so
+neither this question nor ADR-0012's Q1 was ever reachable by it. It was the
+premise-challenge pass, reading bodies, that found them together.
+
+*(That sentence read "four consecutive escalation sweeps reported no product
+decision awaiting an answer" until T65.3's review falsified it for T64:
+T64's Ceremony 1 did surface a live product decision — #145's, from an
+issue's prose — put it to the Product Owner, and got it answered. Its sweep
+was not blind; its ADR half was. The claim and its causal clause were both
+wider than the evidence, and `HANDOFF.md` asserted the T64 counterexample
+four rows above the paragraph making the claim.)* `sprint-process.md`
 now requires the sweep to read an ADR's body; that change is the other half
 of this ticket.
 

@@ -120,21 +120,38 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   **It also reports, without failing, every package holding no test function
   at all** — T65.4's answer to #328's blind spot, which is real: the tool's
   question is "which TESTS does no gate run?", and a package with none has
-  none to run, so `gate-coverage: OK` was silent about **four of five `cmd`
-  packages** and about `internal/identity/adapter/postgres`, an adapter. The
-  decision, recorded rather than left as a convention: **report, never fail.**
-  A gate that failed here is satisfied by a stub `func TestNothing`, and it
-  would assert a policy — every package must have a test — that nobody decided
-  and that is wrong for a thin `main` wrapper. Generated packages are counted
-  rather than listed, and are recognised by **Go's own `DO NOT EDIT` header**,
-  not by a path prefix: `internal/gen` as a hardcoded skip would be exactly
-  the package list this tool must not grow. Current state, from the running
-  command rather than from this paragraph:
+  none to run, so `gate-coverage: OK` was silent about every `cmd` package
+  holding no test — **four of five when #328 was filed**, three now that
+  T65.4 tested one — and about `internal/identity/adapter/postgres`, an
+  adapter. Run `make gate-coverage | grep "^    cmd/"` for the live list
+  rather than trusting that count. The
+  decision, recorded rather than left as a convention: **report, never fail**
+  (#328's option (b); its (a) and (c), and the "fail on it" option nobody
+  offered, are rejected with reasons in `tools/gatecoverage`'s `Untested` doc
+  comment). A gate that failed here is satisfied by a stub `func TestNothing`,
+  and it would assert a policy — every package must have a test — that nobody
+  decided and that is wrong for a thin `main` wrapper. Generated packages are
+  counted rather than listed, and are recognised by **Go's own `DO NOT EDIT`
+  header**, not by a path prefix: `internal/gen` as a hardcoded skip would be
+  exactly the package list this tool must not grow. Current state, from the
+  running command rather than from this paragraph — **and the figure depends
+  on which of this project's two documented tree states you are in**, because
+  `gate-coverage` has no `generate` prerequisite and 13 of the 27 are the
+  gitignored `internal/gen/**`:
 
   ```
-  $ make gate-coverage | grep "no test function"
+  $ make generate >/dev/null && make gate-coverage | grep "no test function"
   gate-coverage: NOTE — 27 package(s) hold no test function at all.
+
+  $ rm -rf internal/gen && go run ./cmd/gatecoverage | grep "no test function"
+  gate-coverage: NOTE — 14 package(s) hold no test function at all.
   ```
+
+  The second is a fresh clone before any codegen, and in that state the
+  generated/hand-written split is a no-op — which is also why
+  `tools/gatecoverage`'s real-repository test **skips** rather than fails
+  there (`test-tools` is deliberately codegen-free). Both figures measured
+  2026-10-07.
 - `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
   which form carried it) from the **same parser `docs-index-check` uses**. This
   is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
@@ -156,6 +173,22 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   a subprocess, because an exit code is the only part of this program a
   Makefile can see — the **exit 2** on an unclassifiable status. It shipped at
   T64.5 with no test at all, which rules 1 and 8 do not allow.
+- `make binary-check` — fails when a tracked file carries the **ELF magic
+  number**, i.e. a compiled binary has been committed. Part of `make
+  ci-checks`. Added T65.4's review pass, which found a 3 MB `docsindex`
+  executable committed at the repository root **by that same sprint**:
+  `go build ./cmd/<x>` with no `-o` drops the binary there, named after the
+  package, and `git add -A` tracks it. Nothing noticed, and once TRACKED
+  `git status` stays clean, so the next build lands a 3 MB diff in an
+  unrelated commit — and a stale executable sits where `./docsindex
+  -statuses` works, answering a ceremony's question from code that no longer
+  exists. Build to a scratch path (`go build -o /tmp/<x> ./cmd/<x>`).
+  `.gitignore` also lists the five `cmd/` names, and this check exists not
+  to depend on that list: it tests the four-byte property, so a sixth
+  command or a binary committed from anywhere else fails it too. Images,
+  fonts and PDFs are binary but not ELF, so there is nothing to exempt — and
+  an exemption list here would be the same mistake the `.gitignore` list
+  already is.
 - `make lock-check` — fails when `web/package-lock.json` is missing, or when it
   and `web/package.json` disagree. Wires `npm ci --dry-run --offline` (npm's own
   check, no network, ~0.6s) rather than re-implementing semver comparison. Part
