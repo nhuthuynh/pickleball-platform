@@ -2960,3 +2960,61 @@ supplied in the retro document for that ceremony to carry forward.
   PR, since a rule amended to fit the first document judged against it should
   have a second reader — the same reasoning `t62-retro.md` recommendation 5
   recorded, and the same one T63.1 then overruled on its merits.
+
+## T65 sprint retro
+
+Held as `docs/process/t65-retro.md`, following the convention T5/T9/T10/…/T52/T53
+set and CLAUDE.md's **Docs index & naming convention**.
+
+**This is the first such stub since T53.** Retro files exist for T54 through
+T64 and none of them has one, which T65's Ceremony 3 found by reading its own
+instruction and looking for a stub to copy:
+
+```
+$ ls docs/process/t*-retro.md | sed 's/.*\/t\([0-9]*\)-retro.md/\1/' | sort -n | tail -13
+53 54 55 56 57 58 59 60 61 62 63 64 65
+$ grep -o "^## T[0-9]* sprint retro" docs/LESSONS.md | grep -o "T[0-9]*" | sort -n | tail -3
+T51 T52 T53
+```
+
+`make docs-index-check` verifies `HANDOFF.md`'s Docs index against the tree and
+does not look at this file at all, so the convention's purpose — one
+chronological log from which every retro is reachable — has been broken since
+T54 without a gate, ceremony or review noticing. The backfill of T54–T64 is
+deliberately **not** done in this retro's PR: eleven summaries of other
+sprints' retros is real work with real room to misrepresent them, and it wants
+its own ticket. See `docs/process/t65-retro.md` §9b and recommendation 6.
+
+T65 shipped four tickets, two of them product: the Vue client could not send an
+`Authorization` header to 33 authenticated RPCs and every write path in the
+shipped UI returned `Unauthenticated` (T65.1, owed since T55); the Player Level
+formula ADR-0012's Q1 had blocked since 2026-08-10, built the sprint after the
+answer arrived as the trigger required (T65.2); both answers recorded where the
+next reader meets them, with the escalation sweep taught to read an ADR's
+**body** rather than only its status line (T65.3); and #328's tests for
+`cmd/docsindex` plus an explicit, recorded decision about `gate-coverage`'s
+zero-test blind spot — report, never fail (T65.4).
+
+Three adversarial reviewer agents ran against the branch, report-only. The
+findings worth carrying out of this sprint:
+
+- **A 3 MB compiled ELF binary was committed at the repository root** by T65.4
+  and found by a review pass, not by any of the eighteen prerequisites `make
+  ci-checks` runs — `go build ./cmd/<x>` with no `-o`, then `git add -A`, and
+  once *tracked* `git status` stays clean. `make binary-check` now gates the four-byte ELF magic number
+  rather than a list of names.
+- **Two of the sprint's own review fixes repeated the mistake they were
+  fixing** — correct arithmetic, a conclusion that overshoots it — which is
+  the only evidence this project has that a *fix* carries the same risk as the
+  work, and the reason recommendation 3 asks for the fixes to be reviewed.
+- **A hand-written list inside a test is the same defect as one inside a
+  tool.** Three fresh instances in one sprint, one of them inside the test of
+  the very tool `CLAUDE.md`'s anti-list rule is written about.
+- **`git checkout <file>` destroyed uncommitted work twice** during mutation
+  verification, once losing an entire guard rewrite. The restore step belongs
+  in `sprint-process.md` alongside T63.3's rule, and its load-bearing half is
+  negative: never restore a mutation from the index.
+- **Three of T64's nine recommendations were silently dropped**, as distinct
+  from the three that were deferred with the reason written down.
+
+Full findings, every quantity with its command, in the retro.
