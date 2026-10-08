@@ -248,9 +248,15 @@ func TestPerfectNewcomerSitsBelowAProvenRegular(t *testing.T) {
 //
 // At seed 3 the regular sits at 1 + 0.85*4 = 4.4 and a flawless run at
 // g games sits at 3 + (g/20)*(5-3) = 3 + g/10, so the two are equal at
-// g = 14 and the run is ahead from g = 15. Asserted by search rather than
-// by restating 15, so that retuning ConfidenceGames moves this test's
-// answer instead of breaking it.
+// g = 14 and the run is ahead from g = 15. The crossover is FOUND by search
+// rather than computed from the constant, and then compared against a
+// hardcoded expectation — so retuning ConfidenceGames BREAKS this test,
+// deliberately, and the failure message says what to do about it.
+//
+// This comment claimed the opposite — "so that retuning ConfidenceGames
+// moves this test's answer instead of breaking it" — until T65's retro
+// review set the constant to 24 and read the failure. T65's retro §7 had
+// repeated the claim from here without checking it.
 func TestWhereAFlawlessRunOvertakesAProvenRegular(t *testing.T) {
 	t.Parallel()
 
