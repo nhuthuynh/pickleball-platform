@@ -2973,9 +2973,16 @@ instruction and looking for a stub to copy:
 ```
 $ ls docs/process/t*-retro.md | sed 's/.*\/t\([0-9]*\)-retro.md/\1/' | sort -n | tail -13
 53 54 55 56 57 58 59 60 61 62 63 64 65
-$ grep -o "^## T[0-9]* sprint retro" docs/LESSONS.md | grep -o "T[0-9]*" | sort -n | tail -3
-T51 T52 T53
+
+# docs/LESSONS.md as it stood BEFORE this stub was appended:
+$ git show 12942a8:docs/LESSONS.md | grep -o "^## T[0-9]* sprint retro" \
+    | grep -o "T[0-9]*" | sed 's/T//' | sort -n | tail -3
+51 52 53
 ```
+
+(The first draft of this block dropped the `sed 's/T//'`, so `sort -n` could
+not order the tokens, and it grepped the post-commit file, which contains this
+very heading. Both fixed; the second command now says which moment it reads.)
 
 `make docs-index-check` verifies `HANDOFF.md`'s Docs index against the tree and
 does not look at this file at all, so the convention's purpose — one
@@ -2999,14 +3006,19 @@ Three adversarial reviewer agents ran against the branch, report-only. The
 findings worth carrying out of this sprint:
 
 - **A 3 MB compiled ELF binary was committed at the repository root** by T65.4
-  and found by a review pass, not by any of the eighteen prerequisites `make
-  ci-checks` runs — `go build ./cmd/<x>` with no `-o`, then `git add -A`, and
+  and found by a review pass, not by any of the **seventeen** prerequisites
+  `make ci-checks` ran at that commit (`binary-check` is the eighteenth and
+  was added by this same sprint, which is why the retro's first "derived"
+  figure of eighteen was wrong) — `go build ./cmd/<x>` with no `-o`, then `git add -A`, and
   once *tracked* `git status` stays clean. `make binary-check` now gates the four-byte ELF magic number
   rather than a list of names.
-- **Two of the sprint's own review fixes repeated the mistake they were
-  fixing** — correct arithmetic, a conclusion that overshoots it — which is
-  the only evidence this project has that a *fix* carries the same risk as the
-  work, and the reason recommendation 3 asks for the fixes to be reviewed.
+- **Four repairs repeated the mistake they were repairing** — correct work, a
+  conclusion that overshoots it. Two were in the sprint's code, and **two were
+  in the retro itself**, caught by its own review: a "derived" gate count
+  measured on the wrong tree, and a claim about a test that is the opposite of
+  what the test does. That is the only evidence this project has that a *fix*
+  carries the same risk as the work, and the reason recommendation 3 asks for
+  the fixes to be reviewed.
 - **A hand-written list inside a test is the same defect as one inside a
   tool.** Three fresh instances in one sprint, one of them inside the test of
   the very tool `CLAUDE.md`'s anti-list rule is written about.
@@ -3014,7 +3026,11 @@ findings worth carrying out of this sprint:
   verification, once losing an entire guard rewrite. The restore step belongs
   in `sprint-process.md` alongside T63.3's rule, and its load-bearing half is
   negative: never restore a mutation from the index.
-- **Three of T64's nine recommendations were silently dropped**, as distinct
-  from the three that were deferred with the reason written down.
+- **Nothing walks the previous retro's recommendations, so their completion is
+  untracked** — and the first draft of the retro reported this as "three of
+  T64's nine silently dropped", which its own review falsified: the sprint plan
+  records both of the not-done ones as deliberate deferrals ("T64's two process
+  debts"), so the honest count of *silent* drops is zero. The greps the draft
+  relied on establish *not done* and cannot establish *not recorded*.
 
 Full findings, every quantity with its command, in the retro.

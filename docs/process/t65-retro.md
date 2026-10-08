@@ -18,7 +18,7 @@ health** — this document's own governing rule. This one has no such problem.
 Seven commits, squashed into one:
 
 ```
-$ git log --format='%h %s' b635eab..51c8a10 | cut -c1-72
+$ git log --format='%h %s' b635eab..51c8a10 | cut -c1-72   # subjects elided below
 51c8a10 T65 second review pass: a committed 3 MB binary, a precedence f
 53b0268 T65.2 review fixes: a Q2 guard that did not guard, a false just
 b32437f T65.2 follow-up: map the four new domain sentinels, and file th
@@ -42,9 +42,22 @@ $ gh api .../pulls/{332,336} --jq '"#\(.number) \(.merged_at) \(.merge_commit_sh
 #336 2026-10-07T15:22:58Z 12942a8    all four tickets + two review passes
 ```
 
-**Two PRs, not five.** T63 and T64 each took one PR per ticket; T65 took one
-for the ceremony and one for the work. That was not a decision, it was drift,
-and §9 records what it cost.
+**Two PRs: one for the ceremony, one for the work.** The first draft of this
+paragraph said that was drift from T63 and T64, which "each took one PR per
+ticket". **That is false, and T65's own review caught it** — both took one PR
+for all of their tickets, exactly as T65 did:
+
+```
+$ gh api .../pulls/{321,326} --jq .title
+T63: all four tickets — 5 high-severity npm advisories fixed, and a ticket …
+T64: all five tickets — three new `high` advisories fixed, and the gate …
+```
+
+`HANDOFF.md`'s own T63 and T64 rows say so, two lines above the row this
+sprint rewrote. The one real difference is narrower: **T64 put its review
+fixes in a PR of its own (#331) and T65 folded both review passes into #336** —
+which §11 recommendation 5 is about, and which cost reviewability rather than
+process consistency.
 
 ---
 
@@ -52,8 +65,17 @@ and §9 records what it cost.
 the claim it fixes
 
 The first review pass on T65.2 returned 17 findings. Its through-line was one
-pattern: **correct arithmetic, a conclusion that overshoots it.** Two examples
-it caught:
+pattern: **correct arithmetic, a conclusion that overshoots it.**
+
+**The pattern recurred four times in this sprint, and two of those are in this
+document** — §3's "derived" gate count, measured on the wrong tree, and §7's
+claim about a test that is the opposite of what the test does. Both were found
+by this retro's own review, which is the strongest available evidence for the
+finding and also its most embarrassing form: the document arguing that a
+confident repair needs re-reading produced two confident repairs that needed
+re-reading.
+
+Two examples the first pass caught:
 
 - `ConfidenceGames = 20` was justified as *"the point where one more win stops
   moving the number by a visible step"*, citing a standard error that is
@@ -75,7 +97,9 @@ found:
 **That is the finding.** A fix is a new claim, written under the belief that
 the problem is now understood, and that belief is exactly what made the first
 version wrong. Reviewing the original work and not the repair leaves the
-sprint's most confident prose unexamined.
+sprint's most confident prose unexamined — and the two instances in this retro
+(§3, §7) were produced *after* this section was written, by an author who had
+just finished arguing the point.
 
 **It is not a new lesson so much as this project's oldest one, one level up.**
 `CLAUDE.md` already records that *"a redefinition that reads as purely
@@ -89,15 +113,19 @@ the shape this failure takes.
 ## 3. A 3 MB compiled binary was committed, and no gate could see it
 
 T65.4 committed `docsindex`, a 3,061,505-byte ELF executable, at the
-repository root. It was found by the second review pass — **not** by
+repository root. (Both commands below read the blob out of the commit object,
+because the `file docsindex` form the first draft printed is not runnable
+today — `51c8a10` removed it.) It was found by the second review pass — **not** by
 `fmt-check`, `lint`, `gate-coverage`, `docs-index-check`, `lock-check` or any
 test.
 
 ```
 $ git show --name-status 63757b3 | grep -x "A.docsindex"
 A	docsindex
-$ file docsindex
-docsindex: ELF 64-bit LSB executable, x86-64, … with debug_info, not stripped
+$ git cat-file -p 63757b3:docsindex | file -
+/dev/stdin: ELF 64-bit LSB executable, x86-64, … with debug_info, not stripped
+$ git cat-file -s 63757b3:docsindex
+3061505
 ```
 
 **The mechanism is three steps and every one is ordinary.** `go build
@@ -118,25 +146,52 @@ anywhere else fails it too. `.gitignore` also lists the five current `cmd/`
 names, and the gate exists precisely not to depend on that list.
 
 ```
-$ make binary-check
+$ make binary-check            # 2026-10-08
 binary-check: OK — no tracked file carries the ELF magic number.
 ```
 
 Verified by committing one, which is the only verification that counts
-(T63.3).
-
-**Why this is a finding and not a slip.** `make ci-checks` runs eighteen
-prerequisites —
+(T63.3) — and re-verified by this retro's own review at an **arbitrary**
+filename rather than one of `.gitignore`'s five, which is what makes it a
+property check and not a name check:
 
 ```
-$ grep -E "^ci-checks:" Makefile | sed 's/^ci-checks: //' | tr ' ' '\n' | wc -l
-18
+$ cp <a binary> someweirdname.bin && git add -f someweirdname.bin && git commit -m x
+$ make binary-check
+binary-check: FAIL — tracked ELF executable(s):
+    someweirdname.bin
+make: *** [Makefile:189: binary-check] Error 1
 ```
 
-— and the project spent three sprints building the one that answers *"which
-tests does no gate run?"*. Nothing answered *"is anything in this repository
-not source?"*, and the answer had been no for 64 sprints, which is why nobody
-asked.
+**Why this is a finding and not a slip.** At the commit that committed the
+binary, `make ci-checks` ran **seventeen** prerequisites and not one of them
+looked:
+
+```
+$ git show 63757b3:Makefile | grep -E "^ci-checks:" \
+    | sed 's/^ci-checks: //' | tr ' ' '\n' | wc -l
+17
+```
+
+**Seventeen, not eighteen, and the correction is worth more than the number.**
+This paragraph first said "eleven gates" with no command; that was replaced
+with a derived "eighteen" — measured on the tree *after* `binary-check` was
+added, so the set it named **included the very gate that catches a committed
+binary**. The claim "none of the eighteen saw it" was therefore false about
+that eighteen. Independently corroborated by issue #330, whose title says
+`ci-checks` has 17 prerequisites. A correction that introduces a new error by
+measuring the wrong tree is §2's pattern again, and this is its fourth
+instance in the sprint.
+
+What did exist: the project had spent three sprints building the gate that
+answers *"which tests does no gate run?"* (`CLAUDE.md`'s figure, attributed
+rather than re-derived). Nothing answered *"is anything in this repository not
+source?"*, and the answer had been no since the repository's first commit:
+
+```
+$ git log --oneline --diff-filter=A --all -- docsindex | wc -l
+1
+```
 
 ---
 
@@ -157,7 +212,8 @@ It happened twice:
    correction. Noticed immediately, because the suite went red on a missing
    function.
 2. `internal/identity/domain/player_level_test.go` — lost the **entire**
-   repo-wide Gender guard rewrite: the extracted scan, 16 synthetic cases, the
+   repo-wide Gender guard rewrite: the extracted scan, its synthetic cases
+   (16 before the loss; the rebuilt table has 14 — see §5), the
    derived vacuity floor, the comment-stripping fixes. Noticed only because
    the next mutation produced no output at all, and then confirmed by grepping
    for a function that was no longer there.
@@ -229,8 +285,28 @@ All three now derive their subject. The Gender scan parses `.go` declarations
 and scans `.sql`, `.proto`, `.ts` and `.vue` with comments stripped; its
 vacuity floor is derived too (every bounded context under `internal/` must
 have contributed a parsed file, read from disk), because a flat `goFiles < 100`
-floor would still have reported green after losing `socialplay` (77 files) and
-`identity` (18).
+floor would still have reported green after losing two whole contexts:
+
+```
+$ for d in internal/socialplay internal/identity; do \
+    echo "$d $(find $d -name '*.go' | wc -l)"; done
+internal/socialplay 77
+internal/identity 18
+```
+
+The scan's own table of synthetic sources holds **fourteen** cases:
+
+```
+$ awk '/^func TestTheGenderScanCoversEveryDeclarationShape/,/^}/' \
+    internal/identity/domain/player_level_test.go | grep -cE '^\s+\{"'
+14
+```
+
+**§4 says sixteen, and fourteen is the checkable number.** The table was
+written, lost to §4's `git checkout`, and rebuilt; the figure came from the
+pre-loss version and was never re-counted. It is also the one figure in this
+retro describing a state that no longer exists — which `sprint-process.md`
+answers by citing where the output was recorded, and nothing recorded it.
 
 ---
 
@@ -243,7 +319,8 @@ T64's retro asked for one thing this sprint had not done before:
 
 T65's Ceremony 1 ran that pass, and it found:
 
-- **the draft slate had zero of five tickets touching the product**, in a
+- **the draft slate had zero of five tickets touching the product**
+  (`t65-sprint-plan.md:217-219`, the plan's own words), in a
   project whose purpose is a pickleball platform — two documents, an internal
   tool's tests, a dev-only dependency bump, two internal lists and two process
   clauses;
@@ -253,8 +330,22 @@ T65's Ceremony 1 ran that pass, and it found:
   and both were answered the same day.
 
 The slate was rebuilt to four tickets, two of them product, and the sprint
-shipped the **first new user-facing capability since T58** plus a fix for a UI
+shipped the **first new user-facing capability since T57.1** plus a fix for a UI
 whose entire write surface was unreachable.
+
+**"Since T58" is what the plan said and what this retro's first draft
+repeated**, and it is off by one sprint. `HANDOFF.md`'s own table assigns
+per-head entry fees to **T56.1** (`Registration.AmountOwed`, migration 0028)
+and **T57.1** (`CompetitionEntry.AmountOwed`, migration 0029), and gives T58
+`RecordOfflinePayment` validation — *"the last unchecked money path"*, a
+correctness fix rather than a new capability:
+
+```
+$ sed -n '3914p;3916p;3918p' HANDOFF.md | cut -c1-96
+| **T56.1** | `Registration.AmountOwed` — entry fee per HEAD, frozen at regist
+| **T57.1** | `CompetitionEntry.AmountOwed`, the same rule; migration 0029 | #3
+| **T58** | `RecordOfflinePayment` validates too — the last unchecked money pat
+```
 
 **The cost was one agent brief. The return was the sprint.** That ratio is
 worth recording precisely because the step is cheap enough to skip.
@@ -278,8 +369,34 @@ at 15. A 14-0 run is not a newcomer's record, and the Product Owner's answer
 stay below a merely-strong long one.
 
 **The claim was narrowed and the crossover pinned by search** rather than by
-restating 15, so retuning the constant moves the test's answer instead of
-breaking it. The plan was not edited to pretend it had said this.
+restating 15. The plan was not edited to pretend it had said this.
+
+**And the sentence that followed, in the first draft of this section, was
+false** — *"so retuning the constant moves the test's answer instead of
+breaking it."* The test finds the crossover by search and then compares it to
+a hardcoded `want := 15`:
+
+```
+$ sed -i 's/^const ConfidenceGames = 20$/const ConfidenceGames = 24/' \
+    internal/identity/domain/player_level.go
+$ go test ./internal/identity/domain/ -run TestWhereAFlawlessRunOvertakes
+--- FAIL: TestWhereAFlawlessRunOvertakesAProvenRegular (0.00s)
+    player_level_test.go:281: crossover = 17 games, want 15 — if
+        ConfidenceGames changed, update this expectation deliberately; it is a
+        product-visible property, not an implementation detail
+```
+
+Retuning the constant **breaks** the test. That is arguably the right design —
+the failure message says so in as many words, and a product-visible property
+should need a deliberate update — but it is the opposite of what this section
+claimed.
+
+**This is a third instance of §2's pattern, inside the document whose thesis
+§2 is.** The claim was inherited verbatim from the test's own doc comment
+rather than checked, so both carried it; the comment is corrected in the same
+commit as this retro. Counting §3's "eighteen" correction, the sprint produced
+**four** instances of "correct work, a conclusion that overshoots it", and two
+of them are in this retro. §2 under-counted its own evidence.
 
 **Worth noting about the process:** the plan's three properties came from the
 same ceremony that produced the premise challenge, and this one was asserted
@@ -292,7 +409,10 @@ even in a document whose own rules say so.
 
 Three passes, all report-only under rule 9 — none committed, pushed, or edited
 a tracked file. **Findings are attributed to the agents rather than re-derived
-here**, per T62.2's quotation exemption:
+here**, per T62.2's quotation exemption — which requires saying where the
+output was recorded, since the agents' transcripts are not in the tree: passes
+1 and 3 are summarised in PR #336's review and its follow-up comment, pass 2
+in the same review, and this retro's own review in PR #337's thread.
 
 | Pass | Scope | Findings | Of which real defects |
 |---|---|---|---|
@@ -318,24 +438,56 @@ claims rather than their code.
 
 ---
 
-## 9. T64's nine recommendations: three were silently dropped
+## 9. T64's nine recommendations: **none** was silently dropped, and the real
+finding is that nothing tracks them
 
-The retro's own follow-through, checked one by one against the tree rather
-than from memory:
+**This section claimed "three were silently dropped" and that was wrong.**
+T65's own review checked each row against the tree *and against the sprint
+plan*, which is the step this section skipped, and the honest count by this
+section's own definition of "silently" is **zero**.
+
+The follow-through, re-checked:
 
 | # | T64's recommendation | T65 |
 |---|---|---|
 | 1 | run the security gate first in every Ceremony 1 | **done** — §0 of the plan, PASS and dated |
-| 2 | `lock-check` superset detection, only if designable without a list | **deferred, recorded** — plan §5 says the honest answer may be no |
+| 2 | `lock-check` superset detection, only if designable without a list | **deferred, recorded** — plan §5: the honest answer may be no |
 | 3 | #320's `vitest` bump, now bounded rather than blocked | **deferred, recorded** — plan's deferral list |
-| 4 | add the stale-read qualification to T63.1, or decide against it | **silently dropped** |
-| 5 | correct `CLAUDE.md`/`HANDOFF.md`; treat the structural half as a ticket | mechanical half **done** at #331; structural half **deferred, recorded** |
-| 6 | carry `vuln.go.dev` as *"does not, as configured"* | **partially** — the plan says it; `CLAUDE.md:382` still says *"the Go half cannot run here"* |
-| 7 | fix what the review found in its own PR, ticket the rest | **done** — #331, and #328 became T65.4 |
+| 4 | add the stale-read qualification to T63.1, or decide against it | **not done — and deferred, recorded** as one of "T64's two process debts" |
+| 5 | correct `CLAUDE.md`/`HANDOFF.md`; treat the structural half as a ticket | mechanical half **done at #331**, structural half **deferred, recorded** |
+| 6 | carry `vuln.go.dev` as *"does not, as configured"* | **partially done** — the plan adopts the wording in its own §0; `CLAUDE.md:382` still says *"cannot run here"* |
+| 7 | fix what the review found in its own PR, ticket the rest | **done at #331** |
 | 8 | brief a reviewer agent on the premise | **done**, and §6 is what it bought |
-| 9 | document the squash-ancestry procedure | **silently dropped** |
+| 9 | document the squash-ancestry procedure | **not done — and deferred, recorded**, the second of the two process debts |
 
-Verified:
+The deferral the first draft could not see:
+
+```
+$ sed -n '397,401p' docs/process/t65-sprint-plan.md
+**Deferred to T66, deliberately**: the `CLAUDE.md`/`HANDOFF.md` structural
+rewrite (the draft's T65.3 — see §6 for why it was cut rather than reordered),
+#320's `vitest` bump (dev-only, below the gate's threshold, and it changes which
+npm the project targets — the challenge made the case that 3 points is
+optimistic), #329/#330, and T64's two process debts.
+```
+
+**"T64's two process debts" are recommendations 4 and 9**, by elimination over
+T64 §11: 1, 7 and 8 are done; 2, 3 and 5 are each separately named in that same
+deferral list; 6 is handled in the plan's §0. This section's own recommendation
+7 confirms the set and even confirms the shape — *"Finish T64's 4, 6 and 9 …
+two of them are one sentence each"* — matching the plan's description of the
+cut slate as containing "two process clauses".
+
+**And the mistake inside the mistake.** The first draft's table marked exactly
+**two** rows "silently dropped" and marked row 6 *"partially — the plan says
+it"*. The heading, the prose, the commit message, the `HANDOFF.md` row and the
+`LESSONS.md` stub all said **three**. A section whose subject is a claim that
+is not checked against its own evidence contained a count that contradicted
+its own table.
+
+### What the three verification commands actually establish
+
+They reproduce exactly — I ran all three and so did the review:
 
 ```
 $ grep -c "read the object, not the list\|stale-read" docs/process/sprint-process.md
@@ -347,19 +499,31 @@ docs/process/sprint-process.md:0
 CLAUDE.md:0
 ```
 
-**Six of nine honoured; three not — and the distinction that matters is
-"deferred and recorded" versus "silently dropped".** Three recommendations
-were deferred *with the decision written down in the sprint plan*, which is
-exactly right. Three others simply did not happen, and nothing anywhere says
-why.
+**They establish *not done*. The first draft read them as establishing *not
+recorded*, which they cannot.** Three greps over two files cannot see a
+deferral written in a third, and the conclusion "nothing anywhere says why"
+was asserted rather than checked — in a retro whose own §2 thesis is that a
+confident claim is where the error hides.
 
-**This is the same failure mode the escalation sweep was rebuilt three times
-to fix**, one artifact over: a question that has nowhere to be read is a
-question nobody answers. T65's Ceremony 1 checked compliance with the four
-*rules* (T62.2/T63.1/T63.3/T64.3) and never looked at the previous retro's
-*recommendations*. Recommendation 6 is the sharpest instance — the plan
-adopted the honest wording in its own §0 and left the rulebook sentence it was
-about untouched, which means the recommendation was read and still not done.
+### The finding that survives, which is smaller and real
+
+**Nothing walks the previous retro's recommendations, so their completion is
+untracked.** T65's Ceremony 1 checked compliance with the four *rules*
+(T62.2/T63.1/T63.3/T64.3) and never looked at the *recommendations*. The
+deferrals happened to be recorded — in a sentence of a sprint plan, by a
+ceremony that chose to write it — and nothing required that, nothing checks
+it, and nothing distinguishes a deferral from an omission at the point where a
+reader would notice. Recommendation 1 is still the right fix; what changes is
+that it is a **bookkeeping** gap rather than the three-dropped-recommendations
+failure this section was written to report.
+
+**Two smaller qualifications, both from the same review.** Recommendations 5
+and 7 are credited "done" in the column headed T65, and both were honoured by
+**#331, which merged at 2026-10-06T08:32:09Z — before T65's Ceremony 1 PR
+#332 (12:33:28Z)**. They were T64's own cleanup. And recommendation 6 is the
+one genuinely unsatisfying row: the wording was adopted where the sprint
+needed it and left wrong in the rulebook sentence it was about, which is
+neither done nor deferred.
 
 ---
 
@@ -372,15 +536,28 @@ appended to `docs/LESSONS.md` pointing at that file. Writing this retro meant
 reading that instruction, which meant looking for the stub to copy.
 
 ```
+# the tree, with this retro written:
 $ ls docs/process/t*-retro.md | sed 's/.*\/t\([0-9]*\)-retro.md/\1/' | sort -n | tr '\n' ' '
 5 9 10 11 … 52 53 54 55 56 57 58 59 60 61 62 63 64 65
 
-$ grep -o "^## T[0-9]* sprint retro" docs/LESSONS.md | grep -o "T[0-9]*" | sed 's/T//' | sort -n | tr '\n' ' '
+# docs/LESSONS.md BEFORE this commit appended T65's stub:
+$ git show 12942a8:docs/LESSONS.md | grep -o "^## T[0-9]* sprint retro" \
+    | grep -o "T[0-9]*" | sed 's/T//' | sort -n | tr '\n' ' '
 5 9 10 11 … 52 53
 ```
 
+**The second command reads the pre-commit file deliberately**, and says so,
+because the two halves of this finding are snapshots of different moments: run
+against the file this commit produces, it ends `… 53 65`. The first draft
+printed both against "the tree" without that distinction, which is a T62.2
+defect in a block whose subject is an index nobody checks.
+
 **The stubs stop at T53. Eleven retros — T54 through T64 — have none**, and
-T65's would have been the twelfth had this section not been written.
+T65's would have been the twelfth had this section not been written. Verified
+both ways by the review: no `T54`–`T64` stub exists under any other heading
+form either. `LESSONS.md` does carry `## T61 —` and `## T63 —` entries, and
+those are **incident postmortems**, which Ceremony 3 and `CLAUDE.md`'s naming
+convention explicitly separate from the retro stub.
 
 **Why this is the same finding as §9 and worth stating separately anyway.**
 Both are a required artifact that nothing reads: §9's recommendations list has
@@ -398,10 +575,18 @@ of other sprints' retros is real work with real room to misrepresent them, and
 it wants its own ticket and its own review. Recommendation 9 carries it.
 
 **And the cheaper half, which is the actual fix.** `docs-index-check` already
-parses the tree and `HANDOFF.md`; adding "every `docs/process/t<N>-retro.md`
-has a `## T<N> sprint retro` stub in `docs/LESSONS.md`" is a third derived
-check in a tool built for exactly that, with no list. Had it existed at T54 it
-would have failed eleven times.
+parses the tree and `HANDOFF.md` and reports three agreements of its own ("the
+Docs index, the narratives and every ADR status"); adding "every
+`docs/process/t<N>-retro.md` has a `## T<N> sprint retro` stub in
+`docs/LESSONS.md`" is a **fourth** derived check in a tool built for exactly
+that, with no list. The tool does not read the file at all today:
+
+```
+$ grep -rc "LESSONS" tools/docsindex/ cmd/docsindex/ | grep -v ":0$" | wc -l
+0
+```
+
+Had the check existed at T54 it would have failed eleven times.
 
 ---
 
@@ -417,7 +602,10 @@ would have failed eleven times.
 
 2. **T65.1 was proven end-to-end against a real server**, which is the first
    time this project's client auth path has been exercised outside a fixture.
-   A real Postgres, 33 migrations, `cmd/server` on `dev/auth/`'s fixture, and
+   A real Postgres, every migration in `db/migrations` (`ls
+   db/migrations/*.sql | wc -l` → 33, which is a file count: two files share
+   the `0005_` prefix, so it is not the highest number), `cmd/server` on
+   `dev/auth/`'s fixture, and
    the sequence 401 → 403 → 200 → 200 → 401. The server's own log line
    (`authenticated_methods: 33`) also corrected a figure that a source grep
    had got wrong in both directions — a live instance of T63.1's "prefer a
@@ -437,8 +625,8 @@ would have failed eleven times.
    the other direction to justify not persisting anything. It now carries a
    clause-by-clause carve-out.
 
-5. **`make ci-checks` green on the merged tree, dated, and captured with
-   `make`'s own exit status** — which matters because an earlier run this
+5. **`make ci-checks` green on the merged tree — 2026-10-07, captured with
+   `make`'s own exit status** (`MAKE_EXIT=0`, with no `FAIL` line in the log) — which matters because an earlier run this
    sprint reported exit 0 through a `| tail` while `make` had failed. The
    pipeline's status is `tail`'s, not `make`'s, and that nearly shipped a red
    gate as green.
@@ -467,7 +655,7 @@ would have failed eleven times.
 
 2. **Write the mutation-verification procedure into `sprint-process.md`,
    including the restore step.** §4 cost this sprint two reconstructions, the
-   second expensive. The procedure is four lines and the load-bearing part is
+   second expensive. The procedure is three lines and the load-bearing part is
    negative: **never restore a mutation with `git checkout`, `git restore` or
    `git stash`** — they are defined against the index, and the uncommitted
    work is not there. T63.3 made mutation verification a rule without saying
@@ -490,7 +678,16 @@ would have failed eleven times.
    is also how a sprint's scope doubles: T65 took four tickets and shipped
    four tickets plus two review-fix commits larger than two of the tickets. A
    ceremony should be able to say "this one is a T66 ticket" without it
-   feeling like a failure — and the way to make that possible is to decide, at
+   feeling like a failure. Measured, the asymmetry is worse than "two": each
+   review-fix commit is larger than three of the four tickets —
+
+   ```
+   $ for c in e269a06 3445f6c 4c5fb3d 63757b3 53b0268 51c8a10; do \
+       echo "$c $(git show --shortstat $c | tail -1)"; done
+   ```
+
+   — and the right place to decide this is at triage, by naming which findings
+   block the merge — and the way to make that possible is to decide, at
    the point of triage, which findings block the merge.
 
 6. **Teach `docs-index-check` the `LESSONS.md` stub, and ticket the T54–T64
@@ -504,12 +701,27 @@ would have failed eleven times.
    two of them are one sentence each. Recommendation 6 in particular:
    `CLAUDE.md:382` still asserts *"cannot run here"* about a claim T64
    established is only *"does not, as configured"*, and that is the wording
-   this project has watched survive 57 sprints before.
+   this project has watched survive an untested "cannot" for the whole T4–T60
+   span `CLAUDE.md` records about the Docker claim — the figure is that
+   document's, attributed rather than re-derived here.
 
 8. **`make ci-integration` was not run this sprint, and that is now a
-   standing debt rather than an incident.** T65 touched no migration and no
-   file a `*_integration_test.go` reads, so the gate was not *owed* by
-   `CLAUDE.md`'s own rule — but the suite is 27 files across five contexts:
+   standing debt rather than an incident.** T65 touched no migration, and the
+   Social Play domain files it did touch changed purely additively (three new
+   sentinels, a new `Match.Winners`), so the gate was not **substantively**
+   owed by `CLAUDE.md`'s rule. The flatter claim — "touched no file a
+   `*_integration_test.go` reads" — would be false, and the first draft made
+   it: ten integration-tagged files import that package.
+
+   ```
+   $ grep -l "socialplay/domain" $(for f in $(find . -name '*_test.go'); do \
+       head -5 "$f" | grep -q '^//go:build integration' && echo "$f"; done) | wc -l
+   10
+   ```
+
+   PR #336's review stated this more carefully than the draft did — "so the
+   claim is 'not run', not 'not needed'". The suite is 27 files across five
+   contexts:
 
    ```
    $ for f in $(find . -name '*_test.go'); do \
@@ -522,8 +734,11 @@ would have failed eleven times.
         10 socialplay
    ```
 
-   T61 ran them for the first time in 57 sprints and found two live production
-   defects. The interval since is now worth tracking on purpose rather than
+   T61 ran them for the first time after the T4–T60 span of "no Docker daemon
+   available" that `CLAUDE.md` records, and found two live production defects
+   — that figure is `CLAUDE.md`'s and T61's retro's, attributed rather than
+   re-derived, and `CLAUDE.md` is explicit that a third defect in the same
+   sprint was found by a *review* and was not findable by the suite. The interval since is now worth tracking on purpose rather than
    per-sprint-by-exception.
 
 9. **The web suite still has no e2e tooling, and T65.1 is the proof it
@@ -546,8 +761,23 @@ would have failed eleven times.
 
 ## 12. Sweep and bookkeeping
 
-1. **T65's row completed** in `HANDOFF.md`'s Docs index: Reviews cell →
-   #336 (with its three review passes), Retro cell → this file.
+1. **T65's Retro cell set to this file's path, and the Reviews cell
+   deliberately left as "not yet opened"** — `sprint-process.md:115-122` says
+   so in as many words, with T62's retro as the worked example:
+
+   > - A retro PR **does** set its own row's **Retro cell to the retro's
+   >   path**. …
+   > - A retro PR **does not** write the **Reviews cell**, which cites merge
+   >   PR numbers it cannot know. That stays Ceremony 1's job.
+
+   **The first draft wrote both**, which this retro's review caught, and the
+   harm is structural rather than cosmetic: the cell would have been
+   permanently incomplete (it cannot name this PR's own merge), and the row
+   would have stopped reading "not yet opened" — which is the signal T66's
+   Ceremony 1 correction step keys on, so the omission would have become
+   invisible instead of flagged. That clause records that this exact gap "had
+   silently recurred twice before being fixed here"; this is the third time,
+   and the first time a gate-adjacent rule caught it rather than a ceremony.
 2. **A `## T65 sprint retro` stub appended to `docs/LESSONS.md`**, pointing
    here — per Ceremony 3's own instruction that the retro and `LESSONS.md`'s
    incident postmortems are distinct artifacts. It is the first such stub
@@ -571,9 +801,11 @@ would have failed eleven times.
 ## 13. Honest-form outcome sentence
 
 T65 shipped four tickets, two of them product, including the first new
-user-facing capability since T58 and a fix for a UI whose entire write surface
-had been unreachable for ten sprints — and the sprint's three most useful
-findings were a 3 MB binary no gate could see, two of its own repairs
-repeating the mistake they were repairing, and two required process artifacts
-— the previous retro's recommendations and eleven sprints of `LESSONS.md`
-stubs — going unread and unwritten because nothing checks either one.
+user-facing capability since T57.1 and a fix for a UI whose entire write
+surface had been unreachable for ten sprints — and the sprint's three most useful
+findings were a 3 MB binary that seventeen `ci-checks` prerequisites could not
+see, **four** repairs that repeated the mistake they were repairing — two of
+them in this retro, caught by its own review — and two required process
+artifacts, the previous retro's recommendations and eleven sprints of
+`LESSONS.md` stubs, going **unchecked** rather than unread, because nothing
+reconciles either one against the tree.
