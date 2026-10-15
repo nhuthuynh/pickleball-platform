@@ -3,25 +3,25 @@ import { identityClient, type IdentityClient } from '../api/identityClient'
 import { mapToUserProfile, type UserProfile } from '../models/identity'
 
 /**
- * There is no JWT/session layer yet (HANDOFF.md cross-cutting Auth
- * backlog) — same known gap `useJoinGame.ts`'s `MOCK_PLAYER_ID` documents
- * for Social Play, reused here rather than a second placeholder, per that
- * file's own "one mock identity ... keeps the gap visible in one place
- * instead of two" reasoning (`useEnterCompetition.ts` already does the
- * same for Competitions).
+ * The signed-in player's own user id, or `null` when they have no account.
  *
- * Identity/Users' own malformed-ID boundary guard (T10.2 item 4,
- * `internal/identity/app/service.go`'s `uuidShape`) means a non-UUID-shaped
- * id like this one is answered with the identical `NotFound` an unknown
- * *well-formed* id would get — so against the real backend `load` below
- * always resolves to the "no profile yet" state today. That is honest, not
- * a bug to route around: this ticket builds no sign-up/CreateUser flow (see
- * Profile.vue's header comment), so no User row exists for this session
- * regardless of the id's shape. Swap this for a real session-derived id the
- * moment one exists — tracked as the same follow-up `MOCK_PLAYER_ID`/
- * `MOCK_HOST_ID`/`MOCK_OWNER_ID` already are.
+ * This used to export `MOCK_PLAYER_ID`, and the comment here explained at
+ * length why a mock was honest: there was no session layer, and no sign-up
+ * flow, so no `identity_users` row existed for the session whatever id was
+ * sent. Both halves of that are now false — T65.1 built the session and
+ * #340 built the sign-up screen — so the mock stopped being an honest
+ * placeholder and became a bug: `/profile` requested
+ * `/v1/users/player-mock-1`, got the 404 Identity's malformed-id guard
+ * gives any unknown id, and told a player who had just created an account
+ * that they had no profile.
+ *
+ * The id comes from the session rather than from the token because the
+ * token carries the provider's `sub`, not this platform's
+ * `identity_users.id`, and there is no "get me" RPC to resolve one into
+ * the other — `CreateUser`'s response is where it is learned. A ticket that
+ * adds `GetCurrentUser` would make this derivable instead of remembered.
  */
-export { MOCK_PLAYER_ID } from './useJoinGame'
+export { authUserId } from '../state/authSession'
 
 export interface UseProfileResult {
   profile: Ref<UserProfile | null>

@@ -1,6 +1,6 @@
 import createFetchClient, { type Client, type Middleware } from 'openapi-fetch'
 
-import { authToken, recordAuthRejected } from '../state/authSession'
+import { authToken, recordAuthRejected, recordProfileMissing } from '../state/authSession'
 
 /**
  * Base URL for the gRPC-gateway REST API. Overridable via the Vite env var
@@ -67,9 +67,31 @@ export const authMiddleware: Middleware = {
     }
     return request
   },
-  onResponse({ response }) {
+  async onResponse({ response }) {
     if (response.status === 401) {
       recordAuthRejected()
+      return response
+    }
+    // #340. A 403 whose message says the caller has no account is a
+    // DIFFERENT problem from a 403 that means "not yours": the first is
+    // fixed by finishing sign-up, the second by not doing that. The server
+    // phrases the first as "<context>: user not found" from each context's
+    // own ErrUserNotFound, so the string is the only signal on the wire —
+    // there is no machine-readable code for it, and inventing one is a
+    // proto change this is deliberately not making.
+    //
+    // The body is cloned because a Response body can only be read once and
+    // the caller still needs it.
+    if (response.status === 403) {
+      try {
+        const body = await response.clone().text()
+        if (/user not found/i.test(body)) {
+          recordProfileMissing()
+        }
+      } catch {
+        // A body that cannot be read tells us nothing; leave the 403 alone
+        // rather than guessing at a remedy.
+      }
     }
     return response
   },

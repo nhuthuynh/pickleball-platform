@@ -75,7 +75,11 @@ import type { FacilitiesClient } from '../api/facilitiesClient'
 // id resolves to no User and the role gate correctly stays closed: this screen
 // renders its "we could not confirm a club role" state against a real backend,
 // which is the honest outcome, not a bug being routed around.
-import { MOCK_PLAYER_ID } from '../composables/useProfile'
+// Still a mock: the club-rental flow has no session-derived player id yet
+// (#340 wired one for Profile only). Imported from where it actually lives
+// now that useProfile exports the real session id instead of re-exporting
+// this.
+import { MOCK_PLAYER_ID } from '../composables/useJoinGame'
 import { actingUserId } from '../state/authSession'
 
 const STEP_ORDER = ['new', 'list'] as const
