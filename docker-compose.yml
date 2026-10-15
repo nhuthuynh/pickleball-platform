@@ -64,16 +64,28 @@ services:
   # The Vue client, built to static assets and served by nginx (SCRUM-6),
   # so `make up` brings up the whole stack rather than backend-only.
   #
-  # Note the browser calls the API directly on localhost:8080 (the origin
-  # baked in at build time by VITE_API_BASE_URL) rather than being proxied
-  # through this nginx — the API is already published to the host, and
-  # adding a proxy hop would mean the dev stack and production disagreed
-  # about where the API lives.
+  # The browser calls the API through THIS nginx, at a relative `/v1` on the
+  # same origin as the page (see web/nginx.conf).
+  #
+  # It used to call `http://localhost:8080` directly, with the origin baked
+  # in at build time, and the comment here argued that a proxy hop "would
+  # mean the dev stack and production disagreed about where the API lives".
+  # That reasoning was backwards and the configuration never worked: :5173
+  # and :8080 are different origins, the Go server sends no
+  # Access-Control-Allow-Origin, and a browser therefore blocked every single
+  # API call before it left. `make up` produced a rendered app that could not
+  # reach its own backend, for 66 sprints, because nothing in this project
+  # ever opened a browser (#339).
+  #
+  # VITE_API_BASE_URL is still honoured for a deployment that genuinely
+  # serves the client from a different origin — and that topology is
+  # undecided, so the day someone chooses it the server needs real CORS
+  # middleware. Empty, the default, means same-origin.
   web:
     build:
       context: ./web
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     ports:
       - "5173:80"
     depends_on:

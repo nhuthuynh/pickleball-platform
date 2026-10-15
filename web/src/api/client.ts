@@ -4,11 +4,29 @@ import { authToken, recordAuthRejected } from '../state/authSession'
 
 /**
  * Base URL for the gRPC-gateway REST API. Overridable via the Vite env var
- * `VITE_API_BASE_URL` (see web/README.md); defaults to the local
- * `cmd/server` dev address.
+ * `VITE_API_BASE_URL` (see web/README.md).
+ *
+ * **The default is the empty string, i.e. same-origin relative URLs**, and
+ * that is the fix for #339 rather than a style choice. It used to be
+ * `http://localhost:8080`, which is a *different port* from whatever serves
+ * the app — `:5173` under both `vite` and the compose stack's nginx — so
+ * every request was cross-origin, and neither front door proxied `/v1` nor
+ * did the server send CORS headers. The browser blocked every call before it
+ * left: `make up` produced a rendered app that could not reach its own
+ * backend, and nobody noticed for 66 sprints because all 724 web tests mount
+ * a fixture client and nothing in `ci-checks` opens a browser.
+ *
+ * Both front doors now proxy `/v1` to the API (`web/nginx.conf`,
+ * `web/vite.config.ts`), so a relative base URL is same-origin in dev and in
+ * compose alike, and neither needs `VITE_API_BASE_URL` set to work.
+ *
+ * Setting it is still supported for a deployment that serves the client from
+ * a different origin than the API — that topology is undecided (deferred
+ * 2026-10-08), and the day it is chosen the server needs real CORS
+ * middleware. Until then nothing in this repository requires it.
  */
 export const DEFAULT_API_BASE_URL: string =
-  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? 'http://localhost:8080'
+  (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? ''
 
 export interface CreateTypedClientOptions {
   baseUrl?: string
