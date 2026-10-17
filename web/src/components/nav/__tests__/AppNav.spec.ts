@@ -117,9 +117,20 @@ describe('AppNav', () => {
       expect(wrapper.findAll('.app-nav__subitem').length).toBeGreaterThan(0)
     })
 
+    // Retargeted from '/facilities' to '/bookings' when Discover gained a
+    // sub-link of its own (see the describe block below): /facilities is no
+    // longer a childless area, so mounting there stopped proving that
+    // sub-links are area-scoped. /bookings has no children.
     it('is not shown while a different area is active', async () => {
-      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/facilities')
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/bookings')
       expect(wrapper.findAll('.app-nav__subitem')).toHaveLength(0)
+    })
+
+    it('does not leak the Games sub-links into the Discover area', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/facilities')
+      const labels = wrapper.findAll('.app-nav__subitem').map((s) => s.text())
+      expect(labels).not.toContain('Create a competition')
+      expect(labels).not.toContain('Create a game')
     })
 
     it('is reachable on iPhone too, not sidebar-only', async () => {
@@ -269,4 +280,72 @@ describe('AppNav', () => {
       expect(liveRegion.text()).toContain('1')
     })
   })
+
+  // The two screens the MVP journey cannot do without — facility onboarding
+  // and game creation — were reachable only by typing their URL. Nothing in
+  // the UI linked to /facilities/onboard or /games/new:
+  //
+  //   $ grep -rn "facilities/onboard\\|games/new" web/src --include=*.vue
+  //   (nothing outside the route table and the specs)
+  //
+  // Found 2026-10-17 while writing the README's "your first run" walkthrough,
+  // which had to describe a nav path that did not exist. Note what this
+  // means about the sub-level mechanism T9.6 built: it was used to reach
+  // *competition* creation and never for the game creation underneath it.
+  //
+  // These are sub-links, not tabs, for T9.6's reason: T8.1's design-handoff
+  // mapping fixed the top-level tab set at five, and "create one" is an
+  // action within an area rather than a destination of equal rank.
+  describe('the create screens are reachable by clicking, not only by URL', () => {
+    it('adds no new top-level tab', async () => {
+      // The Payments tab's badge text is part of that tab's own text(), and
+      // `pendingCashPaymentsCount` is module-level shared state the badge
+      // tests above leave set — so reset it, exactly as they do.
+      __resetPendingCashPaymentsCountForTests()
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/facilities')
+      const labels = wrapper.findAll('.app-nav__item').map((item) => item.text())
+      expect(labels).toEqual(['Discover', 'Bookings', 'Games', 'Payments', 'Profile'])
+    })
+
+    it('links facility onboarding under the Discover area', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/facilities')
+      const sub = wrapper.findAll('.app-nav__subitem')
+      const link = sub.find((s) => s.text() === 'Add a facility')
+      expect(link, 'no "Add a facility" sub-link under Discover').toBeTruthy()
+      expect(link!.attributes('href')).toBe('/facilities/onboard')
+    })
+
+    it('keeps that link visible once you are on the onboarding screen', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/facilities/onboard')
+      const labels = wrapper.findAll('.app-nav__subitem').map((s) => s.text())
+      expect(labels).toContain('Add a facility')
+    })
+
+    it('links game creation under the Games area', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/games')
+      const sub = wrapper.findAll('.app-nav__subitem')
+      const link = sub.find((s) => s.text() === 'Create a game')
+      expect(link, 'no "Create a game" sub-link under Games').toBeTruthy()
+      expect(link!.attributes('href')).toBe('/games/new')
+    })
+
+    it('keeps that link visible once you are on the creation screen', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/games/new')
+      const labels = wrapper.findAll('.app-nav__subitem').map((s) => s.text())
+      expect(labels).toContain('Create a game')
+    })
+
+    // Sidebar-only would leave both screens unreachable on iPhone, where the
+    // tab bar is the whole navigation — T9.6's own reason for rendering
+    // sub-links in both variants.
+    it('reaches both on iPhone, not sidebar-only', async () => {
+      const discover = await mountAtWidth(375, emptyGamesClient(), '/facilities')
+      expect(discover.findAll('.app-nav__subitem').map((s) => s.text())).toContain(
+        'Add a facility',
+      )
+      const games = await mountAtWidth(375, emptyGamesClient(), '/games')
+      expect(games.findAll('.app-nav__subitem').map((s) => s.text())).toContain('Create a game')
+    })
+  })
+
 })

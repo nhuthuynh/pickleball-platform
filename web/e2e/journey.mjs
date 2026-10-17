@@ -49,6 +49,42 @@ const net=[]
 page.on('response', r=>{const u=new URL(r.url()); if(u.pathname.startsWith('/v1')) net.push(`${r.request().method().padEnd(5)} ${u.pathname.replace(/[0-9a-f-]{36}/g,'{id}')} -> ${r.status()}`)})
 // only buttons INSIDE the step panel, so the wizard's tab strip is never clicked
 const stepBtn = (re) => page.locator('.fo-step, section, form').locator('button:visible').filter({ hasText: re })
+
+// Reach a screen the way a person does — by clicking the nav — rather than
+// by page.goto'ing its URL. Both of the create screens below had NO link
+// anywhere in the UI until 2026-10-17, and this script could not see that,
+// because it typed the URLs. Clicking is the assertion.
+// Each run creates its OWN facility and books its own slot. A fixed name
+// and a fixed date made this script single-use: run it twice against the
+// same database and it clicked the PREVIOUS run's facility (identical
+// name), tried to book that already-booked court -> 409 "A selected court
+// is unavailable at that time", and then found the previous run's game by
+// date and reported step 5 as a pass. Observed 2026-10-17. The slot is
+// 30 days out at the current clock minute, so two runs never collide, and
+// the date step 5 searches for is THIS run's.
+const RUN = Date.now().toString(36).slice(-5)
+const FACILITY = `Riverside Courts ${RUN}`
+const START = new Date(Date.now() + 30 * 864e5); START.setSeconds(0, 0)
+const END = new Date(START.getTime() + 2 * 36e5)
+// datetime-local takes LOCAL wall-clock time with no zone — toISOString
+// would silently shift it by the browser's offset.
+const dtLocal = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+// The same formatting the games list renders ("Nov 16, 2026, 10:35 AM").
+// The DAY alone does not identify this run's game — two runs 30 days out
+// land on the same date — so the start TIME (unique to the minute the run
+// started) is what picks the right card. Without it, run 2 opened run 1's
+// card, tried to join a game it had already joined, and got a 409 the UI
+// reported as "This game just filled up".
+const DAY = START.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+const TIME = START.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+
+const navTo = async (area, subLink) => {
+  await page.goto(APP + area, { waitUntil: 'networkidle' })
+  const link = page.locator('.app-nav__subitem', { hasText: subLink })
+  if (await link.count() === 0) throw new Error(`no "${subLink}" nav link under ${area} — the screen is unreachable by clicking`)
+  await link.first().click()
+  await page.waitForLoadState('networkidle')
+}
 const dump = async (l) => log(`  [${l}]`, JSON.stringify(await page.locator('button:visible').evaluateAll(e=>e.map(x=>({t:x.textContent.trim().slice(0,26),d:x.disabled})))))
 
 // --- 1. sign in and onboard -------------------------------------------
@@ -60,8 +96,8 @@ await page.click('[data-testid="create-profile"]'); await page.waitForTimeout(12
 log('1. ONBOARDED, user id =', await page.evaluate(()=>localStorage.getItem('pickleball.authSession.userId')))
 
 // --- 2. a facility and a court ----------------------------------------
-await page.goto(APP+'/facilities/onboard',{waitUntil:'networkidle'})
-await page.fill('#facility-name','Riverside Courts'); await page.fill('#facility-description','MVP venue'); await page.fill('#facility-address','5 Baseline Road')
+await navTo('/facilities','Add a facility')
+await page.fill('#facility-name',FACILITY); await page.fill('#facility-description','MVP venue'); await page.fill('#facility-address','5 Baseline Road')
 await page.click('[data-testid="details-next"]'); await page.waitForTimeout(250)
 await page.click('[data-testid="photos-next"]'); await page.waitForTimeout(1500)
 await page.click('[data-testid="cameras-next"]'); await page.waitForTimeout(500)
@@ -70,8 +106,8 @@ await page.click('button:has-text("Add court")'); await page.waitForTimeout(1200
 log('2. FACILITY + COURT created')
 
 // --- 3. host a game ----------------------------------------------------
-await page.goto(APP+'/games/new',{waitUntil:'networkidle'}); await page.waitForTimeout(600)
-await page.click('button:has-text("Riverside Courts")')
+await navTo('/games','Create a game'); await page.waitForTimeout(600)
+await page.click(`button:has-text("${FACILITY}")`)
 await page.waitForSelector('input[type="checkbox"]', { timeout: 10000 })
 await page.locator('input[type="checkbox"]').first().check()
 await page.waitForTimeout(300)
@@ -88,7 +124,7 @@ for (let step=0; step<8; step++) {
     // the Next button stayed disabled with no error to explain why.
     const dts = page.locator('input[type="datetime-local"]:visible')
     for (let i=0;i<await dts.count();i++) {
-      await dts.nth(i).fill(i===0 ? '2026-12-01T18:00' : '2026-12-01T20:00').catch(()=>{})
+      await dts.nth(i).fill(dtLocal(i===0 ? START : END)).catch(()=>{})
     }
     const nums = page.locator('input[type="number"]:visible')
     for (let i=0;i<await nums.count();i++) await nums.nth(i).fill('4').catch(()=>{})
@@ -106,13 +142,25 @@ log('4. GAME PUBLISHED. alerts:', JSON.stringify(await page.locator('[role="aler
 // --- 4. find it on the games list and JOIN it -------------------------
 await page.goto(APP+'/games',{waitUntil:'networkidle'}); await page.waitForTimeout(1200)
 const listed = (await page.locator('body').innerText()).replace(/\s+/g,' ')
-log('5. /games lists the new game (by its date):', /Dec 1, 2026/.test(listed))
+log(`5. /games lists THIS run's game (${DAY}, ${TIME}):`, listed.includes(DAY) && listed.includes(TIME))
 await page.screenshot({path:SHOTS+'/82-games-list.png',fullPage:true})
 
 // the list renders each game as a clickable card; the join panel lives
 // inside the expanded one
-const card = page.locator('button:visible').filter({ hasText: /2026/ }).first()
+// Pick the card by comparing WHITESPACE-NORMALISED text, rather than with
+// a second `filter({ hasText: TIME })`. Intl renders the space before
+// AM/PM as U+202F (narrow no-break space) in the browser while Node's own
+// toLocaleTimeString here uses a plain one, so a hasText match on TIME
+// found nothing, fell back to `.first()` — and silently opened an EARLIER
+// run's card. The fallback is what made that look like a pass, so there is
+// none now: if this run's game is not on the list, say so and stop.
+const sameDay = page.locator('button:visible').filter({ hasText: DAY })
+const cardTexts = await sameDay.evaluateAll((els) => els.map((e) => e.textContent.replace(/\s+/g, ' ')))
+const cardIdx = cardTexts.findIndex((t) => t.includes(TIME))
+if (cardIdx < 0) throw new Error(`no card for this run's game (${DAY}, ${TIME}) among ${cardTexts.length} on that date`)
+const card = sameDay.nth(cardIdx)
 if (await card.count()) { await card.click(); await page.waitForTimeout(1200) }
+log('5b. the open card is THIS run\'s facility:', (await page.locator('body').innerText()).includes(FACILITY))
 log('5b. after opening the card:', (await page.locator('body').innerText()).replace(/\s+/g,' ').slice(0,300))
 await page.screenshot({path:SHOTS+'/82b-card-open.png',fullPage:true})
 const joinBtn = page.locator('button:visible').filter({ hasText: /^\s*(Join|Request to join|Join game|Confirm)/i }).first()

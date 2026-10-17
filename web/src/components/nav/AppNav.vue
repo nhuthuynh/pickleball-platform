@@ -38,6 +38,18 @@
 // which is part of the Games area even though its path differs). Shown in
 // both nav variants — sidebar-only would leave the screen unreachable on
 // iPhone, where the tab bar is the whole navigation.
+//
+// 2026-10-17 addition: "Add a facility" (-> /facilities/onboard) and
+// "Create a game" (-> /games/new). Both screens existed since T7.4/T8.8 and
+// NOTHING in the UI linked to either — they were reachable only by typing
+// the URL, so the MVP journey (onboard -> add a facility and a court -> host
+// a game -> join it) could not be completed by clicking. Found while writing
+// the README's first-run walkthrough, which had no nav path to describe.
+// Note what that says about the sub-level T9.6 built above: it was used to
+// reach *competition* creation and never for the game creation under it.
+// Same mechanism, same reasoning — an action within an area, not a sixth
+// destination of equal rank, and rendered in both variants so iPhone can
+// reach it too.
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
@@ -67,14 +79,22 @@ interface NavTab {
 }
 
 const NAV_TABS: NavTab[] = [
-  { id: 'discover', label: 'Discover', to: '/facilities' },
+  {
+    id: 'discover',
+    label: 'Discover',
+    to: '/facilities',
+    children: [{ id: 'facilities-onboard', label: 'Add a facility', to: '/facilities/onboard' }],
+  },
   { id: 'bookings', label: 'Bookings', to: '/bookings' },
   {
     id: 'games',
     label: 'Games',
     to: '/games',
     areaPrefixes: ['/games', '/competitions'],
-    children: [{ id: 'competitions-new', label: 'Create a competition', to: '/competitions/new' }],
+    children: [
+      { id: 'games-new', label: 'Create a game', to: '/games/new' },
+      { id: 'competitions-new', label: 'Create a competition', to: '/competitions/new' },
+    ],
   },
   { id: 'payments', label: 'Payments', to: '/host/payments' },
   { id: 'profile', label: 'Profile', to: '/profile' },
