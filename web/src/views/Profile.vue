@@ -19,19 +19,20 @@
 //    from GameCreation.vue/CompetitionCreation.vue/CompetitionManage.vue's
 //    own copies of the same explanation.
 //
-// NO SIGN-UP FLOW. This ticket builds no `CreateUser` UI — see
-// `useProfile.ts`'s header comment for why `MOCK_PLAYER_ID` (the same
-// placeholder `useJoinGame.ts`/`useEnterCompetition.ts` already use, not a
-// second one) resolves to the honest "no profile yet" state against the
-// real backend today, and why that is correct given this ticket's scope
-// rather than a bug.
+// SIGN-UP EXISTS NOW (#340), and this header used to say the opposite:
+// "NO SIGN-UP FLOW. This ticket builds no `CreateUser` UI". That was true
+// of T10.5 and stayed true for ten sprints, during which a player who
+// signed in could do nothing at all and had no way to make an account.
+// `views/CompleteProfile.vue` is the door; this screen now reads the
+// signed-in player's own id from the session rather than a mock.
 //
 // NO FABRICATED DATA (T10.5 instructions #4): an unset (or, defensively,
 // out-of-range) starting level renders as "Not set", never a default value
 // like "Level 1" that would read as a real, player-made choice — see
 // `models/identity.ts`'s `mapToUserProfile`.
 import { computed, onMounted, ref } from 'vue'
-import { useProfile, MOCK_PLAYER_ID } from '../composables/useProfile'
+import { useProfile } from '../composables/useProfile'
+import { authUserId } from '../state/authSession'
 import type { IdentityClient } from '../api/identityClient'
 import { MIN_SELF_REPORTED_LEVEL, MAX_SELF_REPORTED_LEVEL } from '../models/identityLevel'
 import { MATCHING_BLOCKED_REASON } from '../copy/matchingDisclosure'
@@ -62,7 +63,13 @@ function syncSelectFromProfile(): void {
 }
 
 async function refresh(): Promise<void> {
-  await load(MOCK_PLAYER_ID)
+  // #340. The signed-in player's own id, not a mock. When they have no
+  // account yet the id is null and there is nothing to load — the shared
+  // banner already points them at /welcome, so this screen does not need a
+  // second copy of that message.
+  const id = authUserId.value
+  if (id === null) return
+  await load(id)
   syncSelectFromProfile()
 }
 
@@ -71,7 +78,14 @@ const canSave = computed(() => selectedLevel.value !== '')
 async function onSave(): Promise<void> {
   if (selectedLevel.value === '') return
   statusMessage.value = ''
-  await updateLevel(MOCK_PLAYER_ID, MOCK_PLAYER_ID, selectedLevel.value)
+  const id = authUserId.value
+  if (id === null) return
+  // Both arguments are the same id deliberately: the server's EnsureSelf
+  // check is "the actor is this user", and after T12.9 the actor it
+  // compares against is resolved from the verified token, not from this
+  // argument. Passing the same value keeps the client honest about what it
+  // is asking for.
+  await updateLevel(id, id, selectedLevel.value)
   if (!saveError.value) {
     statusMessage.value = 'Starting level saved.'
     syncSelectFromProfile()

@@ -169,6 +169,26 @@ tidy:
 # reports both failures with precise diagnoses, needs no network (verified with
 # an empty cache) and takes about 0.6s. A hand-written comparator would be a
 # second implementation of semver in this repo.
+
+# The MVP journey in a real browser. NOT part of ci-checks, and
+# web/e2e/journey.mjs explains why: it needs a Postgres, a running server
+# and a built client, which CI does not stand up. Run it by hand after
+# touching the client, the gateway or either front door.
+#
+# It exists because 727 component tests against a fixture client could not
+# see that the app had no way to reach its own backend (#339) or to create
+# an account (#340). Both were found by opening a browser.
+.PHONY: e2e
+e2e:
+	@command -v node >/dev/null || { echo "e2e: node is required"; exit 1; }
+	@test -n "$(E2E_TOKEN_FILE)" || { \
+	  echo "e2e: set E2E_TOKEN_FILE to a file holding a bearer token."; \
+	  echo "     TOKEN=\$$(make -s dev-token) && echo \"\$$TOKEN\" > /tmp/t"; \
+	  echo "     make e2e E2E_TOKEN_FILE=/tmp/t [E2E_APP_URL=http://127.0.0.1:5173]"; \
+	  exit 1; }
+	@mkdir -p build/e2e
+	node web/e2e/journey.mjs "$(E2E_TOKEN_FILE)" build/e2e "$(or $(E2E_APP_URL),http://127.0.0.1:5173)"
+
 # Fails when a tracked file is a compiled ELF binary.
 #
 # Added T65.4's review pass, which found a 3 MB `docsindex` executable

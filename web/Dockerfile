@@ -19,10 +19,14 @@ COPY . .
 RUN test -d src/api/generated || (echo "web/src/api/generated missing — run 'npm --prefix web run generate:client' before 'docker build'" && exit 1)
 
 # The API origin is inlined at build time by Vite (import.meta.env), so it
-# is a build arg, not a runtime env var. The default matches the API port
-# docker-compose publishes to the host — the browser talks to the API
-# directly, not through this nginx.
-ARG VITE_API_BASE_URL=http://localhost:8080
+# is a build arg, not a runtime env var.
+#
+# The default is EMPTY, meaning same-origin relative URLs, because nginx in
+# this image proxies /v1 to the API (nginx.conf). It used to default to
+# http://localhost:8080 — a different origin from the :5173 nginx serves the
+# page on — which the browser blocked on every call, since the Go server
+# sends no CORS headers (#339).
+ARG VITE_API_BASE_URL=
 ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 
 # `build-only` (vite build), not `build` (vite build + vue-tsc). Type

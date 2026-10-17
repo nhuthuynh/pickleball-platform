@@ -56,7 +56,12 @@ describe('createTypedClient', () => {
 
     const requestArg = fetchMock.mock.calls[0]![0]
     expect(requestArg.url.startsWith('https://api.example.test')).toBe(true)
-    expect(requestArg.url.startsWith(DEFAULT_API_BASE_URL)).toBe(false)
+    // NOT `startsWith(DEFAULT_API_BASE_URL)`, which this line used to be:
+    // the default is now the empty string (#339) and every string starts
+    // with "", so that assertion became vacuously true and the test passed
+    // regardless. What it means is that the request did not go to the
+    // page's own origin, which is what an empty default produces.
+    expect(new URL(requestArg.url).origin).not.toBe(globalThis.location.origin)
   })
 
   it('surfaces a non-2xx response as `error`, not a thrown exception', async () => {

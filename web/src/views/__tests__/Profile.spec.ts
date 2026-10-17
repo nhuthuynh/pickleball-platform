@@ -1,13 +1,20 @@
-import { describe, it, expect, vi } from 'vitest'
+import { beforeEach, describe, it, expect, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import Profile from '../Profile.vue'
-import { MOCK_PLAYER_ID } from '../../composables/useProfile'
+import { rememberUserId, signOut } from '../../state/authSession'
+
+/**
+ * #340. Profile reads the SIGNED-IN player's id from the session now, not a
+ * mock, so these tests put a session in place first. The id is arbitrary —
+ * what matters is that the screen asks for the id the session holds.
+ */
+const SESSION_USER_ID = 'c0ffee00-0000-4000-8000-000000000001'
 import type { IdentityClient } from '../../api/identityClient'
 import { findGenderControls } from '../../test-support/genderControlAssertions'
 
 function rawUser(level: number, displayName = 'Alex Rivera') {
-  return { id: MOCK_PLAYER_ID, displayName, roles: ['ROLE_PLAYER'], selfReportedStartingLevel: level }
+  return { id: SESSION_USER_ID, displayName, roles: ['ROLE_PLAYER'], selfReportedStartingLevel: level }
 }
 
 function makeClient(overrides: {
@@ -34,6 +41,11 @@ function makeClient(overrides: {
 function mountProfile(client?: IdentityClient) {
   return mount(Profile, { props: { client } })
 }
+
+beforeEach(() => {
+  signOut()
+  rememberUserId(SESSION_USER_ID)
+})
 
 describe('Profile — loading a real profile', () => {
   it('shows a loading state on mount', async () => {
@@ -103,7 +115,7 @@ describe('Profile — editing the self-reported starting level', () => {
     expect(wrapper.get('[data-testid="save-level"]').attributes('disabled')).toBeUndefined()
   })
 
-  it('calls UpdateSelfReportedLevel with the chosen level and the MOCK_PLAYER_ID as both user and actor, and announces success', async () => {
+  it('calls UpdateSelfReportedLevel with the chosen level and the session user id as both user and actor, and announces success', async () => {
     const post = vi.fn((body: unknown) => ({ data: { user: rawUser(5) }, error: undefined, response: { status: 200 } }))
     const wrapper = mountProfile(makeClient({ get: () => ({ data: { user: rawUser(2) }, error: undefined, response: { status: 200 } }), post }))
     await flushPromises()
@@ -112,7 +124,7 @@ describe('Profile — editing the self-reported starting level', () => {
     await wrapper.get('.profile__level-form').trigger('submit')
     await flushPromises()
 
-    expect(post).toHaveBeenCalledWith({ actorUserId: MOCK_PLAYER_ID, selfReportedStartingLevel: 5 })
+    expect(post).toHaveBeenCalledWith({ actorUserId: SESSION_USER_ID, selfReportedStartingLevel: 5 })
     expect(wrapper.get('[role="status"]').text()).toContain('saved')
     expect(wrapper.get('[data-testid="level-value"]').text()).toContain('5')
   })

@@ -11,7 +11,7 @@
 // table, not here.
 import { RouterLink, RouterView } from 'vue-router'
 import RoleIndicator from './components/RoleIndicator.vue'
-import { authRejected, clearAuthRejected, isSignedIn } from './state/authSession'
+import { authRejected, clearAuthRejected, isSignedIn, profileMissing } from './state/authSession'
 import AppNav from './components/nav/AppNav.vue'
 </script>
 
@@ -29,6 +29,15 @@ import AppNav from './components/nav/AppNav.vue'
            explaining. -->
       <RouterLink v-if="!isSignedIn()" class="app-shell__sign-in" to="/sign-in">Sign in</RouterLink>
     </header>
+
+    <!-- #340. A 403 "user not found" is not a 401: the player IS signed in
+         and simply has no account yet, so the remedy is to finish signing
+         up rather than to sign in again. One banner for both would send a
+         player back to a screen that is already working for them. -->
+    <p v-if="profileMissing" class="app-shell__auth-alert" role="alert">
+      You are signed in, but you do not have a player profile yet.
+      <RouterLink to="/welcome">Finish setting up your profile</RouterLink> to continue.
+    </p>
 
     <p v-if="authRejected" class="app-shell__auth-alert" role="alert">
       That request was rejected because you are not signed in, or your token

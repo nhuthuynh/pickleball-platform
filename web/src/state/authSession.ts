@@ -121,6 +121,51 @@ export function recordAuthRejected(): void {
 }
 
 /** Cleared when the user acts on the prompt (opens sign-in, dismisses it). */
+/**
+ * True when the server accepted the caller's token and then refused because
+ * they have no account yet — the `user not found` state.
+ *
+ * #340. Authenticating is not the same as having an account: the token
+ * proves who you are, and every write still needs an `identity_users` row.
+ * Before this, a first-time player signed in successfully, filled in a form,
+ * and got `403 facilities: user not found` with no way anywhere in the
+ * product to make one — `Profile.vue` says in as many words that no
+ * `CreateUser` UI exists. The capability was on the server with no door in
+ * the client, and it stayed that way because the only thing that could have
+ * noticed is a browser.
+ *
+ * Kept separate from `authRejected` because the remedies are different: a
+ * 401 means sign in again, a missing profile means finish signing up. One
+ * flag for both would send a signed-in player back to the sign-in screen
+ * that is already working for them.
+ */
+export const profileMissing = ref(false)
+
+/** Set by the API client when a call is refused for a missing account. */
+export function recordProfileMissing(): void {
+  profileMissing.value = true
+}
+
+/** Cleared once the player reaches the screen that fixes it, or creates one. */
+export function clearProfileMissing(): void {
+  profileMissing.value = false
+}
+
+/**
+ * Records the platform's own user id for the signed-in player.
+ *
+ * The token carries the identity provider's `sub`, not this platform's
+ * `identity_users.id`, and there is no "get me" RPC — `GetUser` takes an id.
+ * So the id has to be remembered from the `CreateUser` response, which is
+ * what this is for. A ticket that adds `GetCurrentUser` would make it
+ * derivable instead of stored; until then, stored.
+ */
+export function rememberUserId(userId: string): void {
+  authUserId.value = userId
+  write(USER_ID_KEY, userId)
+  clearProfileMissing()
+}
+
 export function clearAuthRejected(): void {
   authRejected.value = false
 }

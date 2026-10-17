@@ -101,6 +101,9 @@ const ROUTES_UNDER_TEST: { path: string; label: string }[] = [
   // path-identity-checked against the real router, so a new route cannot
   // escape the axe-core sweep: that check failing is what caught this one.
   { path: '/sign-in', label: 'dev-sign-in' },
+  // #340 — the screen that turns "signed in" into "has an account". Caught
+  // by the same path-identity check, for the second sprint running.
+  { path: '/welcome', label: 'complete-profile' },
   { path: '/games', label: 'games' },
   { path: '/games/new', label: 'games-new' },
   { path: '/games/game-1/checkout', label: 'game-checkout' },
