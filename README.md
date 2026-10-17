@@ -47,13 +47,15 @@ isn't.
 
 ## Quick start
 
-```bash
-# 1. Tools
-brew install bufbuild/buf/buf sqlc gotestsum golangci-lint   # or your platform's equivalent
+You need **Go >= 1.25**, **Node >= 22.18**, and **Docker** (for `make up`).
+Everything else one command installs.
 
-# ...plus Go >= 1.25, Node >= 22.18, and (optionally) Docker.
-# Check what's actually present before you start:
-make tools-check
+```bash
+# 1. Tools — buf, sqlc, gotestsum AND the four protoc plugins buf shells out to
+make tools-install
+export PATH="$PATH:$(go env GOPATH)/bin"     # add this to your shell profile
+
+make tools-check                             # every line should read "ok"
 
 # 2. Fast, dependency-free gate — should be green before anything else
 make test-domain
@@ -67,6 +69,15 @@ cp .env.template .env
 make up
 ```
 
+> **Why `make tools-install` and not just `brew install buf sqlc …`** — which
+> is what this section used to say. `buf generate` uses **local** protoc
+> plugins rather than the Buf Schema Registry's remote ones, because the BSR
+> is not reachable from every environment this repo is developed in. A
+> package manager installs `buf` but not `protoc-gen-go`,
+> `protoc-gen-go-grpc`, `protoc-gen-grpc-gateway` or `protoc-gen-openapiv2`,
+> so step 3 failed on a fresh clone with a plugin-not-found error that did
+> not say what to install. `make tools-check` now names all four.
+
 `make up` serves:
 
 | | |
@@ -75,6 +86,33 @@ make up
 | REST API | <http://localhost:8080> |
 | gRPC API | `localhost:8081` |
 | Postgres | `localhost:5432` |
+
+### Your first run, in the browser
+
+Open <http://localhost:5173>. The API is reached at a **relative** `/v1`,
+proxied by the same nginx that serves the page, so there is nothing to
+configure and no cross-origin call to allow.
+
+Everything that creates or joins something needs a signed-in player with a
+profile, and local development has a committed key fixture for exactly that:
+
+```bash
+TOKEN=$(make -s dev-token)   # dev-only; the keypair is public, see dev/auth/README.md
+echo "$TOKEN"
+```
+
+1. Go to **/sign-in**, paste the token, **Sign in**.
+2. Go to **/welcome** — pick a display name and your starting level. That
+   creates your player profile. (There is no redirect; the first API call
+   that needs a profile puts a banner at the top of every page linking
+   here, so you cannot get far without noticing.)
+3. Now the whole loop works, all of it from the nav: **Discover → Add a
+   facility** (name, address, then a court), **Games → Create a game**, then
+   **Games**, open the card, and **Join**.
+
+`node web/e2e/journey.mjs` drives exactly that sequence in a real browser if
+you would rather watch it than click it; `make e2e` wraps it and names the
+prerequisites.
 
 It runs `make generate-client` first, so the generated Go *and* TypeScript
 code is up to date before anything is built — the web image refuses to

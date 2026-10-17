@@ -60,6 +60,20 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # The server exits rather than retrying when it cannot reach Postgres —
+    # a deliberate fail-fast, and correct. But `service_healthy` is not
+    # enough on a FRESH VOLUME: the postgres image starts a temporary server
+    # to run db/migrations via initdb.d, and `pg_isready` answers during
+    # that window, so the healthcheck passes and Postgres then RESTARTS for
+    # real. The API dies on the very first `make up`:
+    #
+    #   pg: ping: failed to connect … 172.18.0.2:5432 (db):
+    #   dial tcp 172.18.0.2:5432: connect: connection refused
+    #
+    # Observed 2026-10-17 on a first run. Restarting keeps the fail-fast —
+    # the process still refuses to serve without a database — while compose
+    # brings it back once Postgres is genuinely up.
+    restart: unless-stopped
 
   # The Vue client, built to static assets and served by nginx (SCRUM-6),
   # so `make up` brings up the whole stack rather than backend-only.

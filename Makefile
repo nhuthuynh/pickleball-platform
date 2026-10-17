@@ -1,4 +1,4 @@
-.PHONY: test-domain test-platform test-tools test-adapters test-cmd gate-coverage binary-check dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
+.PHONY: tools-install test-domain test-platform test-tools test-adapters test-cmd gate-coverage binary-check dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
         build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
@@ -188,6 +188,39 @@ e2e:
 	  exit 1; }
 	@mkdir -p build/e2e
 	node web/e2e/journey.mjs "$(E2E_TOKEN_FILE)" build/e2e "$(or $(E2E_APP_URL),http://127.0.0.1:5173)"
+
+
+# Fails when the Dockerfile's Go image tag does not match go.mod's `go`
+# directive.
+#
+# They disagreed from the repository's first commit until 2026-10-17 —
+# go.mod said 1.25.0, the Dockerfile said golang:1.24-bookworm — so
+# `go mod download` failed inside the build and the API image never built.
+# `make up` has therefore never worked, which is a large part of why this
+# project reached 66 sprints without once running locally.
+#
+# No gate could see it because no gate builds the image: `ci-checks` runs
+# tests and linters against the host toolchain, which is a different Go.
+# Both sides are read at run time, so a go.mod bump cannot silently
+# desynchronise this again.
+.PHONY: dockerfile-go-version
+dockerfile-go-version:
+	@gomod=$$(awk '/^go /{print $$2; exit}' go.mod | cut -d. -f1,2); \
+	image=$$(awk -F'[:-]' '/^FROM golang:/{print $$2; exit}' Dockerfile); \
+	if [ -z "$$gomod" ] || [ -z "$$image" ]; then \
+	  echo "dockerfile-go-version: could not read one of the versions (go.mod='$$gomod' Dockerfile='$$image')"; \
+	  exit 1; \
+	fi; \
+	if [ "$$gomod" != "$$image" ]; then \
+	  echo "dockerfile-go-version: FAIL — go.mod wants Go $$gomod, Dockerfile builds with golang:$$image."; \
+	  echo ""; \
+	  echo "  The image build will fail with:"; \
+	  echo "    go: go.mod requires go >= $$gomod.0 (running go $$image.x; GOTOOLCHAIN=local)"; \
+	  echo ""; \
+	  echo "  Fix the FROM line in Dockerfile, or lower go.mod."; \
+	  exit 1; \
+	fi; \
+	echo "dockerfile-go-version: OK — go.mod and Dockerfile both on Go $$gomod."
 
 # Fails when a tracked file is a compiled ELF binary.
 #
@@ -470,7 +503,7 @@ loadtest:
 # meta-check on the gate's own shape, not a test — running it last means its
 # report describes the set of targets that just ran, and a genuine test
 # failure surfaces before the structural complaint about coverage does.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check lock-check binary-check generate-client lint-web test-web build-web
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check lock-check binary-check dockerfile-go-version generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
@@ -507,12 +540,46 @@ ci-integration:
 	  exit 1; }
 	$(MAKE) test
 
+# Installs every Go-side tool the build needs, into $(go env GOPATH)/bin.
+#
+# `buf generate` uses LOCAL protoc plugins rather than the Buf Schema
+# Registry's remote ones (CLAUDE.md: the BSR is not reachable from every
+# environment this repo is developed in), so the four protoc-gen-* binaries
+# have to exist on PATH. A package manager does not supply them — the README
+# said `brew install buf sqlc gotestsum golangci-lint` and stopped there,
+# which left a fresh clone failing at `make generate` with a plugin-not-found
+# error that does not say what to install.
+#
+# Safe to re-run; `go install` is idempotent.
+.PHONY: tools-install
+tools-install:
+	go install github.com/bufbuild/buf/cmd/buf@latest
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
+	go install gotest.tools/gotestsum@latest
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
+	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
+	@echo
+	@echo "Installed to $$(go env GOPATH)/bin — make sure that is on your PATH:"
+	@echo "    export PATH=\"$$PATH:$$(go env GOPATH)/bin\""
+	@echo "Then: make tools-check"
+
 # Reports which of the required tools are present, so a new machine finds
 # out up front rather than three stages into a build.
 tools-check:
 	@for t in go buf sqlc gotestsum golangci-lint node npm; do \
 	  if command -v $$t >/dev/null 2>&1; then echo "  ok      $$t"; \
 	  else echo "  MISSING $$t"; fi; \
+	done
+	@# The four protoc plugins `buf generate` shells out to. They are NOT
+	@# installed by `brew install buf sqlc …`, they are `go install`ed, and
+	@# their absence is the first thing a fresh clone hits: `make up` ->
+	@# `generate-client` -> `make generate` -> `buf generate` -> "plugin not
+	@# found". `make tools-install` installs them.
+	@for t in protoc-gen-go protoc-gen-go-grpc protoc-gen-grpc-gateway protoc-gen-openapiv2; do \
+	  if command -v $$t >/dev/null 2>&1; then echo "  ok      $$t"; \
+	  else echo "  MISSING $$t (run 'make tools-install'; needs $$(go env GOPATH)/bin on PATH)"; fi; \
 	done
 	@if docker info >/dev/null 2>&1; then echo "  ok      docker (daemon reachable)"; \
 	 else echo "  MISSING docker daemon (integration tests + make up unavailable)"; fi
