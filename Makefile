@@ -1,5 +1,11 @@
 .PHONY: tools-install test-domain test-platform test-tools test-adapters test-cmd gate-coverage binary-check dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
-        build-web security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
+        build-web build-images security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
+
+# Pinned versions of the `go install`ed build tools. `include`, not a copy:
+# CI calls `make tools-install`, so this one file is what both a runner and
+# a developer's machine install from. A missing file is a hard error here,
+# deliberately — a silently-empty version variable would install `@`.
+include tools/versions.env
 
 # Dependency-free domain + app tests only — no DB, no generated code needed.
 # This is the T0 resume gate (HANDOFF.md): if this isn't green, nothing else matters.
@@ -189,6 +195,33 @@ e2e:
 	@mkdir -p build/e2e
 	node web/e2e/journey.mjs "$(E2E_TOKEN_FILE)" build/e2e "$(or $(E2E_APP_URL),http://127.0.0.1:5173)"
 
+
+# Builds both deployment images: the Go API server and the nginx-served web
+# bundle. ONE definition of how this repo is containerised, used by a
+# developer checking a Dockerfile change and by the CI pipeline alike — the
+# workflow passes IMAGE_PREFIX/IMAGE_TAG and pushes what this target built,
+# rather than carrying its own `docker build` lines. #129 recorded what the
+# second copy costs: the Jenkinsfile re-listed `make ci`'s steps by hand and
+# had already drifted by a whole check.
+#
+# Both Dockerfiles refuse to build without generated code (`internal/gen`
+# and `web/src/api/generated`), on purpose — generating inside the image
+# would mean reaching the BSR from the build sandbox. So this depends on
+# both generate steps rather than letting the guard fire.
+#
+# Why this target has to exist at all: `make up` could not start this stack
+# for 66 sprints because the API image had never built, and no gate built
+# it. `make dockerfile-go-version` catches the specific defect that caused
+# that; only an actual build catches the next one.
+IMAGE_PREFIX ?= pickleball
+IMAGE_TAG ?= dev
+
+.PHONY: build-images
+build-images: generate generate-client
+	docker build -t $(IMAGE_PREFIX)/api:$(IMAGE_TAG) .
+	docker build -t $(IMAGE_PREFIX)/web:$(IMAGE_TAG) web
+	@echo
+	@echo "build-images: OK — $(IMAGE_PREFIX)/api:$(IMAGE_TAG) and $(IMAGE_PREFIX)/web:$(IMAGE_TAG)"
 
 # Fails when the Dockerfile's Go image tag does not match go.mod's `go`
 # directive.
@@ -550,16 +583,23 @@ ci-integration:
 # which left a fresh clone failing at `make generate` with a plugin-not-found
 # error that does not say what to install.
 #
+# Versions come from tools/versions.env (included at the top of this file),
+# never `@latest`: CI calls this target, and `@latest` in CI means a build
+# that breaks overnight with no commit behind it. golangci-lint is installed
+# here too — `go install`ing it is one fewer thing for a package manager to
+# get a different version of than the one `make lint` was proven against.
+#
 # Safe to re-run; `go install` is idempotent.
 .PHONY: tools-install
 tools-install:
-	go install github.com/bufbuild/buf/cmd/buf@latest
-	go install github.com/sqlc-dev/sqlc/cmd/sqlc@latest
-	go install gotest.tools/gotestsum@latest
-	go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest
-	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest
+	go install github.com/bufbuild/buf/cmd/buf@$(BUF_VERSION)
+	go install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
+	go install gotest.tools/gotestsum@$(GOTESTSUM_VERSION)
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
+	go install google.golang.org/protobuf/cmd/protoc-gen-go@$(PROTOC_GEN_GO_VERSION)
+	go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@$(PROTOC_GEN_GO_GRPC_VERSION)
+	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@$(GRPC_GATEWAY_VERSION)
+	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@$(GRPC_GATEWAY_VERSION)
 	@echo
 	@echo "Installed to $$(go env GOPATH)/bin — make sure that is on your PATH:"
 	@echo "    export PATH=\"$$PATH:$$(go env GOPATH)/bin\""
@@ -568,10 +608,34 @@ tools-install:
 # Reports which of the required tools are present, so a new machine finds
 # out up front rather than three stages into a build.
 tools-check:
-	@for t in go buf sqlc gotestsum golangci-lint node npm; do \
+	@for t in go buf sqlc gotestsum node npm; do \
 	  if command -v $$t >/dev/null 2>&1; then echo "  ok      $$t"; \
 	  else echo "  MISSING $$t"; fi; \
 	done
+	@# golangci-lint gets its VERSION checked, not just its presence, because
+	@# presence is not the failure mode. A binary built with an older Go than
+	@# go.mod targets refuses to run at all:
+	@#
+	@#   Error: can't load config: the Go language version (go1.25) used to
+	@#   build golangci-lint is lower than the targeted Go version (1.26.9)
+	@#
+	@# and a package-manager copy earlier on PATH silently shadows the pinned
+	@# one `make tools-install` puts in $$(go env GOPATH)/bin. Both happened
+	@# here on 2026-10-18: tools-check said "ok golangci-lint" for a shadowing
+	@# v2.5.0, a local `make ci-checks` failed for that reason and was read as
+	@# green, and CI spent two cycles on it.
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+	  want="$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))"; \
+	  have="$$(golangci-lint --version 2>/dev/null | head -1)"; \
+	  case "$$have" in \
+	    *"version $$want"*) echo "  ok      golangci-lint $$want";; \
+	    *) echo "  WRONG   golangci-lint: tools/versions.env pins $$want, but PATH has"; \
+	       echo "            $$have"; \
+	       echo "          at $$(command -v golangci-lint). 'make tools-install' installs the pin"; \
+	       echo "          into $$(go env GOPATH)/bin — put that directory FIRST on PATH,"; \
+	       echo "          or this copy keeps winning and 'make lint' is not the pinned check.";; \
+	  esac; \
+	else echo "  MISSING golangci-lint (run 'make tools-install')"; fi
 	@# The four protoc plugins `buf generate` shells out to. They are NOT
 	@# installed by `brew install buf sqlc …`, they are `go install`ed, and
 	@# their absence is the first thing a fresh clone hits: `make up` ->

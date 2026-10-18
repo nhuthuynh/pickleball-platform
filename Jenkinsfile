@@ -1,4 +1,22 @@
-// CI/CD pipeline for the pickleball platform (SCRUM-6).
+// Jenkins pipeline for the pickleball platform (SCRUM-6).
+//
+// ---------------------------------------------------------------------------
+// THIS IS NOT THE PIPELINE THAT RUNS. `.github/workflows/ci.yml` IS.
+// ---------------------------------------------------------------------------
+// Added 2026-10-18. docs/technology-options.md picks Jenkins, and that
+// decision stands for the eventual deployment pipeline — but this file has
+// never executed, because it needs a controller, five plugins, a webhook and
+// a GitHub credential that do not exist (see "STILL REQUIRED SERVER-SIDE"
+// below, which has been true since the day it was written). Meanwhile this
+// repository's pull requests showed ZERO checks for 66 sprints with a 20 KB
+// pipeline sitting in the tree.
+//
+// So the per-PR gate now runs on GitHub Actions, which needs no server. Both
+// files call the same make targets, which is what keeps them from drifting
+// into two different gates — the Toolchain stage below calls
+// `make tools-install` for exactly that reason. If a Jenkins controller ever
+// appears, this file should still work; until then, treat Actions as the
+// source of truth for "what CI runs" and this as the Jenkins port of it.
 //
 // Replaces the T0 bootstrap placeholder, which had never run: it assumed a
 // Docker-capable agent, used `go install ...@latest` (unpinned), linted
@@ -21,7 +39,8 @@
 // is corrected here rather than the decision reopened.
 //
 // The agent MUST provide:
-//   - Go >= 1.25 on PATH (go.mod says 1.25.0)
+//   - Go >= 1.26.9 on PATH (go.mod says 1.26.9 — four called net/http
+//     HTTP/2 advisories are only fixed at go1.26.9; see the Dockerfile)
 //   - Node >= 22.18 and npm on PATH (web/package.json "engines")
 //   - git, make, curl
 //
@@ -111,12 +130,12 @@ pipeline {
         GOBIN = "${WORKSPACE}/.gopath/bin"
         PATH = "${WORKSPACE}/.gopath/bin:${PATH}"
 
-        // Pinned tool versions. `@latest` in CI means a build can break
-        // overnight with no commit — the T0 placeholder's mistake.
-        BUF_VERSION = 'v1.72.0'
-        SQLC_VERSION = 'v1.31.1'
-        GOTESTSUM_VERSION = 'v1.13.0'
-        GOLANGCI_LINT_VERSION = 'v2.5.0'
+        // The tool pins used to be duplicated here. They now live in
+        // tools/versions.env, which `make tools-install` reads — so this
+        // pipeline, the Actions workflow and a developer's machine install
+        // the same versions from one file. The reasoning that put them here
+        // is unchanged and is restated there: `@latest` in CI means a build
+        // can break overnight with no commit behind it.
         GOVULNCHECK_VERSION = 'latest' // deliberately floating; see the Security stage
     }
 
@@ -136,20 +155,20 @@ pipeline {
                 sh 'node --version'
                 sh 'npm --version'
 
-                // The four codegen plugins buf.gen.yaml invokes as LOCAL
-                // plugins (ADR-0003: the BSR is not reachable everywhere).
-                sh 'go install google.golang.org/protobuf/cmd/protoc-gen-go@latest'
-                sh 'go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest'
-                sh 'go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@latest'
-                sh 'go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@latest'
-
-                sh "go install github.com/bufbuild/buf/cmd/buf@${BUF_VERSION}"
-                sh "go install github.com/sqlc-dev/sqlc/cmd/sqlc@${SQLC_VERSION}"
-                sh "go install gotest.tools/gotestsum@${GOTESTSUM_VERSION}"
-                // NB the module path is github.com/golangci/golangci-lint/v2 —
-                // the /v2 suffix is required and the T0 placeholder's
+                // One target, which a developer and the Actions workflow
+                // also call, installing the pins from tools/versions.env.
+                // This stage used to list eight `go install` lines, four of
+                // them `@latest` — including the four codegen plugins
+                // buf.gen.yaml invokes as LOCAL plugins (ADR-0003: the BSR
+                // is not reachable everywhere), which therefore floated in
+                // the one pipeline that pinned everything else.
+                //
+                // (The module path for the linter is
+                // github.com/golangci/golangci-lint/v2 — the /v2 suffix is
+                // required, and the T0 placeholder's
                 // "github.com/golangci-lint/golangci-lint" does not exist.
-                sh "go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}"
+                // That correction now lives in the Makefile target.)
+                sh 'make tools-install'
 
                 sh 'make tools-check'
             }
