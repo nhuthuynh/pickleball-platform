@@ -608,10 +608,34 @@ tools-install:
 # Reports which of the required tools are present, so a new machine finds
 # out up front rather than three stages into a build.
 tools-check:
-	@for t in go buf sqlc gotestsum golangci-lint node npm; do \
+	@for t in go buf sqlc gotestsum node npm; do \
 	  if command -v $$t >/dev/null 2>&1; then echo "  ok      $$t"; \
 	  else echo "  MISSING $$t"; fi; \
 	done
+	@# golangci-lint gets its VERSION checked, not just its presence, because
+	@# presence is not the failure mode. A binary built with an older Go than
+	@# go.mod targets refuses to run at all:
+	@#
+	@#   Error: can't load config: the Go language version (go1.25) used to
+	@#   build golangci-lint is lower than the targeted Go version (1.26.9)
+	@#
+	@# and a package-manager copy earlier on PATH silently shadows the pinned
+	@# one `make tools-install` puts in $$(go env GOPATH)/bin. Both happened
+	@# here on 2026-10-18: tools-check said "ok golangci-lint" for a shadowing
+	@# v2.5.0, a local `make ci-checks` failed for that reason and was read as
+	@# green, and CI spent two cycles on it.
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+	  want="$(patsubst v%,%,$(GOLANGCI_LINT_VERSION))"; \
+	  have="$$(golangci-lint --version 2>/dev/null | head -1)"; \
+	  case "$$have" in \
+	    *"version $$want"*) echo "  ok      golangci-lint $$want";; \
+	    *) echo "  WRONG   golangci-lint: tools/versions.env pins $$want, but PATH has"; \
+	       echo "            $$have"; \
+	       echo "          at $$(command -v golangci-lint). 'make tools-install' installs the pin"; \
+	       echo "          into $$(go env GOPATH)/bin — put that directory FIRST on PATH,"; \
+	       echo "          or this copy keeps winning and 'make lint' is not the pinned check.";; \
+	  esac; \
+	else echo "  MISSING golangci-lint (run 'make tools-install')"; fi
 	@# The four protoc plugins `buf generate` shells out to. They are NOT
 	@# installed by `brew install buf sqlc …`, they are `go install`ed, and
 	@# their absence is the first thing a fresh clone hits: `make up` ->

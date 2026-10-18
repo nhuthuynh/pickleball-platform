@@ -31,6 +31,32 @@ linters:
       - legacy
       - std-error-handling
 
+    rules:
+      # SA1019 (use of a deprecated identifier) in _test.go ONLY.
+      #
+      # The proto request fields these tests set — ActorPlayerId,
+      # ActorUserId, PlayerId, AssignedGameAdminUserIds — were deprecated
+      # when the server started deriving the actor from the bearer token
+      # instead of trusting the request body (#144 / T55.1). The tests that
+      # pin that behaviour have to set the deprecated field: their whole
+      # point is that a client claiming "I am this player" is ignored. The
+      # call sites are commented `// the lie`.
+      #
+      # Production code is NOT excluded, and today triggers SA1019 nowhere:
+      # all 40 findings are in _test.go (counted, not assumed —
+      # `golangci-lint run ./... | grep SA1019` by file). If a non-test file
+      # ever reaches for a deprecated API, this rule leaves it failing.
+      #
+      # Needed from golangci-lint v2.15.0 (2026-10-18). v2.5.0's staticcheck
+      # did not report these; the repo had to move off v2.5.0 because it
+      # refuses a module targeting Go 1.26, which the Go toolchain bump for
+      # four called net/http advisories made necessary. See
+      # tools/versions.env.
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: SA1019
+
 issues:
   # Report every occurrence, not just the first few per linter/file —
   # a CI gate that hides findings behind "N more issues" is a gate you
