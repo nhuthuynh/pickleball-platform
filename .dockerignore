@@ -1,0 +1,16 @@
+# Keeps the API image's build context to what the Go build actually reads.
+#
+# There was no root .dockerignore, so `COPY . .` sent the whole working tree
+# — including web/node_modules, which is several hundred megabytes and is
+# not read by anything in this image. On a CI runner that is upload time and
+# layer-cache churn on every build.
+#
+# Deliberately conservative: internal/gen is gitignored but REQUIRED (the
+# Dockerfile has a guard that fails without it), so nothing here may exclude
+# generated code. Only things the Go build provably does not read.
+.git
+.github
+build
+web/node_modules
+web/dist
+web/.vite

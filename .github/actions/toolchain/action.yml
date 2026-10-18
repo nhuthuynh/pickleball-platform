@@ -1,0 +1,60 @@
+name: Toolchain
+description: >
+  Installs the Go and Node toolchains plus the pinned build tools this repo
+  needs, by calling the repo's own `make tools-install`.
+
+# Why a composite action rather than the same six steps in four jobs: there
+# is one definition of "what this build needs", and it is the Makefile's.
+# Neither the Go version, the Node version, nor any tool version is written
+# down here — they come from go.mod, web/package.json and
+# tools/versions.env respectively, so this file cannot drift away from them.
+# That is not a style preference: the defect this repo shipped for 66
+# sprints was a Go version written down twice (go.mod said 1.25, the
+# Dockerfile said 1.24) with nothing comparing the copies.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go (version from go.mod)
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: go.mod
+        cache-dependency-path: go.sum
+
+    # .node-version, not web/package.json's "engines". engines is a RANGE
+    # (`^22.18.0 || >=24.12.0`), and setup-node resolves a range to the
+    # highest available match — which would silently run CI on a Node
+    # nobody has tested the build against. .node-version pins one version;
+    # web/.npmrc's `engine-strict=true` is what stops it drifting outside
+    # the supported range, since the first `npm ci` then fails.
+    - name: Set up Node (version from .node-version)
+      uses: actions/setup-node@v4
+      with:
+        node-version-file: .node-version
+        cache: npm
+        cache-dependency-path: web/package-lock.json
+
+    # Cached on the pins themselves, so a version bump in
+    # tools/versions.env invalidates the cache and nothing else does.
+    - name: Cache the go-installed build tools
+      id: tools-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/go/bin
+        key: tools-${{ runner.os }}-${{ hashFiles('tools/versions.env') }}
+
+    - name: Install the pinned build tools
+      if: steps.tools-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: make tools-install
+
+    - name: Put the tool directory on PATH
+      shell: bash
+      run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+    # Prints "ok"/"MISSING" per tool. Not a gate on its own — a missing tool
+    # fails the step that needs it — but it turns "make generate: buf: not
+    # found" three minutes in into one legible line at the top of the log.
+    - name: Report the toolchain
+      shell: bash
+      run: make tools-check
