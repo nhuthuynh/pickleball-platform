@@ -47,7 +47,7 @@ isn't.
 
 ## Quick start
 
-You need **Go >= 1.25**, **Node >= 22.18**, and **Docker** (for `make up`).
+You need **Go >= 1.26.9**, **Node >= 22.18**, and **Docker** (for `make up`).
 Everything else one command installs.
 
 ```bash

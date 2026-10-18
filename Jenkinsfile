@@ -39,7 +39,8 @@
 // is corrected here rather than the decision reopened.
 //
 // The agent MUST provide:
-//   - Go >= 1.25 on PATH (go.mod says 1.25.0)
+//   - Go >= 1.26.9 on PATH (go.mod says 1.26.9 — four called net/http
+//     HTTP/2 advisories are only fixed at go1.26.9; see the Dockerfile)
 //   - Node >= 22.18 and npm on PATH (web/package.json "engines")
 //   - git, make, curl
 //
