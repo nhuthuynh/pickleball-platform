@@ -156,10 +156,52 @@ ghcr.io/nhuthuynh/pickleball-platform/web:<sha>
 ```
 
 No secret is involved — the workflow's built-in `GITHUB_TOKEN` can push to
-this repository's own package namespace. **Deploying** those images is not
-wired: that needs a target and a credential this project does not have yet,
-and a stage that cannot run is worth less than a documented gap. Pin a
-deployment to the sha tag, not to `edge`.
+this repository's own package namespace. **Deploying** those images to a
+server is not wired: that needs a target and a credential this project does
+not have yet, and a stage that cannot run is worth less than a documented
+gap.
+
+### Running the prototype without building anything
+
+The published images are what `make prototype` runs, so a first look needs
+no toolchain, no codegen and no Go or Node — only Docker and this checkout:
+
+```bash
+make prototype                  # pull + start
+# -> http://localhost:5173
+make prototype-down             # stop, and drop the database volume
+```
+
+`make up` remains the development path: it builds both images from your
+working tree, which needs the full toolchain, because both Dockerfiles
+refuse to build without generated code. That requirement is right for
+development and wrong for "let me see the thing run", which is why these are
+two targets.
+
+`PICKLEBALL_TAG` selects the image tag and defaults to `edge`, the shared
+branch's tip. Pin the commit sha for anything you intend to keep or compare
+against — `edge` moves:
+
+```bash
+PICKLEBALL_TAG=<sha> make prototype
+```
+
+**If `make prototype` fails to pull with a `401` / `denied`,** the GHCR
+packages are private. A package published with the workflow's
+`GITHUB_TOKEN` does not automatically inherit this repository's public
+visibility — a repository admin makes it public once, under the package's
+own settings (**Packages → the package → Package settings → Change
+visibility**), or everyone pulling runs `docker login ghcr.io` with a token
+carrying `read:packages`. Which of the two applies here is a property of the
+account's package defaults, not of this file, so check it on the first
+publish rather than trusting this paragraph.
+
+`compose.prototype.yml` is an **override** of `docker-compose.yml` that adds
+two `image:` lines and nothing else, so every environment variable, mount,
+port and healthcheck stays defined in one place. `make prototype` passes
+`--no-build` deliberately: the base file still defines `build:`, and without
+it compose would quietly build from your checkout and the published images
+would never be exercised.
 
 ### Running the same checks locally
 
@@ -356,6 +398,7 @@ loadtest/                  k6 scenarios (opt-in, not a per-PR gate)
 web/                       Vue client (+ its Dockerfile / nginx config)
 docs/                       spec, operating handbook, design review, ADRs, reviews
 .github/workflows/ci.yml   the CI/CD pipeline that runs (Actions)
+compose.prototype.yml      run the published images: `make prototype`
 .github/actions/toolchain  Go + Node + pinned build tools, shared by its jobs
 tools/versions.env         pinned versions of the go-installed build tools
 Jenkinsfile                the Jenkins port; has never run — see its header

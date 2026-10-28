@@ -1,5 +1,5 @@
 .PHONY: tools-install test-domain test-platform test-tools test-adapters test-cmd gate-coverage binary-check dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
-        build-web build-images security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
+        build-web build-images prototype prototype-down security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
 
 # Pinned versions of the `go install`ed build tools. `include`, not a copy:
 # CI calls `make tools-install`, so this one file is what both a runner and
@@ -195,6 +195,37 @@ e2e:
 	@mkdir -p build/e2e
 	node web/e2e/journey.mjs "$(E2E_TOKEN_FILE)" build/e2e "$(or $(E2E_APP_URL),http://127.0.0.1:5173)"
 
+
+# Run the prototype from the images the pipeline published, with no build,
+# no codegen and no Go/Node toolchain — see compose.prototype.yml's header.
+#
+# This is the "let me see it run" path. `make up` is the development path and
+# needs the full toolchain, because both Dockerfiles refuse to build without
+# generated code; for 66 sprints that meant the only way to look at this
+# product was to first get codegen working, and `make up` did not work
+# either (#339, and the Go image that had never built).
+#
+# --no-build is load-bearing: docker-compose.yml defines `build:` for both
+# services and the override only adds `image:`, so without it compose would
+# happily build from this checkout and the published images would never be
+# exercised. --pull always on the pull step keeps `edge` honest rather than
+# serving a stale local copy of that tag.
+PROTOTYPE_COMPOSE = -f docker-compose.yml -f compose.prototype.yml
+
+.PHONY: prototype prototype-down
+prototype:
+	@docker info >/dev/null 2>&1 || { echo "No Docker daemon reachable — start it first (see 'make ci-integration' for the one-liner)."; exit 1; }
+	docker compose $(PROTOTYPE_COMPOSE) pull
+	docker compose $(PROTOTYPE_COMPOSE) up -d --no-build
+	@echo
+	@echo "prototype: up. The app is at http://localhost:5173"
+	@echo "Sign in with a local-dev token:  TOKEN=$$(make -s dev-token)"
+	@echo "Then /sign-in -> /welcome -> Discover > Add a facility -> Games > Create a game."
+	@echo "See README's \"Your first run, in the browser\"."
+	@echo "Stop with: make prototype-down"
+
+prototype-down:
+	docker compose $(PROTOTYPE_COMPOSE) down -v
 
 # Builds both deployment images: the Go API server and the nginx-served web
 # bundle. ONE definition of how this repo is containerised, used by a
