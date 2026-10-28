@@ -1,0 +1,218 @@
+# The live CI/CD pipeline for this repository.
+#
+# Every job here runs the repo's OWN make targets. It deliberately does not
+# re-list the steps those targets contain: issue #129 recorded what the
+# second copy costs — the Jenkinsfile hand-listed `make ci`'s steps, and by
+# the time anyone looked it had drifted by a whole check (`vet-integration`
+# was in the local gate and not in CI). So a new gate added to `ci-checks`
+# is picked up here with no change to this file, which is the point.
+#
+# Why GitHub Actions when docs/technology-options.md picks Jenkins: that
+# decision stands for the eventual deployment pipeline, and the Jenkinsfile
+# is still here. But it needs a controller, five plugins, a webhook and a
+# credential that do not exist, so it has never run once — and this
+# repository's pull requests showed ZERO checks for 66 sprints while a
+# 20 KB pipeline sat in the tree. This file runs. See the Jenkinsfile's own
+# header for the division of labour.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - claude/go-backend-pickleball-7up34j
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per ref. A superseded PR run is cancelled; a push to the shared
+# branch is not, because its run is what publishes the images.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # `make ci-checks`: generate, tidy, fmt, lint, the five Go test targets,
+  # vet-integration, gate-coverage, docs-index-check, lock-check,
+  # binary-check, dockerfile-go-version, the web client codegen, lint-web,
+  # test-web, build-web, and `go build ./...`.
+  gate:
+    name: Gate (make ci-checks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/toolchain
+
+      # ci-checks reaches generate-client, whose own guard would npm-ci for
+      # us. Doing it here keeps it a clean deterministic install from the
+      # lockfile, and keeps `make lock-check`'s subject honest.
+      - name: Install web dependencies
+        run: npm --prefix web ci
+
+      - name: make ci-checks
+        run: make ci-checks
+
+      # `make ci-checks` runs `go mod tidy`. If that CHANGED anything, the
+      # committed go.mod/go.sum were not tidy, which is a real defect and
+      # not something to print and walk past.
+      - name: go.mod and go.sum are tidy
+        run: |
+          if ! git diff --quiet -- go.mod go.sum; then
+            echo '::error::make tidy changed go.mod/go.sum - commit the result of running make tidy.'
+            git --no-pager diff -- go.mod go.sum
+            exit 1
+          fi
+          echo "go.mod and go.sum are tidy."
+
+      # The same web suite ci-checks already ran, through the JUnit
+      # reporter, so a failure is readable per-test rather than as a wall of
+      # vitest output. `test:ci` is `vitest run` plus reporters.
+      - name: Web test report
+        if: always()
+        run: make test-web-ci
+
+      - name: Upload the web test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-junit
+          path: build/web-junit.xml
+          if-no-files-found: warn
+
+  # The suite that needs a real Postgres (testcontainers-go). Every sprint
+  # from T4 to T60 shipped these tests without running them, recording "no
+  # Docker daemon available"; T61 ran them and found two live production
+  # defects, and a third came out of the review of the fix. A GitHub runner
+  # has a Docker daemon, so there is no skip path here at all: if this job
+  # cannot run the suite, it fails.
+  integration:
+    name: Integration (make ci-integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/toolchain
+
+      # `make test` has no `generate` prerequisite and the adapters import
+      # internal/gen, which is gitignored.
+      - name: make generate
+        run: make generate
+
+      - name: make ci-integration
+        run: make ci-integration
+
+      - name: Upload the Go test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-junit
+          path: |
+            build/junit.xml
+            build/coverage.out
+          if-no-files-found: warn
+
+  # govulncheck + npm audit, gated by tools/vulngate against
+  # security/vuln-baseline.json.
+  #
+  # SKIP_GOVULNCHECK is NEVER set here. It exists for a developer whose
+  # environment cannot reach vuln.go.dev (this project's own containers get
+  # `Forbidden` fetching the vulnerability index), and the Makefile warns
+  # loudly when it is used. A runner can reach it, so the Go half runs.
+  security:
+    name: Security (make security)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/toolchain
+
+      # govulncheck analyses the whole module, so it needs the generated
+      # packages to exist.
+      - name: make generate
+        run: make generate
+
+      - name: make security
+        run: make security
+
+      - name: Upload the scan reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: |
+            build/govulncheck.json
+            build/npm-audit.json
+          if-no-files-found: warn
+
+  # Builds both deployment images on every PR — the check this repository
+  # most conspicuously lacked, since the API image had never built at all —
+  # and publishes them to GHCR on a push to the shared branch.
+  #
+  # No secret is required: GITHUB_TOKEN can push to this repository's own
+  # package namespace. That is why publishing is wired and deploying is not;
+  # a deploy needs a target and a credential that do not exist yet.
+  images:
+    name: Images (make build-images)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/toolchain
+
+      - name: Install web dependencies
+        run: npm --prefix web ci
+
+      # GHCR rejects an uppercase path; a repository owner may contain
+      # capitals, so lowercase it rather than assuming.
+      - name: Work out the image prefix
+        id: names
+        run: |
+          echo "prefix=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+
+      # build-images depends on `generate` and `generate-client`: both
+      # Dockerfiles refuse to build without the generated code, by design.
+      - name: make build-images
+        run: make build-images IMAGE_PREFIX=${{ steps.names.outputs.prefix }} IMAGE_TAG=${{ github.sha }}
+
+      # Prove the API image actually starts and serves, rather than only
+      # that it compiled. It must REFUSE to start without an auth verifier
+      # (T13.5, #136), so this checks the refusal — a server that came up
+      # here would be the defect.
+      - name: The API image refuses to start without auth configuration
+        run: |
+          set +e
+          out=$(docker run --rm ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
+          status=$?
+          echo "$out"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::the server started with no AUTH_* configuration — it is supposed to refuse (T13.5, #136)."
+            exit 1
+          fi
+          echo "Exited $status, as designed."
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # `edge` tracks the shared branch's tip; the immutable tag is the
+      # commit sha, which is what a deploy should pin to.
+      - name: Push to GHCR
+        if: github.event_name == 'push'
+        run: |
+          set -e
+          for image in api web; do
+            src="${{ steps.names.outputs.prefix }}/$image:${{ github.sha }}"
+            docker tag "$src" "${{ steps.names.outputs.prefix }}/$image:edge"
+            docker push "$src"
+            docker push "${{ steps.names.outputs.prefix }}/$image:edge"
+          done

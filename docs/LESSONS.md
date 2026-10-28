@@ -3034,3 +3034,165 @@ findings worth carrying out of this sprint:
   relied on establish *not done* and cannot establish *not recorded*.
 
 Full findings, every quantity with its command, in the retro.
+
+## 2026-10-17/18 — Running it found what 67 sprints of gates did not, and three of the failures were mine
+
+Two days, outside the sprint machine: no plan, no retro, one PR per piece, each
+verified in a browser rather than by a gate. It produced the first runnable
+local stack and the first CI run in this repository's history. Both found
+defects immediately, which is the whole finding.
+
+**`make up` had never worked, for two independent reasons, and neither was
+visible to any gate.**
+
+1. The API image had never built. `go.mod` has said `go 1.25.0` since T0
+   (82a8fe7) and the Dockerfile pinned `golang:1.24-bookworm`, so
+   `go mod download` failed inside every build. No gate could see it because
+   **no gate built the image**: `ci-checks` runs tests and linters against the
+   host toolchain, which is a different Go.
+2. The rendered app could not reach its own backend (#339): `:5173` and
+   `:8080` are different origins and the server sends no
+   `Access-Control-Allow-Origin`, so the browser blocked every call before it
+   left.
+
+   **Lesson:** compiling is not running, and "the gate is green" says nothing
+   about artifacts the gate does not build. `make dockerfile-go-version` now
+   compares the two declared versions, and the CI Images job builds both
+   images on every PR — which is the check that catches the *next* one of
+   these rather than this one.
+
+**Two screens the MVP cannot do without were unreachable by clicking.**
+Nothing linked to `/facilities/onboard` or `/games/new`; they had existed since
+T7.4 and T8.8. The journey could be completed only by typing URLs — which is
+exactly how the e2e script drove it, so the script could not see the gap.
+
+> **Lesson:** a verification script that navigates by URL cannot detect an
+> unreachable screen. It now clicks the nav and fails loudly when a link is
+> missing. Note what the sub-level nav mechanism T9.6 built was being used
+> for: it reached *competition* creation and never the game creation under it.
+
+**The e2e script reported a pass on a second run while doing none of the
+things it claimed.** Three separate mechanisms, all found by making it click:
+a fixed facility name meant run 2 clicked run 1's facility and hit the EXCLUDE
+constraint; a date-only "is it listed?" check found run 1's game and passed;
+and the card locator matched on a formatted start time that **never matched at
+all**, because Intl renders the space before AM/PM as U+202F in the browser
+while Node's `toLocaleTimeString` used a plain one — so `hasText` found
+nothing and the `.first()` fallback silently opened an earlier run's card.
+
+> **Lesson:** a fallback in a verification script converts "not found" into a
+> false pass. The fallback is gone; if this run's game is not on the list the
+> script says so and stops. Each run now creates its own facility and books
+> its own slot.
+
+**`make security`'s Go half had never run in any environment, which meant the
+npm half had never run either** — `security-go` runs first, and its failure
+took the whole target down. `security/vuln-baseline.json` said so in as many
+words: npm measured, "the Go side is UNMEASURED", and the first CI run with
+normal network access would establish the real baseline. That run reported 155
+gating findings, which were **eight** advisories repeated once per call site,
+all `called`: four HTTP/2 server bugs in stdlib `net/http` (GO-2026-6603,
+-6611, -6612, -6617), two in `google.golang.org/grpc`, two in
+`golang.org/x/text`. A gRPC + grpc-gateway server is squarely exposed to the
+first four. All eight fixed, not baselined.
+
+> **Lesson:** "UNMEASURED" written into a baseline is a debt with a due date,
+> and the due date is the first time a machine that *can* measure runs the
+> gate. It came due 67 sprints late.
+
+### The three that were mine
+
+**I reported a gate run green that had failed.** I wrote the background
+command as `make ci-checks > log 2>&1; echo "exit=$?"; grep …; tail …`, so the
+task runner reported the **last** command's status, not make's. The
+notification said "exit code 0"; the log said `exit=2` and named the failure.
+I asserted "`make ci-checks` green on Go 1.26.9" in a commit message, in a PR
+body, and to the user, and pushed on it. CI then failed on exactly the error
+the log had recorded.
+
+> **Lesson:** when an exit code is the evidence, the command it belongs to
+> must be the last thing the shell runs — and the claim must quote the log,
+> not a runner's summary of it. This is T62.2's rule ("every quantity carries
+> its runnable command") applied to a status rather than a number: *the
+> command that produced the claim must be the command whose result is read.*
+> The correction went in the next commit message, in the PR body, and in a PR
+> comment, rather than being edited away.
+
+**`make tools-check` certified the wrong binary.** It reported
+`ok      golangci-lint` throughout, because it checked only *presence*. Two
+things were wrong at once: a package-manager copy at `/usr/local/bin` shadowed
+the pinned one `make tools-install` puts in `$(go env GOPATH)/bin`, and that
+copy was built with an older Go than `go.mod` targets, which makes
+golangci-lint refuse to run at all. So the tool whose job is "tell a new
+machine what is missing" told me the thing that was wrong was fine.
+
+> **Lesson:** a tool check that tests presence and not identity will certify
+> the wrong tool. It now compares the version against the pin and names the
+> binary's path and what to do about it, verified in both PATH orders.
+
+**A toolchain bump has a blast radius through the tools that read the
+toolchain version, and I did not budget for it.** Fixing the four stdlib
+advisories required Go >= 1.26.9; golangci-lint v2.5.0 refuses to lint a module
+targeting 1.26; v2.15.0's staticcheck then reported 40 `SA1019` findings, all
+in `_test.go` and none in production code — nearly all in the authz tests that
+*set* a deprecated actor field precisely to prove the server ignores it.
+
+> **Lesson:** budget the tool consequences into the same change as a language
+> version bump. Two CI cycles went on discovering them one at a time.
+
+### Two structural fixes this produced
+
+- **A pin belongs in a file every reader shares.** The tool versions lived in
+  the Jenkinsfile's `environment` block while `make tools-install` used
+  `@latest` — so the local gate and the pipeline could install different
+  tools, and the four protoc plugins floated at `@latest` in *both*.
+  `tools/versions.env` is now the one definition, read by the target that CI
+  calls.
+- **"Let me see it run" must not require the development toolchain.** Both
+  Dockerfiles refuse to build without generated code, so for 67 sprints the
+  only path to a running app went through a working codegen setup — and ended
+  at a stack that did not work anyway. `make prototype`
+  (`compose.prototype.yml`) runs the images the pipeline publishes: no build,
+  no codegen, no Go or Node. It is an override of `docker-compose.yml` adding
+  two `image:` lines, so it cannot drift from how the stack is wired.
+
+### What this says about the method
+
+Every one of these had been reported green, for sprints, by gates that were
+individually correct. The pipeline's first run found eight live
+vulnerabilities; opening a browser found a stack that had never started and
+two screens nobody could reach; running the verification script twice found it
+lying. None of that needed a new process. It needed executing the artifacts
+this project had been describing.
+
+### Addendum, ten days later: a pin is not permanently safe
+
+`69fbb88` changed no dependency, and the Security job failed on it anyway.
+`govulncheck` and `npm audit` read a live database, so a gate that passed on
+the 18th can fail on the 28th — which is the floating scanner working, not
+flaking. Two new `high` npm advisories:
+
+| Package | Vulnerable | Fixed |
+|---|---|---|
+| `undici` | `7.0.0 – 7.30.0` | 7.30.1 |
+| `vite` | `8.2.0 – 8.2.3` | 8.2.4 |
+
+**The `overrides` block already pinned `undici` to `^7.29.1` — inside the new
+vulnerable range.** T63.2 added that pin to fix an advisory, and it was
+correct when written; a later advisory moved the floor underneath it.
+
+> **Lesson:** an `overrides` entry records "at least this version", not "safe".
+> A pin written for one advisory can sit inside the next one's range, so a
+> green security gate is a statement about a date and nothing more. Re-reading
+> the pins when the gate goes red is part of the fix, not a separate audit.
+
+Mechanics worth keeping, since they cost an hour: both
+`npm install --package-lock-only` and `npm update vite undici` died on npm
+10.9.7's `edgesOut` crash on this graph — confirming #320's note from the
+other direction, since `npm update` succeeding on `nanoid`/`vue`/`js-yaml`
+had been read as "npm update is fine". npm 12.2.1 in a scratch prefix
+resolved the lockfile in one go. And the fix was mutation-verified the way
+T63 prescribes: reverting **only** `web/package-lock.json`, with the raised
+pins left in `package.json`, brought back exactly those two advisories by
+name; restoring it returned `high: 0`. The restore came from a scratchpad
+copy, never `git checkout`.

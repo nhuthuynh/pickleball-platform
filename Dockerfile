@@ -8,7 +8,15 @@
 # **the server image has never built**. `make up` could not start the stack
 # for 66 sprints, and nothing noticed because no gate builds this image.
 # `make dockerfile-go-version` now compares the two.
-FROM golang:1.25-bookworm AS build
+#
+# Bumped 1.25 -> 1.26 on 2026-10-18, driven by the FIRST CI run of
+# `make security`: govulncheck reported four CALLED net/http HTTP/2
+# advisories (GO-2026-6603, -6611, -6612, -6617) whose only fix is a
+# toolchain at or above go1.26.9. The minor tag floats to the newest 1.26.x,
+# so later patches arrive without a commit here; go.mod's `go 1.26.9` sets
+# the floor, and the gate above keeps the two in step — it is what caught
+# this pair going out of sync while the bump was being made.
+FROM golang:1.26-bookworm AS build
 WORKDIR /src
 
 COPY go.mod go.sum ./

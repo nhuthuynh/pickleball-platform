@@ -1,0 +1,46 @@
+# Run the prototype from the PUBLISHED images, instead of building them.
+#
+#   make prototype          # pull + start, then open http://localhost:5173
+#   make prototype-down     # stop and drop the volume
+#
+# Why this file exists
+# --------------------
+# `make up` builds both images from this checkout, which needs the full
+# toolchain: Go, Node, buf, sqlc and the four protoc plugins, because both
+# Dockerfiles refuse to build without generated code. That is right for
+# development and wrong for "let me see the thing run": a first look should
+# not require a working codegen setup.
+#
+# The CI pipeline already builds and publishes both images on every push to
+# the shared branch (.github/workflows/ci.yml, the Images job). This file is
+# what makes that publishing useful on a laptop rather than only inside the
+# pipeline. Nothing here needs the repository to be buildable — only
+# checked out, because db/migrations is mounted into Postgres and dev/auth
+# supplies the local-dev key fixture.
+#
+# It is an OVERRIDE, not a second stack
+# -------------------------------------
+# Only the two `image:` lines differ from docker-compose.yml. Every
+# environment variable, mount, port, healthcheck and restart policy is
+# inherited from it, so this file cannot drift away from how the stack is
+# actually wired — the thing issue #129 recorded about the Jenkinsfile
+# re-listing `make ci`'s steps by hand.
+#
+# `build:` stays inherited from the base file, which is why `make prototype`
+# passes `--no-build`: that is what guarantees these published images are
+# what runs, rather than a silent local rebuild.
+#
+# Tags
+# ----
+# PICKLEBALL_TAG defaults to `edge`, which tracks the shared branch's tip.
+# For anything you intend to keep or compare against, pin the commit sha the
+# pipeline also tags:
+#
+#   PICKLEBALL_TAG=8ef6884... make prototype
+#
+services:
+  app:
+    image: ghcr.io/nhuthuynh/pickleball-platform/api:${PICKLEBALL_TAG:-edge}
+
+  web:
+    image: ghcr.io/nhuthuynh/pickleball-platform/web:${PICKLEBALL_TAG:-edge}

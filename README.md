@@ -47,7 +47,7 @@ isn't.
 
 ## Quick start
 
-You need **Go >= 1.25**, **Node >= 22.18**, and **Docker** (for `make up`).
+You need **Go >= 1.26.9**, **Node >= 22.18**, and **Docker** (for `make up`).
 Everything else one command installs.
 
 ```bash
@@ -119,18 +119,109 @@ code is up to date before anything is built — the web image refuses to
 build without it, exactly as the API image refuses to build without
 `internal/gen`.
 
-## Running the CI checks locally
+## CI/CD
 
-`make ci` runs the same lint / unit-test / codegen / build / security-scan
-sequence the Jenkins pipeline runs, in the same order, so "green locally"
-and "green in CI" mean the same thing:
+[![CI](https://github.com/nhuthuynh/pickleball-platform/actions/workflows/ci.yml/badge.svg?branch=claude/go-backend-pickleball-7up34j)](https://github.com/nhuthuynh/pickleball-platform/actions/workflows/ci.yml)
+
+
+The pipeline is **GitHub Actions** — `.github/workflows/ci.yml` — and it runs
+on every pull request and every push to the shared branch. Four jobs:
+
+| Job | What it runs | Why it exists |
+|---|---|---|
+| Gate | `make ci-checks` | codegen, tidy, format, lint, the five Go test targets, `vet-integration`, the meta-gates, the web client codegen, lint-web, test-web, build-web, `go build ./...` |
+| Integration | `make ci-integration` | the testcontainers suite against a real Postgres — **no skip path**, since a runner has a Docker daemon |
+| Security | `make security` | `govulncheck` + `npm audit`, gated by `cmd/vulngate` against the baseline |
+| Images | `make build-images` | builds the API and web images on every PR, and publishes them to GHCR on a push to the shared branch |
+
+Every job calls this repo's own `make` targets rather than re-listing their
+steps, so a check added to `make ci-checks` is picked up with no change to
+the workflow. That is the direct lesson of issue #129: the Jenkinsfile hand-
+listed `make ci`'s steps and had drifted by a whole check before anyone
+looked.
+
+`Jenkinsfile` is still here, and `docs/technology-options.md` still names
+Jenkins for the eventual deployment pipeline — but it needs a controller,
+plugins, a webhook and a credential that do not exist, and it has never run.
+Its header says so, and points here.
+
+### Published images
+
+A push to the shared branch publishes two images, tagged with the commit sha
+and with `edge`:
+
+```
+ghcr.io/nhuthuynh/pickleball-platform/api:<sha>
+ghcr.io/nhuthuynh/pickleball-platform/web:<sha>
+```
+
+No secret is involved — the workflow's built-in `GITHUB_TOKEN` can push to
+this repository's own package namespace. **Deploying** those images to a
+server is not wired: that needs a target and a credential this project does
+not have yet, and a stage that cannot run is worth less than a documented
+gap.
+
+### Running the prototype without building anything
+
+The published images are what `make prototype` runs, so a first look needs
+no toolchain, no codegen and no Go or Node — only Docker and this checkout:
+
+```bash
+make prototype                  # pull + start
+# -> http://localhost:5173
+make prototype-down             # stop, and drop the database volume
+```
+
+`make up` remains the development path: it builds both images from your
+working tree, which needs the full toolchain, because both Dockerfiles
+refuse to build without generated code. That requirement is right for
+development and wrong for "let me see the thing run", which is why these are
+two targets.
+
+`PICKLEBALL_TAG` selects the image tag and defaults to `edge`, the shared
+branch's tip. Pin the commit sha for anything you intend to keep or compare
+against — `edge` moves:
+
+```bash
+PICKLEBALL_TAG=<sha> make prototype
+```
+
+**If `make prototype` fails to pull with a `401` / `denied`,** the GHCR
+packages are private. A package published with the workflow's
+`GITHUB_TOKEN` does not automatically inherit this repository's public
+visibility — a repository admin makes it public once, under the package's
+own settings (**Packages → the package → Package settings → Change
+visibility**), or everyone pulling runs `docker login ghcr.io` with a token
+carrying `read:packages`. Which of the two applies here is a property of the
+account's package defaults, not of this file, so check it on the first
+publish rather than trusting this paragraph.
+
+`compose.prototype.yml` is an **override** of `docker-compose.yml` that adds
+two `image:` lines and nothing else, so every environment variable, mount,
+port and healthcheck stays defined in one place. `make prototype` passes
+`--no-build` deliberately: the base file still defines `build:`, and without
+it compose would quietly build from your checkout and the published images
+would never be exercised.
+
+### Running the same checks locally
+
+`make ci` runs the same sequence, in the same order, so "green locally" and
+"green in CI" mean the same thing:
 
 ```bash
 make ci
 ```
 
+Build the images the way CI does (both Dockerfiles refuse to build without
+generated code, so this regenerates first):
+
+```bash
+make build-images
+```
+
 The Docker-dependent half is a separate target because a CI agent may not
-have a Docker daemon and the pipeline skips that stage on the same condition.
+have a Docker daemon and the Jenkins pipeline skips that stage on the same
+condition. The Actions pipeline does not: it fails instead.
 **It is not separate because it cannot run here** — that claim was this
 project's standing belief until T61 tested it, and the daemon starts in about
 four seconds (see CLAUDE.md's "Docker works here"). Run it:
@@ -306,7 +397,11 @@ security/                  vuln-baseline.json — accepted findings, with reason
 loadtest/                  k6 scenarios (opt-in, not a per-PR gate)
 web/                       Vue client (+ its Dockerfile / nginx config)
 docs/                       spec, operating handbook, design review, ADRs, reviews
-Jenkinsfile                CI/CD pipeline; `make ci` runs the same checks locally
+.github/workflows/ci.yml   the CI/CD pipeline that runs (Actions)
+compose.prototype.yml      run the published images: `make prototype`
+.github/actions/toolchain  Go + Node + pinned build tools, shared by its jobs
+tools/versions.env         pinned versions of the go-installed build tools
+Jenkinsfile                the Jenkins port; has never run — see its header
 ```
 
 See `CLAUDE.md` "Architecture" and "Locked decisions" before adding a new
