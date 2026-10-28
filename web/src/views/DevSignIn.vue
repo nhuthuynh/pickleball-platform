@@ -31,6 +31,7 @@ import {
   signIn,
   signOut,
 } from '../state/authSession'
+import { ensureCurrentUserId } from '../api/currentUser'
 
 const router = useRouter()
 const token = ref('')
@@ -53,6 +54,12 @@ function submit(): void {
   error.value = null
   signIn(trimmed, userId.value)
   clearAuthRejected()
+  // #344: the token carries the provider's subject, not this platform's
+  // user id. Ask the server for it rather than requiring the player to
+  // paste one, or to re-create an account they already have. A 404 raises
+  // the "finish setting up your profile" banner, which is the correct next
+  // step for a genuinely new player.
+  void ensureCurrentUserId()
   void router.push('/facilities')
 }
 

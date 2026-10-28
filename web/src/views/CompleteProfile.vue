@@ -24,7 +24,8 @@ import { computed, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import { identityClient, type IdentityClient } from '../api/identityClient'
-import { rememberUserId, isSignedIn } from '../state/authSession'
+import { clearProfileMissing, rememberUserId, isSignedIn } from '../state/authSession'
+import { ensureCurrentUserId } from '../api/currentUser'
 import { MIN_SELF_REPORTED_LEVEL, MAX_SELF_REPORTED_LEVEL } from '../models/identityLevel'
 
 const props = defineProps<{
@@ -63,6 +64,17 @@ async function submit(): Promise<void> {
   saving.value = false
 
   if (apiError !== undefined || data?.user?.id === undefined) {
+    // The account may already exist for this verified subject — that is
+    // what a 409 means, and it is the ordinary case for a player whose
+    // browser lost its stored id (#344). It is not an error to report: ask
+    // the server who we are, and if it answers, this screen has nothing
+    // left to do.
+    if ((await ensureCurrentUserId()) === 'resolved') {
+      clearProfileMissing()
+      await router.push('/profile')
+      return
+    }
+
     // The server's own message, not a sentence invented here — if it says
     // the account already exists, that is worth reading verbatim.
     error.value =
@@ -71,10 +83,8 @@ async function submit(): Promise<void> {
     return
   }
 
-  // The token carries the provider's `sub`, not this platform's user id, and
-  // there is no "get me" RPC — so the id from this response is the only
-  // place it comes from.
   rememberUserId(data.user.id)
+  clearProfileMissing()
   await router.push('/profile')
 }
 </script>
