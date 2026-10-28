@@ -186,15 +186,38 @@ against — `edge` moves:
 PICKLEBALL_TAG=<sha> make prototype
 ```
 
-**If `make prototype` fails to pull with a `401` / `denied`,** the GHCR
-packages are private. A package published with the workflow's
-`GITHUB_TOKEN` does not automatically inherit this repository's public
-visibility — a repository admin makes it public once, under the package's
-own settings (**Packages → the package → Package settings → Change
-visibility**), or everyone pulling runs `docker login ghcr.io` with a token
-carrying `read:packages`. Which of the two applies here is a property of the
-account's package defaults, not of this file, so check it on the first
-publish rather than trusting this paragraph.
+**No `docker login` is needed.** Measured against the first publish
+(2026-10-28), not assumed: an anonymous registry token reads the manifest.
+
+```
+$ T=$(curl -s "https://ghcr.io/token?scope=repository:nhuthuynh/pickleball-platform/api:pull&service=ghcr.io" \
+      | python3 -c "import json,sys;print(json.load(sys.stdin)['token'])")
+$ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $T" \
+      https://ghcr.io/v2/nhuthuynh/pickleball-platform/api/manifests/edge
+200
+```
+
+An earlier draft of this section said the packages would probably be private
+and would need their visibility changed, because a package published with
+the workflow's `GITHUB_TOKEN` does not necessarily inherit a repository's
+visibility. That was a guess, and it was wrong for this account; the command
+above is what settles it, and it is here so the next reader can re-settle it
+rather than trust the paragraph.
+
+**It does not work inside this project's own cloud development containers.**
+Their egress policy allows `ghcr.io` — the manifest fetch above succeeds —
+but not `pkg-containers.githubusercontent.com`, which is where GHCR serves
+image *blobs*, so the pull dies partway with `Forbidden` on the layers:
+
+```
+failed to copy: httpReadSeeker: failed open: failed to do request:
+Get "https://pkg-containers.githubusercontent.com/ghcrblobs06/blobs/sha256:…": Forbidden
+```
+
+That is a property of those containers, not of the images or this file: on
+an ordinary machine the pull completes. Allowing that one host in the
+environment's network settings is what makes `make prototype` work there
+too.
 
 `compose.prototype.yml` is an **override** of `docker-compose.yml` that adds
 two `image:` lines and nothing else, so every environment variable, mount,
