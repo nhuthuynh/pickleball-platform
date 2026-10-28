@@ -3164,3 +3164,35 @@ vulnerabilities; opening a browser found a stack that had never started and
 two screens nobody could reach; running the verification script twice found it
 lying. None of that needed a new process. It needed executing the artifacts
 this project had been describing.
+
+### Addendum, ten days later: a pin is not permanently safe
+
+`69fbb88` changed no dependency, and the Security job failed on it anyway.
+`govulncheck` and `npm audit` read a live database, so a gate that passed on
+the 18th can fail on the 28th — which is the floating scanner working, not
+flaking. Two new `high` npm advisories:
+
+| Package | Vulnerable | Fixed |
+|---|---|---|
+| `undici` | `7.0.0 – 7.30.0` | 7.30.1 |
+| `vite` | `8.2.0 – 8.2.3` | 8.2.4 |
+
+**The `overrides` block already pinned `undici` to `^7.29.1` — inside the new
+vulnerable range.** T63.2 added that pin to fix an advisory, and it was
+correct when written; a later advisory moved the floor underneath it.
+
+> **Lesson:** an `overrides` entry records "at least this version", not "safe".
+> A pin written for one advisory can sit inside the next one's range, so a
+> green security gate is a statement about a date and nothing more. Re-reading
+> the pins when the gate goes red is part of the fix, not a separate audit.
+
+Mechanics worth keeping, since they cost an hour: both
+`npm install --package-lock-only` and `npm update vite undici` died on npm
+10.9.7's `edgesOut` crash on this graph — confirming #320's note from the
+other direction, since `npm update` succeeding on `nanoid`/`vue`/`js-yaml`
+had been read as "npm update is fine". npm 12.2.1 in a scratch prefix
+resolved the lockfile in one go. And the fix was mutation-verified the way
+T63 prescribes: reverting **only** `web/package-lock.json`, with the raised
+pins left in `package.json`, brought back exactly those two advisories by
+name; restoring it returned `high: 0`. The restore came from a scratchpad
+copy, never `git checkout`.
