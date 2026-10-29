@@ -41,10 +41,22 @@ function fakeIdentityClient(): IdentityClient {
 }
 
 /** T10.8: resolves any facility id to a fixed Name, same reasoning as
- * fakeIdentityClient above. */
+ * fakeIdentityClient above.
+ *
+ * #342 added `courts` to the response, because the card now resolves court
+ * names from the same GetFacility read rather than printing raw uuids. The
+ * ids match the `game` fixture's courtIds above. */
 function fakeFacilitiesClient(): FacilitiesClient {
   return {
-    GET: vi.fn(async () => ({ data: { facility: { name: 'Riverside Courts' } } })),
+    GET: vi.fn(async () => ({
+      data: {
+        facility: { name: 'Riverside Courts' },
+        courts: [
+          { id: 'court-1', name: 'Court 1' },
+          { id: 'court-2', name: 'Court 2' },
+        ],
+      },
+    })),
     POST: vi.fn(),
   } as unknown as FacilitiesClient
 }
@@ -95,7 +107,16 @@ describe('GameDetailPanel', () => {
     expect(wrapper.text()).toContain('Riverside Courts')
     expect(wrapper.text()).not.toContain('host-1')
     expect(wrapper.text()).not.toContain('facility-1')
-    expect(wrapper.text()).toContain('court-1, court-2')
+    // #342: and the resolved Court Names, for the same reason.
+    //
+    // This line used to read `toContain('court-1, court-2')` — it ASSERTED
+    // the raw ids, two lines below the assertions that the host and
+    // facility ids must NOT appear. The suite had encoded the asymmetry as
+    // intended behaviour, which is why nothing flagged it until someone
+    // opened the page in a browser.
+    expect(wrapper.text()).toContain('Court 1, Court 2')
+    expect(wrapper.text()).not.toContain('court-1')
+    expect(wrapper.text()).not.toContain('court-2')
     // WCAG 1.4.1: spots-left and payment method are text, not color-only.
     expect(wrapper.text()).toContain('3 spots left')
     expect(wrapper.text()).toContain('Cash at facility')

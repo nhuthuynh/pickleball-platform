@@ -108,14 +108,23 @@ func parseFile(path string, parse func(io.Reader) ([]vulngate.Finding, error)) (
 	return findings, nil
 }
 
+// report prints one line per ADVISORY, not per call site (#348).
+//
+// govulncheck emits one record per call site, so this used to print
+// sixty-odd identical copies of one line and head them "155 new gating
+// finding(s)" — a number that moved when call sites moved rather than when
+// exposure changed, and that had to be deduplicated by eye to learn the
+// eight advisories behind it. vulngate.GroupByID collapses them and counts
+// what it collapsed; see its doc comment for why nothing is lost.
 func report(res vulngate.Result) {
 	section := func(title string, fs []vulngate.Finding) {
 		if len(fs) == 0 {
 			return
 		}
-		fmt.Printf("\n%s (%d):\n", title, len(fs))
-		for _, f := range fs {
-			fmt.Printf("  - %s\n", f)
+		groups := vulngate.GroupByID(fs)
+		fmt.Printf("\n%s (%s):\n", title, advisoryCount(groups, fs))
+		for _, g := range groups {
+			fmt.Printf("  - %s\n", g)
 		}
 	}
 
@@ -125,8 +134,25 @@ func report(res vulngate.Result) {
 
 	fmt.Println()
 	if res.Failed() {
-		fmt.Printf("FAIL: %d new gating finding(s). Fix them, or add an explicit, justified entry to the baseline if they genuinely cannot be fixed here.\n", len(res.New))
+		fmt.Printf("FAIL: %s. Fix them, or add an explicit, justified entry to the baseline if they genuinely cannot be fixed here.\n",
+			advisoryCount(vulngate.GroupByID(res.New), res.New))
 		return
 	}
-	fmt.Printf("PASS: no new gating findings (%d baselined, %d below threshold).\n", len(res.Baselined), len(res.Ignored))
+	fmt.Printf("PASS: no new gating findings (%d baselined, %d below threshold).\n",
+		len(vulngate.GroupByID(res.Baselined)), len(vulngate.GroupByID(res.Ignored)))
+}
+
+// advisoryCount renders "8 advisories, 155 call sites" — and plain
+// "3 advisories" when each was reported once, because "3 advisories, 3 call
+// sites" is the same noise this change removes.
+func advisoryCount(groups []vulngate.Group, findings []vulngate.Finding) string {
+	advisories := len(groups)
+	noun := "advisories"
+	if advisories == 1 {
+		noun = "advisory"
+	}
+	if len(findings) == advisories {
+		return fmt.Sprintf("%d %s", advisories, noun)
+	}
+	return fmt.Sprintf("%d %s, %d call sites", advisories, noun, len(findings))
 }
