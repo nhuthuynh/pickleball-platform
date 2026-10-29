@@ -23,6 +23,7 @@ import type { FacilitiesClient } from '../../api/facilitiesClient'
 import GameJoinPanel from './GameJoinPanel.vue'
 import DisplayName from '../identity/DisplayName.vue'
 import VenueName from '../facilities/VenueName.vue'
+import CourtNames from '../facilities/CourtNames.vue'
 
 defineProps<{
   game: GameSummary | null
@@ -90,7 +91,15 @@ const emit = defineEmits<{
         </div>
         <div class="game-detail__field">
           <dt>Court{{ game.courtIds.length > 1 ? 's' : '' }}</dt>
-          <dd>{{ game.courtIds.join(', ') || 'Not set' }}</dd>
+          <dd>
+            <!-- #342: this printed `game.courtIds.join(', ')` — raw uuids,
+                 beside a resolved host name and a resolved facility name. -->
+            <CourtNames
+              :facility-id="game.venueFacilityId"
+              :court-ids="game.courtIds"
+              :client="facilitiesClient"
+            />
+          </dd>
         </div>
         <div class="game-detail__field">
           <!-- WCAG 1.4.1: spots-left is text, never a color-only cue -->
