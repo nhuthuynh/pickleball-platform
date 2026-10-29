@@ -193,7 +193,7 @@ describe('Flagship flow spot check — joining/paying for a Social Game (GameJoi
 
   it('a full-game rejection with the waitlist offer (WCAG 3.3.3)', async () => {
     const client = socialplayFakeClient({
-      postRegistrations: () => ({ data: undefined, error: { message: 'full' }, response: { status: 409 } }),
+      postRegistrations: () => ({ data: undefined, error: { message: 'socialplay: game is at capacity' }, response: { status: 409 } }),
     })
     const wrapper = mount(GameJoinPanel, { props: { game: GAME, client } })
     await wrapper.find('.game-join__form').trigger('submit')
@@ -230,7 +230,7 @@ describe('Flagship flow spot check — joining/paying for a Social Game (GameJoi
 
   it('the waitlist-confirmed state (WCAG 4.1.3 live region)', async () => {
     const client = socialplayFakeClient({
-      postRegistrations: () => ({ data: undefined, error: { message: 'full' }, response: { status: 409 } }),
+      postRegistrations: () => ({ data: undefined, error: { message: 'socialplay: game is at capacity' }, response: { status: 409 } }),
       postWaitlist: () => ({
         data: { entry: { id: 'w1', gameId: 'g1', playerId: 'player-mock-1', position: 4, status: 'WAITLIST_STATUS_WAITING' } },
         error: undefined,
