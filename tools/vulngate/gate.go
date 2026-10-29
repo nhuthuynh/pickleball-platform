@@ -351,3 +351,133 @@ func Evaluate(findings []Finding, b Baseline) Result {
 	}
 	return res
 }
+
+// --- grouping -------------------------------------------------------------
+
+// Group is one advisory, with however many call sites reported it (#348).
+//
+// Why this type exists: govulncheck emits one record per call site, so the
+// gate's first real run reported eight advisories as "155 new gating
+// finding(s)" — sixty-odd identical copies of one line, which had to be
+// deduplicated by eye to learn that four of the eight were a single
+// toolchain bump. The number was also useless as a trend signal, because it
+// moved when call sites moved rather than when exposure changed.
+//
+// Nothing is lost by collapsing them. A Finding carries Scanner, ID,
+// Severity, Reach and Detail, and for one ID every one of those is
+// identical across sites except Reach — the trace that distinguishes the
+// sites is read by reachOf and then discarded, never stored. So there is no
+// per-site detail to keep behind a flag, which is what #348's "keep the
+// per-site detail available" would otherwise have asked for.
+type Group struct {
+	Scanner  Scanner
+	ID       string
+	Severity Severity
+	Reach    Reach
+	Detail   string
+	// Sites is how many findings collapsed into this group: call sites for
+	// govulncheck, advisories-per-package for npm.
+	Sites int
+}
+
+func (g Group) String() string {
+	grade := string(g.Severity)
+	if grade == "" {
+		grade = string(g.Reach)
+	}
+	s := fmt.Sprintf("[%s] %s (%s)", g.Scanner, g.ID, grade)
+	if g.Detail != "" {
+		s += ": " + g.Detail
+	}
+	// Only when there is something to say. "(1 site)" on every line is the
+	// noise this type exists to remove, in a different costume.
+	if g.Sites > 1 {
+		s += fmt.Sprintf(" [%d call sites]", g.Sites)
+	}
+	return s
+}
+
+// reachRank orders reachability by how much it should worry a reader.
+// Gating() keys on ReachCalled, so a group covering both an imported and a
+// called site must report `called` — describing a called vulnerability as
+// merely imported would understate exactly the thing the gate acts on.
+func reachRank(r Reach) int {
+	switch r {
+	case ReachCalled:
+		return 3
+	case ReachImported:
+		return 2
+	case ReachRequired:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// severityRank orders npm severities the same way, for the same reason.
+func severityRank(s Severity) int {
+	switch s {
+	case SevCritical:
+		return 5
+	case SevHigh:
+		return 4
+	case SevModerate:
+		return 3
+	case SevLow:
+		return 2
+	case SevInfo:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// GroupByID collapses findings that describe the same advisory, counting
+// how many collapsed. Order follows first appearance, so a grouped report
+// reads in the order the scanner produced — the property Evaluate also
+// preserves.
+//
+// Keyed by (Scanner, ID), never ID alone: an npm finding's ID is a package
+// name, and nothing stops one sharing a string with a Go advisory id.
+// Baseline.has is scanner-scoped for the same reason.
+func GroupByID(findings []Finding) []Group {
+	type key struct {
+		scanner Scanner
+		id      string
+	}
+	index := make(map[key]int, len(findings))
+	groups := make([]Group, 0, len(findings))
+
+	for _, f := range findings {
+		k := key{f.Scanner, f.ID}
+		i, seen := index[k]
+		if !seen {
+			index[k] = len(groups)
+			groups = append(groups, Group{
+				Scanner:  f.Scanner,
+				ID:       f.ID,
+				Severity: f.Severity,
+				Reach:    f.Reach,
+				Detail:   f.Detail,
+				Sites:    1,
+			})
+			continue
+		}
+
+		g := &groups[i]
+		g.Sites++
+		if reachRank(f.Reach) > reachRank(g.Reach) {
+			g.Reach = f.Reach
+		}
+		if severityRank(f.Severity) > severityRank(g.Severity) {
+			g.Severity = f.Severity
+		}
+		// govulncheck's `osv` line can arrive after the `finding` that
+		// references it, and a report truncated mid-stream can leave some
+		// blank — so take the first non-empty rather than the first.
+		if g.Detail == "" {
+			g.Detail = f.Detail
+		}
+	}
+	return groups
+}
