@@ -102,6 +102,38 @@ func (h *Handler) CreateUser(ctx context.Context, req *identityv1.CreateUserRequ
 	return &identityv1.CreateUserResponse{User: toProto(u)}, nil
 }
 
+// GetCurrentUser resolves the verified token subject to this platform's
+// User (#344).
+//
+// The web client has no other way to learn its own user id: the token
+// carries the identity provider's `sub`, not a `users.id`. Before this
+// RPC, CreateUser's response was the only place that id ever appeared, so
+// a browser that had lost it could not get it back — CreateUser answers
+// AlreadyExists because the account exists, and the player dead-ended on a
+// Profile screen that could load nothing.
+//
+// No principal is Unauthenticated, never PermissionDenied, for the reason
+// CreateUser's comment gives. An authenticated caller with no account is
+// NotFound (via domain.ErrUserNotFound), which is a different remedy from
+// Unauthenticated's: finish signing up, rather than sign in again.
+//
+// The request carries no fields, so there is nothing here to authorize —
+// the caller can only ever reach themselves. That is the property
+// getcurrentuser_test.go's TestGetCurrentUser_CannotReachAnotherUser
+// exists to keep.
+func (h *Handler) GetCurrentUser(ctx context.Context, _ *identityv1.GetCurrentUserRequest) (*identityv1.GetCurrentUserResponse, error) {
+	principal, ok := auth.PrincipalFromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "identity: resolving the current user requires an authenticated caller")
+	}
+
+	u, err := h.svc.UserBySubject(ctx, principal.Subject)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+	return &identityv1.GetCurrentUserResponse{User: toProto(u)}, nil
+}
+
 func (h *Handler) GetUser(ctx context.Context, req *identityv1.GetUserRequest) (*identityv1.GetUserResponse, error) {
 	u, err := h.svc.GetUser(ctx, req.GetUserId())
 	if err != nil {

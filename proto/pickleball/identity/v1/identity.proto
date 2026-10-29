@@ -113,6 +113,19 @@ message GetUserResponse {
   User user = 1;
 }
 
+// GetCurrentUserRequest carries NO fields, deliberately.
+//
+// The caller is the verified token subject and nothing else. A `user_id`
+// here would be a field a client could lie in, which is the whole defect
+// T12.9/T55.1 removed from the other requests in this file — see
+// UpdateSelfReportedLevelRequest's comment and the deprecated actor fields
+// below.
+message GetCurrentUserRequest {}
+
+message GetCurrentUserResponse {
+  User user = 1;
+}
+
 // UpdateSelfReportedLevelRequest requires that the verified caller IS the
 // target user_id (domain.User.EnsureSelf, T10.2) — only a User may update
 // their own self-reported level, nobody else's.
@@ -154,6 +167,44 @@ service IdentityService {
   rpc GetUser(GetUserRequest) returns (GetUserResponse) {
     option (google.api.http) = {
       get: "/v1/users/{user_id}"
+    };
+  }
+
+  // GetCurrentUser resolves the VERIFIED token subject to this platform's
+  // User (#344).
+  //
+  // Without it, CompleteProfile.vue is the only place the web client ever
+  // learns its own user id: the token carries the identity provider's
+  // `sub`, not a `users.id`, so a browser that does not already hold the id
+  // can never obtain it — `POST /v1/users` answers 409 because the account
+  // exists, and the player dead-ends. Clearing site data was enough to lock
+  // someone out of their own profile.
+  //
+  // DECLARED AFTER GetUser ON PURPOSE, and that is not the order you would
+  // guess. `/v1/users/me` and `/v1/users/{user_id}` are this repository's
+  // first literal-vs-wildcard route pair, and grpc-gateway's ServeMux
+  // PREPENDS each registered pattern:
+  //
+  //     // runtime/mux.go, grpc-gateway v2.29.0
+  //     s.handlers[meth] = append([]handler{{pat: pat, h: h}}, s.handlers[meth]...)
+  //
+  // so the LAST pattern registered is the FIRST one matched, and
+  // registration order follows the order of rpcs in this file. Declared
+  // before GetUser — which is where this rpc started, on the assumption
+  // that first-declared wins — `GET /v1/users/me` matched
+  // `/v1/users/{user_id}` with user_id="me" and answered 404, because a
+  // malformed id is answered exactly like an unknown one (T10.2 item 4).
+  //
+  // The failure mode is a plausible-looking 404 rather than an error, so
+  // the ordering is pinned by a test that drives the real REST mux and
+  // probes it with NO principal: this rpc answers 401 there, GetUser
+  // answers 404, which is the only way to tell from outside which one ran
+  // (both produce the same "identity: user not found" message). Swap these
+  // two rpcs and that test fails. See the grpcapi adapter's
+  // getcurrentuser_test.go.
+  rpc GetCurrentUser(GetCurrentUserRequest) returns (GetCurrentUserResponse) {
+    option (google.api.http) = {
+      get: "/v1/users/me"
     };
   }
 
