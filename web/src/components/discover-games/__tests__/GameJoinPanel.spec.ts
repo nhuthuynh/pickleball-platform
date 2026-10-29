@@ -98,7 +98,7 @@ describe('GameJoinPanel', () => {
   describe('game-full / waitlist-offer path', () => {
     it('a 409 (capacity-exceeded) rejection shows a specific message and offers Join waitlist', async () => {
       const client = fakeClient({
-        postRegistrations: () => ({ data: undefined, error: { message: 'full' }, response: { status: 409 } }),
+        postRegistrations: () => ({ data: undefined, error: { message: 'socialplay: game is at capacity' }, response: { status: 409 } }),
       })
       const wrapper = mount(GameJoinPanel, { props: { game, client } })
 
@@ -113,7 +113,7 @@ describe('GameJoinPanel', () => {
 
     it('clicking Join waitlist after a game-full rejection calls JoinWaitlist and shows a confirmation', async () => {
       const client = fakeClient({
-        postRegistrations: () => ({ data: undefined, error: { message: 'full' }, response: { status: 409 } }),
+        postRegistrations: () => ({ data: undefined, error: { message: 'socialplay: game is at capacity' }, response: { status: 409 } }),
         postWaitlist: () => ({
           data: { entry: { id: 'w1', gameId: 'g1', playerId: 'player-mock-1', position: 4, status: 'WAITLIST_STATUS_WAITING' } },
           error: undefined,
@@ -133,6 +133,30 @@ describe('GameJoinPanel', () => {
         body: { playerId: 'player-mock-1' },
       })
       expect(wrapper.text()).toContain('waitlist at position 4')
+    })
+
+    // #345: the complaint this ticket is about, asserted where a person
+    // would see it. An already-registered player must get their own message
+    // and NO waitlist control — offering to queue someone for a game they
+    // are already in is nonsense, and it was what this panel did for every
+    // 409.
+    it('an already-registered rejection shows its own message and NO waitlist offer', async () => {
+      const client = fakeClient({
+        postRegistrations: () => ({
+          data: undefined,
+          error: { message: 'socialplay: player is already registered for this game' },
+          response: { status: 409 },
+        }),
+      })
+      const wrapper = mount(GameJoinPanel, { props: { game, client } })
+
+      await wrapper.find('.game-join__form').trigger('submit')
+      await flushPromises()
+
+      expect(wrapper.find('[role="alert"]').text()).toContain('already registered')
+      expect(wrapper.text()).not.toContain('just filled up')
+      expect(wrapper.find('.game-join__conflict').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Join waitlist')
     })
 
     it('a Game whose SpotsLeft is already known to be 0 (startFull) skips straight to the waitlist offer', () => {

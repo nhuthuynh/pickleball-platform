@@ -31,8 +31,38 @@ function registrationOk(guestCount = 1) {
   }
 }
 
+// The messages below are the SERVER'S OWN, pinned on the Go side by
+// internal/socialplay/adapter/grpcapi/conflict_message_contract_test.go.
+//
+// This fixture used to say `message: 'game is full'`, which the server has
+// never sent. That is why #345 was invisible from the web suite: the one
+// test covering a 409 asserted the full-game behaviour against a made-up
+// message, so it passed whether the client distinguished the conflicts or
+// not — and the client did not.
 function gameFullConflict() {
-  return { data: undefined, error: { message: 'game is full' }, response: { status: 409 } }
+  return {
+    data: undefined,
+    error: { message: 'socialplay: game is at capacity' },
+    response: { status: 409 },
+  }
+}
+
+function alreadyRegisteredConflict() {
+  return {
+    data: undefined,
+    error: { message: 'socialplay: player is already registered for this game' },
+    response: { status: 409 },
+  }
+}
+
+/** A 409 this client has no specific message for — e.g. a sentinel added
+ *  later to the same AlreadyExists group. */
+function unknownConflict() {
+  return {
+    data: undefined,
+    error: { message: 'socialplay: something else that already exists' },
+    response: { status: 409 },
+  }
 }
 
 function waitlistOk(position = 2) {
@@ -100,6 +130,63 @@ describe('useJoinGame', () => {
     expect(client.POST).toHaveBeenCalledWith('/v1/games/{gameId}/registrations', {
       params: { path: { gameId: 'g1' } },
       body: { playerId: 'player-mock-1', guestCount: 2 },
+    })
+  })
+
+  // #345: a 409 is not necessarily "full". Five sentinels share
+  // AlreadyExists on registration paths, and the client used to report
+  // every one of them as "This game just filled up" and offer a waitlist —
+  // so a player who was already registered was invited to wait for a game
+  // they were already in.
+  describe('distinguishing the conflicts a 409 can mean (#345)', () => {
+    it('reports an already-registered player as such, and does NOT offer the waitlist', async () => {
+      const client = fakeClient({ postRegistrations: () => alreadyRegisteredConflict() })
+      const { register, gameFull, alreadyRegistered, registerError } = useJoinGame('g1', client)
+
+      await register('player-mock-1')
+
+      expect(alreadyRegistered.value).toBe(true)
+      expect(registerError.value).toBe('You are already registered for this game.')
+      // gameFull is what the panel renders the waitlist offer from, so this
+      // assertion IS the fix: no waitlist for a game you are already in.
+      expect(gameFull.value).toBe(false)
+    })
+
+    it('still reports a genuinely full game as full, and offers the waitlist', async () => {
+      const client = fakeClient({ postRegistrations: () => gameFullConflict() })
+      const { register, gameFull, alreadyRegistered, registerError } = useJoinGame('g1', client)
+
+      await register('player-mock-1')
+
+      expect(gameFull.value).toBe(true)
+      expect(alreadyRegistered.value).toBe(false)
+      expect(registerError.value).toBe('This game just filled up.')
+    })
+
+    it('falls back to a neutral message for a 409 it does not recognise, with no waitlist offer', async () => {
+      const client = fakeClient({ postRegistrations: () => unknownConflict() })
+      const { register, gameFull, alreadyRegistered, registerError } = useJoinGame('g1', client)
+
+      await register('player-mock-1')
+
+      expect(gameFull.value).toBe(false)
+      expect(alreadyRegistered.value).toBe(false)
+      // Not "filled up": claiming a specific cause we did not establish is
+      // what this ticket is about.
+      expect(registerError.value).toBe('Could not complete this registration.')
+    })
+
+    it('clears a previous already-registered state on a retry', async () => {
+      let result = alreadyRegisteredConflict()
+      const client = fakeClient({ postRegistrations: () => result })
+      const { register, alreadyRegistered } = useJoinGame('g1', client)
+
+      await register('player-mock-1')
+      expect(alreadyRegistered.value).toBe(true)
+
+      result = registrationOk() as never
+      await register('player-mock-1')
+      expect(alreadyRegistered.value).toBe(false)
     })
   })
 
