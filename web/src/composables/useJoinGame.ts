@@ -176,6 +176,11 @@ export function useJoinGame(gameId: string, client: SocialPlayClient = socialpla
     registering.value = false
     registerError.value = null
     gameFull.value = false
+    // Was omitted when alreadyRegistered was added: every other flag here
+    // is cleared. Latent, since GameJoinPanel is keyed by game.id and
+    // remounts rather than calling reset() — but it is the bug that bites
+    // the first time anything does call it.
+    alreadyRegistered.value = false
     confirmedRegistration.value = null
     joiningWaitlist.value = false
     waitlistError.value = null

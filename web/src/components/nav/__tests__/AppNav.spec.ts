@@ -321,6 +321,26 @@ describe('AppNav', () => {
       expect(labels).toContain('Add a facility')
     })
 
+    // The MVP gap audit's finding 4: /competitions — the screen a player
+    // browses and enters competitions from — had NO link anywhere in the
+    // app. It was in the Games tab's `areaPrefixes` (so the sub-menu shows
+    // once you are already there) but was never a destination, so the only
+    // way to find it was a host's shared /c/:token link or typing the URL.
+    // #346 made the CREATE screens clickable and left discovery behind.
+    it('links competition discovery under the Games area, not just creation', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/games')
+      const sub = wrapper.findAll('.app-nav__subitem')
+      const link = sub.find((s) => s.text() === 'Browse competitions')
+      expect(link, 'no "Browse competitions" sub-link under Games').toBeTruthy()
+      expect(link!.attributes('href')).toBe('/competitions')
+    })
+
+    it('keeps that link visible once you are browsing competitions', async () => {
+      const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/competitions')
+      const labels = wrapper.findAll('.app-nav__subitem').map((s) => s.text())
+      expect(labels).toContain('Browse competitions')
+    })
+
     it('links game creation under the Games area', async () => {
       const wrapper = await mountAtWidth(1440, emptyGamesClient(), '/games')
       const sub = wrapper.findAll('.app-nav__subitem')

@@ -134,8 +134,42 @@ jobs:
       - name: make generate
         run: make generate
 
-      - name: make security
-        run: make security
+      # The two halves run as SEPARATE steps, with npm marked `always()`.
+      #
+      # `make security` is `security-go security-npm`, and make stops at the
+      # first failing prerequisite — so a govulncheck failure skips the npm
+      # scan entirely. That is verbatim the CLAUDE.md gotcha: "security-go
+      # runs BEFORE security-npm, so for the life of this project the Go
+      # half's failure meant the npm half had never run at all", which is
+      # how 7 vulnerabilities, 5 of them high, sat unnoticed. Calling the
+      # combined target here would have wired that failure mode into the
+      # only pipeline that runs.
+      #
+      # Each half writes its report; cmd/vulngate then gates on whatever
+      # reports exist, which is ADR-0011 §3's "gate on npm findings ONLY"
+      # when the Go database is unreachable. SKIP_GOVULNCHECK is still never
+      # set here — an unreachable vuln.go.dev must redden this job, not pass
+      # it.
+      - name: Go vulnerability scan
+        id: govulncheck
+        run: make security-go
+
+      - name: npm vulnerability scan
+        if: always() && steps.govulncheck.outcome != 'cancelled'
+        run: make security-npm
+
+      - name: Gate on the scan reports
+        if: always() && steps.govulncheck.outcome != 'cancelled'
+        run: |
+          set -e
+          ARGS="-baseline security/vuln-baseline.json"
+          [ -f build/govulncheck.json ] && ARGS="$ARGS -go build/govulncheck.json"
+          [ -f build/npm-audit.json ] && ARGS="$ARGS -npm build/npm-audit.json"
+          if [ "$ARGS" = "-baseline security/vuln-baseline.json" ]; then
+            echo "::error::neither scan produced a report — the gate would be checking nothing."
+            exit 1
+          fi
+          go run ./cmd/vulngate $ARGS
 
       - name: Upload the scan reports
         if: always()
@@ -184,17 +218,58 @@ jobs:
       # that it compiled. It must REFUSE to start without an auth verifier
       # (T13.5, #136), so this checks the refusal — a server that came up
       # here would be the defect.
+      # Prove the image refuses to start without auth configuration (T13.5,
+      # #136) by reading the REASON, not merely a non-zero exit.
+      #
+      # The first version of this step asserted only `status != 0`, and it
+      # was vacuous: the server connects to Postgres (cmd/server/main.go's
+      # pg.New -> Ping) long before it checks the auth policy, and
+      # `docker run` on a runner has no database. So the container exited 1
+      # with "pg: ping: failed to connect", the step printed "as designed",
+      # and the job went green — it would have passed with the auth refusal
+      # deleted entirely, and passes on 125/126/127 for a broken image too.
+      # Measured, not reasoned: the error on a DB-less run is the pg one.
+      #
+      # Giving it an unreachable DATABASE_URL would not help, since that
+      # fails the same way. So the assertion is the message itself: the
+      # refusal's own wording, which no database failure can produce.
       - name: The API image refuses to start without auth configuration
         run: |
           set +e
-          out=$(docker run --rm ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
+          out=$(docker run --rm \
+            -e DATABASE_URL="postgres://x:x@127.0.0.1:1/x?sslmode=disable" \
+            ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
           status=$?
           echo "$out"
           if [ "$status" -eq 0 ]; then
             echo "::error::the server started with no AUTH_* configuration — it is supposed to refuse (T13.5, #136)."
             exit 1
           fi
-          echo "Exited $status, as designed."
+          # The server reaches the auth check only once the database is up,
+          # so a DB-less run cannot show the refusal. Run it again against a
+          # real Postgres to read the actual reason.
+          docker run -d --rm --name ci-authcheck-db \
+            -e POSTGRES_USER=pickleball -e POSTGRES_PASSWORD=pickleball -e POSTGRES_DB=pickleball \
+            postgis/postgis:16-3.4 >/dev/null
+          for i in $(seq 1 30); do
+            docker exec ci-authcheck-db pg_isready -U pickleball >/dev/null 2>&1 && break
+            sleep 1
+          done
+          out=$(docker run --rm --link ci-authcheck-db:db \
+            -e DATABASE_URL="postgres://pickleball:pickleball@db:5432/pickleball?sslmode=disable" \
+            ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
+          status=$?
+          docker stop ci-authcheck-db >/dev/null 2>&1
+          echo "$out"
+          if [ "$status" -eq 0 ]; then
+            echo "::error::the server started with no AUTH_* configuration — it is supposed to refuse (T13.5, #136)."
+            exit 1
+          fi
+          if ! echo "$out" | grep -q "no token verifier is configured"; then
+            echo "::error::the server exited, but NOT for the auth reason this step exists to prove. See the output above."
+            exit 1
+          fi
+          echo "Refused with the auth reason, as designed."
 
       - name: Log in to GHCR
         if: github.event_name == 'push'

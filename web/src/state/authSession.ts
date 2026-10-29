@@ -188,9 +188,33 @@ export function clearAuthRejected(): void {
  *
  * So this helper exists for the second kind: signed in, use the real id;
  * otherwise keep the placeholder the screen already used, so a browse-only
- * session behaves exactly as it did before. Every remaining `MOCK_*` constant
- * is reachable from a call to this function, which is what makes them
- * deletable in one step once a `GetMe` lands.
+ * session behaves exactly as it did before.
+ *
+ * This comment used to claim "every remaining `MOCK_*` constant is reachable
+ * from a call to this function". That was FALSE when written, and the two
+ * exceptions mattered: HostPayments.vue and AppNav.vue passed MOCK_HOST_ID
+ * raw, so the pending-cash dashboard filtered a real host's uuid against
+ * 'host-mock-1', matched nothing, and was permanently empty — with a
+ * permanently-zero nav badge. Found by an audit of what a user cannot do,
+ * not by a test: every fixture in HostPayments.spec.ts seeded its Game with
+ * MOCK_HOST_ID, so the filter matched in tests and could not in production.
+ * Both call sites now go through here. The claim is restated narrowly,
+ * because the broad version is still false: what must go through this
+ * helper is every id the CLIENT uses to decide something — a filter, an
+ * authorization check, a lookup key.
+ *
+ * Two raw uses remain and are harmless: `GameCreation.vue`'s and
+ * `CompetitionCreation.vue`'s `hostId:` REQUEST-BODY fields. The server
+ * stopped reading host_id off the wire at T12.9 and derives the host from
+ * the verified caller, so those fields are ignored. Verified at runtime
+ * rather than assumed: a Game created by that exact code came back with
+ * `hostId` set to the signed-in user's uuid, not 'host-mock-1'. They are
+ * dead weight worth deleting, not a defect.
+ *
+ * The same comment also deferred deleting these to "once a `GetMe` lands".
+ * It has landed — `GET /v1/users/me`, #344 — so the placeholders are now
+ * removable for any screen that requires a signed-in actor, which is a
+ * separate change from this one.
  */
 export function actingUserId(fallback: string): string {
   return authUserId.value ?? fallback

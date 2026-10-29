@@ -55,6 +55,7 @@ import { useRoute } from 'vue-router'
 import { useBreakpoint } from '../../composables/useBreakpoint'
 import { useHostPayments, MOCK_HOST_ID } from '../../composables/useHostPayments'
 import { pendingCashPaymentsCount, setPendingCashPaymentsCount } from '../../state/hostPendingPayments'
+import { actingUserId } from '../../state/authSession'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import type { PaymentsClient } from '../../api/paymentsClient'
 
@@ -93,6 +94,13 @@ const NAV_TABS: NavTab[] = [
     areaPrefixes: ['/games', '/competitions'],
     children: [
       { id: 'games-new', label: 'Create a game', to: '/games/new' },
+      // Discovery, not just creation. /competitions was in areaPrefixes
+      // below — so this sub-menu appeared once you were already there — but
+      // had no link from anywhere in the app, which made the screen a
+      // player browses and enters competitions from reachable only by a
+      // host's shared /c/:token link or by typing the URL. #346 made the
+      // create screens clickable and left this behind.
+      { id: 'competitions-browse', label: 'Browse competitions', to: '/competitions' },
       { id: 'competitions-new', label: 'Create a competition', to: '/competitions/new' },
     ],
   },
@@ -124,7 +132,9 @@ function isAreaActive(tab: NavTab): boolean {
 const { pending, load } = useHostPayments(props.client, props.paymentsClient)
 
 onMounted(() => {
-  void load(MOCK_HOST_ID).then(() => setPendingCashPaymentsCount(pending.value.length))
+  // actingUserId, not the raw placeholder — see HostPayments.vue. The
+  // badge counted a mock host's pending payments, i.e. always zero.
+  void load(actingUserId(MOCK_HOST_ID)).then(() => setPendingCashPaymentsCount(pending.value.length))
 })
 </script>
 

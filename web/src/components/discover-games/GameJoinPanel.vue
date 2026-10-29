@@ -69,6 +69,7 @@ const {
   registering,
   registerError,
   gameFull,
+  alreadyRegistered,
   confirmedRegistration,
   joiningWaitlist,
   waitlistError,
@@ -200,6 +201,17 @@ function onPayCash(): void {
       >
         {{ joiningWaitlist ? 'Joining waitlist…' : 'Join waitlist' }}
       </button>
+    </div>
+
+    <!-- ALREADY REGISTERED (#345's other half): there is nothing to do here.
+         Before this, `alreadyRegistered` was set by useJoinGame and read by
+         nobody, so the panel fell through to the join form below — showing
+         "You are already registered for this game." directly above an
+         enabled "Join game" button, i.e. offering the action that had just
+         failed and would fail identically every time. No waitlist either,
+         which was the half that did land. -->
+    <div v-else-if="alreadyRegistered" class="game-join__conflict" role="alert">
+      <p class="game-join__conflict-message">{{ registerError }}</p>
     </div>
 
     <!-- JOIN FORM: guest-count stepper + Join -->
