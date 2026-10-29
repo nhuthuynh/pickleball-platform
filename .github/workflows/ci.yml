@@ -218,58 +218,60 @@ jobs:
       # that it compiled. It must REFUSE to start without an auth verifier
       # (T13.5, #136), so this checks the refusal — a server that came up
       # here would be the defect.
-      # Prove the image refuses to start without auth configuration (T13.5,
-      # #136) by reading the REASON, not merely a non-zero exit.
+      # Prove the image RUNS OUR SERVER, and exits rather than hanging.
       #
-      # The first version of this step asserted only `status != 0`, and it
-      # was vacuous: the server connects to Postgres (cmd/server/main.go's
-      # pg.New -> Ping) long before it checks the auth policy, and
-      # `docker run` on a runner has no database. So the container exited 1
-      # with "pg: ping: failed to connect", the step printed "as designed",
-      # and the job went green — it would have passed with the auth refusal
-      # deleted entirely, and passes on 125/126/127 for a broken image too.
-      # Measured, not reasoned: the error on a DB-less run is the pg one.
+      # Deliberately NOT asserting the auth refusal here, after two attempts
+      # taught me why:
       #
-      # Giving it an unreachable DATABASE_URL would not help, since that
-      # fails the same way. So the assertion is the message itself: the
-      # refusal's own wording, which no database failure can produce.
-      - name: The API image refuses to start without auth configuration
+      #  1. The first version asserted only `status != 0`, which was
+      #     vacuous. cmd/server/main.go connects to Postgres (pg.New ->
+      #     Ping) long before it checks the auth policy, and `docker run` on
+      #     a runner has no database — so the container exited 1 with
+      #     "pg: ping: failed to connect" and the step printed "as
+      #     designed". It would have passed with the refusal deleted.
+      #
+      #  2. The second version started a Postgres so the server could reach
+      #     the auth check, and grepped for the refusal's wording. That
+      #     failed in CI — correctly, refusing to pass for the wrong reason
+      #     — because the server raced Postgres's startup:
+      #
+      #       pg: ping: failed to connect ... 172.17.0.2:5432 (db):
+      #       connect: connection refused
+      #
+      #     which is the initdb temporary-server race docker-compose.yml
+      #     documents for `make up`, where the fix is a restart policy. A
+      #     one-shot `docker run` has no such policy, so making this
+      #     reliable means retry logic around a check that is already
+      #     covered elsewhere.
+      #
+      # The auth refusal IS gated, by
+      # cmd/server/main_test.go's TestAuthenticationPolicyRefusesToStart-
+      # WithoutAVerifier, which runs in `make test-cmd` in the Gate job and
+      # asserts the error names all four AUTH_* variables. That is a better
+      # test of the behaviour than a container probe.
+      #
+      # What only this step can prove is that the IMAGE is sound: that its
+      # entrypoint runs our binary and reaches our own error path, rather
+      # than failing as a broken image (125 image-not-found, 126/127
+      # entrypoint-missing, exec format error) — all of which satisfied the
+      # first version's `status != 0`.
+      - name: The API image runs our server and exits
         run: |
           set +e
-          out=$(docker run --rm \
-            -e DATABASE_URL="postgres://x:x@127.0.0.1:1/x?sslmode=disable" \
-            ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
+          out=$(docker run --rm ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
           status=$?
           echo "$out"
           if [ "$status" -eq 0 ]; then
-            echo "::error::the server started with no AUTH_* configuration — it is supposed to refuse (T13.5, #136)."
+            echo "::error::the server exited 0 with no database and no AUTH_* configuration; it is supposed to refuse to run."
             exit 1
           fi
-          # The server reaches the auth check only once the database is up,
-          # so a DB-less run cannot show the refusal. Run it again against a
-          # real Postgres to read the actual reason.
-          docker run -d --rm --name ci-authcheck-db \
-            -e POSTGRES_USER=pickleball -e POSTGRES_PASSWORD=pickleball -e POSTGRES_DB=pickleball \
-            postgis/postgis:16-3.4 >/dev/null
-          for i in $(seq 1 30); do
-            docker exec ci-authcheck-db pg_isready -U pickleball >/dev/null 2>&1 && break
-            sleep 1
-          done
-          out=$(docker run --rm --link ci-authcheck-db:db \
-            -e DATABASE_URL="postgres://pickleball:pickleball@db:5432/pickleball?sslmode=disable" \
-            ${{ steps.names.outputs.prefix }}/api:${{ github.sha }} 2>&1)
-          status=$?
-          docker stop ci-authcheck-db >/dev/null 2>&1
-          echo "$out"
-          if [ "$status" -eq 0 ]; then
-            echo "::error::the server started with no AUTH_* configuration — it is supposed to refuse (T13.5, #136)."
+          # Our binary's own structured log. A broken image cannot produce
+          # it: there is no shell in the distroless base to fake it with.
+          if ! echo "$out" | grep -q '"msg":"server exited"'; then
+            echo "::error::the container exited $status without logging our server's own startup failure — the image did not run our binary. See the output above."
             exit 1
           fi
-          if ! echo "$out" | grep -q "no token verifier is configured"; then
-            echo "::error::the server exited, but NOT for the auth reason this step exists to prove. See the output above."
-            exit 1
-          fi
-          echo "Refused with the auth reason, as designed."
+          echo "Ran our server and exited $status, as designed."
 
       - name: Log in to GHCR
         if: github.event_name == 'push'
