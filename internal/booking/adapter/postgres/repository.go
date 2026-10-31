@@ -131,6 +131,26 @@ func (r *Repository) ListActiveForCourt(ctx context.Context, courtID string, rng
 	return out, nil
 }
 
+// ListForOwner implements port.Repository's player-facing "my bookings" read
+// (T67.1, part of issue #353). The query it runs (db/queries/booking.sql's
+// ListBookingsForOwner) deliberately has no `status <> 'cancelled'` filter —
+// unlike every other list query in that file — because a player who cannot
+// see a cancelled booking cannot tell "I cancelled that" from "my booking was
+// lost". Ordering (starts_at, then id) is the query's, not this method's: the
+// adapter must not re-sort what the database ordered.
+func (r *Repository) ListForOwner(ctx context.Context, ownerUserID string) ([]domain.Booking, error) {
+	rows, err := r.q.ListBookingsForOwner(ctx, mustUUID(ownerUserID))
+	if err != nil {
+		return nil, translateErr(err)
+	}
+
+	out := make([]domain.Booking, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, fromFields(row.ID, row.CourtID, row.Source, row.Status, row.StartsAt, row.EndsAt, row.ReferenceID, row.OwnerUserID))
+	}
+	return out, nil
+}
+
 // ListActiveForReference implements port.Repository for the #124
 // cancellation cascade. The empty-reference guard lives in the SQL (see
 // db/queries/booking.sql) as well as in the app layer — reference_id is a

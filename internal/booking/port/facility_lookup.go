@@ -63,4 +63,36 @@ type FacilityLookup interface {
 	// facilitiesdomain.Court values — nothing on the Booking side may start
 	// reading another context's aggregate.
 	CourtIDsForFacility(ctx context.Context, facilityID string) ([]string, error)
+
+	// FacilityIDsForCourts is the batch form of FacilityIDForCourt: given
+	// court ids, which Facility owns each? It returns a map keyed by court
+	// id, and **a court that resolves to no Facility is ABSENT from the map
+	// rather than present with an empty value** — the two encodings are
+	// indistinguishable to a caller reading `m[id]`, so only one needs to
+	// exist, and absence is the one that cannot be mistaken for a real
+	// answer. An unknown court id is likewise absent.
+	//
+	// Added in T67.1 (part of issue #353) for ListBookingsForActor, which
+	// needs the owning Facility of every court in a player's booking list so
+	// a client can show a court's NAME instead of its uuid — the defect
+	// issue #342 reported and which this read must not reintroduce on a new
+	// screen.
+	//
+	// **Why a batch method and not a loop over FacilityIDForCourt.** A
+	// player's list spans arbitrarily many courts, so resolving them one at
+	// a time is an N+1 whose N is set by the data. This mirrors
+	// CourtIDsForFacility above — which is likewise a whole set of ids
+	// answered in one call — and implementations are expected to satisfy it
+	// with one query, not with a loop over the single-court method.
+	//
+	// **Note the error contract differs from FacilityIDForCourt's, on
+	// purpose.** That method collapses "no such Court" and "a Court with no
+	// Facility" into domain.ErrFacilityNotFound because its caller
+	// (GetQuote) cannot proceed without a Facility. This method's caller can
+	// and must: a Booking on a Facility-less court is a real booking a
+	// player has to be able to see, so an unresolvable court is an omitted
+	// map entry, never an error. An error from this method means the lookup
+	// itself failed — which is a failure, and callers must not paper over
+	// it, because a blank facility id reads on screen exactly like #342.
+	FacilityIDsForCourts(ctx context.Context, courtIDs []string) (map[string]string, error)
 }

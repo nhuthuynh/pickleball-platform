@@ -139,6 +139,12 @@ func (r *inMemoryRepo) ListActiveForCourt(_ context.Context, courtID string, rng
 	return out, nil
 }
 
+// ListForOwner (T67.1) is Booking's player-scoped read; Social Play reserves
+// courts and never performs it, so no test here reaches this method.
+func (r *inMemoryRepo) ListForOwner(_ context.Context, _ string) ([]bookingdomain.Booking, error) {
+	return nil, nil
+}
+
 func (r *inMemoryRepo) GetByID(_ context.Context, id string) (bookingdomain.Booking, error) {
 	if r.getFailsWith != nil {
 		return bookingdomain.Booking{}, r.getFailsWith
@@ -204,6 +210,13 @@ func (stubFacilities) FacilityIDForCourt(context.Context, string) (string, error
 }
 func (stubFacilities) CourtIDsForFacility(context.Context, string) ([]string, error) {
 	return nil, nil
+}
+
+// FacilityIDsForCourts (T67.1) resolves nothing, matching
+// FacilityIDForCourt's answer above: an unresolvable court is absent from the
+// map, never an error.
+func (stubFacilities) FacilityIDsForCourts(context.Context, []string) (map[string]string, error) {
+	return map[string]string{}, nil
 }
 
 type stubIdentity struct{}

@@ -67,6 +67,56 @@ message ListCourtBookingsResponse {
   repeated Booking bookings = 1;
 }
 
+// ListBookingsForActorRequest is the player's own "my bookings" view (T67.1,
+// part of issue #353) — the read side of CreateBooking.
+//
+// **It has no fields, and that is the contract, not an omission.** The acting
+// user is taken from the verified bearer token's principal and from nowhere
+// else, so there is deliberately no actor_user_id for a caller to send: the
+// actor IS the entire scope of this read, and a field naming it would be a
+// field for reading somebody else's bookings. Compare
+// ListRecurringHireTemplatesForActorRequest, which carries exactly such a
+// field marked `deprecated = true` and ignored by the server — not because
+// that is the shape to copy, but because it predates T12.7's authentication
+// and removing a proto field is a breaking wire change. A message born after
+// that fix starts without the field instead of inheriting it. A handler test
+// pins that the message exposes no actor-naming field at all.
+//
+// There is deliberately no status, court or date-range filter either, for the
+// same reason the Club's status view has none: a status filter would invite a
+// client to show only the live bookings, which is the exact shape that hides
+// a cancellation instead of reporting it.
+message ListBookingsForActorRequest {}
+
+// ActorBooking is one row of ListBookingsForActorResponse: a Booking plus the
+// Facility that owns its Court.
+//
+// facility_id is carried here rather than added to Booking itself because it
+// is not a fact about a Booking — it is a fact about the Court a Booking
+// references, owned by the Facilities context. Putting it on Booking would
+// leave a field that is empty on every other RPC that returns one, which is a
+// Hyrum's-Law trap the moment three generated clients read it.
+message ActorBooking {
+  Booking booking = 1;
+
+  // The Facility that owns this Booking's Court, so a client can resolve the
+  // court's NAME rather than printing a uuid at the user (issue #342, closed
+  // — this field is what keeps it closed on this new screen).
+  //
+  // **Empty is a real, expected answer**, not an error and not a bug: a
+  // Court's facility is nullable in this schema, and both Courts seeded by
+  // 0001_init.sql have no Facility at all, so on a freshly migrated database
+  // an empty facility_id is the common case. A client must render such a
+  // booking, not hide it — the booking is real. An empty value here never
+  // means "the server could not resolve it"; that case is an error status on
+  // the whole call.
+  string facility_id = 2;
+}
+
+message ListBookingsForActorResponse {
+  repeated ActorBooking bookings = 1;
+}
+
 message CancelBookingRequest {
   string booking_id = 1;
 }
@@ -528,6 +578,63 @@ service BookingService {
   rpc ListRecurringHireTemplatesForActor(ListRecurringHireTemplatesForActorRequest) returns (ListRecurringHireTemplatesForActorResponse) {
     option (google.api.http) = {
       get: "/v1/recurring-hire-templates"
+    };
+  }
+
+  // ListBookingsForActor is the player's own "my bookings" view (T67.1, part
+  // of issue #353 — "Nothing you book or join is visible afterwards"). Before
+  // it, no RPC in any proto in this repository was scoped to the calling
+  // player: a user could book a court, reload, and be told nothing.
+  //
+  // # The list's semantics are part of the contract
+  //
+  // Three generated clients (Vue, Swift, Kotlin) read this, so the two
+  // properties below are stated here rather than left to whoever reads the
+  // SQL — they are what a client is entitled to rely on.
+  //
+  //  1. **Every status is returned, CANCELLED included.** This is
+  //     deliberately the opposite of ListCourtBookings, which excludes
+  //     cancelled bookings because it answers an availability question about
+  //     a court. This one answers "what did I book?", where a cancellation is
+  //     information the user needs: a list that omitted cancelled rows would
+  //     leave a player unable to tell "I cancelled that" from "my booking was
+  //     lost" — and the second is the complaint #353 was filed about, so a
+  //     read that can be mistaken for it is not an answer to it. A client
+  //     must therefore render status, not assume every row is live.
+  //  2. **Ordered by starts_at ascending**, earliest first, past and future
+  //     in one list, with ties broken by booking id so the order is total
+  //     and stable rather than merely sorted. There is no separate
+  //     "upcoming" endpoint; a client that wants only future bookings filters
+  //     client-side.
+  //
+  // # Authorization
+  //
+  // Authenticated (grpcapi.AuthenticatedMethods), and the actor is the entire
+  // scope — the same shape as ListRecurringHireTemplatesForActor above, for
+  // the same reason: the read filters on owner_user_id, so a caller can only
+  // ever be answered with their own rows and there is no second party's data
+  // an ownership check could protect. No principal is Unauthenticated, not
+  // PermissionDenied (ADR-0013 §5): the server does not know who is calling.
+  //
+  // # REST shape
+  //
+  // GET on /v1/bookings, the collection POST already creates into — the two
+  // verbs on one path, which is why no new path segment is invented. It is
+  // deliberately NOT /v1/users/{user_id}/bookings: `/v1/users/**` is the
+  // Identity context's REST namespace, and this is a Booking resource scoped
+  // by actor, not a sub-resource of a User. Same reasoning the Club's status
+  // view records for the same choice.
+  //
+  // # No pagination
+  //
+  // The response is unbounded: a player with years of history receives all of
+  // it. No endpoint in this API paginates, and inventing a scheme for this
+  // one RPC would either prejudge the shape for all of them or leave two
+  // conventions in one proto, so this is recorded as a known limitation
+  // rather than answered here.
+  rpc ListBookingsForActor(ListBookingsForActorRequest) returns (ListBookingsForActorResponse) {
+    option (google.api.http) = {
+      get: "/v1/bookings"
     };
   }
 }

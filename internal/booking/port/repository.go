@@ -33,6 +33,30 @@ type Repository interface {
 	// is not an error, it simply has no bookings.
 	ListActiveForReference(ctx context.Context, referenceID string) ([]domain.Booking, error)
 
+	// ListForOwner returns every booking owned by ownerUserID — the
+	// player-facing "my bookings" read (T67.1, part of issue #353), keyed on
+	// the bookings.owner_user_id column 0027 added and served by the
+	// bookings_owner_user_id_idx index that migration created for exactly
+	// this query ("which bookings does this user own", in its own words).
+	//
+	// **Cancelled bookings are INCLUDED, which is deliberately the opposite
+	// of ListActiveForCourt above.** The two reads answer different
+	// questions and the difference is not an inconsistency: the court read
+	// answers "is this slot free?", where a cancelled booking is noise, while
+	// this one answers "what did I book?", where a cancelled booking is
+	// information the user needs. A list that dropped them would leave a
+	// player unable to tell "I cancelled that" from "my booking was lost" —
+	// and the second is the bug #353 was filed about, so a read that can
+	// masquerade as it is not an acceptable answer to it.
+	//
+	// Ordered by starts_at ascending, ties broken by id so the order is
+	// total rather than merely sorted. An actor with no bookings is an empty
+	// slice and no error; an unknown owner is not an error here, because
+	// "you own nothing" and "you do not exist" are the same answer to this
+	// question and distinguishing them would make the read an enumeration
+	// oracle.
+	ListForOwner(ctx context.Context, ownerUserID string) ([]domain.Booking, error)
+
 	// GetByID returns a single booking, or domain.ErrBookingNotFound.
 	GetByID(ctx context.Context, id string) (domain.Booking, error)
 

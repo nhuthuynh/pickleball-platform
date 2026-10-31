@@ -235,6 +235,15 @@ func (unusedFacilityLookup) CourtIDsForFacility(_ context.Context, _ string) ([]
 	return nil, domain.ErrFacilityNotFound
 }
 
+// FacilityIDsForCourts (T67.1) fails closed like the three above. Note that
+// an EMPTY MAP would be the wrong stub here even though it is what the port's
+// contract calls "no Facility for any of these courts": this type exists so
+// that a future change routing through it fails loudly rather than quietly,
+// and an empty map is a successful answer.
+func (unusedFacilityLookup) FacilityIDsForCourts(_ context.Context, _ []string) (map[string]string, error) {
+	return nil, domain.ErrFacilityNotFound
+}
+
 // unusedRecurringHireRepository and unusedIdentityLookup are this test's
 // T11.5 equivalents of unusedFacilityLookup above, for the same reason: this
 // test exercises CreateBooking only, which reaches neither RecurringHire

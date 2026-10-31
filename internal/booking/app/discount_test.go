@@ -61,6 +61,20 @@ type fakeFacilityLookup struct {
 	ownerByFacility  map[string]string
 	facilityByCourt  map[string]string
 	ensureOwnerCalls atomic.Int64
+
+	// facilityIDsForCourtsCalls / facilityIDsForCourtsArgLen record the
+	// batch lookup T67.1 added, so a test can prove the app layer resolves
+	// a whole page of bookings in ONE call over distinct court ids. The
+	// N+1 this port method exists to prevent is invisible in the return
+	// value — a loop and a batch produce the same map — so only the call
+	// itself can witness it.
+	facilityIDsForCourtsCalls  atomic.Int64
+	facilityIDsForCourtsArgLen atomic.Int64
+
+	// batchErr, when set, makes FacilityIDsForCourts fail. Distinguishes
+	// "the lookup broke" from "this court has no Facility", which T67.1
+	// requires callers to treat differently.
+	batchErr error
 }
 
 func (l *fakeFacilityLookup) EnsureFacilityOwner(_ context.Context, facilityID, actorUserID string) error {
@@ -95,6 +109,26 @@ func (l *fakeFacilityLookup) CourtIDsForFacility(_ context.Context, facilityID s
 	for court, fID := range l.facilityByCourt {
 		if fID == facilityID {
 			out = append(out, court)
+		}
+	}
+	return out, nil
+}
+
+// FacilityIDsForCourts is the batch read (T67.1). Per the port's contract a
+// court with no Facility — and an unknown court — is ABSENT from the result
+// rather than present with an empty value, which is what lets
+// ListBookingsForActor treat a Facility-less court as an honest empty without
+// a second sentinel.
+func (l *fakeFacilityLookup) FacilityIDsForCourts(_ context.Context, courtIDs []string) (map[string]string, error) {
+	l.facilityIDsForCourtsCalls.Add(1)
+	l.facilityIDsForCourtsArgLen.Store(int64(len(courtIDs)))
+	if l.batchErr != nil {
+		return nil, l.batchErr
+	}
+	out := make(map[string]string, len(courtIDs))
+	for _, id := range courtIDs {
+		if fID, ok := l.facilityByCourt[id]; ok && fID != "" {
+			out[id] = fID
 		}
 	}
 	return out, nil
