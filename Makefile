@@ -1,5 +1,5 @@
 .PHONY: tools-install test-domain test-platform test-tools test-adapters test-cmd gate-coverage binary-check dev-token generate generate-client tidy test vet-integration up down lint fmt-check lint-web test-web test-web-ci \
-        build-web build-images prototype prototype-down security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check lock-check
+        build-web build-images prototype prototype-down security security-go security-npm loadtest ci ci-checks ci-integration tools-check docs-index-check docs-doctest lock-check
 
 # Pinned versions of the `go install`ed build tools. `include`, not a copy:
 # CI calls `make tools-install`, so this one file is what both a runner and
@@ -126,6 +126,42 @@ gate-coverage:
 # `make test-tools`), entry point cmd/docsindex.
 docs-index-check:
 	go run ./cmd/docsindex
+
+# The standing answer to "does every documented command still print what the
+# doc says it prints?" Fails, naming the file, the line, the command and both
+# sides of the diff, when a figure pasted beside a command no longer
+# reproduces.
+#
+# Added T67.5. sprint-process.md already requires that every quantity carry
+# the command that produced it, and NOTHING enforced it. On the day this
+# landed, CLAUDE.md's gate-coverage paragraph — which prints its own
+# verification commands — asserted 27, 14 and "three" where the tree said 26,
+# 13 and two. That file had been corrected line by line by three adversarial
+# review passes 24 days earlier and drifted into three measurable falsehoods
+# anyway, because nothing re-checked it.
+#
+# NOT "every numeral must carry a command": that is a presence check,
+# satisfiable by pasting any command at all, and this project already has a
+# documented case of a gate that `touch` could silence. This runs the command.
+#
+# Opt-in by a marker on the fence (```console doctest), because the author's
+# intent is not recoverable from the command text — this repo holds two
+# near-identical blocks, one claiming "prints nothing" and one offering a
+# command so a reader can derive a figure the doc deliberately does not paste.
+# A classifier cannot tell those apart and every version of one collapses into
+# a command list or an exclusion list, which is the single change that would
+# defeat this tool, exactly as gate-coverage says of its own package list.
+#
+# The blind spot that buys is printed on every run: unmarked prompt-bearing
+# blocks are counted and located, never run. And a run that checked NO block
+# FAILS, so "docs-doctest: OK" can never mean "I checked nothing".
+#
+# Docker-free and offline by construction: a block needing either must not be
+# marked, and there is deliberately no Docker probe here (that would be the
+# command classifier again). Tool in tools/docsdoctest (covered by
+# `make test-tools`), entry point cmd/docsdoctest.
+docs-doctest:
+	go run ./cmd/docsdoctest
 
 # Mints a local-development bearer token against the committed dev key
 # fixture in dev/auth/ (T14.9, issue #160), so an authenticated endpoint can
@@ -567,7 +603,7 @@ loadtest:
 # meta-check on the gate's own shape, not a test — running it last means its
 # report describes the set of targets that just ran, and a genuine test
 # failure surfaces before the structural complaint about coverage does.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check lock-check binary-check dockerfile-go-version generate-client lint-web test-web build-web
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check docs-doctest lock-check binary-check dockerfile-go-version generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
