@@ -70,10 +70,28 @@ $ make gate-coverage | grep -c "^    cmd/"
 The file asserts **27** and **"three"**. Both wrong, and wrong according to the
 command the file itself prints beside the figure.
 
-The lesson is not that the authors were careless — they were unusually careful,
-and the figures were right when written. It is that **nothing re-checks the one
-document that is always loaded.** No gate reads `CLAUDE.md`: `docsindex` parses
-`HANDOFF.md`, `docs/process/` and `docs/adr/` only. T67 takes a ticket for this.
+**And the comfortable explanation is unavailable.** Both figures went stale in
+one commit — `ce962d5` (#351), merged 2026-10-29 — which added
+`cmd/vulngate/main_test.go`, taking that package off the untested list. That
+moved the total from 27 to 26 and the `cmd` count from three to two. **The
+commit's own message says so:**
+
+```
+$ git log -1 --format=%B ce962d5 | grep -n "27"
+29:27 -> 26.
+```
+
+So the author measured the change, wrote the new figure into the commit
+message, and did not update the document that states the old one. This is not
+inattention and not ignorance: the knowledge existed, in writing, in the same
+change. The missing thing is a mechanism — **no gate reads `CLAUDE.md`**
+(`docsindex` parses `HANDOFF.md`, `docs/process/` and `docs/adr/` only), so
+there was nothing to fail. T67.5 takes it.
+
+The second figure is worse than the first, because nothing announced it: the
+`cmd` count fell to two as a side effect of the same test, and no commit
+message mentions it. A figure that goes stale silently is the ordinary case;
+this sprint happens to contain one of each.
 
 ## 5. What found the product defects was a person in a browser
 
