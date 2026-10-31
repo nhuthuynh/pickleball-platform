@@ -121,10 +121,12 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   at all** — T65.4's answer to #328's blind spot, which is real: the tool's
   question is "which TESTS does no gate run?", and a package with none has
   none to run, so `gate-coverage: OK` was silent about every `cmd` package
-  holding no test — **four of five when #328 was filed**, three now that
-  T65.4 tested one — and about `internal/identity/adapter/postgres`, an
-  adapter. Run `make gate-coverage | grep "^    cmd/"` for the live list
-  rather than trusting that count. The
+  holding no test — **four of five when #328 was filed** — and about
+  `internal/identity/adapter/postgres`, an adapter. The live list is in the
+  second block below, where `make docs-doctest` re-runs the command on every
+  `ci-checks` and fails if it has drifted; the prose figure that used to sit
+  here said "three" and had drifted to two by the time anyone looked, which is
+  the whole reason that gate exists. The
   decision, recorded rather than left as a convention: **report, never fail**
   (#328's option (b); its (a) and (c), and the "fail on it" option nobody
   offered, are rejected with reasons in `tools/gatecoverage`'s `Untested` doc
@@ -136,22 +138,42 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   exactly the package list this tool must not grow. Current state, from the
   running command rather than from this paragraph — **and the figure depends
   on which of this project's two documented tree states you are in**, because
-  `gate-coverage` has no `generate` prerequisite and 13 of the 27 are the
-  gitignored `internal/gen/**`:
+  `gate-coverage` has no `generate` prerequisite and 13 of the 26 are the
+  gitignored `internal/gen/**`. The first two blocks carry the `doctest`
+  marker, so `make docs-doctest` runs them and fails if either figure drifts
+  again — which both had, to 27 and to "three", by T67.5:
 
-  ```
+  ```console doctest
   $ make generate >/dev/null && make gate-coverage | grep "no test function"
-  gate-coverage: NOTE — 27 package(s) hold no test function at all.
-
-  $ rm -rf internal/gen && go run ./cmd/gatecoverage | grep "no test function"
-  gate-coverage: NOTE — 14 package(s) hold no test function at all.
+  gate-coverage: NOTE — 26 package(s) hold no test function at all.
   ```
 
-  The second is a fresh clone before any codegen, and in that state the
-  generated/hand-written split is a no-op — which is also why
-  `tools/gatecoverage`'s real-repository test **skips** rather than fails
-  there (`test-tools` is deliberately codegen-free). Both figures measured
-  2026-10-07.
+  Which `cmd` packages, specifically — the live list, not a count to trust.
+  Two of the six, and both are thin `main` wrappers over a tested `tools/`
+  package, which is the shape the "report, never fail" decision above is
+  about:
+
+  ```console doctest
+  $ make gate-coverage | grep "^    cmd/"
+      cmd/devtoken
+      cmd/gatecoverage
+  ```
+
+  ```
+  $ rm -rf internal/gen && go run ./cmd/gatecoverage | grep "no test function"
+  gate-coverage: NOTE — 13 package(s) hold no test function at all.
+  ```
+
+  The third is a fresh clone before any codegen — 26 minus the 13 generated —
+  and in that state the generated/hand-written split is a no-op, which is also
+  why `tools/gatecoverage`'s real-repository test **skips** rather than fails
+  there (`test-tools` is deliberately codegen-free). **It is deliberately NOT
+  marked `doctest`: running it would delete `internal/gen` mid-`ci-checks`.**
+  That makes it this repository's worked example of `make docs-doctest`'s blind
+  spot — a figure the gate counts as unchecked and a reader must re-measure by
+  hand. The first two figures are checked on every `ci-checks`; this one was
+  measured 2026-10-31 and is as trustworthy as any number in this file was
+  before that gate existed, which is to say: not very.
 - `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
   which form carried it) from the **same parser `docs-index-check` uses**. This
   is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
@@ -173,6 +195,46 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   a subprocess, because an exit code is the only part of this program a
   Makefile can see — the **exit 2** on an unclassifiable status. It shipped at
   T64.5 with no test at all, which rules 1 and 8 do not allow.
+- `make docs-doctest` — **the standing answer to "does every documented
+  command still print what the doc says it prints?"** Fails, naming the file,
+  the line, the command and both sides of the diff, when a figure pasted
+  beside a command no longer reproduces. Part of `make ci-checks`. Added
+  T67.5: `sprint-process.md` already required that every quantity carry the
+  command that produced it and **nothing enforced it**, so on the day this
+  landed the `gate-coverage` paragraph above — a block that prints its own
+  verification commands — asserted 27, 14 and "three" where the tree said 26,
+  13 and two, 24 days after three adversarial review passes corrected that
+  file line by line.
+
+  Deliberately **not** "every numeral must carry a command": that is a
+  presence check satisfiable by pasting any command, and this project already
+  has a documented case of a gate that `touch` could silence (`lock-check`,
+  `t64-retro.md`). It runs the command and diffs the output.
+
+  **Opt-in, by a `doctest` token on the fence** (```` ```console doctest ````).
+  Not a classifier on the command, because the author's intent is not
+  recoverable from the command text: this file holds two near-identical
+  blocks, one claiming *"# no output"* (a real, checkable claim) and one
+  offering a `for f in …` census so a reader can derive a figure the
+  paragraph deliberately does not paste (nothing to compare). Every
+  classifier that could tell those apart collapses into a command list or an
+  exclusion list — the one change that would defeat this tool, exactly as
+  `gate-coverage` says of its own package list.
+
+  **Its blind spot is printed on every run**, counted not listed (191
+  unmarked commands across 44 files at T67.5 — mostly retros recording what a
+  past sprint measured, `gh api` calls, and pseudo-commands like
+  `$ (list_issues state=OPEN) -> totalCount`; re-running those against
+  today's tree is meaningless by construction). `go run ./cmd/docsdoctest
+  -blind-spots` lists them. And **a run that checked no block FAILS**, so
+  `docs-doctest: OK` can never mean "I checked nothing" — the failure mode an
+  opt-in gate invites. Docker-free and offline: a block needing either must
+  simply not be marked, and there is no Docker probe, because that would be
+  the command classifier again. Tool in `tools/docsdoctest` (covered by `make
+  test-tools`), entry point `cmd/docsdoctest`. What it cannot catch is listed
+  honestly in its doc comment — a rule with no figure in it, a true statement
+  that is the wrong statement, wrong prose with no number, and a question
+  nobody asked.
 - `make binary-check` — fails when a tracked file carries the **ELF magic
   number**, i.e. a compiled binary has been committed. Part of `make
   ci-checks`. Added T65.4's review pass, which found a 3 MB `docsindex`
@@ -326,7 +388,7 @@ its filename alone and nothing collides or goes stale silently:
   facilities 2 + 3, and so on). So each one passes on its untagged siblings and
   **every integration file is invisible to `gate-coverage`**:
 
-  ```
+  ```console doctest
   $ make gate-coverage | grep -iE "ONLY build-tagged|compiled"     # no output
   ```
 
