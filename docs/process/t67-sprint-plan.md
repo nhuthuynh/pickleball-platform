@@ -143,9 +143,32 @@ shared-branch commit; no two write the project checkout's working tree. One
 PR per ticket, reviewed by a report-only pass before merge. Rule 9 holds for
 every artifact in this plan, this document included.
 
-**Isolation the worktree does not provide — migration numbers.** T67.2 adds a
-migration. `0032` is current; T67.2 takes `0033`. Any ticket that later adds one
-re-lists the directory rather than trusting this line.
+**Isolation the worktree does not provide.** Corrected mid-sprint, from what the
+concurrent implementers actually hit. A worktree isolates the source tree and
+nothing else, and this plan's first draft treated it as sufficient:
+
+1. **Migration numbers.** T67.2 adds a migration. `0032` is current; T67.2 takes
+   `0033`. Any ticket that later adds one re-lists the directory rather than
+   trusting this line — a discipline, not isolation.
+2. **`$(go env GOPATH)/bin` is shared by every worktree**, so two implementers
+   running `make tools-install` concurrently overwrite each other's binaries
+   mid-run. It happened this sprint: one session found `golangci-lint` rewritten
+   underneath it to a version that refuses this module's Go directive, and
+   reported `make lint` as broken when the pinned v2.15.0 was in fact installed
+   and merely shadowed. **The remedy, used successfully by one implementer: a
+   private `GOBIN` first on `PATH`**, per dispatch rather than per container.
+   Note the second-order cost — a shared tool directory does not just break a
+   run, it produces a *misdiagnosis*, and a reviewer who takes "the gate is
+   broken" at face value inherits it.
+3. **The scratchpad directory is shared.** Two sessions clobbered a sibling's
+   log file twice. Evidence a session intends to cite needs a per-dispatch
+   subdirectory.
+4. **The git stash stack is shared across worktrees.** A bare `git stash pop`
+   can restore another session's work. Set work aside with a WIP commit instead.
+
+None of these is exotic; all four were found by the implementers rather than by
+this plan, which is the finding. A wave description that names a worktree per
+implementer and stops there has named one of four shared resources.
 
 **Same-wave shared interface.** T67.1 and T67.2 run concurrently in different
 bounded contexts, but both edit `proto/`, regenerate `internal/gen`, and
