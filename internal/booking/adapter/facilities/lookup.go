@@ -103,6 +103,41 @@ func (l *Lookup) CourtIDsForFacility(ctx context.Context, facilityID string) ([]
 	return out, nil
 }
 
+// FacilityIDsForCourts resolves many Courts to their owning Facilities in one
+// call into Facilities (T67.1), via that context's own batch read — not a
+// loop over FacilityIDForCourt above, which would be the N+1 this port method
+// exists to prevent, and not a query against the courts table from Booking's
+// side.
+//
+// **A Court that resolves to no Facility is omitted from the map**, per
+// port.FacilityLookup's contract: an unknown court id, and a court whose
+// facility_id is NULL (both seeded Courts of 0001_init.sql), both simply have
+// no entry. That is the one place this method's contract deliberately differs
+// from FacilityIDForCourt's, which collapses the same two cases into
+// domain.ErrFacilityNotFound — its caller (GetQuote) cannot proceed without a
+// Facility, whereas this one's caller must still list a Booking on a
+// Facility-less court.
+//
+// Only ids cross the boundary; the facilitiesdomain.Court values, Name
+// included, are discarded — nothing on the Booking side may read another
+// context's aggregate. (That is also why this returns a court->facility map
+// and not the courts: the client resolves the name from Facilities itself.)
+func (l *Lookup) FacilityIDsForCourts(ctx context.Context, courtIDs []string) (map[string]string, error) {
+	courts, err := l.facilitiesSvc.GetCourtsByIDs(ctx, courtIDs)
+	if err != nil {
+		return nil, translate("courts", err)
+	}
+
+	out := make(map[string]string, len(courts))
+	for _, c := range courts {
+		if c.FacilityID == "" {
+			continue
+		}
+		out[c.ID] = c.FacilityID
+	}
+	return out, nil
+}
+
 // translate maps the Facilities sentinels Booking has its own names for, and
 // strips the original type off anything else — %s, not %w — so a caller can
 // never accidentally errors.Is() against a facilitiesdomain sentinel from the

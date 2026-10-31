@@ -94,6 +94,13 @@ func (r *inMemoryRepo) GetCourtByID(context.Context, string) (facilitiesdomain.C
 	return facilitiesdomain.Court{}, facilitiesdomain.ErrCourtNotFound
 }
 
+// GetCourtsByIDs (T67.1) is the batch Court read. No path this file exercises
+// reaches it, and per port.Repository's contract a batch miss is absence, not
+// an error — so an empty result is the honest stub.
+func (r *inMemoryRepo) GetCourtsByIDs(context.Context, []string) ([]facilitiesdomain.Court, error) {
+	return nil, nil
+}
+
 func (r *inMemoryRepo) ListCourtsForFacility(context.Context, string) ([]facilitiesdomain.Court, error) {
 	return nil, nil
 }

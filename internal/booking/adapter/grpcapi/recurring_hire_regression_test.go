@@ -32,6 +32,7 @@ package grpcapi_test
 
 import (
 	"context"
+	"sort"
 	"testing"
 	"time"
 
@@ -124,6 +125,27 @@ func (r *storingBookingRepo) ListActiveForCourt(_ context.Context, cID string, r
 			out = append(out, b)
 		}
 	}
+	return out, nil
+}
+
+// ListForOwner mirrors db/queries/booking.sql's ListBookingsForOwner (T67.1):
+// every booking owned by ownerUserID **including cancelled ones**, sorted by
+// starts_at with id as the tiebreak. Both halves matter for the handler tests
+// in list_bookings_for_actor_test.go — a fake that excluded cancelled rows,
+// or returned Go map order, would let a broken handler pass.
+func (r *storingBookingRepo) ListForOwner(_ context.Context, ownerUserID string) ([]domain.Booking, error) {
+	out := make([]domain.Booking, 0, len(r.bookings))
+	for _, b := range r.bookings {
+		if b.OwnerUserID == ownerUserID {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Range.Start.Equal(out[j].Range.Start) {
+			return out[i].Range.Start.Before(out[j].Range.Start)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 

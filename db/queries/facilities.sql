@@ -38,6 +38,30 @@ SELECT id, name, facility_id
 FROM courts
 WHERE id = $1;
 
+-- name: GetCourtsByIDs :many
+-- The batch form of GetCourtByID (T67.1, part of issue #353): resolve many
+-- Courts to their owning Facilities in one round trip.
+--
+-- It exists because Booking's new "my bookings" read needs the facility of
+-- every court in a player's list so a client can show each court's NAME
+-- rather than its uuid (issue #342, closed). Resolving them one at a time
+-- would be an N+1 whose N is set by how much the player has booked, and
+-- Booking must not read the courts table itself — the court->facility fact
+-- belongs to this context, so the batch read belongs here too, behind
+-- port.FacilityLookup.
+--
+-- Keyed by an id array, following ListRecurringHireTemplatesForCourts in
+-- db/queries/recurring_hire.sql. An id matching no Court simply contributes
+-- no row: callers get back the Courts that exist and learn nothing about the
+-- ones that do not, which is what lets a Booking on a deleted or unknown
+-- court still be listed. facility_id is nullable, so a pre-Facilities seeded
+-- court (0002_seed.sql) comes back with NULL — found, belonging to no
+-- Facility. No ORDER BY: callers key the result by id, and
+-- ListBookingsForOwner sets the order the user sees.
+SELECT id, name, facility_id
+FROM courts
+WHERE id = ANY(@court_ids::uuid[]);
+
 -- name: ListCourtsForFacility :many
 -- The read path AddCourt (T7.3) never had (T8.2): every Court belonging to
 -- facilityID, in creation order, from the *existing* courts table (same one

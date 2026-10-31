@@ -19,6 +19,32 @@ WHERE court_id = $1
   AND sqlc.arg(from_ts) < ends_at
 ORDER BY starts_at;
 
+-- name: ListBookingsForOwner :many
+-- Every booking owned by owner_user_id — the player-facing "my bookings"
+-- read (T67.1, part of issue #353). Served by bookings_owner_user_id_idx,
+-- the index 0027_booking_owner_user_id.sql added alongside the column for
+-- exactly this query; its own header names this read ("which bookings does
+-- this user own ... the read a 'my bookings' view performs"), so no new index
+-- is needed and this ticket adds no migration.
+--
+-- NOTE THE MISSING `status <> 'cancelled'`, AND DO NOT ADD IT. Every other
+-- list query in this file excludes cancelled bookings because each answers an
+-- availability question, where a cancelled booking is noise. This one answers
+-- "what did I book?", where a cancelled booking is information: a player who
+-- cannot see a cancelled booking cannot tell "I cancelled that" from "my
+-- booking was lost", and the second is the bug #353 reports. A filter here
+-- would reintroduce it in the fix.
+--
+-- ORDER BY starts_at, id: ascending start time is the contract three
+-- generated clients read (see the RPC's comment in booking.proto), and id
+-- breaks ties so the order is total rather than merely sorted — two bookings
+-- on different courts can share a start time, and an unstable order between
+-- them would be a Hyrum's-Law surface that changed with the plan.
+SELECT id, court_id, source, status, starts_at, ends_at, reference_id, owner_user_id
+FROM bookings
+WHERE owner_user_id = $1
+ORDER BY starts_at, id;
+
 -- name: UpdateBookingStatus :one
 UPDATE bookings
 SET status = $2
