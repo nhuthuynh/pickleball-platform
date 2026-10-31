@@ -342,6 +342,65 @@ message ListRegistrationsForGameResponse {
   repeated Registration registrations = 1;
 }
 
+// ListRegistrationsForActorRequest is the PLAYER's own "which Games am I in?"
+// read (T67.2, part of issue #353) — the read side of RegisterForGame, and the
+// Player-facing twin of ListRegistrationsForGame above.
+//
+// **It is deliberately empty, and that is the contract.** There is no actor
+// field of any kind — not even a deprecated one. The acting Player is taken
+// from the verified bearer token's principal and resolved to a User.ID by
+// internal/socialplay/adapter/grpcapi.Handler.actor; there is nothing on this
+// message for a caller to populate, and therefore nothing to forge. Booking's
+// equivalent ListRecurringHireTemplatesForActorRequest still carries
+// `actor_user_id [deprecated = true]` only because deleting a shipped proto
+// field is a breaking wire change; this message is new, so it never acquires
+// the field in the first place.
+//
+// There is likewise no status filter, for the reason that RPC's own comment
+// gives: a status filter would invite a client to show only the healthy rows,
+// which is the exact shape that would hide a Host's cancellation instead of
+// reporting it. The scope is fixed server-side — see the RPC below.
+message ListRegistrationsForActorRequest {}
+
+// RegistrationListing pairs a Registration with the Game facts the Player's
+// "my games" screen needs, projected by the query in one round trip (T67.2).
+//
+// It mirrors internal/socialplay/port.RegistrationListing field-for-field, and
+// follows GameListing/spots_left's precedent above: these are read-model
+// projections for this one read path, NOT fields on Registration. They are
+// prefixed game_* and kept flat rather than nesting a whole Game message,
+// because these five are the complete set this screen needs and the query
+// selects exactly them — a nested Game would invite a client to trust
+// capacity/entry_fee/host_id, which this read does not promise to populate.
+message RegistrationListing {
+  Registration registration = 1;
+
+  // game_starts_at/game_ends_at are the Game's window — when to show up.
+  google.protobuf.Timestamp game_starts_at = 2;
+  google.protobuf.Timestamp game_ends_at = 3;
+
+  // game_venue_facility_id is the Game's real Facilities-context Facility ID
+  // (see Game.venue_facility_id). Empty means no known venue Facility yet.
+  string game_venue_facility_id = 4;
+
+  // game_court_ids is which courts the Game spans — repeated, because a Game
+  // spanning more than one court is normal here (unlike a Booking).
+  repeated string game_court_ids = 5;
+
+  // game_status is the GAME's status, not the Registration's (that is on
+  // registration.status). It is the most load-bearing field on this message:
+  // ListGames filters `WHERE g.status = 'scheduled'` and this service has NO
+  // GetGame RPC, so this is the only way a Player can ever be told their Game
+  // was cancelled. A client MUST render a cancelled Game as cancelled rather
+  // than filtering it out — dropping it client-side reinstates exactly the
+  // blind spot this field exists to remove.
+  GameStatus game_status = 6;
+}
+
+message ListRegistrationsForActorResponse {
+  repeated RegistrationListing registrations = 1;
+}
+
 // Match mirrors internal/socialplay/domain.Match (T10.3/T10.4): a recorded
 // result against an existing Game. score is a per-player point-total map,
 // keyed by the same player-id strings that appear in players — deliberately
@@ -620,6 +679,55 @@ service SocialPlayService {
   rpc ListRegistrationsForGame(ListRegistrationsForGameRequest) returns (ListRegistrationsForGameResponse) {
     option (google.api.http) = {
       get: "/v1/games/{game_id}/registrations"
+    };
+  }
+
+  // ListRegistrationsForActor is the PLAYER's own status view (T67.2, part of
+  // issue #353) — the read that lets a Player recover the Games they joined
+  // after a page reload. Joining has worked since T5.2; the outcome lived in a
+  // Vue `ref` and nothing could recover it.
+  //
+  // # Why this is a new RPC rather than a relaxation of the one above
+  //
+  // ListRegistrationsForGame is Host-or-Game-Admin gated and must stay so: its
+  // response carries every registrant's player_id, payment_status and
+  // guest_count, which is precisely the per-person leak #147/T13.6 closed. A
+  // Player is neither Host nor admin, so admitting them there would re-open
+  // that leak to anyone holding a game_id — and game_id is readable straight
+  // off the public ListGames response. This RPC answers the Player's question
+  // while exposing nobody else's row, because the actor's own identity is the
+  // entire scope (the same authorization shape as Booking's
+  // ListRecurringHireTemplatesForActor, which is this RPC's template per
+  // CLAUDE.md rule 7 — hence ...ForActor, not ListMyRegistrations).
+  //
+  // Authenticated (AuthenticatedMethods() in authenticated.go): with no
+  // verified principal there is no scope at all, so a missing one is
+  // UNAUTHENTICATED rather than an empty list. No role check — registering is
+  // open to any authenticated Player, so there is no role a row's owner could
+  // lack; see the app method's doc comment.
+  //
+  // # The Game fields, and the cancelled Game
+  //
+  // Each row carries the Game's starts_at/ends_at/venue_facility_id/court_ids
+  // and **status**, because there is nowhere else to get them: ListGames
+  // filters `WHERE g.status = 'scheduled'` and this service has no GetGame
+  // RPC. A Game its Host cancelled is otherwise unreachable through every read
+  // here, which makes "the Host cancelled your game" the one fact a Player
+  // most needs and cannot be told. A registration against a cancelled Game is
+  // therefore RETURNED, with game_status CANCELLED — a client must render it,
+  // not filter it.
+  //
+  // # REST
+  //
+  // `GET /v1/registrations` — a collection the server scopes to the caller,
+  // deliberately NOT `/v1/users/{user_id}/registrations`: `/v1/users/**` is
+  // the Identity context's REST namespace, and there is no user id on the
+  // wire to put in a path segment anyway. An empty result is an empty list
+  // with 200, never an error. Same reasoning as Booking's
+  // `GET /v1/recurring-hire-templates`.
+  rpc ListRegistrationsForActor(ListRegistrationsForActorRequest) returns (ListRegistrationsForActorResponse) {
+    option (google.api.http) = {
+      get: "/v1/registrations"
     };
   }
 

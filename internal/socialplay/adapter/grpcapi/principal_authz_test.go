@@ -108,6 +108,9 @@ func (fakeIdentityLookup) UserIDBySubject(_ context.Context, subject string) (st
 func newPrincipalTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
+	// T67.2: ListForPlayer joins games, so the registration fake reads Games
+	// out of the game fake. Wired here because only this constructor has both.
+	regRepo.gameSource = gameRepo
 	svc := app.NewService(app.ServiceOptions{
 		Identity:      fakeIdentityLookup{},
 		IDs:           &fakeIDs{},

@@ -128,6 +128,20 @@ func (f *fakeRegistrations) CancelAllActiveForGame(context.Context, string) (int
 	return 0, nil
 }
 
+// ListForPlayer (T67.2, part of issue #353) is likewise unexercised here:
+// socialplay's Player-facing "my games" read is not a path this
+// Payments-context adapter touches. It is implemented only because widening
+// socialplay/port.RegistrationRepository reaches ACROSS the context boundary
+// into this file — worth recording, since this is the one implementer of that
+// interface outside internal/socialplay and therefore the one a sweep scoped
+// to that directory would miss.
+//
+// It returns an empty slice rather than nil so the zero value still satisfies
+// the port's "empty result is an empty list" contract.
+func (f *fakeRegistrations) ListForPlayer(context.Context, string) ([]socialplayport.RegistrationListing, error) {
+	return []socialplayport.RegistrationListing{}, nil
+}
+
 // fakeWaitlist is a minimal, empty-always port.WaitlistRepository stub,
 // mirroring internal/socialplay/adapter/grpcapi/authz_regression_test.go's
 // fakeWaitlistRepo: MarkRegistrationPaymentStatus (this package's own

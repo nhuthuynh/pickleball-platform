@@ -803,6 +803,70 @@ func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUse
 	return s.registrations.ListActiveForGame(ctx, gameID)
 }
 
+// ListRegistrationsForActor returns the Registrations the actor themselves
+// hold, each carrying the Game facts their "my games" screen needs (T67.2,
+// part of issue #353) — the read side of RegisterForGame, and the Player-facing
+// twin of ListRegistrationsForGame above.
+//
+// # Why this is a second method and not a relaxation of the one above
+//
+// ListRegistrationsForGame is Host-or-Game-Admin gated, and must stay so: its
+// response carries EVERY registrant's player_id, payment_status and
+// guest_count, which is precisely the per-person leak #147/T13.6 closed. A
+// Player asking "which Games am I in?" is neither Host nor admin, so widening
+// that check to admit them would re-open the leak to anyone holding a game_id —
+// and game_id is readable straight off the public ListGames response. This
+// method answers the Player's question without exposing anybody else's row,
+// because the actor's own identity is the entire scope.
+//
+// # Authorization: the actor's identity IS the scope, and that is the whole
+// check
+//
+// The read filters on player_id = actorUserID, so a caller can only ever be
+// answered with their own Registrations; there is no second party's data in
+// reach for an ownership check to protect. That makes it structurally like
+// booking's ListRecurringHireTemplatesForActor (T11.6) — this method's template,
+// per CLAUDE.md rule 7's one-ubiquitous-language requirement, which is also why
+// it is named ...ForActor and not ListMyRegistrations.
+//
+// **No role check, deliberately — a negative finding, stated rather than
+// skipped silently.** There is no role to require: registering for a Game is
+// open to any authenticated Player (RegisterForGame carries no role gate), so
+// a role filter here would exclude nobody who could own a row, while costing a
+// Player whose role changed the ability to read back Games they already joined.
+// An app-layer test asserts port.IdentityLookup is never consulted on this
+// path, so the absence is pinned rather than incidental.
+//
+// # No actor field on the request, and none to forge
+//
+// actorUserID is the resolved User.ID the grpcapi handler's actor() funnel
+// produces from the verified bearer token — never a value off the wire.
+// ListRegistrationsForActorRequest has no actor field at all (not even a
+// deprecated one: booking's equivalent retains `actor_user_id` only because
+// deleting a shipped proto field is a breaking wire change, and this message is
+// new, so there is nothing to keep). A handler test proves a forged field
+// changes nothing, which for a brand-new message means proving there is no such
+// field to populate.
+//
+// A malformed actorUserID is answered exactly like an unknown one — an empty
+// list, not an error, because an unknown actor's answer is also an empty list.
+// The guard still has to run: registrations.player_id is a `uuid` column and
+// the Postgres adapter's mustUUID panics on anything pgtype.UUID.Scan cannot
+// parse. Post-ADR-0014 a caller whose subject resolves to no User never reaches
+// this method (the handler refuses them with PermissionDenied), so that branch
+// is reachable only by a programming error.
+//
+// The scope rule — active Registrations, plus their Games' REAL status, so a
+// host-cancelled Game still surfaces — is port.RegistrationRepository.
+// ListForPlayer's, documented there as a decision rather than an accident.
+func (s *Service) ListRegistrationsForActor(ctx context.Context, actorUserID string) ([]port.RegistrationListing, error) {
+	if !uuidShape.MatchString(actorUserID) {
+		return []port.RegistrationListing{}, nil
+	}
+
+	return s.registrations.ListForPlayer(ctx, actorUserID)
+}
+
 // MarkRegistrationPaymentStatus updates a Registration's PaymentStatus
 // (T6.5). This is the sole app-layer entry point for changing that field
 // outside of RegisterForGame's initial "unpaid" default —
