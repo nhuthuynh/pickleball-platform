@@ -51,6 +51,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -116,6 +117,11 @@ func (f *fakeGameRepo) UpdateStatus(_ context.Context, id string, status domain.
 
 type fakeRegistrationRepo struct {
 	regs map[string]domain.Registration
+
+	// gameSource backs ListForPlayer's JOIN against games (T67.2).
+	// newTestHandler, which builds both fakes, wires it; the callers that
+	// construct this fake alone leave it nil and never exercise that read.
+	gameSource *fakeGameRepo
 }
 
 func newFakeRegistrationRepo() *fakeRegistrationRepo {
@@ -142,6 +148,46 @@ func (f *fakeRegistrationRepo) ListActiveForGame(_ context.Context, gameID strin
 			out = append(out, r)
 		}
 	}
+	return out, nil
+}
+
+// ListForPlayer (T67.2) backs ListRegistrationsForActor. It needs the Games
+// too, so the fake carries a pointer back to this package's fakeGameRepo —
+// wired by newTestHandler, which builds both — modelling the real query's
+// single JOIN. A nil gameSource yields an empty list, correct for the
+// constructors that build this fake alone and never reach this read.
+func (f *fakeRegistrationRepo) ListForPlayer(_ context.Context, playerID string) ([]port.RegistrationListing, error) {
+	out := make([]port.RegistrationListing, 0, len(f.regs))
+	if f.gameSource == nil {
+		return out, nil
+	}
+	for _, r := range f.regs {
+		if r.PlayerID != playerID {
+			continue
+		}
+		g, ok := f.gameSource.games[r.GameID]
+		if !ok {
+			continue
+		}
+		// Same filter as the production query: active Registrations, plus
+		// any Registration whose GAME is cancelled (CancelGame's cascade
+		// cancels the Registration too, so filtering on it alone would
+		// drop the case this read exists for).
+		if r.Status == domain.RegistrationStatusCancelled && g.Status != domain.StatusCancelled {
+			continue
+		}
+		out = append(out, port.RegistrationListing{
+			Registration:        r,
+			GameStartsAt:        g.Range.Start,
+			GameEndsAt:          g.Range.End,
+			GameVenueFacilityID: g.VenueFacilityID,
+			GameCourtIDs:        g.CourtIDs,
+			GameStatus:          g.Status,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].GameStartsAt.Before(out[j].GameStartsAt)
+	})
 	return out, nil
 }
 
@@ -291,6 +337,10 @@ func (f *fakeIDs) NewID() string {
 func newTestHandler() (*grpcapi.Handler, *fakeGameRepo, *fakeRegistrationRepo) {
 	gameRepo := newFakeGameRepo()
 	regRepo := newFakeRegistrationRepo()
+	// T67.2: ListForPlayer joins games, so the registration fake needs the
+	// game fake to read from. Wired here rather than inside
+	// newFakeRegistrationRepo because only this constructor has both.
+	regRepo.gameSource = gameRepo
 	svc := app.NewService(app.ServiceOptions{
 		Identity:      fakeIdentityLookup{},
 		IDs:           &fakeIDs{},

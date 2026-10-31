@@ -131,6 +131,93 @@ type RegistrationRepository interface {
 	// promoteNextWaiting, so there is nothing for this method to
 	// suppress).
 	CancelAllActiveForGame(ctx context.Context, gameID string) (int, error)
+
+	// ListForPlayer returns playerID's Registrations paired with the Game
+	// facts the Player's own "my games" screen needs (T67.2, part of issue
+	// #353) — the read side of RegisterForGame.
+	//
+	// # Why the Game facts come back from THIS call
+	//
+	// They are not a convenience. ListGames filters
+	// `WHERE g.status = 'scheduled'` (db/queries/socialplay.sql) and there is
+	// **no GetGame RPC on this service at all** — verified against the full
+	// rpc list in proto/, not assumed. So a Game its Host cancelled is
+	// unreachable through every other read here, and "the Host cancelled your
+	// game" is exactly the fact a Player most needs to be told. A shape that
+	// returned bare Registrations would leave the caller holding a game_id
+	// with no way to resolve it — the gap this method exists to close.
+	//
+	// Implementations MUST satisfy it in ONE query (the Postgres adapter joins
+	// games), never by fetching Registrations and then looping GetByID over
+	// their Games — that is an N+1 per row, the same trap GameListing's
+	// SpotsLeft above was built to avoid.
+	//
+	// # Scope: a DECISION, recorded rather than left to be inferred
+	//
+	// The filter is on the REGISTRATION's status, not the Game's:
+	//
+	//   - A Registration the caller themselves cancelled LEAVES the list.
+	//     They took the action and already know the outcome; keeping it would
+	//     make this a history log rather than the answer to "which Games am I
+	//     in?".
+	//   - A Registration against a CANCELLED GAME is RETURNED, carrying
+	//     GameStatus == domain.StatusCancelled. This is not in tension with
+	//     the rule above, it is what makes it implementable: because
+	//     app.Service.CancelGame cascades CancelAllActiveForGame, a
+	//     host-cancelled Game's Registration is ITSELF cancelled, so a filter
+	//     on the Registration alone would discard the very case the Game
+	//     fields exist for. Hence the Postgres query's
+	//     `(r.status <> 'cancelled' OR g.status = 'cancelled')`.
+	//
+	// playerID is a **User.ID** (uuid), never an IdP subject — the space
+	// registrations.player_id has held since
+	// db/migrations/0026_socialplay_identity_conformance.sql. Callers reach
+	// this only through app.Service.ListRegistrationsForActor, whose uuidShape
+	// guard keeps a malformed value away from the Postgres adapter's
+	// panicking mustUUID.
+	ListForPlayer(ctx context.Context, playerID string) ([]RegistrationListing, error)
+}
+
+// RegistrationListing pairs a Registration with the Game facts the Player's
+// own "my games" screen needs (T67.2, part of issue #353), computed by the
+// repository/query itself in one round trip.
+//
+// It follows GameListing/SpotsLeft's precedent above exactly, and for the same
+// CLAUDE.md rule 2 reason: these are **read-model projections for this one
+// read path**, not part of the Registration aggregate's own invariants. They
+// are deliberately NOT fields on domain.Registration — a Registration knows
+// which Game it belongs to and nothing about when that Game starts, and
+// hanging Game columns off it would turn a domain type into a join result.
+//
+// The Game facts are prefixed Game* and kept FLAT rather than nesting a whole
+// domain.Game, because the five fields below are the complete set this screen
+// needs and the query selects exactly them. A nested Game would oblige the
+// query to select all thirteen games columns and would invite a reader to
+// trust fields (Capacity, EntryFee, HostID) this read does not promise to
+// populate. Mirrors the identically-named proto message
+// (proto/pickleball/socialplay/v1/socialplay.proto) field-for-field.
+type RegistrationListing struct {
+	Registration domain.Registration
+
+	// GameStartsAt/GameEndsAt are games.starts_at/ends_at — when to show up.
+	GameStartsAt time.Time
+	GameEndsAt   time.Time
+
+	// GameVenueFacilityID is games.venue_facility_id, the real Facilities
+	// context FK. Empty means this Game has no known venue Facility yet —
+	// the column is nullable, see domain.Game.VenueFacilityID.
+	GameVenueFacilityID string
+
+	// GameCourtIDs is games.court_ids — which courts. A Game spanning more
+	// than one is normal here, unlike a Booking.
+	GameCourtIDs []string
+
+	// GameStatus is the GAME's status, not the Registration's (which is on
+	// Registration.Status above). It is the most load-bearing field on this
+	// struct: it is the only way a Player can be told their Game was
+	// cancelled, because ListGames filters cancelled Games out and no
+	// GetGame RPC exists.
+	GameStatus domain.Status
 }
 
 // MatchRepository is Social Play's persistence boundary for the Match

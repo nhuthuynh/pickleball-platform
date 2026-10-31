@@ -352,6 +352,48 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 	return &socialplayv1.ListRegistrationsForGameResponse{Registrations: out}, nil
 }
 
+// ListRegistrationsForActor serves the PLAYER's own status view (T67.2, part
+// of issue #353) — the read that lets a Player recover the Games they joined
+// after a page reload.
+//
+// # Nothing is read off the request, because there is nothing on it
+//
+// ListRegistrationsForActorRequest is an EMPTY message: no actor field, not
+// even a deprecated one (see its proto doc comment — booking's equivalent
+// retains `actor_user_id` only because deleting a shipped field is a breaking
+// wire change, and this message is new). The acting Player comes from
+// h.actor(ctx) — auth.RequireSubject then app.Service.ResolveActorUserID — so
+// a forged actor is not merely ignored, it is unexpressible. The `req`
+// parameter is therefore deliberately unused, and a handler test asserts the
+// result is identical whichever caller asks.
+//
+// A missing or unverified principal is codes.Unauthenticated (h.actor's own
+// mapping, ADR-0013 §5), never an empty list: with no principal there is no
+// scope to answer within. The RPC is in AuthenticatedMethods() to match — a
+// method in neither list would be PUBLIC, which for a per-caller read is the
+// silent default-to-public failure authenticated_test.go exists to prevent.
+//
+// An empty result is an empty list with no error (the Player has joined
+// nothing yet), which grpc-gateway renders as `{}` / 200 on
+// `GET /v1/registrations`.
+func (h *Handler) ListRegistrationsForActor(ctx context.Context, _ *socialplayv1.ListRegistrationsForActorRequest) (*socialplayv1.ListRegistrationsForActorResponse, error) {
+	actorUserID, err := h.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	listings, err := h.svc.ListRegistrationsForActor(ctx, actorUserID)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*socialplayv1.RegistrationListing, 0, len(listings))
+	for _, l := range listings {
+		out = append(out, toProtoRegistrationListing(l))
+	}
+	return &socialplayv1.ListRegistrationsForActorResponse{Registrations: out}, nil
+}
+
 // RecordMatchResult records a Match result against an existing Game (T10.4),
 // authorized to the Game's Host or an assigned Game Admin only. score comes
 // off the wire as map[string]int32 (proto3's only integer map value type);
@@ -849,6 +891,25 @@ func toProtoRegistration(r domain.Registration) *socialplayv1.Registration {
 		// client must send exactly this back on CreateOnlinePayment, and
 		// as of T56.2 (#297) anything else is refused.
 		AmountOwed: toProtoMoney(r.AmountOwed),
+	}
+}
+
+// toProtoRegistrationListing converts a port.RegistrationListing to its wire
+// message (T67.2) — see RegistrationListing's proto doc comment for why the
+// Game facts are flat game_* siblings rather than a nested Game.
+//
+// game_starts_at/game_ends_at always go through timestamppb.New, including for
+// a zero time: a Game always has a window (games.starts_at/ends_at are NOT
+// NULL), so there is no "unset" case to distinguish, matching toProtoGame's
+// treatment of the same two columns.
+func toProtoRegistrationListing(l port.RegistrationListing) *socialplayv1.RegistrationListing {
+	return &socialplayv1.RegistrationListing{
+		Registration:        toProtoRegistration(l.Registration),
+		GameStartsAt:        timestamppb.New(l.GameStartsAt),
+		GameEndsAt:          timestamppb.New(l.GameEndsAt),
+		GameVenueFacilityId: l.GameVenueFacilityID,
+		GameCourtIds:        l.GameCourtIDs,
+		GameStatus:          toProtoGameStatus(l.GameStatus),
 	}
 }
 

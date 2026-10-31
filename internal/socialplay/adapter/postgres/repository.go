@@ -288,6 +288,53 @@ func (r *RegistrationRepository) ListActiveForGame(ctx context.Context, gameID s
 	return out, nil
 }
 
+// ListForPlayer implements port.RegistrationRepository.ListForPlayer (T67.2,
+// part of issue #353): the Player's own "which Games am I in?" read, in ONE
+// query joining games — see db/queries/socialplay.sql's
+// ListRegistrationsForPlayer for the JOIN, the deliberately non-obvious
+// `r.status <> 'cancelled' OR g.status = 'cancelled'` filter, and why the Game
+// columns are projected here rather than fetched per row.
+//
+// mustUUID is safe on playerID for the same reason Create's is: callers only
+// ever reach this through app.Service.ListRegistrationsForActor, whose
+// uuidShape guard refuses a malformed value before the repository is touched
+// (an app-layer test asserts the call count, not just the answer).
+//
+// The Game facts are assembled field-by-field rather than through
+// gameFromFields: this row carries five of the thirteen games columns, so
+// there is no Game to build — which is the whole point of
+// port.RegistrationListing being a flat projection rather than a nested
+// domain.Game (CLAUDE.md rule 2, and the "sqlc mints a distinct ...Row struct
+// per query" gotcha).
+func (r *RegistrationRepository) ListForPlayer(ctx context.Context, playerID string) ([]port.RegistrationListing, error) {
+	rows, err := r.q.ListRegistrationsForPlayer(ctx, mustUUID(playerID))
+	if err != nil {
+		return nil, translateRegistrationErr(err)
+	}
+	out := make([]port.RegistrationListing, 0, len(rows))
+	for _, row := range rows {
+		courtIDs := make([]string, 0, len(row.CourtIds))
+		for _, c := range row.CourtIds {
+			courtIDs = append(courtIDs, c.String())
+		}
+		out = append(out, port.RegistrationListing{
+			Registration: registrationFromFields(row.ID, row.GameID, row.PlayerID,
+				row.Source, row.Status, row.PaymentStatus, row.GuestCount,
+				row.AmountOwedCents, row.AmountOwedCurrency),
+			GameStartsAt: row.StartsAt.Time,
+			GameEndsAt:   row.EndsAt.Time,
+			// venue_facility_id is nullable, so it goes through
+			// fromNullableUUID rather than .String() — the latter renders an
+			// invalid pgtype.UUID as the all-zeros uuid, which a client would
+			// read as a real Facility.
+			GameVenueFacilityID: fromNullableUUID(row.VenueFacilityID),
+			GameCourtIDs:        courtIDs,
+			GameStatus:          domain.Status(row.GameStatus),
+		})
+	}
+	return out, nil
+}
+
 func (r *RegistrationRepository) Update(ctx context.Context, reg domain.Registration) (domain.Registration, error) {
 	row, err := r.q.UpdateRegistrationStatus(ctx, socialplaydb.UpdateRegistrationStatusParams{
 		ID:     mustUUID(reg.ID),
