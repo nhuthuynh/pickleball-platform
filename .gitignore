@@ -36,3 +36,9 @@
 /web/node_modules/
 /web/dist/
 /web/.vite/
+
+# Agent worktrees: transient per-subagent checkouts the harness creates.
+# `git add -A` sweeps them in as embedded git repositories — the same hazard
+# that committed a 3 MB binary at T65.4, and the reason `make binary-check`
+# exists. Ignored by property (the whole directory), never by listing ids.
+.claude/worktrees/
