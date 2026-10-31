@@ -43,7 +43,10 @@
 package grpcapi_test
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"regexp"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -315,6 +318,63 @@ func TestCreateUser_MalformedInputIsInvalidArgument(t *testing.T) {
 //   - GetUser stays PUBLIC. It is a shipped unauthenticated read, and
 //     silently authenticating it would break a live flow — the specific
 //     mistake T12.7's instruction 2 warns about.
+//
+// TestAuthenticatedMethods_CoversEveryHandlerThatDemandsAPrincipal exists
+// because the test below could not catch the thing that went wrong.
+//
+// It compares the list against a hardcoded `want`, so when #344 added
+// GetCurrentUser — an RPC that demands a principal — and did not add it to
+// the list, the test stayed green BY AGREEING WITH THE OMISSION. The
+// assertion and the defect were the same shape.
+//
+// This one derives its expectation from the handlers instead: every method
+// whose implementation calls auth.PrincipalFromContext must appear in the
+// policy list. Read from the source file rather than from a second
+// hardcoded list, so adding a fourth such RPC without listing it fails here
+// rather than being silently accepted.
+func TestAuthenticatedMethods_CoversEveryHandlerThatDemandsAPrincipal(t *testing.T) {
+	t.Parallel()
+
+	src, err := os.ReadFile("handler.go")
+	if err != nil {
+		t.Fatalf("reading handler.go: %v", err)
+	}
+
+	// Each `func (h *Handler) Name(` whose body reaches
+	// auth.PrincipalFromContext before the next func declaration.
+	funcRe := regexp.MustCompile(`(?m)^func \(h \*Handler\) (\w+)\(`)
+	locs := funcRe.FindAllSubmatchIndex(src, -1)
+	demands := map[string]bool{}
+	for i, loc := range locs {
+		name := string(src[loc[2]:loc[3]])
+		end := len(src)
+		if i+1 < len(locs) {
+			end = locs[i+1][0]
+		}
+		if bytes.Contains(src[loc[0]:end], []byte("auth.PrincipalFromContext")) {
+			demands[name] = true
+		}
+	}
+	if len(demands) == 0 {
+		t.Fatal("parsed no handlers out of handler.go — this test is not checking anything")
+	}
+
+	listed := map[string]bool{}
+	for _, m := range grpcapi.AuthenticatedMethods() {
+		listed[m] = true
+	}
+
+	for name := range demands {
+		full := "/pickleball.identity.v1.IdentityService/" + name
+		if !listed[full] {
+			t.Errorf("%s calls auth.PrincipalFromContext but is NOT in AuthenticatedMethods().\n"+
+				"The handler's own guard still refuses anonymous callers, but the "+
+				"interceptor-level backstop is missing — which is the layer that "+
+				"covers a handler losing its guard, or the next RPC forgetting one.", name)
+		}
+	}
+}
+
 func TestAuthenticatedMethods(t *testing.T) {
 	t.Parallel()
 
@@ -322,6 +382,9 @@ func TestAuthenticatedMethods(t *testing.T) {
 	want := map[string]bool{
 		"/pickleball.identity.v1.IdentityService/CreateUser":              true,
 		"/pickleball.identity.v1.IdentityService/UpdateSelfReportedLevel": true,
+		// #344. Resolves the verified subject to this platform's User, so it
+		// requires a principal exactly as the two above do.
+		"/pickleball.identity.v1.IdentityService/GetCurrentUser": true,
 	}
 
 	if len(got) != len(want) {

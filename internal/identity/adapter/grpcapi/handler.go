@@ -54,6 +54,13 @@ func AuthenticatedMethods() []string {
 	return []string{
 		serviceName + "CreateUser",
 		serviceName + "UpdateSelfReportedLevel",
+		// #344 added GetCurrentUser and did NOT add it here, which is the
+		// omission this list's own doc comment above warns about. The
+		// handler self-checks, so anonymous callers were still refused —
+		// what was missing is the interceptor backstop, i.e. the layer that
+		// exists for the case where a handler's own guard is removed or a
+		// new RPC forgets one.
+		serviceName + "GetCurrentUser",
 	}
 }
 

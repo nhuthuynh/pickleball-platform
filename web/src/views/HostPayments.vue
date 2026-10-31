@@ -15,6 +15,7 @@
 import { onMounted } from 'vue'
 import { useBreakpoint } from '../composables/useBreakpoint'
 import { useHostPayments, MOCK_HOST_ID, type PendingCashPayment } from '../composables/useHostPayments'
+import { actingUserId } from '../state/authSession'
 import { setPendingCashPaymentsCount } from '../state/hostPendingPayments'
 import UnpaidCashAmount from '../components/payments/UnpaidCashAmount.vue'
 import type { SocialPlayClient } from '../api/socialplayClient'
@@ -37,13 +38,19 @@ const { pending, loading, error, markingPaidId, markPaidError, load, markPaid } 
 )
 
 async function refresh(): Promise<void> {
-  await load(MOCK_HOST_ID)
+  // #344 landed GetCurrentUser, so a signed-in host has a real users.id.
+  // This passed MOCK_HOST_ID RAW while every other screen used
+  // actingUserId(), and the server sets Game.host_id from the verified
+  // caller (T12.9) — so the filter compared a uuid against 'host-mock-1',
+  // matched nothing, and this dashboard was permanently empty for every
+  // real host. Offline cash is the only payment path here that moves money.
+  await load(actingUserId(MOCK_HOST_ID))
   setPendingCashPaymentsCount(pending.value.length)
 }
 
 function onMarkPaid(entry: PendingCashPayment): void {
   void (async () => {
-    await markPaid(entry, MOCK_HOST_ID)
+    await markPaid(entry, actingUserId(MOCK_HOST_ID))
     setPendingCashPaymentsCount(pending.value.length)
   })()
 }

@@ -155,8 +155,15 @@ describe('GameJoinPanel', () => {
 
       expect(wrapper.find('[role="alert"]').text()).toContain('already registered')
       expect(wrapper.text()).not.toContain('just filled up')
-      expect(wrapper.find('.game-join__conflict').exists()).toBe(false)
       expect(wrapper.text()).not.toContain('Join waitlist')
+
+      // And no join form: the panel used to fall through to it, showing
+      // "You are already registered for this game." directly above an
+      // ENABLED "Join game" button — offering the action that had just
+      // failed and would fail identically every time. `alreadyRegistered`
+      // was set by useJoinGame and read by nobody.
+      expect(wrapper.find('.game-join__form').exists()).toBe(false)
+      expect(wrapper.text()).not.toContain('Join game')
     })
 
     it('a Game whose SpotsLeft is already known to be 0 (startFull) skips straight to the waitlist offer', () => {

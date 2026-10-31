@@ -1,7 +1,8 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import HostPayments from '../HostPayments.vue'
 import { MOCK_HOST_ID } from '../../composables/useHostPayments'
+import { rememberUserId, signOut } from '../../state/authSession'
 import type { SocialPlayClient } from '../../api/socialplayClient'
 import type { PaymentsClient } from '../../api/paymentsClient'
 
@@ -33,12 +34,23 @@ function gameListing(id: string, hostId: string, paymentMethod: string) {
   }
 }
 
+/** The id a signed-in host's Games actually carry: the server sets
+ *  Game.host_id from the verified caller, never from the wire (T12.9), so it
+ *  is a users.id uuid and can never be MOCK_HOST_ID. */
+const REAL_HOST_ID = 'c6b3598f-fa52-4a7b-848c-7e5e96cdf188'
+
 function socialplayClientStub(): SocialPlayClient {
+  return socialplayClientStubFor(MOCK_HOST_ID)
+}
+
+/** Same stub, with the host id the fixture Game is hosted by made explicit —
+ *  so a test can seed a Game hosted by a REAL user id. */
+function socialplayClientStubFor(hostId: string): SocialPlayClient {
   return {
     GET: vi.fn(async (path: string, options: { params?: { path?: { gameId?: string } } }) => {
       if (path === '/v1/games') {
         return {
-          data: { games: [gameListing('g1', MOCK_HOST_ID, 'PAYMENT_METHOD_CASH')] },
+          data: { games: [gameListing('g1', hostId, 'PAYMENT_METHOD_CASH')] },
           error: undefined,
           response: { status: 200 },
         }
@@ -92,6 +104,55 @@ function paymentsClientStub(): PaymentsClient {
     GET: vi.fn(),
   } as unknown as PaymentsClient
 }
+
+// The defect this guards, found by an audit of what a user cannot do:
+// HostPayments.vue passed MOCK_HOST_ID to `load`/`markPaid` RAW, while every
+// other screen had been migrated to `actingUserId(MOCK_*)`. Since the server
+// sets Game.host_id from the verified caller, a signed-in host's games carry
+// a uuid — so the dashboard filtered on 'host-mock-1', matched nothing, and
+// was permanently empty with a permanently-zero nav badge. Offline cash,
+// which is the only payment path here that moves real money, was unreachable.
+//
+// Every existing test in this file seeded its fixture game with
+// MOCK_HOST_ID, so the filter matched in tests and could not in production —
+// the same fixture-agrees-with-the-bug shape as #342 and #345.
+describe('a signed-in host (the regression #3 from the MVP gap audit)', () => {
+  afterEach(() => {
+    signOut()
+  })
+
+  it('shows a signed-in host their pending cash, filtering on the REAL user id', async () => {
+    rememberUserId(REAL_HOST_ID)
+    const wrapper = mount(HostPayments, {
+      props: {
+        client: socialplayClientStubFor(REAL_HOST_ID),
+        paymentsClient: paymentsClientStub(),
+        win: matchMediaForWidth(1440),
+      },
+    })
+    await flushPromises()
+
+    // Before the fix the filter compared against MOCK_HOST_ID, matched
+    // nothing, and this screen rendered its empty state instead.
+    expect(wrapper.findAll('.host-payments__row')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('No pending cash payments right now.')
+  })
+
+  it('still works for a browse-only session, falling back to the placeholder', async () => {
+    // Not signed in: actingUserId returns the fallback, so behaviour is
+    // exactly what it was before — that is the contract of the helper.
+    const wrapper = mount(HostPayments, {
+      props: {
+        client: socialplayClientStub(),
+        paymentsClient: paymentsClientStub(),
+        win: matchMediaForWidth(1440),
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.findAll('.host-payments__row')).toHaveLength(1)
+  })
+})
 
 describe('HostPayments', () => {
   it('shows an empty state when there are no pending cash payments', async () => {
