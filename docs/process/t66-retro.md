@@ -28,9 +28,14 @@ delivers that ticket's story, whether or not it followed its instructions:
 - **#338 and #341 are ceremony, not uncovered work.** #341 is T66's own
   Ceremony 1 artifact, which the process mandates; #338 is the security fix
   that ceremony surfaced.
-- **T66.3, T66.4 and T66.5 did not ship at all.** Verified: no `LESSONS`
-  reference anywhere in `tools/docsindex/` or `cmd/docsindex/`, and no
-  mutation-restore rule in `docs/process/sprint-process.md`.
+- **T66.3, T66.4 and T66.5 did not ship at all.** Verified for T66.3 and
+  T66.4: no `LESSONS` reference anywhere in `tools/docsindex/` or
+  `cmd/docsindex/`, and no mutation-restore rule in
+  `docs/process/sprint-process.md`. T66.5 — run `ci-integration` — is
+  evidenced differently and more weakly: no dated run or recorded interval
+  exists anywhere after T61's, so the absence is the evidence. Said separately
+  because an earlier draft put all three under one "Verified:" that covered
+  two of them, which is this project's own recurring shape.
 
 That leaves **five** PRs of real product work no ticket covers — #346, #349,
 #350, #351 and #354 — and three planned tickets that never happened. The
@@ -95,17 +100,29 @@ The file asserts **27** and **"three"**. Both wrong, and wrong according to the
 command the file itself prints beside the figure.
 
 **There is a third, and this retro's first draft missed it.** `CLAUDE.md:147`
-prints `14 package(s)` for a fresh clone before any codegen. The tool now
-reports 26 total "plus 13 generated", so the hand-written remainder is 13 and
-that figure should be 13 too. It was found by T67.5's own implementer while
-building the doctest gate — which is the argument for the gate made better
-than this document could make it, since two adversarial passes over this
-paragraph found two of the three and the gate found the third.
+prints `14 package(s)` for a fresh clone before any codegen. The tool reports
+26 total "plus 13 generated", so the hand-written remainder **derives** to 13
+and that figure should be 13 too. **Derived, not run** — the block's own
+command is `rm -rf internal/gen`, which deletes generated code, so it is
+deliberately excluded from `docs-doctest` and no run of the gate produces this
+number. T67.5's implementer noticed it while building the gate, by reading the
+block beside the two the gate flagged.
 
-**And the comfortable explanation is unavailable.** Both figures went stale in
-one commit — `ce962d5` (#351), merged 2026-10-29 — which added
-`cmd/vulngate/main_test.go`, taking that package off the untested list. That
-moved the total from 27 to 26 and the `cmd` count from three to two. **The
+**So the third falsehood is the one the new gate cannot catch**, and that is
+the honest version of the argument for the gate rather than a weaker one: the
+gate's documented blind spot and this project's third stale figure are the
+same block. An earlier draft of this paragraph said "the gate found the
+third", which it structurally cannot — and said the figure was "found by
+measuring", which let the word *measured* do the work of *derived* at two
+removes. That is a figure without a command one layer of attribution deeper,
+which is harder to catch rather than easier. Caught by the re-verification of
+this PR.
+
+**And the comfortable explanation is unavailable.** All three figures went
+stale in one commit — `ce962d5` (#351), merged 2026-10-29 — which added
+`cmd/vulngate/main_test.go`, taking that package off the untested list in
+**both** documented tree states. That moved the total from 27 to 26, the `cmd`
+count from three to two, and the fresh-clone figure from 14 to 13. **The
 commit's own message says so:**
 
 ```
