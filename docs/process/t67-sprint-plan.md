@@ -84,7 +84,8 @@ Bookings screen at 8 against 3, cancel at 5 against 3 — and PE's were the
 better-grounded ones, because PE measured things PM guessed at. The clearest
 case: PM flagged as an untested guess that the pricing overlap invariant could
 not be an `EXCLUDE` constraint and would need a trigger. PE ran five designs
-against a throwaway Postgres with all 32 real migrations applied and found a
+against a throwaway Postgres with every real migration applied (33 files
+numbered 0001–0032 — there are two `0005_*`) and found a
 purely additive `EXCLUDE` that works, with no column-type change and therefore
 no sqlc row-type change. PM's guess was wrong, PM labelled it as a guess, and
 the labelling is what let PE's measurement replace it rather than contradict a
@@ -105,18 +106,32 @@ pass whose only brief was to argue against it. The measurements that decided it:
   an artifact that existed and nobody ran.
 - The six role dossiers total 2,901 lines, were all last edited on
   `2026-07-31` in one commit, and are cited in **0 of 23 incidents and 0 of 58
-  retros**. The last sprint plan to cite one was T9. Two still say
-  "(T6, upcoming)".
-- Across those 2,901 lines, **2 lines mention any gate this project runs**,
-  against 386 external citations.
+  retros**. The last sprint plan to cite one was T9. Two still carry a stale
+  "upcoming" marker for a phase ~60 sprints past — `qa-engineer.md:403` says
+  "(T6, upcoming)" and `:433` says "(T5, upcoming)".
+- Across those 2,901 lines, **6 lines name any `make` target this project has**
+  — all of them `make test` or `make test-domain` — and **0 name an actual
+  gate** (`gate-coverage`, `fmt-check`, `binary-check`, `lock-check`,
+  `docs-index-check`, `vet-integration`, `ci-checks`, `ci-integration`,
+  `security`): that grep exits 1. Against **386** external citations. (This
+  bullet said "2 lines" until the review of this PR measured it; 2 is neither
+  figure, and the original stated no definition. The definition is the point —
+  which is why both numbers and the grep that distinguishes them are here.)
 - `sprint-process.md` has grown +1999/−120 and `CLAUDE.md` +570/−55. A **6.4%
   deletion rate.** In that history exactly one practice was ever retired, and
   what retired it was a gate — `make gate-coverage` computing at run time what
   a planning question had been asking by hand.
-- Nothing loads the dossiers. There is no `.claude/` directory, no settings
-  file, no `@path` import in `CLAUDE.md`, and no reference to `docs/roles/` in
-  either `CLAUDE.md` or `HANDOFF.md`. The only pointer is a table in
+- Nothing loads the dossiers. **Nothing under `.claude/` is tracked** (`git
+  ls-tree -r HEAD .claude` exits 1), there is no settings file, no `@path`
+  import in `CLAUDE.md`, and no reference to `docs/roles/` in either
+  `CLAUDE.md` or `HANDOFF.md`. The only pointer is a table in
   `sprint-process.md`, four voluntary hops from the auto-injected context.
+  (This bullet said "there is no `.claude/` directory", which was true when
+  measured and false by the time this PR was reviewed — the harness created
+  one for this sprint's agent worktrees, and **this PR's own `.gitignore` hunk
+  ignores part of it.** A claim that went stale inside a single session, in
+  the document arguing that nothing re-checks claims. Narrowed to the property
+  that actually matters and that a command can check.)
 
 A further provenance finding, from the research passes themselves: external
 primary sources are largely unreachable from this environment (`w3.org`,

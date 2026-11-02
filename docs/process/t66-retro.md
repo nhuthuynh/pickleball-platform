@@ -6,13 +6,37 @@ figure nobody measured.
 
 ## 1. The board of record did not describe what shipped
 
-T66 merged eight PRs, verified against each `merged_at` rather than inferred
-from numbering: **#341 → #343 → #346 → #347 → #349 → #350 → #351 → #354.**
+T66 merged **nine** PRs, verified against each `merged_at` rather than inferred
+from numbering: **#338 → #341 → #343 → #346 → #347 → #349 → #350 → #351 →
+#354.** (This paragraph said eight and omitted #338 until the review of this
+PR caught it — while the `HANDOFF.md` row two cells away credited #338 to
+T66's own Ceremony 1. The sprint's security gate caught a `critical` and the
+fix was the first thing T66 merged; leaving it out of T66's list was the same
+class of error as the finding below.)
 
-Exactly **one** of them — #343 — maps to a ticket in `t66-sprint-plan.md`
-(T66.2). The other seven are real product and infrastructure work that no
-ticket covers: the first-run fixes, the CI/CD workflow, `GetCurrentUser`, the
-409 split, court names, the vulngate grouping, and the four-defect audit fix.
+Mapping them to the plan's five tickets, with the criterion stated so the
+count is checkable rather than assertable — a PR maps to a ticket when it
+delivers that ticket's story, whether or not it followed its instructions:
+
+- **#343 → T66.2.** Unambiguous.
+- **#347 → T66.1, substantially.** T66.1's story is *"I want CI to run every
+  gate `ci-checks` runs, so that a green pipeline means what the local gate
+  means"*, and #347 delivers exactly that. It did not follow T66.1's
+  instructions — the Jenkinsfile was not made to invoke `ci-checks`, and #330
+  is still open — but calling it work no ticket covers is a stretch, and the
+  first draft of this retro did.
+- **#338 and #341 are ceremony, not uncovered work.** #341 is T66's own
+  Ceremony 1 artifact, which the process mandates; #338 is the security fix
+  that ceremony surfaced.
+- **T66.3, T66.4 and T66.5 did not ship at all.** Verified: no `LESSONS`
+  reference anywhere in `tools/docsindex/` or `cmd/docsindex/`, and no
+  mutation-restore rule in `docs/process/sprint-process.md`.
+
+That leaves **five** PRs of real product work no ticket covers — #346, #349,
+#350, #351 and #354 — and three planned tickets that never happened. The
+finding stands; the arithmetic in its first draft did not. Note #351 carries
+*two* unticketed changes (court names and the vulngate grouping), which is how
+the first draft reached "seven" from six PRs while silently dropping #341.
 
 This is not a bookkeeping nit. The sprint plan is the board of record, and for
 T66 it records a different sprint than the one that happened. The cause is
@@ -55,7 +79,7 @@ command was `tail`, so the runner reported `tail`'s exit code and the log said
 `exit=2` while the summary said green. **The command whose exit code is the
 evidence must be the last thing the shell runs.**
 
-## 4. CLAUDE.md drifted into two measurable falsehoods in 24 days
+## 4. CLAUDE.md drifted into three measurable falsehoods in 23 days
 
 T64 put three adversarial passes over `CLAUDE.md` line by line. Measured at
 `c9631dc`, with `internal/gen` present so the stated precondition holds:
@@ -69,6 +93,14 @@ $ make gate-coverage | grep -c "^    cmd/"
 
 The file asserts **27** and **"three"**. Both wrong, and wrong according to the
 command the file itself prints beside the figure.
+
+**There is a third, and this retro's first draft missed it.** `CLAUDE.md:147`
+prints `14 package(s)` for a fresh clone before any codegen. The tool now
+reports 26 total "plus 13 generated", so the hand-written remainder is 13 and
+that figure should be 13 too. It was found by T67.5's own implementer while
+building the doctest gate — which is the argument for the gate made better
+than this document could make it, since two adversarial passes over this
+paragraph found two of the three and the gate found the third.
 
 **And the comfortable explanation is unavailable.** Both figures went stale in
 one commit — `ce962d5` (#351), merged 2026-10-29 — which added
