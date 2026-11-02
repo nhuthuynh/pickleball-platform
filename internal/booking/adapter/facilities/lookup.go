@@ -111,7 +111,7 @@ func (l *Lookup) CourtIDsForFacility(ctx context.Context, facilityID string) ([]
 //
 // **A Court that resolves to no Facility is omitted from the map**, per
 // port.FacilityLookup's contract: an unknown court id, and a court whose
-// facility_id is NULL (both seeded Courts of 0001_init.sql), both simply have
+// facility_id is NULL (both seeded Courts of 0002_seed.sql), both simply have
 // no entry. That is the one place this method's contract deliberately differs
 // from FacilityIDForCourt's, which collapses the same two cases into
 // domain.ErrFacilityNotFound — its caller (GetQuote) cannot proceed without a

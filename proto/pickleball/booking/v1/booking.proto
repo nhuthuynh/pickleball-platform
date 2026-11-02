@@ -105,7 +105,7 @@ message ActorBooking {
   //
   // **Empty is a real, expected answer**, not an error and not a bug: a
   // Court's facility is nullable in this schema, and both Courts seeded by
-  // 0001_init.sql have no Facility at all, so on a freshly migrated database
+  // 0002_seed.sql have no Facility at all, so on a freshly migrated database
   // an empty facility_id is the common case. A client must render such a
   // booking, not hide it — the booking is real. An empty value here never
   // means "the server could not resolve it"; that case is an error status on
