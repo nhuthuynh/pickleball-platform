@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -44,6 +45,12 @@ type inMemoryRepo struct {
 	// reasoning as listActiveForCourtCalls above, applied to the other
 	// caller-supplied id this package's write paths take.
 	getByIDCalls atomic.Int64
+
+	// listForOwnerCalls counts real invocations of ListForOwner, so T67.1's
+	// test can prove a malformed actor id never reaches the repository —
+	// same reasoning as the two counters above, applied to the third
+	// caller-supplied id this package takes.
+	listForOwnerCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -66,6 +73,29 @@ func (r *inMemoryRepo) ListActiveForCourt(_ context.Context, courtID string, rng
 			out = append(out, b)
 		}
 	}
+	return out, nil
+}
+
+// ListForOwner mirrors db/queries/booking.sql's ListBookingsForOwner (T67.1):
+// every booking owned by ownerUserID **including cancelled ones** — the
+// deliberate inverse of ListActiveForCourt above — sorted by starts_at with
+// id as the tiebreak, because the real query's ORDER BY is part of the
+// contract and a fake that returned Go map order would let an app layer that
+// silently re-sorted pass.
+func (r *inMemoryRepo) ListForOwner(_ context.Context, ownerUserID string) ([]domain.Booking, error) {
+	r.listForOwnerCalls.Add(1)
+	out := make([]domain.Booking, 0, len(r.bookings))
+	for _, b := range r.bookings {
+		if b.OwnerUserID == ownerUserID {
+			out = append(out, b)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].Range.Start.Equal(out[j].Range.Start) {
+			return out[i].Range.Start.Before(out[j].Range.Start)
+		}
+		return out[i].ID < out[j].ID
+	})
 	return out, nil
 }
 

@@ -106,6 +106,13 @@ func (r *shapeBookingRepo) ListActiveForCourt(_ context.Context, courtID string,
 	return out, nil
 }
 
+// ListForOwner (T67.1) is not part of any path this file exercises — Social
+// Play never performs Booking's player-scoped read — so it answers the empty
+// list the port's contract gives for an owner with nothing.
+func (r *shapeBookingRepo) ListForOwner(_ context.Context, _ string) ([]bookingdomain.Booking, error) {
+	return nil, nil
+}
+
 func (r *shapeBookingRepo) GetByID(_ context.Context, id string) (bookingdomain.Booking, error) {
 	b, ok := r.bookings[id]
 	if !ok {
@@ -147,6 +154,13 @@ func (shapeBookingStubs) FacilityIDForCourt(context.Context, string) (string, er
 
 func (shapeBookingStubs) CourtIDsForFacility(context.Context, string) ([]string, error) {
 	return nil, nil
+}
+
+// FacilityIDsForCourts (T67.1) resolves nothing, matching
+// FacilityIDForCourt's "no Facility" answer above: per the port's contract an
+// unresolvable court is absent from the map rather than an error.
+func (shapeBookingStubs) FacilityIDsForCourts(context.Context, []string) (map[string]string, error) {
+	return map[string]string{}, nil
 }
 
 func (shapeBookingStubs) EnsureClubRole(context.Context, string) error { return nil }

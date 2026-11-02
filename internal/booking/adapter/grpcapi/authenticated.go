@@ -12,7 +12,12 @@ import (
 // hand-written strings, so a renamed RPC is a compile error rather than a
 // policy entry that silently stops matching and silently stops enforcing.
 //
-// # Why each of these six requires a principal
+// # Why each of these nine requires a principal
+//
+// (The heading said "six" while listing eight, from T55's addition of
+// CreateBooking/CancelBooking below; corrected here while adding the ninth.
+// A count in prose beside a list the compiler checks is exactly the kind of
+// figure this project has learned to distrust — the list is authoritative.)
 //
 //   - CreateDiscountRule: writes pricing for a Facility; guarded by an owner
 //     check that compared the Facility's owner against a caller-supplied
@@ -46,6 +51,15 @@ import (
 //     compare against and an owner to compare it to. The handler resolves
 //     the owner from the token, never from the request.
 //
+//   - ListBookingsForActor: the player's own "my bookings" view (T67.1, part
+//     of issue #353). Same reason as ListRecurringHireTemplatesForActor
+//     above, and it is the sharper case of the two: the actor *is* the scope,
+//     so an unauthenticated caller naming someone else would read that
+//     player's entire booking history — where they play, when, and when they
+//     are not at home. The request message carries no actor field at all, but
+//     a method in neither list is silently public at runtime, so the absence
+//     of a forgeable field is not by itself the guard; this entry is.
+//
 //     Authenticating CreateBooking is the accepted cost of option (a): it
 //     breaks the shipped T7.6 public quote-and-book flow, which must now
 //     sign a player in before the confirm step. GetQuote and
@@ -61,6 +75,7 @@ func AuthenticatedMethods() []string {
 		bookingv1.BookingService_ListRecurringHireTemplatesForActor_FullMethodName,
 		bookingv1.BookingService_CreateBooking_FullMethodName,
 		bookingv1.BookingService_CancelBooking_FullMethodName,
+		bookingv1.BookingService_ListBookingsForActor_FullMethodName,
 	}
 }
 
@@ -69,7 +84,10 @@ func AuthenticatedMethods() []string {
 // omission — see authenticated_test.go, which fails if any RPC on the service
 // is in neither list.
 //
-// # Why each of these five stays public
+// # Why each of these three stays public
+//
+// (This heading said "five" while listing three, and has since the file was
+// written; corrected alongside the one above.)
 //
 //   - GetQuote, ListCourtBookings: the price-and-availability reads a player
 //     performs *before* deciding to sign up. The T12.7 ticket names both

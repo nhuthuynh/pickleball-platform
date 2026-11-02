@@ -56,6 +56,23 @@ type Repository interface {
 	// an empty FacilityID; that is not an error here.
 	GetCourtByID(ctx context.Context, courtID string) (domain.Court, error)
 
+	// GetCourtsByIDs is the batch form of GetCourtByID (T67.1, part of
+	// issue #353): the Courts named by courtIDs, in one round trip.
+	//
+	// **An id matching no Court contributes no element** — the result is the
+	// Courts that exist, in no guaranteed order, and a caller learns nothing
+	// about ids that resolved to nothing beyond their absence. That is
+	// deliberately unlike GetCourtByID, which returns
+	// domain.ErrCourtNotFound: a batch read whose single miss failed the
+	// whole call would make one deleted court hide every other court's
+	// answer, and its only caller (Booking's "my bookings" read, through
+	// port.FacilityLookup) must still list a Booking whose court it cannot
+	// resolve. An empty courtIDs yields an empty slice and no error.
+	//
+	// As with GetCourtByID, a Court whose facility_id is NULL is found, with
+	// an empty FacilityID; that is not an error here either.
+	GetCourtsByIDs(ctx context.Context, courtIDs []string) ([]domain.Court, error)
+
 	// ListCourtsForFacility returns every Court belonging to facilityID, in
 	// creation order (T8.2 — the read path AddCourt (T7.3) never had). An
 	// unknown facilityID is not itself an error here — it simply has no

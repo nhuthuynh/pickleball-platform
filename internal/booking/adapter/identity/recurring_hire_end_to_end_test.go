@@ -48,6 +48,13 @@ func (fakeFacilityLookup) FacilityIDForCourt(_ context.Context, _ string) (strin
 func (fakeFacilityLookup) CourtIDsForFacility(_ context.Context, _ string) ([]string, error) {
 	return []string{fixtureCourtID}, nil
 }
+func (fakeFacilityLookup) FacilityIDsForCourts(_ context.Context, courtIDs []string) (map[string]string, error) {
+	out := make(map[string]string, len(courtIDs))
+	for _, id := range courtIDs {
+		out[id] = fixtureFacilityID
+	}
+	return out, nil
+}
 
 type fakeRecurringRepo struct {
 	created     []bookingdomain.RecurringHireTemplate
@@ -132,6 +139,10 @@ func (unusedBookingRepository) Create(_ context.Context, _ bookingdomain.Booking
 
 func (unusedBookingRepository) ListActiveForCourt(_ context.Context, _ string, _ bookingdomain.TimeRange) ([]bookingdomain.Booking, error) {
 	panic("port.Repository.ListActiveForCourt is not part of the RequestRecurringHire path")
+}
+
+func (unusedBookingRepository) ListForOwner(_ context.Context, _ string) ([]bookingdomain.Booking, error) {
+	panic("port.Repository.ListForOwner is not part of the RequestRecurringHire path")
 }
 
 func (unusedBookingRepository) GetByID(_ context.Context, _ string) (bookingdomain.Booking, error) {

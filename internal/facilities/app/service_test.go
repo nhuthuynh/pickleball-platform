@@ -39,6 +39,13 @@ type inMemoryRepo struct {
 	// GetCourt's own malformed-ID guard can be proven the same way — by
 	// observing the repository call never happens.
 	getCourtByIDCalls atomic.Int64
+
+	// getCourtsByIDsCalls / lastGetCourtsByIDsArg serve the same purpose for
+	// T67.1's batch read: its guard drops malformed ids before the query and
+	// skips the call entirely when nothing well-formed is left, neither of
+	// which is visible in the return value.
+	getCourtsByIDsCalls   atomic.Int64
+	lastGetCourtsByIDsArg []string
 }
 
 func newInMemoryRepo() *inMemoryRepo {
@@ -91,6 +98,24 @@ func (r *inMemoryRepo) GetCourtByID(_ context.Context, courtID string) (domain.C
 		return domain.Court{}, domain.ErrCourtNotFound
 	}
 	return c, nil
+}
+
+// GetCourtsByIDs is T67.1's batch read fake, mirroring
+// internal/facilities/adapter/postgres.Repository.GetCourtsByIDs: an id
+// matching no Court contributes no row rather than failing the whole call.
+// getCourtsByIDsCalls exists so GetCourtsByIDs' own guard — a batch of
+// nothing but malformed ids must never reach the repository, where mustUUID
+// would panic — can be proven by observing the call never happens.
+func (r *inMemoryRepo) GetCourtsByIDs(_ context.Context, courtIDs []string) ([]domain.Court, error) {
+	r.getCourtsByIDsCalls.Add(1)
+	r.lastGetCourtsByIDsArg = courtIDs
+	out := make([]domain.Court, 0, len(courtIDs))
+	for _, id := range courtIDs {
+		if c, ok := r.courts[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
 // ListCourtsForFacility is T8.2's read path fake, mirroring

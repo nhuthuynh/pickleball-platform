@@ -166,6 +166,39 @@ func (s *Service) GetCourt(ctx context.Context, id string) (domain.Court, error)
 	return s.repo.GetCourtByID(ctx, id)
 }
 
+// GetCourtsByIDs returns the Courts named by ids, in one repository call
+// (T67.1, part of issue #353) — the batch counterpart to GetCourt, for the
+// same cross-context purpose: another bounded context resolving Courts to
+// their owning Facilities through a port instead of reading the courts table
+// directly. internal/booking/adapter/facilities calls this to satisfy
+// Booking's port.FacilityLookup.FacilityIDsForCourts, which the player-facing
+// "my bookings" read needs so a client can show each court's name rather than
+// its uuid (issue #342).
+//
+// **Malformed ids are dropped, not rejected.** GetCourt answers a malformed
+// id exactly like an unknown one (ErrCourtNotFound); the batch equivalent of
+// "unknown" is absence from the result, so a malformed id is simply filtered
+// out before the query. The filter is not cosmetic: it is the same T10.7
+// guard every other id-taking method here applies, and it is what keeps a
+// non-UUID away from the adapter's mustUUID, which panics on anything
+// pgtype.UUID.Scan rejects.
+//
+// An empty ids — including one left empty by that filtering — short-circuits
+// without touching the repository: there is nothing to ask for, and
+// `id = ANY('{}')` would be a round trip guaranteed to return nothing.
+func (s *Service) GetCourtsByIDs(ctx context.Context, ids []string) ([]domain.Court, error) {
+	wellFormed := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if uuidShape.MatchString(id) {
+			wellFormed = append(wellFormed, id)
+		}
+	}
+	if len(wellFormed) == 0 {
+		return []domain.Court{}, nil
+	}
+	return s.repo.GetCourtsByIDs(ctx, wellFormed)
+}
+
 // ListFacilities returns Facilities matching nameFilter (a case-insensitive
 // substring match on Name — no real geo-search, per HANDOFF.md T7.3), or
 // all Facilities when nameFilter is empty. All the actual filtering lives

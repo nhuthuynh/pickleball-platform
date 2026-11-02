@@ -79,6 +79,10 @@ func (fakeBookingRepo) ListActiveForCourt(_ context.Context, _ string, _ domain.
 	return nil, nil
 }
 
+func (fakeBookingRepo) ListForOwner(_ context.Context, _ string) ([]domain.Booking, error) {
+	return nil, nil
+}
+
 func (fakeBookingRepo) GetByID(_ context.Context, _ string) (domain.Booking, error) {
 	return domain.Booking{}, domain.ErrBookingNotFound
 }
@@ -143,6 +147,19 @@ func (fakeFacilityLookup) CourtIDsForFacility(_ context.Context, fID string) ([]
 		return nil, domain.ErrFacilityNotFound
 	}
 	return []string{courtID(1)}, nil
+}
+
+// FacilityIDsForCourts (T67.1) is the batch form. courtID(1) is the only
+// court with a Facility in this fixture, and per the port's contract any
+// other id is simply absent from the map rather than an error.
+func (fakeFacilityLookup) FacilityIDsForCourts(_ context.Context, courtIDs []string) (map[string]string, error) {
+	out := make(map[string]string, len(courtIDs))
+	for _, id := range courtIDs {
+		if id == courtID(1) {
+			out[id] = facilityID(1)
+		}
+	}
+	return out, nil
 }
 
 type fakeIDs struct{ n int }

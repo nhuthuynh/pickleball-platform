@@ -213,6 +213,36 @@ func (r *Repository) GetCourtByID(ctx context.Context, courtID string) (domain.C
 	}, nil
 }
 
+// GetCourtsByIDs is the batch form of GetCourtByID (T67.1): one query over an
+// id array rather than one query per court, so Booking's "my bookings" read
+// resolves a whole page of courts to their Facilities without an N+1.
+//
+// Ids matching no Court contribute no rows — per port.Repository's contract a
+// batch miss is absence, not domain.ErrCourtNotFound, so there is no
+// not-found translation here and pgx.ErrNoRows cannot arise from a :many
+// query. A NULL facility_id comes back as an empty FacilityID via
+// uuidOrEmpty, exactly as in GetCourtByID above.
+func (r *Repository) GetCourtsByIDs(ctx context.Context, courtIDs []string) ([]domain.Court, error) {
+	ids := make([]pgtype.UUID, 0, len(courtIDs))
+	for _, id := range courtIDs {
+		ids = append(ids, mustUUID(id))
+	}
+
+	rows, err := r.q.GetCourtsByIDs(ctx, ids)
+	if err != nil {
+		return nil, translateErr(err)
+	}
+	out := make([]domain.Court, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, domain.Court{
+			ID:         row.ID.String(),
+			FacilityID: uuidOrEmpty(row.FacilityID),
+			Name:       row.Name,
+		})
+	}
+	return out, nil
+}
+
 // ListCourtsForFacility is T8.2's read path — AddCourt (T7.3) had no way to
 // list Courts back. It reads the *existing* courts table (0001_init.sql)
 // filtered by facility_id, the same table AddCourt inserts into and Booking

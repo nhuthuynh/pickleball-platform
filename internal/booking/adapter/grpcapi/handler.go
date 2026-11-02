@@ -392,6 +392,37 @@ func (h *Handler) ListRecurringHireTemplatesForActor(ctx context.Context, req *b
 	return &bookingv1.ListRecurringHireTemplatesForActorResponse{Templates: out}, nil
 }
 
+// ListBookingsForActor is the player's own "my bookings" view (T67.1, part of
+// issue #353). Every status is returned — a cancelled booking is reported as
+// cancelled, not omitted — because omission is what would leave a player
+// unable to tell a booking they cancelled from one that was lost, which is
+// the complaint #353 was filed about.
+//
+// The actor comes from h.actor(ctx) and from nowhere else:
+// ListBookingsForActorRequest carries no fields at all, so there is no
+// claimed actor to fall back to even by mistake. See the app method for the
+// authorization reasoning (the actor's identity IS the scope).
+func (h *Handler) ListBookingsForActor(ctx context.Context, _ *bookingv1.ListBookingsForActorRequest) (*bookingv1.ListBookingsForActorResponse, error) {
+	actorUserID, err := h.actor(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := h.svc.ListBookingsForActor(ctx, actorUserID)
+	if err != nil {
+		return nil, toStatus(err)
+	}
+
+	out := make([]*bookingv1.ActorBooking, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, &bookingv1.ActorBooking{
+			Booking:    toProto(row.Booking),
+			FacilityId: row.FacilityID,
+		})
+	}
+	return &bookingv1.ListBookingsForActorResponse{Bookings: out}, nil
+}
+
 // toStatus maps domain errors to gRPC status codes. grpc-gateway then maps
 // those codes onto HTTP statuses: AlreadyExists -> 409, InvalidArgument ->
 // 400, NotFound -> 404 — this is what makes README.md's "overlapping booking

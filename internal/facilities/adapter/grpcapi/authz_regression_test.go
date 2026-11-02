@@ -155,6 +155,19 @@ func (r *fakeRepo) GetCourtByID(_ context.Context, courtID string) (domain.Court
 	return c, nil
 }
 
+// GetCourtsByIDs is T67.1's batch Court read; like GetCourtByID above this
+// handler package never calls it, but port.Repository requires it. An id
+// matching no Court contributes no row, per that port's contract.
+func (r *fakeRepo) GetCourtsByIDs(_ context.Context, courtIDs []string) ([]domain.Court, error) {
+	out := make([]domain.Court, 0, len(courtIDs))
+	for _, id := range courtIDs {
+		if c, ok := r.courts[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 func (r *fakeRepo) ListCourtsForFacility(_ context.Context, facilityID string) ([]domain.Court, error) {
 	return r.courtsForFacility(facilityID), nil
 }

@@ -124,6 +124,25 @@ func (r *inMemoryRepo) GetCourtByID(_ context.Context, courtID string) (faciliti
 	return c, nil
 }
 
+// GetCourtsByIDs is T67.1's batch read fake, mirroring
+// internal/facilities/adapter/postgres.Repository.GetCourtsByIDs: ids that
+// match no Court contribute no rows rather than failing the call, which is
+// the property the adapter's FacilityIDsForCourts relies on. failWith is
+// honoured for the same reason the single-court read honours it — a test
+// needs to drive an upstream error the adapter has no translation for.
+func (r *inMemoryRepo) GetCourtsByIDs(_ context.Context, courtIDs []string) ([]facilitiesdomain.Court, error) {
+	if r.failWith != nil {
+		return nil, r.failWith
+	}
+	out := make([]facilitiesdomain.Court, 0, len(courtIDs))
+	for _, id := range courtIDs {
+		if c, ok := r.courts[id]; ok {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
 func (r *inMemoryRepo) ListCourtsForFacility(_ context.Context, facilityID string) ([]facilitiesdomain.Court, error) {
 	var out []facilitiesdomain.Court
 	for _, c := range r.courts {
@@ -334,6 +353,122 @@ func TestFacilityIDForCourt(t *testing.T) {
 	}
 }
 
+// TestFacilityIDsForCourts covers the batch court->facility resolution T67.1
+// added for the player-facing "my bookings" read.
+//
+// Its contract differs from FacilityIDForCourt's in exactly one way, and
+// every subtest below is about that difference: an unresolvable court is an
+// OMITTED MAP ENTRY, never domain.ErrFacilityNotFound. The single-court
+// method can fail the call because its caller (GetQuote) cannot price without
+// a Facility; this one's caller must still list a Booking whose court has
+// none, so a failure here would mean one unattached court hid a player's
+// entire booking history.
+func TestFacilityIDsForCourts(t *testing.T) {
+	t.Parallel()
+
+	t.Run("resolves every attached court in one call", func(t *testing.T) {
+		t.Parallel()
+
+		lookup, repo := newLookup(t)
+		seedFacility(t, repo, fixtureOwnerSubject,
+			mustCourt(t, fixtureCourtID, fixtureFacilityID),
+			mustCourt(t, otherCourtID, fixtureFacilityID),
+		)
+
+		got, err := lookup.FacilityIDsForCourts(context.Background(),
+			[]string{fixtureCourtID, otherCourtID})
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		want := map[string]string{
+			fixtureCourtID: fixtureFacilityID,
+			otherCourtID:   fixtureFacilityID,
+		}
+		if len(got) != len(want) {
+			t.Fatalf("FacilityIDsForCourts = %v, want %v", got, want)
+		}
+		for court, facility := range want {
+			if got[court] != facility {
+				t.Errorf("FacilityIDsForCourts[%q] = %q, want %q", court, got[court], facility)
+			}
+		}
+	})
+
+	// The case the whole batch method exists to tolerate. A Court with a NULL
+	// facility_id is a real row — both Courts seeded by 0002_seed.sql are
+	// exactly this — and FacilityIDForCourt answers ErrFacilityNotFound for
+	// it, which is why ListBookingsForActor must not use that method.
+	t.Run("a court with no facility is omitted, not an error", func(t *testing.T) {
+		t.Parallel()
+
+		lookup, repo := newLookup(t)
+		seedFacility(t, repo, fixtureOwnerSubject,
+			mustCourt(t, fixtureCourtID, fixtureFacilityID),
+		)
+		// A Court row with a NULL facility_id, seeded past the Facility.
+		repo.courts[otherCourtID] = mustCourt(t, otherCourtID, "")
+
+		got, err := lookup.FacilityIDsForCourts(context.Background(),
+			[]string{fixtureCourtID, otherCourtID})
+		if err != nil {
+			t.Fatalf("unexpected err: %v — an unattached court must not fail the batch", err)
+		}
+		if got[fixtureCourtID] != fixtureFacilityID {
+			t.Errorf("the attached court resolved to %q, want %q", got[fixtureCourtID], fixtureFacilityID)
+		}
+		if facility, present := got[otherCourtID]; present {
+			t.Errorf("the unattached court is present with %q; the port's contract is absence, so that "+
+				"a caller reading m[id] gets \"\" and cannot mistake it for a real Facility", facility)
+		}
+	})
+
+	t.Run("an unknown court id is omitted, not an error", func(t *testing.T) {
+		t.Parallel()
+
+		lookup, repo := newLookup(t)
+		seedFacility(t, repo, fixtureOwnerSubject,
+			mustCourt(t, fixtureCourtID, fixtureFacilityID),
+		)
+
+		got, err := lookup.FacilityIDsForCourts(context.Background(),
+			[]string{fixtureCourtID, unknownFacilityID})
+		if err != nil {
+			t.Fatalf("unexpected err: %v", err)
+		}
+		if len(got) != 1 || got[fixtureCourtID] != fixtureFacilityID {
+			t.Fatalf("FacilityIDsForCourts = %v, want only the known court", got)
+		}
+	})
+
+	// A malformed id reaches facilitiesapp.Service.GetCourtsByIDs, whose own
+	// guard drops it before the repository — where the Postgres adapter's
+	// mustUUID would panic on it. Proven here, at the boundary a real caller
+	// crosses, rather than only in that package's unit tests.
+	t.Run("malformed and empty inputs are answered, not fatal", func(t *testing.T) {
+		t.Parallel()
+
+		lookup, repo := newLookup(t)
+		seedFacility(t, repo, fixtureOwnerSubject,
+			mustCourt(t, fixtureCourtID, fixtureFacilityID),
+		)
+
+		for _, courtIDs := range [][]string{
+			nil,
+			{},
+			{"not-a-uuid"},
+			{"", fixtureCourtID},
+		} {
+			got, err := lookup.FacilityIDsForCourts(context.Background(), courtIDs)
+			if err != nil {
+				t.Fatalf("FacilityIDsForCourts(%v) err = %v, want nil", courtIDs, err)
+			}
+			if got == nil {
+				t.Errorf("FacilityIDsForCourts(%v) returned a nil map; callers index it directly", courtIDs)
+			}
+		}
+	})
+}
+
 // TestCourtIDsForFacility proves only ids cross the boundary, and in the
 // Facility's own court order.
 func TestCourtIDsForFacility(t *testing.T) {
@@ -446,6 +581,13 @@ func TestNeverLeaksFacilitiesSentinels(t *testing.T) {
 			name: "CourtIDsForFacility",
 			call: func(l *bookingfacilities.Lookup) error {
 				_, err := l.CourtIDsForFacility(context.Background(), fixtureFacilityID)
+				return err
+			},
+		},
+		{
+			name: "FacilityIDsForCourts",
+			call: func(l *bookingfacilities.Lookup) error {
+				_, err := l.FacilityIDsForCourts(context.Background(), []string{fixtureCourtID})
 				return err
 			},
 		},
