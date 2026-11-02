@@ -21,6 +21,7 @@
 # Derived from the tree, not listed: every directory under cmd/ is one
 # possible binary name.
 /devtoken
+/docsdoctest
 /docsindex
 /gatecoverage
 /server

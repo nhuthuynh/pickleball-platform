@@ -121,10 +121,12 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   at all** — T65.4's answer to #328's blind spot, which is real: the tool's
   question is "which TESTS does no gate run?", and a package with none has
   none to run, so `gate-coverage: OK` was silent about every `cmd` package
-  holding no test — **four of five when #328 was filed**, three now that
-  T65.4 tested one — and about `internal/identity/adapter/postgres`, an
-  adapter. Run `make gate-coverage | grep "^    cmd/"` for the live list
-  rather than trusting that count. The
+  holding no test — **four of five when #328 was filed** — and about
+  `internal/identity/adapter/postgres`, an adapter. The live list is in the
+  second block below, where `make docs-doctest` re-runs the command on every
+  `ci-checks` and fails if it has drifted; the prose figure that used to sit
+  here said "three" and had drifted to two by the time anyone looked, which is
+  the whole reason that gate exists. The
   decision, recorded rather than left as a convention: **report, never fail**
   (#328's option (b); its (a) and (c), and the "fail on it" option nobody
   offered, are rejected with reasons in `tools/gatecoverage`'s `Untested` doc
@@ -136,22 +138,54 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   exactly the package list this tool must not grow. Current state, from the
   running command rather than from this paragraph — **and the figure depends
   on which of this project's two documented tree states you are in**, because
-  `gate-coverage` has no `generate` prerequisite and 13 of the 27 are the
-  gitignored `internal/gen/**`:
+  `gate-coverage` has no `generate` prerequisite and 13 of the 26 are the
+  gitignored `internal/gen/**`. The first two blocks carry the `doctest`
+  marker, so `make docs-doctest` runs them and fails if either figure drifts
+  again — which both had, to 27 and to "three", by T67.5:
 
-  ```
+  ```console doctest
   $ make generate >/dev/null && make gate-coverage | grep "no test function"
-  gate-coverage: NOTE — 27 package(s) hold no test function at all.
-
-  $ rm -rf internal/gen && go run ./cmd/gatecoverage | grep "no test function"
-  gate-coverage: NOTE — 14 package(s) hold no test function at all.
+  gate-coverage: NOTE — 26 package(s) hold no test function at all.
   ```
 
-  The second is a fresh clone before any codegen, and in that state the
-  generated/hand-written split is a no-op — which is also why
-  `tools/gatecoverage`'s real-repository test **skips** rather than fails
-  there (`test-tools` is deliberately codegen-free). Both figures measured
-  2026-10-07.
+  Which `cmd` packages, specifically — the live list, not a count to trust.
+  Two of the six, and both are thin `main` wrappers over a tested `tools/`
+  package, which is the shape the "report, never fail" decision above is
+  about:
+
+  ```console doctest
+  $ make gate-coverage | grep "^    cmd/"
+      cmd/devtoken
+      cmd/gatecoverage
+  ```
+
+  And how many of the 26 are generated, which is the other half of the
+  fresh-clone arithmetic:
+
+  ```console doctest
+  $ make gate-coverage | grep "generated package"
+    (plus 13 generated package(s), recognised by Go's own "DO NOT EDIT" header and not listed.)
+  ```
+
+  So a fresh clone before any codegen reports **26 − 13 = 13**, and in that
+  state the generated/hand-written split is a no-op — which is also why
+  `tools/gatecoverage`'s real-repository test **skips** rather than fails there
+  (`test-tools` is deliberately codegen-free). The command that shows it
+  directly is **deliberately NOT marked `doctest`, because running it would
+  delete `internal/gen` mid-`ci-checks`**:
+
+  ```
+  $ rm -rf internal/gen && go run ./cmd/gatecoverage | grep "no test function"
+  gate-coverage: NOTE — 13 package(s) hold no test function at all.
+  ```
+
+  That unmarked fence is this repository's worked example of `make
+  docs-doctest`'s blind spot — the gate counts it as unchecked and never runs
+  it. Its figure is **not** hand-measured, though: both numbers it is derived
+  from are checked on every `ci-checks` by the two marked blocks above, so if
+  either moves, the gate fails and the subtraction is re-done. A destructive
+  command does not have to mean an unverified number — it only means the
+  verification has to come from somewhere else.
 - `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
   which form carried it) from the **same parser `docs-index-check` uses**. This
   is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
@@ -173,6 +207,78 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   a subprocess, because an exit code is the only part of this program a
   Makefile can see — the **exit 2** on an unclassifiable status. It shipped at
   T64.5 with no test at all, which rules 1 and 8 do not allow.
+- `make docs-doctest` — **the standing answer to "does every documented
+  command still print what the doc says it prints?"** Fails, naming the file,
+  the line, the command and both sides of the diff, when a figure pasted
+  beside a command no longer reproduces. Part of `make ci-checks`. Added
+  T67.5: `sprint-process.md` already required that every quantity carry the
+  command that produced it and **nothing enforced it**, so on the day this
+  landed the `gate-coverage` paragraph above — a block that prints its own
+  verification commands — asserted 27, 14 and "three" where the tree said 26,
+  13 and two, 24 days after three adversarial review passes corrected that
+  file line by line.
+
+  Deliberately **not** "every numeral must carry a command": that is a
+  presence check satisfiable by pasting any command, and this project already
+  has a documented case of a gate that `touch` could silence (`lock-check`,
+  `t64-retro.md`). It runs the command and diffs the output.
+
+  **Opt-in, by a `doctest` token on the fence** (```` ```console doctest ````).
+  Not a classifier on the command, because the author's intent is not
+  recoverable from the command text: this file holds two near-identical
+  blocks, one claiming *"# no output"* (a real, checkable claim) and one
+  offering a `for f in …` census so a reader can derive a figure the
+  paragraph deliberately does not paste (nothing to compare). Every
+  classifier that could tell those apart collapses into a command list or an
+  exclusion list — the one change that would defeat this tool, exactly as
+  `gate-coverage` says of its own package list.
+
+  **Its blind spot is printed on every run**, counted not listed — **the run
+  prints its own count, so no number is carried here**, deliberately: a figure
+  in this sentence would be stale the moment a sprint writes a retro, which a
+  trial merge of this very branch confirmed (two new docs, three more unmarked
+  commands). What they are rather than how many: mostly retros recording what
+  a past sprint measured, `gh api` calls, and pseudo-commands like
+  `$ (list_issues state=OPEN) -> totalCount` — re-running those against
+  today's tree is meaningless by construction. `go run ./cmd/docsdoctest
+  -blind-spots` lists them. And **a run that checked no block FAILS**, so
+  `docs-doctest: OK` can never mean "I checked nothing" — the failure mode an
+  opt-in gate invites. That clause catches a TOTAL switch-off and cannot see a
+  PARTIAL one, so the run also **names every block it executed**: unmark one
+  fence and its line vanishes from the build log, rather than only a counter
+  moving from 4 to 3 where nobody reads it.
+
+  Docker-free and offline: a block needing either must
+  simply not be marked, and there is no Docker probe, because that would be
+  the command classifier again. **Each `$ ` line is its own `bash -c`**, so a
+  `cd` or a variable does not carry to the next prompt line — join them with
+  `;` or `&&` if they must share a shell (`README.md`'s ghcr.io probe is that
+  shape, and is unmarked). Tool in `tools/docsdoctest` (covered by `make
+  test-tools`), entry point `cmd/docsdoctest`. What it cannot catch is listed
+  honestly in its doc comment — a rule with no figure in it, a true statement
+  that is the wrong statement, wrong prose with no number, an empty-output
+  claim whose output moved to stderr, and a question nobody asked.
+
+  **The timeout needed two attempts to be real**, and the first version of
+  this bullet promised what the code did not do: killing a timed-out command
+  kills only `bash`, while `Wait` blocks until every process holding the
+  output pipe closes it, so a surviving grandchild — and `make` → `go run` →
+  a binary is three deep — hung the gate forever printing nothing. It now
+  runs each command in its own process group, kills the group, and bounds
+  `Wait` with `WaitDelay`. Found by the PE review of PR #362; see
+  `killGroup`'s doc comment for the reproduction, and note that the
+  single-child test passed throughout.
+
+  **Then the fix's own two halves had one test between them.** The re-review
+  built the mutation matrix instead of trusting the comment and found that
+  cutting the `WaitDelay` line left both new tests green — so the half the
+  comment called "the guarantee" was the half nothing pinned. There is now a
+  test per half (the second uses `setsid` to escape the process group, which
+  is the only way to reach `WaitDelay`) and `killGroup` carries the **measured
+  4×3 matrix** showing every configuration missing a mechanism fails at least
+  one test. The lesson, for the third time in this one ticket: **a mechanism
+  whose necessity you can argue is not the same as a mechanism whose removal
+  something notices** — argue it *and* cut it and watch.
 - `make binary-check` — fails when a tracked file carries the **ELF magic
   number**, i.e. a compiled binary has been committed. Part of `make
   ci-checks`. Added T65.4's review pass, which found a 3 MB `docsindex`
@@ -326,7 +432,7 @@ its filename alone and nothing collides or goes stale silently:
   facilities 2 + 3, and so on). So each one passes on its untagged siblings and
   **every integration file is invisible to `gate-coverage`**:
 
-  ```
+  ```console doctest
   $ make gate-coverage | grep -iE "ONLY build-tagged|compiled"     # no output
   ```
 
