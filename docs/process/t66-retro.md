@@ -8,11 +8,8 @@ figure nobody measured.
 
 T66 merged **nine** PRs, verified against each `merged_at` rather than inferred
 from numbering: **#338 → #341 → #343 → #346 → #347 → #349 → #350 → #351 →
-#354.** (This paragraph said eight and omitted #338 until the review of this
-PR caught it — while the `HANDOFF.md` row two cells away credited #338 to
-T66's own Ceremony 1. The sprint's security gate caught a `critical` and the
-fix was the first thing T66 merged; leaving it out of T66's list was the same
-class of error as the finding below.)
+#354.** T66's security gate caught a `critical` and the fix was the first
+thing the sprint merged.
 
 Mapping them to the plan's five tickets, with the criterion stated so the
 count is checkable rather than assertable — a PR maps to a ticket when it
@@ -39,9 +36,9 @@ delivers that ticket's story, whether or not it followed its instructions:
 
 That leaves **five** PRs of real product work no ticket covers — #346, #349,
 #350, #351 and #354 — and three planned tickets that never happened. The
-finding stands; the arithmetic in its first draft did not. Note #351 carries
-*two* unticketed changes (court names and the vulngate grouping), which is how
-the first draft reached "seven" from six PRs while silently dropping #341.
+finding stands. Note #351 carries *two* unticketed changes — court names and
+the vulngate grouping — so a count of PRs and a count of changes differ here,
+which is the trap an earlier draft of this paragraph fell into.
 
 This is not a bookkeeping nit. The sprint plan is the board of record, and for
 T66 it records a different sprint than the one that happened. The cause is
@@ -99,24 +96,23 @@ $ make gate-coverage | grep -c "^    cmd/"
 The file asserts **27** and **"three"**. Both wrong, and wrong according to the
 command the file itself prints beside the figure.
 
-**There is a third, and this retro's first draft missed it.** `CLAUDE.md:147`
-prints `14 package(s)` for a fresh clone before any codegen. The tool reports
-26 total "plus 13 generated", so the hand-written remainder **derives** to 13
-and that figure should be 13 too. **Derived, not run** — the block's own
-command is `rm -rf internal/gen`, which deletes generated code, so it is
-deliberately excluded from `docs-doctest` and no run of the gate produces this
-number. T67.5's implementer noticed it while building the gate, by reading the
-block beside the two the gate flagged.
+**There is a third.** `CLAUDE.md:147` prints `14 package(s)` for a fresh clone
+before any codegen. `make gate-coverage` reports 26 total "plus 13 generated",
+so the hand-written remainder is 13 and that figure should be 13 too.
 
-**So the third falsehood is the one the new gate cannot catch**, and that is
-the honest version of the argument for the gate rather than a weaker one: the
-gate's documented blind spot and this project's third stale figure are the
-same block. An earlier draft of this paragraph said "the gate found the
-third", which it structurally cannot — and said the figure was "found by
-measuring", which let the word *measured* do the work of *derived* at two
-removes. That is a figure without a command one layer of attribution deeper,
-which is harder to catch rather than easier. Caught by the re-verification of
-this PR.
+**And it is the one the new gate cannot catch.** The block's own command is
+`rm -rf internal/gen`, which deletes generated code, so T67.5 (#362) leaves it
+unmarked by design and no run of the gate produces this number. The gate's
+documented blind spot and this project's third stale figure are the same
+block — which is a stronger argument for the gate than crediting it with a
+catch it did not make. #362 reports the drift as found while building the gate
+but prints no run output for it, so the record does not show whether it was
+read or measured by hand.
+
+Three drafts of this paragraph were wrong about the third figure in three
+different ways, which is on-topic here and nowhere else: this finding's whole
+subject is a document asserting what nobody re-checked. See the commit history
+for what each said.
 
 **And the comfortable explanation is unavailable.** All three figures went
 stale in one commit — `ce962d5` (#351), merged 2026-10-29 — which added
@@ -152,6 +148,24 @@ gate. The web suite was green throughout.
 That is the same finding as T65's recommendation 9, unchanged a sprint later.
 It is why every T67 ticket carries a real-browser pass as a non-functional
 requirement rather than a suggestion.
+
+## 6. A row template is inherited, including its claims
+
+`HANDOFF.md`'s T66 row asserted "all reviewed via GitHub PR reviews, see
+naming convention" and **no review exists for any of the nine PRs** — measured,
+with four live controls. Nobody decided to claim that. The sentence came with
+the row shape, copied from sprints where it was true, and it invoked
+`CLAUDE.md`'s own naming convention to vouch for a record that was never
+created.
+
+That is the same decay the red-team pass measured on `sprint-process.md`'s
+dispatch-isolation rule: carried by template inheritance for ~24 sprints, then
+silently zero, because nothing checked it. A template propagates its claims as
+readily as its columns, and a claim in a table cell has no command beside it.
+
+The cheap fix is not vigilance. It is that a cell asserting a GitHub artifact
+exists should be derived from GitHub, the way `docsindex` derives the rest of
+this file's agreement with the tree.
 
 ## Recommendations for T67+
 

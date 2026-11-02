@@ -114,20 +114,16 @@ pass whose only brief was to argue against it. The measurements that decided it:
   gate** (`gate-coverage`, `fmt-check`, `binary-check`, `lock-check`,
   `docs-index-check`, `vet-integration`, `ci-checks`, `ci-integration`,
   `make security` — the target, not the bare word, which matches English prose
-  about security in two dossiers and made an earlier draft of this bullet's
-  own grep exit 0): that grep exits 1. Against **386** external citations. (This
-  bullet said "2 lines" until the review of this PR measured it; 2 is neither
-  figure, and the original stated no definition. The definition is the point —
-  which is why both numbers and the grep that distinguishes them are here.)
+  about security in two dossiers): that grep exits 1. Against **386** external
+  citations. Both numbers are here because the definition is the point.
 - `sprint-process.md` has grown +1999/−120 and `CLAUDE.md` +570/−55. A **6.4%
   deletion rate.** In that history exactly one practice was ever retired, and
   what retired it was a gate — `make gate-coverage` computing at run time what
   a planning question had been asking by hand.
 - Nothing loads the dossiers. **Nothing under `.claude/` is tracked** (`git
-  ls-tree -r HEAD .claude` prints nothing — it succeeds with empty output for
-  a pathspec matching nothing rather than signalling absence through its exit
-  status, which an earlier draft of this bullet got wrong; `test -z "$(git
-  ls-tree -r HEAD .claude)"` is the form that does), there is no settings
+  ls-tree -r HEAD .claude` prints nothing; it succeeds with empty output for a
+  pathspec matching nothing, so `test -z "$(git ls-tree -r HEAD .claude)"` is
+  the form that exits non-zero), there is no settings
   file, no `@path`
   import in `CLAUDE.md`, and no reference to `docs/roles/` in either
   `CLAUDE.md` or `HANDOFF.md`. The only pointer is a table in
