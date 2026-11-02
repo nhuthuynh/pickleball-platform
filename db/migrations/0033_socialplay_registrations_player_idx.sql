@@ -1,0 +1,56 @@
+-- T67.2 (part of issue #353) — index registrations (player_id) for the
+-- Player's own "which Games am I in?" read.
+--
+-- WHY A NEW INDEX IS NEEDED, AND WHY NEITHER EXISTING ONE SERVES
+--
+-- `db/queries/socialplay.sql`'s new `ListRegistrationsForPlayer` filters
+-- `WHERE r.player_id = $1`. Until this migration, `registrations` carried
+-- exactly two indexes, both from `0005_socialplay.sql` (the unique one
+-- rebuilt against the uuid column by `0026_socialplay_identity_conformance.sql`):
+--
+--     registrations_game_idx                    ON registrations (game_id)
+--     registrations_active_player_per_game_idx  ON registrations (game_id, player_id)
+--                                               WHERE status <> 'cancelled'
+--
+-- The first does not mention `player_id` at all. The second does, but
+-- **`game_id` is its leading column**, so it cannot serve a `player_id`-only
+-- lookup — a B-tree is only searchable on a prefix of its key, and this query
+-- supplies no `game_id`. It is also partial (`WHERE status <> 'cancelled'`),
+-- while this read deliberately returns a cancelled registration whose GAME was
+-- cancelled, so even a hypothetical reordering of its columns would not cover
+-- the query. Every call would therefore be a sequential scan of the whole
+-- table, on the one read a Player performs every time they open the app.
+--
+-- This is the `registrations` twin of what `registrations_game_idx` already
+-- does for the Host-facing direction: one index per direction the table is
+-- queried from.
+--
+-- NO BACKFILL CLAUSE, AND WHY THAT IS NOT AN OVERSIGHT
+--
+-- An index needs no data migration in any case, but the stronger reason is
+-- worth stating so a later reader does not go looking for one: on the only
+-- path these migrations ever run, **the table is empty**. `docker compose`
+-- applies `db/migrations/*.sql` through `initdb.d`, which fires **only on a
+-- fresh volume** (see CLAUDE.md's gotcha, and `make down` && `make up` after
+-- any schema change) — so `0001`..`0033` always execute in order against a
+-- brand-new database with no rows in `registrations` yet. There is nothing to
+-- backfill and no concurrent traffic to avoid blocking, which is also why this
+-- is a plain `CREATE INDEX` rather than `CREATE INDEX CONCURRENTLY`.
+--
+-- That property is a prototype property, not a production one. When this
+-- project adopts golang-migrate/goose for real migrations (CLAUDE.md gotcha),
+-- an index added to a populated `registrations` table should be built
+-- `CONCURRENTLY` and outside a transaction.
+--
+-- NOT PARTIAL, DELIBERATELY
+--
+-- `registrations_active_player_per_game_idx` is partial on
+-- `status <> 'cancelled'`, and mirroring that here would be wrong:
+-- `ListRegistrationsForPlayer`'s predicate is
+-- `(r.status <> 'cancelled' OR g.status = 'cancelled')`, which admits
+-- cancelled registration rows — that is how a Player learns their Host
+-- cancelled the Game, since `ListGames` filters cancelled Games out and no
+-- `GetGame` RPC exists. A partial index on the active rows alone would silently
+-- stop covering the query for exactly those rows.
+
+CREATE INDEX registrations_player_idx ON registrations (player_id);

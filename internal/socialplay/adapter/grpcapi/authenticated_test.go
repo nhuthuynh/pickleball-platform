@@ -87,6 +87,39 @@ func TestAuthenticatedMethods_IncludesListRegistrationsForGame(t *testing.T) {
 		"(partial fix for #147). Got: %v", grpcapi.AuthenticatedMethods())
 }
 
+// TestAuthenticatedMethods_IncludesListRegistrationsForActor pins T67.2's
+// Player-facing read (part of #353) the same way the two tests above pin
+// T12.8's and T13.6's. It is the THIRD RPC of this class, and it needs its own
+// assertion for the identical reason the comment above gives.
+//
+// # Why the exhaustiveness test is not enough, measured rather than assumed
+//
+// TestAuthenticatedAndPublicMethods_CoverEveryRPC rejects only ABSENCE from
+// both lists. T67.2's PR verified that deleting this entry fails that test —
+// which is true, and was the wrong thing to check. The PE review found the gap:
+// **MOVING** the entry into PublicMethods(), i.e. making the RPC public, leaves
+// `internal/socialplay/adapter/grpcapi` and `internal/platform/...` entirely
+// green, because the exhaustiveness test happily accepts either placement.
+//
+// Nothing behavioural would catch it either. The handler defends itself — it
+// calls actor(ctx) and returns Unauthenticated without a principal — so a
+// public classification would not leak one Player's registrations to another.
+// It would instead leave the interceptor not requiring a token for an endpoint
+// whose entire query predicate IS the verified caller, so the declared policy
+// and the enforced one would silently disagree. That drift is exactly what the
+// two lists exist to make visible, which is why this gets an explicit pin.
+func TestAuthenticatedMethods_IncludesListRegistrationsForActor(t *testing.T) {
+	for _, m := range grpcapi.AuthenticatedMethods() {
+		if m == socialplayv1.SocialPlayService_ListRegistrationsForActor_FullMethodName {
+			return
+		}
+	}
+	t.Errorf("ListRegistrationsForActor is not in AuthenticatedMethods() — the verified "+
+		"principal is this read's ENTIRE query predicate (WHERE r.player_id = the caller), "+
+		"so without a required token there is no scope at all and T67.2 made it "+
+		"authenticated. Got: %v", grpcapi.AuthenticatedMethods())
+}
+
 // TestAuthenticatedMethods_KeepsTheBrowsePathPublic pins the regression the
 // migration tickets name: silently authenticating a currently-public read
 // breaks a shipped flow. ListGames is Discover & Join Games (T8.9), reached by

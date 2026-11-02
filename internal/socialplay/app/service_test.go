@@ -247,6 +247,17 @@ type fakeRegistrationRepository struct {
 	// a malformed-shape registrationID never reaches the repository at all
 	// (T10.7, closing issue #97 — CancelRegistration's own guard).
 	getByIDCalls atomic.Int64
+
+	// gameSource backs ListForPlayer's JOIN against games (T67.2). nil
+	// unless a test wires it via newFakeRegistrationRepositoryJoining — see
+	// that helper and ListForPlayer below.
+	gameSource *fakeGameRepository
+
+	// listForPlayerCalls counts real invocations of ListForPlayer, so a test
+	// can prove a malformed-shape actor id never reaches the repository at
+	// all — the same assertion getByIDCalls above supports, for the guard on
+	// app.Service.ListRegistrationsForActor (T67.2).
+	listForPlayerCalls atomic.Int64
 }
 
 func newFakeRegistrationRepository() *fakeRegistrationRepository {
@@ -280,6 +291,57 @@ func (r *fakeRegistrationRepository) ListActiveForGame(_ context.Context, gameID
 		}
 		out = append(out, reg)
 	}
+	return out, nil
+}
+
+// ListForPlayer mirrors the real query's contract (T67.2): the caller's
+// Registrations, joined to their Games, ordered by the Game's start.
+//
+// It models the real statement's shape deliberately rather than conveniently:
+//
+//   - The JOIN is an INNER join, so a Registration whose Game is absent from
+//     gameSource is skipped. In production that is unreachable —
+//     registrations.game_id is `uuid NOT NULL REFERENCES games (id)` — so
+//     skipping matches `JOIN` rather than inventing a fake-only behaviour.
+//   - The status filter is `r.status <> 'cancelled' OR g.status = 'cancelled'`,
+//     not a filter on the Registration alone. app.Service.CancelGame cascades
+//     CancelAllActiveForGame, so a host-cancelled Game's Registration is
+//     itself cancelled; a fake that filtered only on the Registration would
+//     pass every scoping test and silently disagree with the production query
+//     about the one case this read exists for.
+//   - The ordering is by the GAME's start ascending, matching ListGames'
+//     `ORDER BY g.starts_at` rather than this fake's map iteration order
+//     (which is random, and would make an ordering assertion flake).
+func (r *fakeRegistrationRepository) ListForPlayer(_ context.Context, playerID string) ([]port.RegistrationListing, error) {
+	r.listForPlayerCalls.Add(1)
+
+	out := make([]port.RegistrationListing, 0, len(r.registrations))
+	for _, reg := range r.registrations {
+		if reg.PlayerID != playerID {
+			continue
+		}
+		if r.gameSource == nil {
+			continue
+		}
+		game, ok := r.gameSource.games[reg.GameID]
+		if !ok {
+			continue
+		}
+		if reg.Status == domain.RegistrationStatusCancelled && game.Status != domain.StatusCancelled {
+			continue
+		}
+		out = append(out, port.RegistrationListing{
+			Registration:        reg,
+			GameStartsAt:        game.Range.Start,
+			GameEndsAt:          game.Range.End,
+			GameVenueFacilityID: game.VenueFacilityID,
+			GameCourtIDs:        game.CourtIDs,
+			GameStatus:          game.Status,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].GameStartsAt.Before(out[j].GameStartsAt)
+	})
 	return out, nil
 }
 

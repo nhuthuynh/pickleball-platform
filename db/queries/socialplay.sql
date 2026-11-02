@@ -146,6 +146,75 @@ SET status = 'cancelled'
 WHERE game_id = $1
   AND status <> 'cancelled';
 
+-- name: ListRegistrationsForPlayer :many
+-- T67.2 (part of issue #353): the Player's own "which Games am I in?" read,
+-- backing port.RegistrationRepository.ListForPlayer and
+-- app.Service.ListRegistrationsForActor. Joining a Game has worked since T5.2
+-- with no read to recover the outcome after a page reload — this is it.
+--
+-- # The JOIN is the point of this query
+--
+-- ListGames above filters `WHERE g.status = 'scheduled'`, and there is **no
+-- GetGame RPC on this service at all** (verified against the full rpc list in
+-- proto/, not assumed). So a Game its Host cancelled is unreachable through
+-- every other read in this file, which makes "the Host cancelled your game"
+-- the one fact a Player most needs and cannot otherwise be told. Returning
+-- bare registration rows would hand the caller a game_id with nothing to
+-- resolve it against.
+--
+-- One query, not N+1: the five game columns are projected here rather than
+-- fetched per row by a GetGameByID loop — the same reasoning ListGames'
+-- spots_left aggregate records.
+--
+-- # The status filter, which is NOT the obvious one
+--
+-- `r.status <> 'cancelled' OR g.status = 'cancelled'`, not `r.status <>
+-- 'cancelled'` alone. The scope decision (port.RegistrationRepository.
+-- ListForPlayer's doc comment) is "the caller's ACTIVE registrations plus
+-- their Games' real status": a Registration the caller cancelled themselves,
+-- **whose Game is still scheduled**, leaves the list, while one against a
+-- host-cancelled Game stays.
+--
+-- That qualifier is load-bearing and was missing here until T67.2's
+-- re-review. If the caller withdraws and the Host cancels the same Game
+-- LATER, the row comes back — the second disjunct now matches. See
+-- TestListForPlayer_SelfCancelledThenHostCancelledComesBack
+-- (internal/socialplay/adapter/postgres), which pins that ordering.
+--
+-- Those two read as contradictory until you follow CancelAllActiveRegistrations
+-- ForGame above: app.Service.CancelGame CASCADES, so a host-cancelled Game's
+-- Registration is ITSELF 'cancelled'. Filtering on the registration alone
+-- would therefore discard exactly the case the game columns exist for, and
+-- would do it silently — the list would simply be short.
+--
+-- # What the second disjunct does NOT do — read this before "simplifying" it
+--
+-- It does **not** make the player-cancelled and host-cancelled cases
+-- distinguishable. This comment asserted that until T67.2's re-review, and it
+-- is the exact opposite of the truth: the disjunct deliberately CONFLATES
+-- them, because `registrations` has no column recording who cancelled a row,
+-- so no predicate over this schema can tell them apart. Returning the row is
+-- the safer of two indistinguishable answers — the alternative silently drops
+-- a real host-cancellation, the one fact a Player cannot learn anywhere else.
+--
+-- The full argument, including why a proper fix is a migration rather than a
+-- better WHERE clause, lives in ONE place and is deliberately not restated
+-- here: `port.RegistrationRepository.ListForPlayer`'s doc comment
+-- (internal/socialplay/port/repository.go). Two copies of a subtle rule drift
+-- apart — which is how this file came to assert the reverse of the
+-- authoritative one.
+--
+-- `g.status AS game_status` is aliased because `r.status` already claims the
+-- name `status`; without it sqlc mints two fields of the same name. Ordered by
+-- the GAME's start ascending, matching ListGames' own `ORDER BY g.starts_at`.
+SELECT r.id, r.game_id, r.player_id, r.source, r.status, r.payment_status, r.guest_count, r.amount_owed_cents, r.amount_owed_currency,
+       g.starts_at, g.ends_at, g.venue_facility_id, g.court_ids, g.status AS game_status
+FROM registrations r
+JOIN games g ON g.id = r.game_id
+WHERE r.player_id = $1
+  AND (r.status <> 'cancelled' OR g.status = 'cancelled')
+ORDER BY g.starts_at;
+
 -- name: JoinWaitlistEntry :one
 -- The DB-level race-closing operation for queue-position assignment
 -- (db/migrations/0009_socialplay_waitlist_join_position.sql, T6.6-loop-2) —

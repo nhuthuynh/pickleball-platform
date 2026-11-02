@@ -15,7 +15,7 @@ import (
 // a hand-written name that drifted from the proto would silently stop matching
 // and silently stop enforcing. Using the constant makes that a compile error.
 //
-// # Why each of these nine requires a principal
+// # Why each of these ten requires a principal
 //
 //   - CreateGame: establishes Host-ship. Its host_id is no longer read off the
 //     wire — the Game is hosted by the verified caller. This is the same
@@ -75,6 +75,17 @@ import (
 //     (domain.AssignGameAdmin / EnsureMayRevokeGameAdmin, via
 //     Game.EnsureHost); this list is what guarantees the actor it compares
 //     against is verified rather than typed.
+//   - ListRegistrationsForActor: added by T67.2 (part of #353), and the entry
+//     whose membership here is the most mechanical and the least optional. The
+//     principal is not merely compared against something — it IS the entire
+//     query predicate (`WHERE r.player_id = <the verified caller>`). There is
+//     no actor field on the request to fall back to, so without a principal
+//     there is no scope at all and the only honest answer is Unauthenticated.
+//     Were it public it would not leak data (an anonymous caller resolves to
+//     no User and h.actor refuses them before the read) — it would simply be a
+//     broken endpoint that returned Unauthenticated from a list this file
+//     claims needs no token, which is exactly the kind of drift between the
+//     declared policy and the enforced one this pair exists to prevent.
 func AuthenticatedMethods() []string {
 	return []string{
 		socialplayv1.SocialPlayService_CreateGame_FullMethodName,
@@ -83,6 +94,7 @@ func AuthenticatedMethods() []string {
 		socialplayv1.SocialPlayService_CancelRegistration_FullMethodName,
 		socialplayv1.SocialPlayService_RecordMatchResult_FullMethodName,
 		socialplayv1.SocialPlayService_ListRegistrationsForGame_FullMethodName,
+		socialplayv1.SocialPlayService_ListRegistrationsForActor_FullMethodName,
 		socialplayv1.SocialPlayService_CancelGame_FullMethodName,
 		socialplayv1.SocialPlayService_AssignGameAdmin_FullMethodName,
 		socialplayv1.SocialPlayService_RevokeGameAdmin_FullMethodName,
