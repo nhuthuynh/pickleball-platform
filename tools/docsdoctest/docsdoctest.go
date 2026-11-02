@@ -118,10 +118,37 @@
 // nothing, and "this matches nothing" is a documented claim in this very
 // repository. A block's claim is about its output.
 //
+// **Each `$ ` line is an independent `bash -c`.** Two prompt lines in one
+// fence do not share a shell, so a `cd`, an `export` or a variable set on the
+// first is gone by the second. `README.md`'s ghcr.io probe is exactly that
+// shape — a `$T` captured on one line and used on the next — and it is
+// unmarked today. Marking such a block fails LOUDLY (the variable is empty, so
+// the output differs) rather than passing wrongly, which is the safe
+// direction, but it is a real limit: a documented sequence that depends on
+// shell state must be written as one command, joined with `&&` or `;`, or with
+// backslash continuations, all three of which reach the same shell.
+//
+// Running a whole fence in one shared shell was the alternative. It would make
+// those sequences work, and it would also mean one command's `cd` silently
+// changed where every later command in the fence ran, which is harder to
+// debug than an empty variable and makes each block's result depend on the
+// order of the ones above it.
+//
 // # Slow blocks, Docker and the network
 //
 // Each command gets a timeout (DefaultTimeout); exceeding it is a FAILURE,
-// named and located, never a silent skip. There is deliberately no Docker
+// named and located, never a silent skip.
+//
+// That promise took a second attempt to actually keep, and the first version
+// of this paragraph asserted it while the code did not deliver it. Killing the
+// timed-out command is not enough: Wait blocks until every process holding the
+// output pipe closes it, so a surviving GRANDCHILD — and `make` → `go run` →
+// a compiled binary is three deep — hung the gate forever, printing nothing.
+// ShellRunner therefore runs each command in its own process group, kills the
+// group, and bounds Wait with WaitDelay on top. killGroup carries the
+// reproduction and the reasoning; do not remove either mechanism.
+//
+// There is deliberately no Docker
 // probe and no network probe — either would be a command classifier, i.e. the
 // list this package refuses to have. A block that needs Docker or the network
 // must simply not be marked: this gate runs inside `make ci-checks`, which is
@@ -146,6 +173,13 @@
 //     enforce_game_capacity()'s dropped clauses, payable_type's unwidened
 //     CHECK — were absences, and an absence has no fenced block.
 //   - **An unmarked block**, per the blind spot above.
+//   - **Output that moved to stderr.** Comparison is against stdout, so a
+//     block claiming "# no output" still passes if the command now writes the
+//     very thing the doc denies — to stderr, which is exactly where a reader
+//     would look for it. `2>&1` in the documented command closes this for any
+//     block that cares; nothing closes it by default, because merging the
+//     streams everywhere would make every comparison depend on interleaving.
+//   - **A sequence that needed one shell**, per the `$ `-line isolation above.
 //
 // It catches exactly one thing: a documented command whose pasted output is no
 // longer what it prints. That was three live falsehoods in the rulebook on the
@@ -162,6 +196,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -177,8 +212,21 @@ const Prompt = "$ "
 
 // DefaultTimeout bounds a single documented command. Generous because
 // CLAUDE.md's own marked block runs `make generate`; bounded because a gate
-// that hangs is worse than one that fails.
+// that hangs is worse than one that fails — a claim that needs ShellRunner's
+// process-group handling to be true at all, and was false without it. See
+// killGroup.
 const DefaultTimeout = 5 * time.Minute
+
+// WaitDelay bounds how long Wait may block AFTER the per-command timeout has
+// fired and the process group has been killed — i.e. how long a process that
+// escaped the group may hold the output pipe open before the gate gives up on
+// it and reports the timeout anyway.
+//
+// A few seconds, not zero: a correctly-killed process tree closes the pipe in
+// milliseconds, so this is only ever paid when something genuinely escaped,
+// and killing the copy instantly would discard output a command had already
+// produced. See killGroup for why both this and the group kill are set.
+const WaitDelay = 5 * time.Second
 
 // --- Side A: extraction ---------------------------------------------------
 
@@ -449,6 +497,14 @@ func ShellRunner(dir string) Runner {
 		// honest fix than widening the ANSI regexp.
 		cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1")
 
+		// Run bash as its own process-group leader, and on timeout kill
+		// the GROUP rather than just bash. Both halves are needed, and
+		// the default of neither is a gate that hangs forever — see
+		// killGroup's doc comment for the reproduction.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Cancel = func() error { return killGroup(cmd) }
+		cmd.WaitDelay = WaitDelay
+
 		var stdout, stderr strings.Builder
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
@@ -472,6 +528,61 @@ func ShellRunner(dir string) Runner {
 		}
 		return e
 	}
+}
+
+// killGroup SIGKILLs the whole process group ShellRunner put the command in.
+//
+// WHY THIS EXISTS, AND WHY WaitDelay IS SET TOO. exec.CommandContext's default
+// cancellation kills only the direct child. With a strings.Builder sink, Go
+// gives the child an os.Pipe and copies from it in a goroutine, and Wait does
+// not return until the write end is closed by EVERY process holding it. A
+// surviving grandchild holds it open, so the default behaviour is not "the
+// command is killed and reported as timed out" but "the gate blocks forever,
+// printing nothing". Measured before this fix, with a 2s per-command limit and
+// an outer `timeout 25`:
+//
+//	$ ... -root ctrldoc  -timeout 2s   # fence: $ sleep 45
+//	  "timed out after the per-command limit"      ELAPSED=2s   RC=1
+//	$ ... -root hangdoc  -timeout 2s   # fence: $ (sleep 45 &) ; sleep 45
+//	  (no output at all)                           ELAPSED=25s  RC=124
+//
+// That is not a contrived shape: all three blocks this repository marks run
+// `make`, which spawns `go run`, which spawns a compiled binary. If one ever
+// exceeded DefaultTimeout on a cold runner, `make ci-checks` would hang until
+// the CI job's own wall clock killed it, with nothing printed to say why — the
+// single guard this timeout exists to provide, absent exactly when needed.
+//
+// Both mechanisms are set because each covers a case the other does not:
+//
+//   - Setpgid + this group kill reaps the grandchildren. WaitDelay alone would
+//     unblock Wait and leave an orphaned `go build` burning a CI runner's CPU
+//     for the rest of the job.
+//   - WaitDelay bounds Wait even so. A process that calls setsid() leaves the
+//     group and this kill cannot reach it, and a gate must fail rather than
+//     hang whatever a documented command does. WaitDelay is the guarantee;
+//     the group kill is the cleanup.
+//
+// Unix only (Setpgid, and killing a negative pid), which is every platform
+// this project builds on — the Makefile, the Dockerfile and `make up` are all
+// bash and Linux, and macOS, the other developer platform, is also Unix.
+//
+// A process that has already exited is not an error: by the time cancellation
+// runs the command may have finished on its own, and os.ErrProcessDone is what
+// exec itself ignores.
+func killGroup(cmd *exec.Cmd) error {
+	if cmd.Process == nil {
+		return nil
+	}
+	// Negative pid = "the group whose id is this pid", which Setpgid made
+	// the child the leader of. Signalling the group and not the pid is the
+	// whole point: the grandchildren are what hold the pipe open.
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
+		if errors.Is(err, syscall.ESRCH) {
+			return os.ErrProcessDone
+		}
+		return err
+	}
+	return nil
 }
 
 // Outcome is one checked Block together with what running it produced.
@@ -551,8 +662,26 @@ func Run(root string, timeout time.Duration, run Runner) (*Report, error) {
 func (r *Report) String() string {
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "docs-doctest: %d markdown file(s) scanned, %d documented command(s) executed.\n",
+	fmt.Fprintf(&sb, "docs-doctest: %d markdown file(s) scanned, %d documented command(s) executed",
 		r.FilesScanned, len(r.Checked))
+
+	// Each executed block is NAMED, not just counted.
+	//
+	// OK()'s "checked nothing" clause catches a TOTAL switch-off; it cannot
+	// see a PARTIAL one, where unmarking a single fence and pasting a false
+	// figure moves only two counters. Listing what ran puts the loss of a
+	// block in CI's own output, where it is visible to anyone reading a
+	// build log, instead of only in a diff someone has to notice. Short by
+	// construction — it is the set a human chose to mark — so unlike the
+	// blind-spot list this one cannot grow long enough to bury anything.
+	if len(r.Checked) == 0 {
+		sb.WriteString(".\n")
+	} else {
+		sb.WriteString(":\n")
+		for _, o := range r.Checked {
+			fmt.Fprintf(&sb, "    %s\n", o.Block)
+		}
+	}
 
 	if n := len(r.Unchecked); n > 0 {
 		fmt.Fprintf(&sb, "\ndocs-doctest: NOTE — %d documented command(s) in %d file(s) carry no `%s` marker\n",

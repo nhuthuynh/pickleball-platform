@@ -406,6 +406,233 @@ func TestRunTimesOutRatherThanHanging(t *testing.T) {
 	}
 }
 
+// OK()'s "checked nothing" clause catches a TOTAL switch-off and cannot see a
+// PARTIAL one — unmark a single fence and paste a false figure, and only two
+// counters move. Naming each executed block puts that loss in CI's own output
+// rather than only in a diff.
+func TestReportNamesEachExecutedBlockNotJustTheCount(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"a.md": "```doctest\n$ printf 'x\\n'\nx\n```\n",
+		"b.md": "intro\n\n```console doctest\n$ printf 'y\\n'\ny\n```\n",
+	})
+	rep, err := Run(root, time.Minute, ShellRunner(root))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !rep.OK() {
+		t.Fatalf("want OK:\n%s", rep)
+	}
+	out := rep.String()
+	for _, want := range []string{"a.md:2", "b.md:4", "printf 'x", "printf 'y"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the summary does not name %q:\n%s", want, out)
+		}
+	}
+
+	// And the point of naming them: unmarking one is visible in the output,
+	// not only in the diff.
+	root2 := writeTree(t, map[string]string{
+		"a.md": "```doctest\n$ printf 'x\\n'\nx\n```\n",
+		"b.md": "intro\n\n```console\n$ printf 'y\\n'\ny\n```\n",
+	})
+	rep2, err := Run(root2, time.Minute, ShellRunner(root2))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if strings.Contains(rep2.String(), "b.md:4") {
+		t.Errorf("an unmarked block is still listed as executed:\n%s", rep2)
+	}
+}
+
+// Each prompt line is its own `bash -c`, so shell state does not carry between
+// them. README.md's ghcr.io probe is exactly this shape. Pinned because the
+// failure direction matters: such a block fails LOUDLY rather than passing
+// wrongly, and a future change to share one shell per fence would flip that.
+func TestEachPromptLineGetsItsOwnShell(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		"d.md": "```doctest\n$ V=set\n$ printf '[%s]\\n' \"$V\"\n[set]\n```\n",
+	})
+	rep, err := Run(root, time.Minute, ShellRunner(root))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rep.OK() {
+		t.Fatalf("a variable must NOT carry to the next prompt line:\n%s", rep)
+	}
+	if !strings.Contains(rep.String(), "[]") {
+		t.Errorf("the failure should show the empty expansion:\n%s", rep)
+	}
+
+	// The documented remedy: one command, so one shell.
+	joined := writeTree(t, map[string]string{
+		"d.md": "```doctest\n$ V=set; printf '[%s]\\n' \"$V\"\n[set]\n```\n",
+	})
+	rep2, err := Run(joined, time.Minute, ShellRunner(joined))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !rep2.OK() {
+		t.Fatalf("joining into one command must work:\n%s", rep2)
+	}
+}
+
+// The honest-limits entry this pins: an empty-output claim is satisfied when
+// the output moves to stderr, which is where a reader would look for it.
+// Asserted so the limitation is a known property rather than a surprise, and
+// so that `2>&1` is shown to close it.
+func TestAnEmptyOutputClaimIsBlindToStderr(t *testing.T) {
+	// The inner quoting keeps the command's own ">&2" separate from the
+	// doc's outer "2>&1". Written as `printf … >&2 2>&1` on one line both
+	// redirections apply left to right and the output still lands on
+	// stderr, so the pair below would prove nothing — which is exactly what
+	// the first draft of this test did.
+	const writesToStderr = `sh -c 'printf "surprise\n" >&2'`
+
+	root := writeTree(t, map[string]string{
+		"d.md": "```doctest\n$ " + writesToStderr + "     # no output\n```\n",
+	})
+	rep, err := Run(root, time.Minute, ShellRunner(root))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if !rep.OK() {
+		t.Fatalf("documented limit: stdout is empty, so this PASSES:\n%s", rep)
+	}
+
+	withRedirect := writeTree(t, map[string]string{
+		"d.md": "```doctest\n$ " + writesToStderr + " 2>&1     # no output\n```\n",
+	})
+	rep2, err := Run(withRedirect, time.Minute, ShellRunner(withRedirect))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rep2.OK() {
+		t.Fatalf("with 2>&1 the same command must FAIL — that is how a doc closes this:\n%s", rep2)
+	}
+}
+
+// TestTimeoutSurvivesAGrandchildHoldingTheOutputPipe is the regression test
+// for the one defect the PE review of PR #362 found, and it has to use a
+// BACKGROUNDED GRANDCHILD: exec.CommandContext's default cancellation kills
+// only bash, and with a strings.Builder sink Wait blocks until every process
+// holding the pipe's write end closes it. Before the fix this document hung
+// forever printing nothing (measured: 25s and killed by an outer `timeout`,
+// against 2s and a correct report for the single-child case), while
+// TestTimeoutFlagIsHonoured passed throughout — it exercises only the child
+// case, which cannot fail.
+//
+// Run through the REAL ShellRunner, because the defect was in ShellRunner's
+// process handling and a scripted Runner cannot have it. Asserted as "returns
+// within a bound", which is the property; the watchdog is what fails, rather
+// than the test hanging and taking the package's whole run with it.
+func TestTimeoutSurvivesAGrandchildHoldingTheOutputPipe(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		// The subshell backgrounds a sleep that outlives bash, then
+		// bash itself blocks. Killing bash alone leaves the grandchild
+		// holding the pipe.
+		"d.md": "```console doctest\n$ (sleep 45 &) ; sleep 45\nnever\n```\n",
+	})
+
+	type result struct {
+		rep     *Report
+		err     error
+		elapsed time.Duration
+	}
+	done := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		rep, err := Run(root, 500*time.Millisecond, ShellRunner(root))
+		done <- result{rep, err, time.Since(start)}
+	}()
+
+	// Generously above the 500ms limit plus WaitDelay, so this fails only
+	// on a genuine hang and not on a slow machine.
+	const bound = 30 * time.Second
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("Run: %v", got.err)
+		}
+		if got.rep.OK() {
+			t.Fatalf("a timed-out command must fail the gate:\n%s", got.rep)
+		}
+		if !strings.Contains(got.rep.String(), "timed out") {
+			t.Errorf("the report must say it timed out:\n%s", got.rep)
+		}
+		if got.elapsed > bound {
+			t.Errorf("Run took %s, want well under %s", got.elapsed, bound)
+		}
+	case <-time.After(bound):
+		t.Fatalf("ShellRunner HUNG: after %s the per-command timeout had not returned. "+
+			"A surviving grandchild is holding the output pipe open — set cmd.WaitDelay "+
+			"and kill the process group, not just the child (see killGroup)", bound)
+	}
+}
+
+// The other half of the fix: the group kill, so a timed-out command's
+// grandchildren are reaped rather than orphaned. WaitDelay alone would unblock
+// Wait and leave an orphaned `go build` burning a CI runner's CPU for the rest
+// of the job, which no assertion about elapsed time would catch.
+func TestTimeoutReapsTheWholeProcessGroup(t *testing.T) {
+	if _, err := exec.LookPath("pgrep"); err != nil {
+		t.Skip("pgrep is not on PATH, so surviving processes cannot be looked for")
+	}
+
+	// A distinctive duration, so pgrep cannot match another test's process,
+	// and LONG — long enough that the grandchild cannot be reaped by simply
+	// finishing. A first draft of this test used `sleep 47` and so PASSED
+	// against the unfixed runner: Run blocked for the full 47s, by which
+	// point the grandchild had exited on its own and there was nothing left
+	// to find. A guard that cannot fail is the defect this ticket is about,
+	// so the duration is now far beyond the watchdog below.
+	const marker = "sleep 293"
+	root := writeTree(t, map[string]string{
+		"d.md": "```console doctest\n$ (" + marker + " &) ; " + marker + "\n```\n",
+	})
+
+	// Best-effort cleanup, so a FAILING run does not leave a five-minute
+	// sleep behind on a CI runner.
+	t.Cleanup(func() { _ = exec.Command("pkill", "-f", marker).Run() })
+
+	type result struct {
+		rep *Report
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		rep, err := Run(root, 500*time.Millisecond, ShellRunner(root))
+		done <- result{rep, err}
+	}()
+
+	const bound = 30 * time.Second
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("Run: %v", got.err)
+		}
+		if got.rep.OK() {
+			t.Fatalf("want a timeout failure:\n%s", got.rep)
+		}
+	case <-time.After(bound):
+		t.Fatalf("ShellRunner did not return within %s of a 500ms limit", bound)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		out, _ := exec.Command("pgrep", "-f", marker).Output()
+		if len(strings.TrimSpace(string(out))) == 0 {
+			return // reaped
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("a grandchild of the timed-out command survived: pgrep still reports %q — "+
+				"the process GROUP must be killed, not just the direct child (see killGroup). "+
+				"WaitDelay alone unblocks Wait and leaves this orphan running",
+				strings.TrimSpace(string(out)))
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
 // Fixtures live in testdata precisely so the live gate cannot read them: this
 // package's own testdata holds a deliberately-stale "27" that must never fail
 // the repository's gate. Same property gatecoverage's scan uses, same reason.

@@ -118,6 +118,11 @@ func TestReportsUnmarkedBlocksWithoutFailing(t *testing.T) {
 	}
 }
 
+// NOTE: `sleep 30` is a SINGLE child, which is the case that cannot fail —
+// this test passed throughout the window in which a backgrounded grandchild
+// hung the gate forever. It covers the -timeout flag reaching the runner and
+// nothing about process handling. The property it does not reach lives in
+// tools/docsdoctest: TestTimeoutSurvivesAGrandchildHoldingTheOutputPipe.
 func TestTimeoutFlagIsHonoured(t *testing.T) {
 	root := writeDoc(t, "```console doctest\n$ sleep 30\n```\n")
 

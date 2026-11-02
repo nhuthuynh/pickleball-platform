@@ -159,21 +159,33 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
       cmd/gatecoverage
   ```
 
+  And how many of the 26 are generated, which is the other half of the
+  fresh-clone arithmetic:
+
+  ```console doctest
+  $ make gate-coverage | grep "generated package"
+    (plus 13 generated package(s), recognised by Go's own "DO NOT EDIT" header and not listed.)
+  ```
+
+  So a fresh clone before any codegen reports **26 − 13 = 13**, and in that
+  state the generated/hand-written split is a no-op — which is also why
+  `tools/gatecoverage`'s real-repository test **skips** rather than fails there
+  (`test-tools` is deliberately codegen-free). The command that shows it
+  directly is **deliberately NOT marked `doctest`, because running it would
+  delete `internal/gen` mid-`ci-checks`**:
+
   ```
   $ rm -rf internal/gen && go run ./cmd/gatecoverage | grep "no test function"
   gate-coverage: NOTE — 13 package(s) hold no test function at all.
   ```
 
-  The third is a fresh clone before any codegen — 26 minus the 13 generated —
-  and in that state the generated/hand-written split is a no-op, which is also
-  why `tools/gatecoverage`'s real-repository test **skips** rather than fails
-  there (`test-tools` is deliberately codegen-free). **It is deliberately NOT
-  marked `doctest`: running it would delete `internal/gen` mid-`ci-checks`.**
-  That makes it this repository's worked example of `make docs-doctest`'s blind
-  spot — a figure the gate counts as unchecked and a reader must re-measure by
-  hand. The first two figures are checked on every `ci-checks`; this one was
-  measured 2026-10-31 and is as trustworthy as any number in this file was
-  before that gate existed, which is to say: not very.
+  That unmarked fence is this repository's worked example of `make
+  docs-doctest`'s blind spot — the gate counts it as unchecked and never runs
+  it. Its figure is **not** hand-measured, though: both numbers it is derived
+  from are checked on every `ci-checks` by the two marked blocks above, so if
+  either moves, the gate fails and the subtraction is re-done. A destructive
+  command does not have to mean an unverified number — it only means the
+  verification has to come from somewhere else.
 - `go run ./cmd/docsindex -statuses` — **list every ADR's status** (file, token,
   which form carried it) from the **same parser `docs-index-check` uses**. This
   is what Ceremony 1's escalation sweep should use; `sprint-process.md` requires
@@ -228,13 +240,31 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   today's tree is meaningless by construction). `go run ./cmd/docsdoctest
   -blind-spots` lists them. And **a run that checked no block FAILS**, so
   `docs-doctest: OK` can never mean "I checked nothing" — the failure mode an
-  opt-in gate invites. Docker-free and offline: a block needing either must
+  opt-in gate invites. That clause catches a TOTAL switch-off and cannot see a
+  PARTIAL one, so the run also **names every block it executed**: unmark one
+  fence and its line vanishes from the build log, rather than only a counter
+  moving from 4 to 3 where nobody reads it.
+
+  Docker-free and offline: a block needing either must
   simply not be marked, and there is no Docker probe, because that would be
-  the command classifier again. Tool in `tools/docsdoctest` (covered by `make
+  the command classifier again. **Each `$ ` line is its own `bash -c`**, so a
+  `cd` or a variable does not carry to the next prompt line — join them with
+  `;` or `&&` if they must share a shell (`README.md`'s ghcr.io probe is that
+  shape, and is unmarked). Tool in `tools/docsdoctest` (covered by `make
   test-tools`), entry point `cmd/docsdoctest`. What it cannot catch is listed
   honestly in its doc comment — a rule with no figure in it, a true statement
-  that is the wrong statement, wrong prose with no number, and a question
-  nobody asked.
+  that is the wrong statement, wrong prose with no number, an empty-output
+  claim whose output moved to stderr, and a question nobody asked.
+
+  **The timeout needed two attempts to be real**, and the first version of
+  this bullet promised what the code did not do: killing a timed-out command
+  kills only `bash`, while `Wait` blocks until every process holding the
+  output pipe closes it, so a surviving grandchild — and `make` → `go run` →
+  a binary is three deep — hung the gate forever printing nothing. It now
+  runs each command in its own process group, kills the group, and bounds
+  `Wait` with `WaitDelay`. Found by the PE review of PR #362; see
+  `killGroup`'s doc comment for the reproduction, and note that the
+  single-child test passed throughout.
 - `make binary-check` — fails when a tracked file carries the **ELF magic
   number**, i.e. a compiled binary has been committed. Part of `make
   ci-checks`. Added T65.4's review pass, which found a 3 MB `docsindex`
