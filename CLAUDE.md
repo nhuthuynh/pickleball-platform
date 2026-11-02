@@ -265,6 +265,17 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   `Wait` with `WaitDelay`. Found by the PE review of PR #362; see
   `killGroup`'s doc comment for the reproduction, and note that the
   single-child test passed throughout.
+
+  **Then the fix's own two halves had one test between them.** The re-review
+  built the mutation matrix instead of trusting the comment and found that
+  cutting the `WaitDelay` line left both new tests green — so the half the
+  comment called "the guarantee" was the half nothing pinned. There is now a
+  test per half (the second uses `setsid` to escape the process group, which
+  is the only way to reach `WaitDelay`) and `killGroup` carries the **measured
+  4×3 matrix** showing every configuration missing a mechanism fails at least
+  one test. The lesson, for the third time in this one ticket: **a mechanism
+  whose necessity you can argue is not the same as a mechanism whose removal
+  something notices** — argue it *and* cut it and watch.
 - `make binary-check` — fails when a tracked file carries the **ELF magic
   number**, i.e. a compiled binary has been committed. Part of `make
   ci-checks`. Added T65.4's review pass, which found a 3 MB `docsindex`

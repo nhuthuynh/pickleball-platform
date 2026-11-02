@@ -180,6 +180,12 @@
 //     block that cares; nothing closes it by default, because merging the
 //     streams everywhere would make every comparison depend on interleaving.
 //   - **A sequence that needed one shell**, per the `$ `-line isolation above.
+//   - **A command that leaves a background process behind** is reported as a
+//     failure even when its captured output matched exactly. It has to be: the
+//     process holds the output pipe, so anything printed after WaitDelay is
+//     discarded and the comparison is of a truncated stream. The report says
+//     so in those words rather than claiming the command could not be run,
+//     but the gate cannot tell you what the discarded output would have been.
 //
 // It catches exactly one thing: a documented command whose pasted output is no
 // longer what it prints. That was three live falsehoods in the rulebook on the
@@ -562,6 +568,29 @@ func ShellRunner(dir string) Runner {
 //     hang whatever a documented command does. WaitDelay is the guarantee;
 //     the group kill is the cleanup.
 //
+// Each half has its own test, which is NOT a formality: the re-review of
+// PR #362 built the mutation matrix rather than trusting this comment, and
+// found that cutting the WaitDelay line left both of the original tests
+// passing. "WaitDelay is the guarantee" was, for one revision, the only claim
+// here with nothing pinning it.
+//
+// So the "do not remove either mechanism" instruction above is not a request;
+// it is enforced, and this is the measured matrix (every cell run, 2026-11-02,
+// by cutting the named lines and running the three tests by name):
+//
+//	wiring present         …SurvivesAGrandchild  …ReapsTheWholeProcessGroup  …EscapesTheGroup
+//	none                   FAIL 30.0s            FAIL 30.0s                  FAIL 30.0s
+//	WaitDelay only         PASS  5.5s            FAIL 15.7s                  PASS  5.5s
+//	Setpgid + Cancel only  PASS  0.5s            PASS  0.5s                  FAIL 30.0s
+//	all three (committed)  PASS  0.5s            PASS  0.5s                  PASS  5.5s
+//
+// Every configuration missing a mechanism fails at least one test, which is
+// the property worth having. Row 2 is why the reaping test exists at all —
+// WaitDelay alone unblocks Wait and orphans the grandchild, and no
+// elapsed-time assertion can see that, as its own PASS in that row shows.
+// Row 3 is why TestWaitDelayBoundsWaitWhenAProcessEscapesTheGroup exists.
+// The 30.0s cells are the tests' watchdogs firing on a real hang.
+//
 // Unix only (Setpgid, and killing a negative pid), which is every platform
 // this project builds on — the Makefile, the Dockerfile and `make up` are all
 // bash and Linux, and macOS, the other developer platform, is also Unix.
@@ -760,9 +789,20 @@ func (o Outcome) describe() string {
 		fmt.Fprintf(&sb, "    timed out after the per-command limit. Either make the documented command\n")
 		fmt.Fprintf(&sb, "    fast (pipe it through grep or wc) or stop marking it.\n")
 		return sb.String()
-	case o.Err != nil:
+	case o.Err != nil && !errors.Is(o.Err, exec.ErrWaitDelay):
 		fmt.Fprintf(&sb, "    could not be run: %v\n", o.Err)
 		return sb.String()
+	case errors.Is(o.Err, exec.ErrWaitDelay):
+		// NOT "could not be run", which is what this used to say and
+		// is the opposite of what happened: the command ran, exited,
+		// and its stdout was captured — the diff below is real. What
+		// failed is that something it left running behind it held the
+		// output pipe open for longer than the grace period, so any
+		// further output was discarded and cannot be compared.
+		fmt.Fprintf(&sb, "    ran and exited, but a process it left running held the output pipe open\n")
+		fmt.Fprintf(&sb, "    for more than %s afterwards, so any later output was discarded. The\n", WaitDelay)
+		fmt.Fprintf(&sb, "    comparison below is of what WAS captured, and may well match; a documented\n")
+		fmt.Fprintf(&sb, "    command that leaves a background process behind should not be marked.\n")
 	}
 
 	fmt.Fprintf(&sb, "    expected (from the doc):\n%s", indentBlock(Normalize(strings.Join(o.Expected, "\n"))))

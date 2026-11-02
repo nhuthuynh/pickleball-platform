@@ -2,6 +2,7 @@ package docsdoctest
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -630,6 +631,120 @@ func TestTimeoutReapsTheWholeProcessGroup(t *testing.T) {
 				strings.TrimSpace(string(out)))
 		}
 		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+// TestWaitDelayBoundsWaitWhenAProcessEscapesTheGroup pins cmd.WaitDelay, the
+// half of the timeout fix that the group kill cannot cover.
+//
+// WHY IT NEEDS setsid. The two tests above are both satisfied by Setpgid +
+// Cancel alone: cutting the WaitDelay line leaves them passing in 0.50s and
+// 0.52s. So "WaitDelay is the guarantee", which this package's own doc comment
+// says, was production code no test demanded — found by the re-review of
+// PR #362 building the full mutation matrix rather than trusting the claim.
+// A process that calls setsid() leaves the process group, so killGroup cannot
+// reach it, and it keeps holding the output pipe; WaitDelay is then the only
+// thing that lets Wait return. Measured, 2s limit, outer `timeout 25`:
+//
+//	WaitDelay cut      (no output at all)                ELAPSED=25s  RC=124
+//	WaitDelay present  "timed out after the per-command" ELAPSED=7s   RC=1
+//
+// The elapsed-time assertion below is what stops this test going vacuous. If
+// setsid ever stopped escaping, or stopped inheriting the pipe, Run would
+// return in ~500ms and the test would pass for entirely the wrong reason —
+// the same trap that made this file's first reaping test pass against the
+// unfixed runner. Requiring that it took at least about WaitDelay proves the
+// pipe really was held open and that WaitDelay is what released it.
+func TestWaitDelayBoundsWaitWhenAProcessEscapesTheGroup(t *testing.T) {
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("setsid is not on PATH, so a process that escapes its process group " +
+			"cannot be created here")
+	}
+
+	// Distinctive and long, so pgrep/pkill cannot hit another test's
+	// process and so the escapee cannot be reaped by merely finishing.
+	const marker = "sleep 291"
+	root := writeTree(t, map[string]string{
+		"d.md": "```console doctest\n$ (setsid " + marker + " &) ; " + marker + "\nnever\n```\n",
+	})
+
+	// This escapee survives by design — killGroup cannot reach it — so
+	// cleaning up after it is this test's own responsibility.
+	t.Cleanup(func() { _ = exec.Command("pkill", "-f", marker).Run() })
+
+	const limit = 500 * time.Millisecond
+	type result struct {
+		rep     *Report
+		err     error
+		elapsed time.Duration
+	}
+	done := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		rep, err := Run(root, limit, ShellRunner(root))
+		done <- result{rep, err, time.Since(start)}
+	}()
+
+	// Comfortably above limit+WaitDelay, so this fails only on a real hang.
+	bound := WaitDelay + 25*time.Second
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("Run: %v", got.err)
+		}
+		if got.rep.OK() {
+			t.Fatalf("a command whose output pipe is held open must fail:\n%s", got.rep)
+		}
+		// Slack below WaitDelay only for scheduling, not enough to let a
+		// 500ms return through.
+		if floor := WaitDelay - time.Second; got.elapsed < floor {
+			t.Fatalf("Run returned in %s, before WaitDelay (%s) could have released it — "+
+				"the setsid child is not holding the output pipe, so this test is not "+
+				"exercising WaitDelay at all", got.elapsed, WaitDelay)
+		}
+	case <-time.After(bound):
+		t.Fatalf("ShellRunner HUNG: after %s a %s limit had not returned. A process that "+
+			"escaped the group via setsid is holding the output pipe and only cmd.WaitDelay "+
+			"can bound Wait — the group kill cannot reach it", bound, limit)
+	}
+}
+
+// A command that finishes with exactly the right output but leaves a
+// background child holding the pipe used to be reported as "could not be run:
+// exec: WaitDelay expired before I/O complete" — which says the opposite of
+// what happened. It WAS run, its stdout was exactly right, and TimedOut is
+// false because the context never fired, so the report was truthful about
+// neither thing. Introduced by the WaitDelay fix and found by the re-review.
+func TestABackgroundChildHoldingThePipeIsReportedTruthfully(t *testing.T) {
+	root := writeTree(t, map[string]string{
+		// A generous limit, so this is NOT the timeout path: the
+		// command exits at once and its output is correct.
+		"d.md": "```console doctest\n$ (sleep 23 &) ; printf 'hello\\n'\nhello\n```\n",
+	})
+	t.Cleanup(func() { _ = exec.Command("pkill", "-f", "sleep 23").Run() })
+
+	rep, err := Run(root, time.Minute, ShellRunner(root))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if rep.OK() {
+		t.Fatalf("a lingering background child truncates the stream, so this must fail:\n%s", rep)
+	}
+
+	out := rep.String()
+	if strings.Contains(out, "could not be run") {
+		t.Errorf("the report claims the command could not be run, but it ran and printed "+
+			"the documented output:\n%s", out)
+	}
+	for _, want := range []string{"ran and exited", "held the output pipe open", "hello"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the report does not mention %q:\n%s", want, out)
+		}
+	}
+	// And the genuine "could not be run" case must still say so.
+	if o := (Outcome{Execution: Execution{Err: errors.New("exec: \"bash\": not found")}}); //
+	!strings.Contains(o.describe(), "could not be run") {
+		t.Errorf("a command that truly could not be run must still say so:\n%s", o.describe())
 	}
 }
 
