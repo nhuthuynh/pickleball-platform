@@ -77,20 +77,36 @@ func TestListRegistrationsForActor_NoPrincipalIsUnauthenticated(t *testing.T) {
 // "a forged actor field changes nothing" requirement, discharged in the
 // strongest form available: the request message has NO actor field to forge.
 //
-// # Why this is a compile-time assertion and not a runtime one
+// # A correction, kept visible on purpose
+//
+// This test originally claimed a COMPILE-TIME proof: that
+// `&ListRegistrationsForActorRequest{}` is "an unkeyed, fully-specified
+// literal" which "compiles only while the message has exactly zero fields".
+// **That is simply false** — `&T{}` is a valid empty composite literal for a
+// struct with any number of fields, so the literal below compiles unchanged no
+// matter what is added to the message. The PE review for T67.2 demonstrated it:
+// adding `string actor_user_id = 1;` to the proto and regenerating produced an
+// `ActorUserId` field on the generated struct and this package's tests still
+// passed. Nothing fired.
+//
+// The claim is replaced below by one that was confirmed to catch that exact
+// mutation: a **descriptor assertion**, reading the field count off the
+// generated message's own protoreflect descriptor. It is a runtime check, so
+// `make test-adapters` is what enforces it — not the compiler. Said plainly
+// because an over-claimed guarantee is worse than an honest weaker one: a
+// reader who believes the compiler is watching will not add the test that
+// actually watches.
+//
+// # Why a field-count assertion rather than a forged-field assertion
 //
 // Booking's equivalent read retains a deprecated `actor_user_id` on the wire
 // (deleting a shipped proto field is a breaking change), so its test has to
 // populate that field with somebody else's id and prove the server ignores it.
-// ListRegistrationsForActorRequest is new and never acquired the field, so the
-// equivalent proof is that no such field EXISTS — and the way to pin that in Go
-// is a struct literal with every field named. If a later ticket adds an
-// actor-shaped field to this message, this file stops compiling, which is a
-// louder failure than a runtime assertion someone could delete.
-//
-// The runtime half still runs below: the same empty request, sent by two
-// different principals, is answered differently — which is only possible if the
-// answer comes from the context rather than from the message.
+// This message is new and never acquired the field, so the stronger property is
+// available: there is no such field to populate. The descriptor assertion pins
+// that, and the runtime half below pins the behaviour that depends on it —
+// the same empty request, sent by two different principals, answered
+// differently, which is only possible if the answer comes from the context.
 func TestListRegistrationsForActor_RequestCarriesNoForgeableActor(t *testing.T) {
 	h, _, _ := newPrincipalTestHandler()
 	game := seedHostedGameWithCapacity(t, h, 4)
@@ -101,12 +117,22 @@ func TestListRegistrationsForActor_RequestCarriesNoForgeableActor(t *testing.T) 
 		t.Fatalf("RegisterForGame: %v", err)
 	}
 
-	// The compile-time half. An unkeyed, fully-specified literal: this
-	// compiles only while the message has exactly zero fields.
+	// The descriptor half. Read off the generated message itself, so adding
+	// ANY field to ListRegistrationsForActorRequest fails here — including one
+	// whose name nothing in this test could have guessed.
+	if n := (&socialplayv1.ListRegistrationsForActorRequest{}).
+		ProtoReflect().Descriptor().Fields().Len(); n != 0 {
+		t.Fatalf("ListRegistrationsForActorRequest has %d field(s), want 0 — "+
+			"this RPC's actor comes from the verified principal, and the message "+
+			"carrying no field at all is what makes a forged actor unexpressible "+
+			"rather than merely ignored. If a field is genuinely needed, the "+
+			"handler must be re-reviewed for what it now reads off the wire.", n)
+	}
+
 	req := &socialplayv1.ListRegistrationsForActorRequest{}
 
-	// The runtime half. The attacker sends the byte-identical request the
-	// registrant does. They have joined nothing, so they get nothing — the
+	// The runtime half, which is the part that was always real. The attacker
+	// sends the byte-identical request the registrant does. They have joined nothing, so they get nothing — the
 	// request cannot carry a claim about whose list to return.
 	victim, err := h.ListRegistrationsForActor(ctxAs(playerSubject), req)
 	if err != nil {

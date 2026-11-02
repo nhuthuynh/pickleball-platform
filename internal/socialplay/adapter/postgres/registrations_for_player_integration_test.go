@@ -261,6 +261,95 @@ func TestListForPlayer_HostCancelledGameIsReturnedButSelfCancelledIsNot(t *testi
 	}
 }
 
+// TestListForPlayer_SelfCancelledThenHostCancelledComesBack pins the ordering
+// the rest of this file does NOT cover, and the one that falsified this
+// feature's own doc comment (T67.2 review finding F3).
+//
+// `TestListForPlayer_HostCancelledGameIsReturnedButSelfCancelledIsNot` above
+// covers "withdraw from a Game that stays scheduled" and "be swept up by a
+// host cancellation". It does not cover **withdraw first, Host cancels the same
+// Game later** — and in that ordering the row comes BACK, because the Game's
+// status now satisfies the query's second disjunct. The port doc comment used
+// to assert flatly that a self-cancelled Registration leaves the list, which
+// this case disproves.
+//
+// It is pinned rather than fixed. `registrations` has no `cancelled_by` or
+// `cancellation_reason` column, so "the player withdrew" and "the cascade swept
+// this row" write the identical `status = 'cancelled'` and no predicate over
+// the current schema can tell them apart — see
+// port.RegistrationRepository.ListForPlayer's doc comment for why returning the
+// row is the safer of the two indistinguishable answers. This test exists so
+// that the behaviour is a recorded decision, and so a future migration adding
+// that column has a failing test to flip rather than a surprise.
+func TestListForPlayer_SelfCancelledThenHostCancelledComesBack(t *testing.T) {
+	ctx := context.Background()
+	pool := newTestPool(t, ctx)
+
+	gameRepo := socialplaypg.NewGameRepository(pool)
+	regRepo := socialplaypg.NewRegistrationRepository(pool)
+
+	hostID := seedSocialplayUser(t, ctx, pool, "order2-host")
+	playerID := seedSocialplayUser(t, ctx, pool, "order2-player")
+
+	game := seedPlayerGame(t, ctx, gameRepo,
+		"44444444-4444-4444-4444-670000000041", hostID,
+		"2026-12-25T09:00:00Z", "2026-12-25T10:00:00Z")
+	reg := seedPlayerRegistration(t, ctx, regRepo,
+		"44444444-4444-4444-4444-670000000042", game.ID, playerID)
+
+	// Step 1: the Player withdraws. The Game is still scheduled, so the row
+	// must be gone — this is the half the doc comment got right.
+	reg.Status = domain.RegistrationStatusCancelled
+	if _, err := regRepo.Update(ctx, reg); err != nil {
+		t.Fatalf("the Player withdrawing: %v", err)
+	}
+
+	afterWithdrawal, err := regRepo.ListForPlayer(ctx, playerID)
+	if err != nil {
+		t.Fatalf("ListForPlayer after the withdrawal: %v", err)
+	}
+	if len(afterWithdrawal) != 0 {
+		t.Fatalf("got %d listings after the Player withdrew from a still-scheduled Game, "+
+			"want 0", len(afterWithdrawal))
+	}
+
+	// Step 2: the Host cancels the same Game. The cascade matches no active
+	// row (the Player already withdrew), so the Registration is untouched —
+	// only the GAME's status changes. That alone brings the row back.
+	if _, err := gameRepo.UpdateStatus(ctx, game.ID, domain.StatusCancelled); err != nil {
+		t.Fatalf("the Host cancelling the Game: %v", err)
+	}
+	n, err := regRepo.CancelAllActiveForGame(ctx, game.ID)
+	if err != nil {
+		t.Fatalf("the cascade: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("the cascade transitioned %d rows, want 0 — the Player had already "+
+			"withdrawn, so there was no active Registration left to sweep", n)
+	}
+
+	afterHostCancel, err := regRepo.ListForPlayer(ctx, playerID)
+	if err != nil {
+		t.Fatalf("ListForPlayer after the Host cancelled: %v", err)
+	}
+	if len(afterHostCancel) != 1 {
+		t.Fatalf("got %d listings after the Host cancelled a Game the Player had already "+
+			"left, want 1 — this is the documented limit of the scope rule, not a "+
+			"regression; see port.RegistrationRepository.ListForPlayer", len(afterHostCancel))
+	}
+
+	// And the point of the whole finding: the returned row is
+	// indistinguishable from one the Player actually still held.
+	l := afterHostCancel[0]
+	if l.Registration.Status != domain.RegistrationStatusCancelled {
+		t.Errorf("Registration.Status = %q, want %q",
+			l.Registration.Status, domain.RegistrationStatusCancelled)
+	}
+	if l.GameStatus != domain.StatusCancelled {
+		t.Errorf("GameStatus = %q, want %q", l.GameStatus, domain.StatusCancelled)
+	}
+}
+
 // TestListForPlayer_OrdersByTheGamesStart pins `ORDER BY g.starts_at`. The
 // rows are inserted in the reverse of the expected order, so a query with no
 // ORDER BY would have to be right by accident twice.

@@ -848,6 +848,11 @@ func (s *Service) ListRegistrationsForGame(ctx context.Context, gameID, actorUse
 // changes nothing, which for a brand-new message means proving there is no such
 // field to populate.
 //
+// That emptiness is held by **a runtime descriptor assertion, not by the
+// compiler** — T67.2's first draft claimed the latter and was wrong, since
+// `&T{}` compiles for a struct with any number of fields. See
+// TestListRegistrationsForActor_RequestCarriesNoForgeableActor.
+//
 // A malformed actorUserID is answered exactly like an unknown one — an empty
 // list, not an error, because an unknown actor's answer is also an empty list.
 // The guard still has to run: registrations.player_id is a `uuid` column and

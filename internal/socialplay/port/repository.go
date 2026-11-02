@@ -154,20 +154,53 @@ type RegistrationRepository interface {
 	//
 	// # Scope: a DECISION, recorded rather than left to be inferred
 	//
-	// The filter is on the REGISTRATION's status, not the Game's:
+	// The exact rule, which is the DISJUNCTION the query spells out and not a
+	// filter on either status alone — a row is returned when
+	// `r.status <> 'cancelled' OR g.status = 'cancelled'`:
 	//
-	//   - A Registration the caller themselves cancelled LEAVES the list.
-	//     They took the action and already know the outcome; keeping it would
-	//     make this a history log rather than the answer to "which Games am I
-	//     in?".
-	//   - A Registration against a CANCELLED GAME is RETURNED, carrying
-	//     GameStatus == domain.StatusCancelled. This is not in tension with
-	//     the rule above, it is what makes it implementable: because
-	//     app.Service.CancelGame cascades CancelAllActiveForGame, a
-	//     host-cancelled Game's Registration is ITSELF cancelled, so a filter
-	//     on the Registration alone would discard the very case the Game
-	//     fields exist for. Hence the Postgres query's
-	//     `(r.status <> 'cancelled' OR g.status = 'cancelled')`.
+	//   - An ACTIVE Registration is returned, whatever its Game's status.
+	//   - A Registration against a CANCELLED GAME is returned, carrying
+	//     GameStatus == domain.StatusCancelled, **even though that
+	//     Registration is itself cancelled** — app.Service.CancelGame cascades
+	//     CancelAllActiveForGame, so a filter on the Registration alone would
+	//     discard the very case the Game fields exist for.
+	//   - A Registration the caller cancelled themselves, whose Game is still
+	//     scheduled, LEAVES the list. They took the action and already know the
+	//     outcome; keeping it would make this a history log rather than the
+	//     answer to "which Games am I in?".
+	//
+	// # The honest limit of that third bullet (T67.2 review finding F3)
+	//
+	// It used to read, flatly, "a Registration the caller themselves cancelled
+	// LEAVES the list". **That is false in one reachable ordering**, and it is
+	// corrected rather than quietly reworded because a doc comment a four-line
+	// test falsifies is the shape CLAUDE.md's 0031/0007 entries are about.
+	//
+	// If the caller withdraws and the Host LATER cancels the same Game, the row
+	// comes back — the Game's status now satisfies the second disjunct. Probed
+	// through the real app.Service write paths: 0 listings after the withdrawal,
+	// then 1 after the Host's cancel, reading
+	// `reg.Status="cancelled" game_status="cancelled"` — byte-for-byte
+	// indistinguishable from a registration the caller actually still held when
+	// the Game was called off.
+	// TestListForPlayer_SelfCancelledThenHostCancelledComesBack
+	// (internal/socialplay/adapter/postgres) pins this ordering;
+	// TestListForPlayer_HostCancelledGameIsReturnedButSelfCancelledIsNot pins
+	// the other one. Both directions are now covered, which they were not when
+	// this comment first made the claim.
+	//
+	// **This is a schema limit, not a query bug, which is why the disjunct
+	// stays.** `registrations` has no `cancelled_by` or `cancellation_reason`
+	// column (db/migrations/0005, 0026, 0032) — "the player withdrew" and "the
+	// Host cancelled and the cascade swept this row" write the identical
+	// `status = 'cancelled'`, so NO predicate over the current schema can
+	// separate them. Given that, returning the row is the safer error: the
+	// alternative drops a real host-cancellation, which is the one fact a
+	// Player cannot learn anywhere else (ListGames filters cancelled Games out
+	// and there is no GetGame RPC). Telling a withdrawn player their Game was
+	// also cancelled is noise; not telling a registered player is a defect.
+	// Distinguishing them properly needs that column, i.e. a migration, which
+	// is out of T67.2's scope and deliberately not smuggled in.
 	//
 	// playerID is a **User.ID** (uuid), never an IdP subject — the space
 	// registrations.player_id has held since

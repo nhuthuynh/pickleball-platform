@@ -363,9 +363,20 @@ func (h *Handler) ListRegistrationsForGame(ctx context.Context, req *socialplayv
 // retains `actor_user_id` only because deleting a shipped field is a breaking
 // wire change, and this message is new). The acting Player comes from
 // h.actor(ctx) — auth.RequireSubject then app.Service.ResolveActorUserID — so
-// a forged actor is not merely ignored, it is unexpressible. The `req`
-// parameter is therefore deliberately unused, and a handler test asserts the
-// result is identical whichever caller asks.
+// a forged actor is not merely ignored: as long as the message stays empty
+// there is no field to carry one. The `req` parameter is therefore
+// deliberately unused.
+//
+// **That emptiness is enforced by a test, not by the compiler.** T67.2's own
+// first draft claimed a compile-time guarantee here; it did not exist, because
+// `&T{}` compiles for a struct with any number of fields. What holds it now is
+// a descriptor assertion in
+// TestListRegistrationsForActor_RequestCarriesNoForgeableActor (field count
+// read off the generated message's protoreflect descriptor), plus the runtime
+// assertion that two different principals sending the byte-identical request
+// get different answers. So a ticket that adds a field to this message fails
+// `make test-adapters` — and if that field is ever added deliberately, this
+// handler needs re-reviewing for what it now reads off the wire.
 //
 // A missing or unverified principal is codes.Unauthenticated (h.actor's own
 // mapping, ADR-0013 §5), never an empty list: with no principal there is no
