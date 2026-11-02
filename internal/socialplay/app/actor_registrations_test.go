@@ -124,7 +124,13 @@ func TestListRegistrationsForActor(t *testing.T) {
 			},
 		},
 		{
-			name: "a registration the caller cancelled leaves the list",
+			// "whose Game is still scheduled" is not padding: if the Host
+			// cancels the Game afterwards the row comes BACK (see
+			// TestListForPlayer_SelfCancelledThenHostCancelledComesBack in
+			// internal/socialplay/adapter/postgres). An unqualified name here
+			// would restate, as a test name, the claim T67.2's review
+			// falsified everywhere else.
+			name: "a registration the caller cancelled, whose Game is still scheduled, leaves the list",
 			seed: func(t *testing.T, svc *app.Service, _ *fakeGameRepository) []string {
 				g := seedGame(t, svc, "2026-11-03T09:00:00Z", "2026-11-03T10:00:00Z")
 				reg := join(t, svc, g.ID, actorRegPlayer)

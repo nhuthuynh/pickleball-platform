@@ -171,16 +171,38 @@ WHERE game_id = $1
 -- `r.status <> 'cancelled' OR g.status = 'cancelled'`, not `r.status <>
 -- 'cancelled'` alone. The scope decision (port.RegistrationRepository.
 -- ListForPlayer's doc comment) is "the caller's ACTIVE registrations plus
--- their Games' real status": a Registration the caller cancelled themselves
--- leaves the list, but one against a host-cancelled Game stays.
+-- their Games' real status": a Registration the caller cancelled themselves,
+-- **whose Game is still scheduled**, leaves the list, while one against a
+-- host-cancelled Game stays.
+--
+-- That qualifier is load-bearing and was missing here until T67.2's
+-- re-review. If the caller withdraws and the Host cancels the same Game
+-- LATER, the row comes back — the second disjunct now matches. See
+-- TestListForPlayer_SelfCancelledThenHostCancelledComesBack
+-- (internal/socialplay/adapter/postgres), which pins that ordering.
 --
 -- Those two read as contradictory until you follow CancelAllActiveRegistrations
 -- ForGame above: app.Service.CancelGame CASCADES, so a host-cancelled Game's
 -- Registration is ITSELF 'cancelled'. Filtering on the registration alone
 -- would therefore discard exactly the case the game columns exist for, and
--- would do it silently — the list would simply be short. The second disjunct
--- is what keeps the player-cancelled and host-cancelled cases distinguishable
--- even though the registration's own status is identical in both.
+-- would do it silently — the list would simply be short.
+--
+-- # What the second disjunct does NOT do — read this before "simplifying" it
+--
+-- It does **not** make the player-cancelled and host-cancelled cases
+-- distinguishable. This comment asserted that until T67.2's re-review, and it
+-- is the exact opposite of the truth: the disjunct deliberately CONFLATES
+-- them, because `registrations` has no column recording who cancelled a row,
+-- so no predicate over this schema can tell them apart. Returning the row is
+-- the safer of two indistinguishable answers — the alternative silently drops
+-- a real host-cancellation, the one fact a Player cannot learn anywhere else.
+--
+-- The full argument, including why a proper fix is a migration rather than a
+-- better WHERE clause, lives in ONE place and is deliberately not restated
+-- here: `port.RegistrationRepository.ListForPlayer`'s doc comment
+-- (internal/socialplay/port/repository.go). Two copies of a subtle rule drift
+-- apart — which is how this file came to assert the reverse of the
+-- authoritative one.
 --
 -- `g.status AS game_status` is aliased because `r.status` already claims the
 -- name `status`; without it sqlc mints two fields of the same name. Ordered by
