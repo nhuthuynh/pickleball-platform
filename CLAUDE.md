@@ -233,11 +233,14 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
   exclusion list — the one change that would defeat this tool, exactly as
   `gate-coverage` says of its own package list.
 
-  **Its blind spot is printed on every run**, counted not listed (191
-  unmarked commands across 44 files at T67.5 — mostly retros recording what a
-  past sprint measured, `gh api` calls, and pseudo-commands like
-  `$ (list_issues state=OPEN) -> totalCount`; re-running those against
-  today's tree is meaningless by construction). `go run ./cmd/docsdoctest
+  **Its blind spot is printed on every run**, counted not listed — **the run
+  prints its own count, so no number is carried here**, deliberately: a figure
+  in this sentence would be stale the moment a sprint writes a retro, which a
+  trial merge of this very branch confirmed (two new docs, three more unmarked
+  commands). What they are rather than how many: mostly retros recording what
+  a past sprint measured, `gh api` calls, and pseudo-commands like
+  `$ (list_issues state=OPEN) -> totalCount` — re-running those against
+  today's tree is meaningless by construction. `go run ./cmd/docsdoctest
   -blind-spots` lists them. And **a run that checked no block FAILS**, so
   `docs-doctest: OK` can never mean "I checked nothing" — the failure mode an
   opt-in gate invites. That clause catches a TOTAL switch-off and cannot see a
