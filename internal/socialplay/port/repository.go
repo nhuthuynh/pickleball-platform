@@ -191,10 +191,15 @@ type RegistrationRepository interface {
 	//
 	// **This is a schema limit, not a query bug, which is why the disjunct
 	// stays.** `registrations` has no `cancelled_by` or `cancellation_reason`
-	// column (db/migrations/0005, 0026, 0032) — "the player withdrew" and "the
-	// Host cancelled and the cascade swept this row" write the identical
-	// `status = 'cancelled'`, so NO predicate over the current schema can
-	// separate them. Given that, returning the row is the safer error: the
+	// column — checked against the tree rather than against this sentence,
+	// since the table's columns arrive across five migrations (0005 creates
+	// it; 0012, 0026 and 0028 alter it; 0032 widens a CHECK):
+	//
+	//	$ grep -rniE 'cancelled_by|cancellation_reason' db/migrations/   # no output
+	//
+	// So "the player withdrew" and "the Host cancelled and the cascade swept
+	// this row" write the identical `status = 'cancelled'`, and NO predicate
+	// over the current schema can separate them. Given that, returning the row is the safer error: the
 	// alternative drops a real host-cancellation, which is the one fact a
 	// Player cannot learn anywhere else (ListGames filters cancelled Games out
 	// and there is no GetGame RPC). Telling a withdrawn player their Game was
