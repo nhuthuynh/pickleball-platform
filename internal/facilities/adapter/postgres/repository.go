@@ -226,9 +226,10 @@ func (r *Repository) GetCourtByID(ctx context.Context, courtID string) (domain.C
 // empty FacilityID: there, "none" is an answer the caller acts on; here there
 // is simply no zone.
 //
-// An existing Facility with timezone = ” (0034's default) returns that empty
-// string and no error — the data saying "nobody has set one", which Booking
-// turns into its own ErrFacilityTimezoneUnset rather than into UTC.
+// An existing Facility whose timezone is the empty string (0034's default)
+// returns that empty string and no error — the data saying "nobody has set
+// one", which Booking turns into its own ErrFacilityTimezoneUnset rather than
+// into UTC.
 func (r *Repository) CourtTimezone(ctx context.Context, courtID string) (string, error) {
 	zone, err := r.q.GetCourtTimezone(ctx, mustUUID(courtID))
 	if err != nil {

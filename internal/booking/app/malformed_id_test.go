@@ -321,11 +321,16 @@ func TestGetQuote_WellFormedCourtIDStillReads(t *testing.T) {
 		courtID(1): weekdayPricingRules(),
 	}}
 	svc := app.NewService(app.ServiceOptions{
-		Bookings:       newInMemoryRepo(),
-		PricingRules:   pricingRepo,
-		DiscountRules:  newFakeDiscountRepo(),
+		Bookings:      newInMemoryRepo(),
+		PricingRules:  pricingRepo,
+		DiscountRules: newFakeDiscountRepo(),
+		// A real Court has a Facility and that Facility has a zone; a bare
+		// &fakeFacilityLookup{} would state neither and still quote, on the
+		// fake's nil-map UTC default (review finding F4 of PR #370). This
+		// test is about the uuidShape guard not rejecting valid ids, so its
+		// fixture must not be the one thing production refuses.
 		RecurringHires: newFakeRecurringHireRepo(),
-		Facilities:     &fakeFacilityLookup{},
+		Facilities:     zonedLookupFor(courtID(1)),
 		Identity:       &fakeIdentityLookup{},
 		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},

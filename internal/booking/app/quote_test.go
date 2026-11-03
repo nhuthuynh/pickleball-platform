@@ -67,10 +67,16 @@ func TestGetQuote_ResolvesPriceForSlot(t *testing.T) {
 		PricingRules:   pricingRepo,
 		DiscountRules:  newFakeDiscountRepo(),
 		RecurringHires: newFakeRecurringHireRepo(),
-		Facilities:     &fakeFacilityLookup{},
-		Identity:       &fakeIdentityLookup{},
-		Zones:          &fakeZones{},
-		IDs:            &sequentialIDs{},
+		// courtID(1) has a Facility, and that Facility has a zone — a world
+		// that can exist. A bare &fakeFacilityLookup{} would give this court
+		// no Facility while the fake's nil-map default still reported UTC for
+		// it, which production refuses (review finding F4 of PR #370).
+		// courtID(9), the unpriced court below, is deliberately NOT in this
+		// lookup: it answers ErrNoPricingRule before any zone is needed.
+		Facilities: zonedLookupFor(courtID(1)),
+		Identity:   &fakeIdentityLookup{},
+		Zones:      &fakeZones{},
+		IDs:        &sequentialIDs{},
 	})
 	ctx := context.Background()
 

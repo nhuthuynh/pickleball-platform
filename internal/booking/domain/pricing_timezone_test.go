@@ -215,10 +215,26 @@ func TestResolvePrice_ResolvesInFacilityZone(t *testing.T) {
 //	11:00Z = 04:00 PDT (UTC-7, after it)
 //
 // A 2-hour slot of elapsed time therefore spans THREE hours of wall clock,
-// and that wall clock is what a band window is written in. The two subtests
-// are chosen so that offset arithmetic cannot pass both: resolving the end
-// with the start's -08:00 offset reads 03:00, which the 00:00-03:00 window
-// would wrongly contain.
+// and that wall clock is what a band window is written in.
+//
+// # Exactly what the second subtest catches, and what it does not
+//
+// It catches resolving the END with the START's offset — the natural shape of
+// a hand-rolled conversion: at -08:00 the end reads 03:00, which the
+// 00:00-03:00 window wrongly contains, so the subtest fails. It does NOT
+// catch every fixed-offset stand-in, and the first version of this comment
+// claimed it did (review of PR #370). Measured, for the 09:00Z-11:00Z slot
+// against window A (00:00-06:00, must cover) and window B (00:00-03:00, must
+// not):
+//
+//	fixed -08:00: local 01:00-03:00 | A covers: true | B covers: true   -> B FAILS
+//	fixed -07:00: local 02:00-04:00 | A covers: true | B covers: false  -> both PASS
+//
+// A single wrong-but-constant offset of -07:00 therefore survives these two
+// cases. What rules it out is elsewhere in this file: the Ho Chi Minh table
+// (+07:00, same code path) and the fixture assertions below, which pin that
+// the real zone reports -0800 at the start and -0700 at the end. Coverage is
+// not weaker than it needs to be — the claim was just broader than the cases.
 func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 	t.Parallel()
 
@@ -274,11 +290,19 @@ func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 
 // TestResolvePrice_MidnightBoundaryOnADSTDay is the regression guard for the
 // arithmetic fitsSingleCalendarDay used to use: local midnight PLUS 24 HOURS.
-// On America/Los_Angeles's spring-forward Sunday that lands at 01:00 on the
-// Monday, so a 22:00-24:00 local slot that night — the exact case
-// clockTimeOfEnd exists to price — was refused as spanning two calendar days.
-// The next local midnight is day+1 at 00:00, which time.Date normalises
-// correctly in any zone and on any date.
+// A 22:00-24:00 local slot — the exact case clockTimeOfEnd exists to price —
+// ends on the next local midnight, and that comparison was wrong at BOTH
+// America/Los_Angeles transitions, in opposite directions:
+//
+//	spring forward (2026-03-08, a 23-hour day): midnight+24h = 01:00 on the 9th,
+//	    an hour PAST the boundary the slot ends on
+//	fall back      (2026-11-01, a 25-hour day): midnight+24h = 23:00 the SAME day,
+//	    an hour SHORT of it
+//
+// Both rows are cases, not prose: the review of PR #370 found the first
+// version of this test pinning only the spring-forward half while the
+// production comment claimed a general DST fix. An ordinary day is included
+// too, so a "fix" that simply stopped checking the boundary fails here.
 func TestResolvePrice_MidnightBoundaryOnADSTDay(t *testing.T) {
 	t.Parallel()
 
@@ -289,24 +313,61 @@ func TestResolvePrice_MidnightBoundaryOnADSTDay(t *testing.T) {
 		Weekdays: []time.Weekday{time.Sunday}, Start: lateStart, End: domain.ClockTime(1440), PriceCents: 4000,
 	}}
 
-	// 2026-03-08 22:00 PDT -> 2026-03-09 00:00 PDT, i.e. 05:00Z -> 07:00Z on
-	// the 9th. That local day is only 23 hours long, so its midnight plus 24
-	// hours lands at 01:00 on the 9th — an hour past the boundary this slot
-	// actually ends on, which is what the old arithmetic compared against.
-	slot := mustRangeAt(t,
-		time.Date(2026, 3, 9, 5, 0, 0, 0, time.UTC),
-		time.Date(2026, 3, 9, 7, 0, 0, 0, time.UTC),
-	)
-	if got := slot.End.In(la).Format("2006-01-02 15:04"); got != "2026-03-09 00:00" {
-		t.Fatalf("fixture end = %s local, want 2026-03-09 00:00", got)
+	tests := []struct {
+		name string
+		// from/to are the INSTANTS, and wantLocalEnd is the local wall clock
+		// they must land on — asserted, so a tz-database change that moved a
+		// transition fails loudly here instead of quietly turning the case
+		// into an ordinary day.
+		from, to     time.Time
+		wantLocalEnd string
+	}{
+		{
+			// 2026-03-08 22:00 PDT -> 2026-03-09 00:00 PDT = 05:00Z -> 07:00Z.
+			name:         "the night of the spring-forward Sunday",
+			from:         time.Date(2026, 3, 9, 5, 0, 0, 0, time.UTC),
+			to:           time.Date(2026, 3, 9, 7, 0, 0, 0, time.UTC),
+			wantLocalEnd: "2026-03-09 00:00",
+		},
+		{
+			// 2026-11-01 22:00 PST -> 2026-11-02 00:00 PST = 06:00Z -> 08:00Z.
+			// PST is UTC-8, in force by 22:00 because the fall back happened
+			// that morning at 02:00 PDT.
+			name:         "the night of the fall-back Sunday",
+			from:         time.Date(2026, 11, 2, 6, 0, 0, 0, time.UTC),
+			to:           time.Date(2026, 11, 2, 8, 0, 0, 0, time.UTC),
+			wantLocalEnd: "2026-11-02 00:00",
+		},
+		{
+			// 2026-06-07 22:00 PDT -> 2026-06-08 00:00 PDT = 05:00Z -> 07:00Z.
+			name:         "an ordinary Sunday night, where the old arithmetic was right",
+			from:         time.Date(2026, 6, 8, 5, 0, 0, 0, time.UTC),
+			to:           time.Date(2026, 6, 8, 7, 0, 0, 0, time.UTC),
+			wantLocalEnd: "2026-06-08 00:00",
+		},
 	}
 
-	got, err := domain.ResolvePrice(rules, "court-1", slot, la)
-	if err != nil {
-		t.Fatalf("unexpected err: %v", err)
-	}
-	if got.PriceCents != 4000 {
-		t.Errorf("resolved price = %d, want 4000", got.PriceCents)
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			slot := mustRangeAt(t, tt.from, tt.to)
+			if got := slot.End.In(la).Format("2006-01-02 15:04"); got != tt.wantLocalEnd {
+				t.Fatalf("fixture end = %s local, want %s", got, tt.wantLocalEnd)
+			}
+			if got := slot.Start.In(la).Hour(); got != 22 {
+				t.Fatalf("fixture start = %02d:00 local, want 22:00", got)
+			}
+
+			got, err := domain.ResolvePrice(rules, "court-1", slot, la)
+			if err != nil {
+				t.Fatalf("unexpected err: %v — a slot ending exactly on the next local midnight is one local day", err)
+			}
+			if got.PriceCents != 4000 {
+				t.Errorf("resolved price = %d, want 4000", got.PriceCents)
+			}
+		})
 	}
 }
 

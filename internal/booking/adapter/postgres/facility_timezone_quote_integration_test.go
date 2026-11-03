@@ -180,8 +180,10 @@ func TestQuoteResolvesInTheFacilityTimezoneAgainstRealPostgres(t *testing.T) {
 				t.Errorf("stored timezone %q, want the facilities_timezone_shape CHECK to refuse it", bad)
 			}
 		}
-		// And the two values that must remain storable: a real name, and the
-		// empty "unset" marker 0034's default uses.
+		// And the values that must remain storable: the seeded name, a
+		// three-component name, one carrying a '+', and the empty "unset"
+		// marker 0034's default uses. The last three are the ones a careless
+		// CHECK would reject.
 		for _, ok := range []string{seededDemoFacilityZone, "America/Argentina/Buenos_Aires", "Etc/GMT+7", ""} {
 			if _, err := pool.Exec(ctx, `UPDATE facilities SET timezone = $1 WHERE id = $2`, ok, seededDemoFacilityID); err != nil {
 				t.Errorf("timezone %q was refused: %v", ok, err)

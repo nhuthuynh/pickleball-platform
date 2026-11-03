@@ -318,6 +318,103 @@ func TestGetQuote_CourtWithNoZoneIsAnExplicitError(t *testing.T) {
 	})
 }
 
+// leakyFacilityLookup returns ("", nil) — a port-contract VIOLATION, on
+// purpose. port.FacilityLookup.TimezoneForCourt must answer
+// domain.ErrFacilityTimezoneUnset rather than an empty zone, and every fake in
+// this package honours that, which is exactly why none of them can reach
+// app.courtLocation's empty-name guard.
+//
+// That guard is the second of "two cheap guards on the one mistake whose
+// failure mode is invisible" (the other being internal/platform/tz.Loader's).
+// Review finding F2 of PR #370: it was pinned by nothing — cutting it left
+// every test green — in the very PR whose subject is an unpinned guarantee.
+// CLAUDE.md's lesson, which that PR quoted and then applied to the domain
+// change only: a mechanism whose necessity you can argue is not the same as a
+// mechanism whose removal something notices. Argue it AND cut it and watch.
+type leakyFacilityLookup struct {
+	// Embedded by POINTER because fakeFacilityLookup's other methods have
+	// pointer receivers (they touch atomic counters), and a value embed would
+	// leave this type not implementing the port at all.
+	*fakeFacilityLookup
+}
+
+func (leakyFacilityLookup) TimezoneForCourt(context.Context, string) (string, error) {
+	return "", nil
+}
+
+// stdlibZones is time.LoadLocation with NO guard of its own — the standard
+// library's exact behaviour, including the part that makes this whole ticket
+// necessary: LoadLocation("") returns UTC and a nil error.
+//
+// Used here instead of fakeZones so this test demonstrates the real
+// consequence of removing the app-layer guard (a successful quote, in the
+// wrong zone) rather than a second guard catching it. Both guards are wanted;
+// a test that leans on the other one proves nothing about this one.
+type stdlibZones struct {
+	loads atomic.Int64
+}
+
+func (z *stdlibZones) LoadLocation(name string) (*time.Location, error) {
+	z.loads.Add(1)
+	return time.LoadLocation(name)
+}
+
+// TestGetQuote_AnEmptyZoneFromTheLookupIsRefused pins the guard F2 found
+// unpinned.
+//
+// Cut `if name == ""` from app.Service.courtLocation and this test fails
+// twice over: the empty name reaches time.LoadLocation, which answers UTC with
+// no error, and GetQuote returns a cheerful 2000-cent weekday quote for an
+// 18:00 Ho Chi Minh City slot — issue #356, straight back, through a lookup
+// that said it had no zone.
+func TestGetQuote_AnEmptyZoneFromTheLookupIsRefused(t *testing.T) {
+	t.Parallel()
+
+	open, err := domain.NewClockTime(6, 0)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	peakStart, err := domain.NewClockTime(17, 0)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+
+	zones := &stdlibZones{}
+	svc := app.NewService(app.ServiceOptions{
+		Bookings: newInMemoryRepo(),
+		PricingRules: &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
+			courtID(1): {{
+				ID: "weekday-rule", CourtID: courtID(1), Band: domain.BandWeekday,
+				Weekdays: []time.Weekday{time.Monday}, Start: open, End: peakStart, PriceCents: 2000,
+			}},
+		}},
+		DiscountRules:  newFakeDiscountRepo(),
+		RecurringHires: newFakeRecurringHireRepo(),
+		Facilities:     leakyFacilityLookup{fakeFacilityLookup: &fakeFacilityLookup{}},
+		Identity:       &fakeIdentityLookup{},
+		Zones:          zones,
+		IDs:            &sequentialIDs{},
+	})
+
+	// 11:00Z — 18:00 in Ho Chi Minh City, 11:00 in UTC. The first is peak and
+	// the second is the weekday band, which is the entire defect.
+	quote, err := svc.GetQuote(context.Background(), app.GetQuoteInput{
+		CourtID: courtID(1), Source: domain.SourceIndividual,
+		Range: mustTimeRangeAt(t,
+			time.Date(2026, 8, 3, 11, 0, 0, 0, time.UTC),
+			time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC),
+		),
+	})
+	if !errors.Is(err, domain.ErrFacilityTimezoneUnset) {
+		t.Fatalf("got quote %+v, err %v — want %v. An empty zone name must be refused by the app layer "+
+			"BEFORE the loader sees it: time.LoadLocation(\"\") is UTC with no error, so without that guard "+
+			"this is a successful quote in the wrong zone", quote, err, domain.ErrFacilityTimezoneUnset)
+	}
+	if got := zones.loads.Load(); got != 0 {
+		t.Errorf("LoadLocation calls = %d, want 0 — the empty name must never reach the loader", got)
+	}
+}
+
 // mustTimeRangeAt is mustTimeRange (quote_test.go) for time.Time fixtures
 // rather than RFC3339 strings — needed here because several of these cases
 // are about which Location a fixture carries, which a string parse would

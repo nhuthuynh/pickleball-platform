@@ -421,9 +421,10 @@ func TestFacilityIDsForCourts(t *testing.T) {
 	})
 
 	// The case the whole batch method exists to tolerate. A Court with a NULL
-	// facility_id is a real row — both Courts seeded by 0002_seed.sql are
-	// exactly this — and FacilityIDForCourt answers ErrFacilityNotFound for
-	// it, which is why ListBookingsForActor must not use that method.
+	// facility_id is a real row — the two Courts seeded by 0002_seed.sql were
+	// the standing example until 0034 attached them (T68.1, #356) — and
+	// FacilityIDForCourt answers ErrFacilityNotFound for it, which is why
+	// ListBookingsForActor must not use that method.
 	t.Run("a court with no facility is omitted, not an error", func(t *testing.T) {
 		t.Parallel()
 

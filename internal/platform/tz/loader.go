@@ -39,6 +39,25 @@ type Loader struct{}
 //
 // "Local" is likewise refused: it resolves to whatever TZ the *server
 // process* happens to run with, which is never a fact about a facility.
+//
+// # Why it returns a nil Location on every error, explicitly
+//
+// A second reason, found by the review of PR #370 and measured rather than
+// reasoned about. On an UNKNOWN name the standard library returns
+// `(nil, error)` — and a nil *time.Location is not harmless:
+//
+//	LoadLocation("Not/AZone"): err=unknown time zone Not/AZone
+//	                           loc==nil: true | loc==time.UTC: false
+//	                           fmt.Sprint(loc)="UTC"
+//	time.Time.In(nil) PANICS: time: missing Location in call to Time.In
+//
+// So a caller that logged the value would see the word **UTC** while holding
+// something that panics the moment it is used. Returning nil here is
+// therefore not a formality: it means the one value that can reach the domain
+// is either usable or nil, and domain.ResolvePrice's nil check turns the nil
+// into ErrFacilityTimezoneUnset instead of a panicked request. The empty-name
+// case above is the opposite shape and the reason this type exists — a real,
+// non-nil time.UTC and no error at all.
 func (Loader) LoadLocation(name string) (*time.Location, error) {
 	switch name {
 	case "":

@@ -56,8 +56,8 @@ WHERE id = $1;
 -- ones that do not, which is what lets a Booking on a deleted or unknown
 -- court still be listed. facility_id is nullable, so a court outside any
 -- facility comes back with NULL — found, belonging to no Facility (the seeded
--- courts stopped being that example at 0034). No ORDER BY: callers key the result by id, and
--- ListBookingsForOwner sets the order the user sees.
+-- courts stopped being that example at 0034). No ORDER BY: callers key the
+-- result by id, and ListBookingsForOwner sets the order the user sees.
 SELECT id, name, facility_id
 FROM courts
 WHERE id = ANY(@court_ids::uuid[]);

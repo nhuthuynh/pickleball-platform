@@ -18,9 +18,9 @@ import (
 // Three answers, and the difference between the second and third is the whole
 // point:
 //   - a facility with a zone: the zone;
-//   - a facility whose timezone column is ” (0034's default, since no
-//     creation path sets it yet): an EMPTY STRING and no error, because
-//     "nobody has set one" is a real state of the data;
+//   - a facility whose timezone column is the empty string (0034's default,
+//     since no creation path sets it yet): that empty string and no error,
+//     because "nobody has set one" is a real state of the data;
 //   - no such Court, or a Court belonging to no Facility: ErrCourtNotFound,
 //     since there is no facility to have a zone at all.
 //

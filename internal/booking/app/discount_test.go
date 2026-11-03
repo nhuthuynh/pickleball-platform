@@ -89,7 +89,43 @@ type fakeFacilityLookup struct {
 	//
 	// It is deliberately not keyed by facility: the port is court-keyed
 	// precisely so Booking never has to know where the column lives.
+	//
+	// **The nil-map default makes an IMPOSSIBLE world for a court this fake
+	// gives no Facility** (review finding F4 of PR #370): in production the
+	// zone comes from the Facility, so "no Facility, but a zone" cannot
+	// happen, and a test that asserts a SUCCESSFUL quote against a bare
+	// &fakeFacilityLookup{} is asserting something production refuses. The
+	// default is still right where the court does have a Facility — it keeps
+	// pre-T68.1 UTC fixtures saying what they said. Use zonedLookupFor below
+	// for any test that quotes successfully.
 	zoneByCourt map[string]string
+}
+
+// zonedLookupFor builds a lookup in which each named court belongs to
+// facilityID(1), owned by userID(1), and that Facility's zone is UTC.
+//
+// It exists so a test that asserts a successful quote states a world that can
+// exist: a court has a Facility, and the Facility has a zone. Review finding
+// F4 of PR #370 — two tests here asserted a successful quote for a court the
+// fake gave no Facility at all, which production now refuses
+// (domain.ErrFacilityTimezoneUnset), and they passed only on the nil-map
+// default above.
+//
+// UTC, not a real-world zone, on purpose: these tests' fixtures are UTC
+// instants asserting the band a UTC facility resolves, and the point here is
+// to make the fixture POSSIBLE, not to re-test the conversion — that is
+// quote_timezone_test.go's job.
+func zonedLookupFor(courts ...string) *fakeFacilityLookup {
+	l := &fakeFacilityLookup{
+		ownerByFacility: map[string]string{facilityID(1): userID(1)},
+		facilityByCourt: make(map[string]string, len(courts)),
+		zoneByCourt:     make(map[string]string, len(courts)),
+	}
+	for _, c := range courts {
+		l.facilityByCourt[c] = facilityID(1)
+		l.zoneByCourt[c] = "UTC"
+	}
+	return l
 }
 
 func (l *fakeFacilityLookup) EnsureFacilityOwner(_ context.Context, facilityID, actorUserID string) error {

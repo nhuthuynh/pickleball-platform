@@ -80,11 +80,20 @@ func clockTimeOfEnd(slot TimeRange) ClockTime {
 // at all.
 //
 // The next local midnight is computed as day+1 at 00:00 (time.Date normalises
-// an out-of-range day), NOT as local midnight plus 24 hours. On a DST
-// transition day those are different instants: in America/Los_Angeles on
-// 2026-03-08, midnight + 24h is 01:00 on the 9th, so a 22:00-24:00 local slot
-// that night compared against it was rejected as spanning two days. A test in
-// pricing_timezone_test.go pins that case.
+// an out-of-range day), NOT as local midnight plus 24 hours. On **either** DST
+// transition those are different instants, in opposite directions —
+// America/Los_Angeles, measured:
+//
+//	spring forward  midnight+24h = 2026-03-09 01:00 PDT | true next midnight = 2026-03-09 00:00 PDT
+//	fall back       midnight+24h = 2026-11-01 23:00 PST | true next midnight = 2026-11-02 00:00 PST
+//	ordinary day    midnight+24h = 2026-06-11 00:00 PDT | true next midnight = 2026-06-11 00:00 PDT
+//
+// So a 22:00-24:00 local slot on the night of a transition compared unequal
+// against that boundary and was rejected as spanning two days — twice a year,
+// not once (the review of PR #370 caught the first version of this comment
+// claiming only the spring-forward half). A test in pricing_timezone_test.go
+// pins the spring-forward case; the fall-back row above is why the fix is
+// `day+1` rather than a one-hour fudge in either direction.
 func fitsSingleCalendarDay(slot TimeRange) bool {
 	// A 24-hour cap on top of the date comparison below. It is redundant for
 	// every slot whose local calendar day is 24 hours long, and on a

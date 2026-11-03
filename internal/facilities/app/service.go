@@ -182,8 +182,8 @@ func (s *Service) GetCourt(ctx context.Context, id string) (domain.Court, error)
 // 11:00).
 //
 // A Facility with no zone recorded yields an empty string and no error —
-// 0034's column defaults to ” and no creation path sets it yet, so "unset"
-// is a real state. Booking translates that empty string into its own
+// 0034's column defaults to the empty string and no creation path sets it
+// yet, so "unset" is a real state. Booking translates it into its own
 // ErrFacilityTimezoneUnset at the boundary; this context reports the data as
 // it is.
 //
