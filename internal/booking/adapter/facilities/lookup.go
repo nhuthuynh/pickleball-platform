@@ -82,6 +82,33 @@ func (l *Lookup) FacilityIDForCourt(ctx context.Context, courtID string) (string
 	return c.FacilityID, nil
 }
 
+// TimezoneForCourt resolves the IANA zone of the Facility that owns courtID,
+// via Facilities' own court->timezone read (T68.1, ADR-0004, closes #356) —
+// one call, not GetCourt followed by GetFacility, and not a query Booking
+// writes against the courts or facilities tables itself.
+//
+// All three ways of having no zone — no such Court, a Court belonging to no
+// Facility, a Facility with none recorded — arrive as
+// domain.ErrFacilityTimezoneUnset, per the port's contract. Facilities
+// reports the first two as its own ErrCourtNotFound and the third as an empty
+// string; the empty string is translated here rather than passed up, because
+// "" is the one value that would resolve to UTC if it reached
+// time.LoadLocation.
+func (l *Lookup) TimezoneForCourt(ctx context.Context, courtID string) (string, error) {
+	zone, err := l.facilitiesSvc.CourtTimezone(ctx, courtID)
+	if err != nil {
+		if errors.Is(err, facilitiesdomain.ErrCourtNotFound) ||
+			errors.Is(err, facilitiesdomain.ErrFacilityNotFound) {
+			return "", domain.ErrFacilityTimezoneUnset
+		}
+		return "", translate(courtID, err)
+	}
+	if zone == "" {
+		return "", domain.ErrFacilityTimezoneUnset
+	}
+	return zone, nil
+}
+
 // CourtIDsForFacility resolves the Facility and returns the IDs of its Courts
 // (T11.5). Facilities' own GetFacility already carries them on the aggregate,
 // so this needs no second round trip and, more importantly, no query against
@@ -111,8 +138,9 @@ func (l *Lookup) CourtIDsForFacility(ctx context.Context, facilityID string) ([]
 //
 // **A Court that resolves to no Facility is omitted from the map**, per
 // port.FacilityLookup's contract: an unknown court id, and a court whose
-// facility_id is NULL (both seeded Courts of 0002_seed.sql), both simply have
-// no entry. That is the one place this method's contract deliberately differs
+// facility_id is NULL — which since 0034 no longer includes the two seeded
+// courts, though the column is still nullable — both simply have no entry.
+// That is the one place this method's contract deliberately differs
 // from FacilityIDForCourt's, which collapses the same two cases into
 // domain.ErrFacilityNotFound — its caller (GetQuote) cannot proceed without a
 // Facility, whereas this one's caller must still list a Booking on a

@@ -24,6 +24,7 @@ import (
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	bookingdomain "github.com/nhuthuynh/white-label/internal/booking/domain"
 	socialplayv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/socialplay/v1"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
 	"github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/socialplay/app"
@@ -163,6 +164,14 @@ func (shapeBookingStubs) FacilityIDsForCourts(context.Context, []string) (map[st
 	return map[string]string{}, nil
 }
 
+// TimezoneForCourt (T68.1) matches FacilityIDForCourt's "no Facility" answer
+// above: no Facility, so no zone. Reserving a court resolves no price band,
+// and a stub answering "UTC" would be asserting a facility it has just
+// denied.
+func (shapeBookingStubs) TimezoneForCourt(context.Context, string) (string, error) {
+	return "", bookingdomain.ErrFacilityTimezoneUnset
+}
+
 func (shapeBookingStubs) EnsureClubRole(context.Context, string) error { return nil }
 
 func (shapeBookingStubs) UserIDBySubject(context.Context, string) (string, error) {
@@ -208,6 +217,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeGameRepo, *shapeBookingRe
 		Facilities:     shapeBookingStubs{},
 		Identity:       shapeBookingStubs{},
 		IDs:            shapeBookingIDs{},
+		Zones:          tz.Loader{},
 	})
 
 	gameRepo := newFakeGameRepo()

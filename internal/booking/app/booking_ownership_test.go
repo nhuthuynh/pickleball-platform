@@ -33,6 +33,7 @@ func ownershipService(repo *inMemoryRepo) *app.Service {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 }

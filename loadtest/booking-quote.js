@@ -21,9 +21,17 @@ const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080'
 // for — court 2 would legitimately return an error and is not used here.
 const COURT_ID = __ENV.COURT_ID || '11111111-1111-1111-1111-111111111111'
 
-// A weekday 09:00–10:00 UTC slot that falls inside the seeded "weekday"
-// pricing band (Mon–Fri, minute 360–1020, i.e. 06:00–17:00). 2026-08-10 is
-// a Monday. The quote path is a pure read, so every VU can reuse this slot.
+// A 09:00–10:00 UTC slot on Monday 2026-08-10. Since T68.1 (ADR-0004, #356)
+// a band resolves against the FACILITY's wall clock, and 0034 puts the demo
+// facility in Asia/Ho_Chi_Minh (+07:00), so this is 16:00–17:00 local — still
+// inside the seeded "weekday" band (Mon–Fri, minute 360–1020, i.e.
+// 06:00–17:00 local), which is why this slot still quotes. It ends exactly on
+// that band's upper boundary, which ResolvePrice counts as inside the band
+// (slotEnd <= rule.End) rather than straddling into peak. The check below
+// asserts only that a price comes back, not which band, so a future change to
+// the demo facility's zone would not silently break this test — but it would
+// change which band is being measured, so re-read this comment if it moves.
+// The quote path is a pure read, so every VU can reuse this slot.
 const QUOTE_SLOT = { starts_at: '2026-08-10T09:00:00Z', ends_at: '2026-08-10T10:00:00Z' }
 
 // Booking creation, by contrast, must NOT collide: the whole point of the

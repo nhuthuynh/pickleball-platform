@@ -75,7 +75,9 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
+	"github.com/nhuthuynh/white-label/internal/booking/app"
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
 )
@@ -142,6 +144,60 @@ func approveTwice(t *testing.T) error {
 	}
 	_, err := h.handler.ApproveRecurringHire(ctxAs(subjectOf(ownerUser)), req)
 	return err
+}
+
+// zoneOverrideFacilityLookup is newTestHandler's fakeFacilityLookup with one
+// method replaced: whatever this type is told to report as the court's IANA
+// zone, it reports — including the empty string, which is what a facility with
+// no zone recorded looks like (T68.1, ADR-0004, #356).
+//
+// Embedded rather than reimplemented so the other three answers stay exactly
+// the ones the rest of this package's rows are written against; only the zone
+// moves.
+type zoneOverrideFacilityLookup struct {
+	fakeFacilityLookup
+	zone string
+}
+
+func (l zoneOverrideFacilityLookup) TimezoneForCourt(context.Context, string) (string, error) {
+	return l.zone, nil
+}
+
+// newZoneHandler is newTestHandler with the facility's reported zone under the
+// caller's control, and the REAL internal/platform/tz loader behind it — so
+// the two zone rows below are driven end to end through production code rather
+// than pinned at the mapper alone.
+//
+// courtID(1) is priced on Mondays 06:00-17:00 exactly as in newTestHandler,
+// which matters: the quote path answers ErrNoPricingRule for a court with no
+// rules at all without consulting any zone, so a zone row on an unpriced court
+// would assert nothing.
+func newZoneHandler(t *testing.T, zone string) *grpcapi.Handler {
+	t.Helper()
+
+	start, err := domain.NewClockTime(6, 0)
+	if err != nil {
+		t.Fatalf("fixture clock time: %v", err)
+	}
+	end, err := domain.NewClockTime(17, 0)
+	if err != nil {
+		t.Fatalf("fixture clock time: %v", err)
+	}
+
+	svc := app.NewService(app.ServiceOptions{
+		Bookings: fakeBookingRepo{},
+		PricingRules: &fakePricingRepo{rules: []domain.PricingRule{{
+			ID: "band", CourtID: courtID(1), Band: domain.BandWeekday,
+			Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000,
+		}}},
+		DiscountRules:  &fakeDiscountRepo{byFacility: make(map[string][]domain.DiscountRule)},
+		RecurringHires: newFakeRecurringRepo(),
+		Facilities:     zoneOverrideFacilityLookup{zone: zone},
+		Identity:       newFakeIdentityLookup(),
+		Zones:          tz.Loader{},
+		IDs:            &fakeIDs{},
+	})
+	return grpcapi.NewHandler(svc)
 }
 
 // --- the table --------------------------------------------------------
@@ -368,6 +424,56 @@ func errorMappingCases() []errorMappingCase {
 			err:      domain.ErrAmbiguousDiscountRule,
 			wantCode: codes.FailedPrecondition,
 			why:      "same class of data misconfiguration as its pricing twin, so it reuses that mapping rather than inventing one",
+		},
+		{
+			name:     "the court's facility has no timezone recorded",
+			sentinel: "ErrFacilityTimezoneUnset",
+			err:      domain.ErrFacilityTimezoneUnset,
+			wantCode: codes.FailedPrecondition,
+			why: "T68.1 (ADR-0004, closes #356). The same class as the two rows above — incomplete pricing data, " +
+				"fixable by whoever owns the facility — and deliberately NOT any of the three alternatives: NotFound " +
+				"would fold it into ErrNoPricingRule and send a caller looking for band rows that are present; " +
+				"InvalidArgument would blame a request that is well-formed and will succeed unchanged once the zone " +
+				"is set (gRPC's own 'bad regardless of system state' line); Internal would file an operator-fixable " +
+				"data gap under server bugs. A band window is a clock time local to the facility, so with no zone " +
+				"there is no question to answer — and answering it in UTC, the pre-T68.1 behaviour, is the defect",
+			invoke: func(t *testing.T) error {
+				// A priced court whose facility reports no zone: the shape of
+				// every court in the real schema with facility_id NULL, or
+				// whose facility has facilities.timezone = '' (0034's
+				// default).
+				h := newZoneHandler(t, "")
+				start, end := mapSlot()
+				_, err := h.GetQuote(anonymous(), &bookingv1.GetQuoteRequest{
+					CourtId:  courtID(1),
+					StartsAt: timestamppb.New(start),
+					EndsAt:   timestamppb.New(end),
+				})
+				return err
+			},
+		},
+		{
+			name:     "the court's facility names a timezone that does not load",
+			sentinel: "ErrInvalidFacilityTimezone",
+			err:      domain.ErrInvalidFacilityTimezone,
+			wantCode: codes.FailedPrecondition,
+			why: "shares its sibling's code rather than taking a fourth one (T68.1): both mean 'this court cannot be " +
+				"priced until its facility's zone is right', the message says which, and no client can act " +
+				"differently on the difference. Not Internal: with tzdata embedded in the binary (cmd/server's " +
+				"`import _ \"time/tzdata\"`) the remaining cause is a wrong stored value, not a broken server",
+			invoke: func(t *testing.T) error {
+				// Driven through the REAL loader (internal/platform/tz), so
+				// this row also proves the loader refuses a nonsense name
+				// rather than falling back to anything.
+				h := newZoneHandler(t, "Mars/Olympus_Mons")
+				start, end := mapSlot()
+				_, err := h.GetQuote(anonymous(), &bookingv1.GetQuoteRequest{
+					CourtId:  courtID(1),
+					StartsAt: timestamppb.New(start),
+					EndsAt:   timestamppb.New(end),
+				})
+				return err
+			},
 		},
 
 		// --- invalid argument: genuinely state-independent request defects ---

@@ -272,7 +272,8 @@ Load tests are opt-in and need a running stack: see `loadtest/README.md`.
 ## Smoke test
 
 With `make up` running (Postgres seeded with two courts, see
-`db/migrations/0002_seed.sql`):
+`db/migrations/0002_seed.sql`, both attached to a demo Facility in
+`Asia/Ho_Chi_Minh` by `db/migrations/0034_facilities_timezone.sql`):
 
 ```bash
 # Create a booking — expect 200 (grpc-gateway's default status for a
@@ -318,6 +319,14 @@ curl -i -X POST localhost:8080/v1/quotes \
 # re-create the same slot — expect success (200), not 409, now that it's freed.
 curl -i -X POST localhost:8080/v1/bookings/<booking-id>:cancel
 ```
+
+A price band is resolved against the **facility's own wall clock**, not the UTC
+instant in the request (T68.1, ADR-0004, closes #356). The demo facility is in
+`Asia/Ho_Chi_Minh` (+07:00), so the `09:00Z` quote above is 16:00 local and
+lands in the weekday band; move it to `11:00Z` — 18:00 local — and the same
+court answers the **peak** band instead. A court belonging to no facility, or
+to one with no timezone recorded, is refused with 400 rather than quoted in
+UTC.
 
 All of the above was verified live against a real Postgres 16 instance
 during development (not just unit-tested) — see

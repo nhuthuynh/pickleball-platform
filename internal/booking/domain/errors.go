@@ -17,6 +17,36 @@ var (
 	ErrAmbiguousPricingRule         = errors.New("booking: more than one pricing rule matches the requested slot")
 	ErrPricingSlotSpansMultipleDays = errors.New("booking: pricing slot must fall within a single calendar day")
 
+	// ErrFacilityTimezoneUnset and ErrInvalidFacilityTimezone are T68.1's two
+	// answers to "this slot cannot be resolved to a court-local wall clock"
+	// (ADR-0004, closes #356). A PricingRule's window is a ClockTime —
+	// minutes since midnight *local to the court's facility* — so without a
+	// zone there is no question ResolvePrice can answer, and the one thing it
+	// must not do is assume the caller's clock: the handler feeds it
+	// protobuf's UTC normalisation of starts_at, which is what quoted an
+	// 18:00 Ho Chi Minh City slot (11:00Z) against the weekday band instead
+	// of peak.
+	//
+	// They are two sentinels rather than one because they have two different
+	// fixes by two different people: ErrFacilityTimezoneUnset means nobody
+	// has recorded a zone for the Facility that owns this Court (or the Court
+	// belongs to no Facility at all — facilities.timezone is unset, or
+	// courts.facility_id is NULL), which an owner/operator fixes in the data;
+	// ErrInvalidFacilityTimezone means a zone name *is* recorded and does not
+	// load, which is a typo in that data or a runtime missing its tz
+	// database. Both arrive as FailedPrecondition — see adapter/grpcapi's
+	// toStatus for why that code and not Internal or NotFound.
+	//
+	// **Neither is ever a silent fallback to UTC.** That was the explicit
+	// decision for this ticket, and it is the whole point of the pair: a
+	// quote that errors is a bug report, while a quote resolved against the
+	// wrong zone is a wrong price nobody notices. Note in particular that
+	// time.LoadLocation("") returns UTC rather than failing, so an empty zone
+	// name has to be rejected before it reaches the loader — app's
+	// courtLocation does exactly that.
+	ErrFacilityTimezoneUnset   = errors.New("booking: no timezone is recorded for this court's facility")
+	ErrInvalidFacilityTimezone = errors.New("booking: the facility's timezone is not a loadable IANA zone")
+
 	// ErrEmptyOwnerUserID and ErrNotBookingOwner implement DECISION D1
 	// (ADR-0015, option (a)): every Booking is owned by a verified user, and
 	// only that user may cancel it. Together they close #144.

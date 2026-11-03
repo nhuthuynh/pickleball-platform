@@ -101,6 +101,14 @@ func (r *inMemoryRepo) GetCourtsByIDs(context.Context, []string) ([]facilitiesdo
 	return nil, nil
 }
 
+// CourtTimezone (T68.1) is the court->facility-zone read Booking's quote path
+// uses. No path this file exercises reaches it; per port.Repository's
+// contract, a court resolving to no Facility — which is every court in this
+// stub — is ErrCourtNotFound rather than an empty zone.
+func (r *inMemoryRepo) CourtTimezone(context.Context, string) (string, error) {
+	return "", facilitiesdomain.ErrCourtNotFound
+}
+
 func (r *inMemoryRepo) ListCourtsForFacility(context.Context, string) ([]facilitiesdomain.Court, error) {
 	return nil, nil
 }

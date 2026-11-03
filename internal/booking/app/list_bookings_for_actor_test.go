@@ -32,9 +32,10 @@ import (
 //     handler tests. Here the property under test is that the method filters
 //     on it at all.
 //   - **A Court belonging to no Facility is an honest empty FacilityID, not
-//     an error.** courts.facility_id is nullable and both courts seeded by
-//     0002_seed.sql still have NULL there, so this is the common case on a
-//     fresh database, not a corner.
+//     an error.** courts.facility_id is nullable, so such a row is real. It
+//     stopped being the common case at 0034, which attached both seeded
+//     courts to the demo Facility (T68.1, #356) — the fixture below supplies
+//     it explicitly rather than inheriting it from the seeds.
 //
 // Ordering is asserted here too, but note what that does and does not prove:
 // the app layer must not re-order what the repository returns, and
@@ -58,7 +59,9 @@ func actorBookingFixture(t *testing.T) (*app.Service, *inMemoryRepo, *fakeFacili
 			courtID(1): facilityID(1),
 			courtID(2): facilityID(2),
 			// courtID(3) is deliberately absent: a Court belonging to no
-			// Facility, the shape both courts of 0002_seed.sql have.
+			// Facility — the shape both courts of 0002_seed.sql had until
+			// 0034 attached them (T68.1, #356), and still a real row this
+			// read must tolerate.
 		},
 	}
 	svc := app.NewService(app.ServiceOptions{
@@ -68,6 +71,7 @@ func actorBookingFixture(t *testing.T) (*app.Service, *inMemoryRepo, *fakeFacili
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     lookup,
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	return svc, repo, lookup
@@ -167,7 +171,7 @@ func TestListBookingsForActor(t *testing.T) {
 			"2026-03-01T09:00:00Z", "2026-03-01T10:00:00Z")
 		seedBooking(t, repo, seqID(2), courtID(2), userID(me), domain.StatusConfirmed,
 			"2026-03-02T09:00:00Z", "2026-03-02T10:00:00Z")
-		// courtID(3) belongs to no Facility — the 0002_seed.sql shape.
+		// courtID(3) belongs to no Facility (the pre-0034 seeded shape).
 		seedBooking(t, repo, seqID(3), courtID(3), userID(me), domain.StatusConfirmed,
 			"2026-03-03T09:00:00Z", "2026-03-03T10:00:00Z")
 

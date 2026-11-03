@@ -31,9 +31,9 @@ RETURNING id, name, facility_id;
 -- facilities' app.Service.GetCourt) to resolve a facility-scoped
 -- DiscountRule from the CourtID GetQuote already has, instead of Booking
 -- reading the courts table itself behind the context boundary.
--- facility_id is nullable (0010_facilities.sql), so a pre-Facilities seeded
--- court comes back with a NULL facility_id — found, but belonging to no
--- Facility.
+-- facility_id is nullable (0010_facilities.sql), so a court outside any
+-- facility comes back with a NULL facility_id — found, but belonging to no
+-- Facility. (The seeded courts were that example until 0034 attached them.)
 SELECT id, name, facility_id
 FROM courts
 WHERE id = $1;
@@ -54,13 +54,33 @@ WHERE id = $1;
 -- db/queries/recurring_hire.sql. An id matching no Court simply contributes
 -- no row: callers get back the Courts that exist and learn nothing about the
 -- ones that do not, which is what lets a Booking on a deleted or unknown
--- court still be listed. facility_id is nullable, so a pre-Facilities seeded
--- court (0002_seed.sql) comes back with NULL — found, belonging to no
--- Facility. No ORDER BY: callers key the result by id, and
--- ListBookingsForOwner sets the order the user sees.
+-- court still be listed. facility_id is nullable, so a court outside any
+-- facility comes back with NULL — found, belonging to no Facility (the seeded
+-- courts stopped being that example at 0034). No ORDER BY: callers key the
+-- result by id, and ListBookingsForOwner sets the order the user sees.
 SELECT id, name, facility_id
 FROM courts
 WHERE id = ANY(@court_ids::uuid[]);
+
+-- name: GetCourtTimezone :one
+-- T68.1 (ADR-0004, closes #356): the IANA zone of the Facility that owns a
+-- Court, in one round trip from the CourtID a quote already has.
+--
+-- An INNER JOIN, deliberately: a Court with facility_id NULL (both seeded
+-- courts of 0002_seed.sql before 0034 attaches them) contributes no row, so
+-- pgx.ErrNoRows covers "no such Court" and "no Facility to get a zone from"
+-- alike. Both are domain.ErrCourtNotFound at the adapter — see
+-- port.Repository.CourtTimezone, which says why this method collapses them
+-- where GetCourtByID keeps them apart.
+--
+-- A Facility that exists with timezone = '' (0034's default, for a Facility
+-- created before any creation path sets one) returns that empty string, which
+-- is a different answer from no row and must stay different: Booking turns ''
+-- into its own "no timezone recorded" error rather than into UTC.
+SELECT f.timezone
+FROM courts c
+JOIN facilities f ON f.id = c.facility_id
+WHERE c.id = $1;
 
 -- name: ListCourtsForFacility :many
 -- The read path AddCourt (T7.3) never had (T8.2): every Court belonging to

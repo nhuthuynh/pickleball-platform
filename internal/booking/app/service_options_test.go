@@ -39,6 +39,7 @@ func completeOptions() app.ServiceOptions {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	}
 }
@@ -62,6 +63,13 @@ func TestNewServicePanicsOnMissingRequiredDependency(t *testing.T) {
 		{"RecurringHires", func(o *app.ServiceOptions) { o.RecurringHires = nil }, "RecurringHires"},
 		{"Facilities", func(o *app.ServiceOptions) { o.Facilities = nil }, "Facilities"},
 		{"Identity", func(o *app.ServiceOptions) { o.Identity = nil }, "Identity"},
+		// Zones (T68.1, ADR-0004, #356) is required for the same reason as
+		// every row above it, and for one more that is specific to it: the
+		// obvious alternative — an optional field defaulting to UTC — would
+		// make an unwired Service quote the WRONG BAND silently instead of
+		// failing. This row is what makes "required, not defaulted" a fact
+		// about the code rather than a sentence in a doc comment.
+		{"Zones", func(o *app.ServiceOptions) { o.Zones = nil }, "Zones"},
 		{"IDs", func(o *app.ServiceOptions) { o.IDs = nil }, "IDs"},
 	}
 
@@ -107,9 +115,16 @@ func TestNewServiceAcceptsCompleteOptions(t *testing.T) {
 // TestValidateReportsEveryMissingDependency pins that Validate reports the
 // whole set at once rather than the first one it finds.
 //
-// Fixing seven wiring mistakes one boot at a time is exactly the loop this
+// Fixing every wiring mistake one boot at a time is exactly the loop this
 // ticket is meant to end, so "reports all of them" is a real requirement and
 // not an incidental detail of the implementation.
+//
+// The field list below is spelled out rather than derived by reflection on
+// purpose: a reflective loop would assert that Validate agrees with
+// ServiceOptions, which it does by construction, while this list asserts that
+// Validate agrees with what somebody wrote down — so adding a field without
+// adding it to Validate fails here. That is exactly how T68.1's Zones field
+// was kept honest.
 func TestValidateReportsEveryMissingDependency(t *testing.T) {
 	err := app.ServiceOptions{}.Validate()
 	if err == nil {
@@ -119,7 +134,7 @@ func TestValidateReportsEveryMissingDependency(t *testing.T) {
 		t.Errorf("Validate() error does not wrap ErrMissingDependency: %v", err)
 	}
 
-	for _, field := range []string{"Bookings", "PricingRules", "DiscountRules", "RecurringHires", "Facilities", "Identity", "IDs"} {
+	for _, field := range []string{"Bookings", "PricingRules", "DiscountRules", "RecurringHires", "Facilities", "Identity", "Zones", "IDs"} {
 		if !strings.Contains(err.Error(), field) {
 			t.Errorf("Validate() error %q does not name missing field %q", err, field)
 		}

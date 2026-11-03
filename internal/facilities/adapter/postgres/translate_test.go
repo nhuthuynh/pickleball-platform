@@ -49,8 +49,9 @@ func TestMustUUID_PanicsOnMalformedInput(t *testing.T) {
 }
 
 // TestUUIDOrEmpty proves the nullable-UUID convention this adapter relies
-// on for courts.facility_id (pre-Facilities seeded courts) and
-// facility_camera_links.court_id (facility-wide links): an invalid/unset
+// on for courts.facility_id (a court outside any Facility — the seeded courts
+// until 0034 attached them, T68.1/#356) and facility_camera_links.court_id
+// (facility-wide links): an invalid/unset
 // pgtype.UUID becomes an empty string, matching domain.Court/
 // domain.CameraLink's plain-string-id convention, and a valid one round-trips.
 func TestUUIDOrEmpty(t *testing.T) {

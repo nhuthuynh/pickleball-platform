@@ -104,12 +104,20 @@ message ActorBooking {
   // — this field is what keeps it closed on this new screen).
   //
   // **Empty is a real, expected answer**, not an error and not a bug: a
-  // Court's facility is nullable in this schema, and both Courts seeded by
-  // 0002_seed.sql have no Facility at all, so on a freshly migrated database
-  // an empty facility_id is the common case. A client must render such a
-  // booking, not hide it — the booking is real. An empty value here never
-  // means "the server could not resolve it"; that case is an error status on
-  // the whole call.
+  // Court's facility is nullable in this schema (0010_facilities.sql), so a
+  // Court outside any Facility comes back with no facility_id. A client must
+  // render such a booking, not hide it — the booking is real. An empty value
+  // here never means "the server could not resolve it"; that case is an error
+  // status on the whole call.
+  //
+  // The two Courts seeded by 0002_seed.sql were the standing example of that
+  // until 0034 attached them to the demo Facility, so on a freshly migrated
+  // database an empty facility_id is now the UNCOMMON case rather than the
+  // common one. Nothing about this field's contract changed with it — the
+  // frequency did, and a client written to the sentence above is unaffected.
+  // (0034 had to attach them: a Court with no Facility has no timezone, and
+  // since T68.1 a price band resolves in the facility's zone, so a
+  // Facility-less court cannot be quoted at all. See ADR-0004 and #356.)
   string facility_id = 2;
 }
 

@@ -63,12 +63,16 @@ type ActorBooking struct {
 //
 // # A Court with no Facility is an honest empty, not an error
 //
-// courts.facility_id is nullable and both Courts seeded by 0002_seed.sql
-// still have NULL there (0010_facilities.sql's own note), so on a freshly
-// migrated database this is the common case rather than a corner. Such a
-// Booking yields an ActorBooking with an empty FacilityID — the booking is
-// real and the user must see it — and emphatically not an error that fails
-// the whole list. Note that port.FacilityLookup.FacilityIDForCourt, the
+// courts.facility_id is nullable (0010_facilities.sql's own note), so a Court
+// outside any Facility is a real row. Such a Booking yields an ActorBooking
+// with an empty FacilityID — the booking is real and the user must see it —
+// and emphatically not an error that fails the whole list.
+//
+// The two Courts seeded by 0002_seed.sql were this case until 0034 attached
+// them to the demo Facility (T68.1: a Facility-less court has no timezone and
+// so cannot be quoted at all — ADR-0004, #356), so it is no longer the common
+// case on a fresh database. It is still a case this read must handle, and
+// nothing about the handling changes: only how often it is hit. Note that port.FacilityLookup.FacilityIDForCourt, the
 // single-court method, answers domain.ErrFacilityNotFound for exactly this
 // case; that is why this method uses the batch method instead, whose contract
 // omits unresolvable courts rather than failing.

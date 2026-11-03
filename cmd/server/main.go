@@ -74,6 +74,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/platform/grpcrecovery"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
 	"github.com/nhuthuynh/white-label/internal/platform/pg"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
 	socialplayfacilities "github.com/nhuthuynh/white-label/internal/socialplay/adapter/facilities"
 	socialplaygrpc "github.com/nhuthuynh/white-label/internal/socialplay/adapter/grpcapi"
@@ -81,6 +82,38 @@ import (
 	socialplaypayments "github.com/nhuthuynh/white-label/internal/socialplay/adapter/payments"
 	socialplaypg "github.com/nhuthuynh/white-label/internal/socialplay/adapter/postgres"
 	socialplayapp "github.com/nhuthuynh/white-label/internal/socialplay/app"
+
+	// Embeds the IANA time zone database in this binary, so
+	// time.LoadLocation — the engine under internal/platform/tz.Loader and
+	// therefore under every price-band resolution (T68.1, ADR-0004, #356) —
+	// never depends on the runtime image shipping /usr/share/zoneinfo. The
+	// standard library consults $ZONEINFO and the host's zoneinfo
+	// directories FIRST and falls back to this copy, so it cannot make a
+	// correctly-configured host's (newer) zone data stale; it only removes a
+	// way to fail.
+	//
+	// PROBED rather than assumed, because the question is about the image
+	// and not about this container. Built the real base image
+	// (gcr.io/distroless/static-debian12, this repo's Dockerfile second
+	// stage) around a CGO_ENABLED=0 binary, twice — with and without this
+	// import — and ran both:
+	//
+	//	$ docker run --rm --entrypoint /probe-plain tzprobe:t68-1
+	//	stat /usr/share/zoneinfo: present
+	//	LoadLocation("Asia/Ho_Chi_Minh"): ok -> 11:00Z is 18:00 +07 local
+	//	LoadLocation("America/Los_Angeles"): ok -> 11:00Z is 04:00 PDT local
+	//
+	// So distroless/static-debian12 DOES ship tzdata and this import is not
+	// load-bearing today. It is kept anyway, deliberately: the guarantee then
+	// depends on a property of a base image that no gate in this repository
+	// checks, and the Dockerfile's own header records what that costs — the
+	// Go version drifted out of step with go.mod and "the server image has
+	// never built" for 66 sprints because nothing built it. A LoadLocation
+	// that fails only in production turns every quote into an error; ~450 KB
+	// of binary is the cheapest insurance in this file. The import belongs in
+	// main (Go's own guidance: a library must not make this choice for its
+	// importers), which is why internal/platform/tz does not carry it.
+	_ "time/tzdata"
 )
 
 const shutdownTimeout = 5 * time.Second
@@ -172,7 +205,13 @@ func run(logger *slog.Logger) error {
 		RecurringHires: recurringRepo,
 		Facilities:     bookingFacilityLookup,
 		Identity:       bookingIdentityLookup,
-		IDs:            idgen.UUID{},
+		// Zones (T68.1, ADR-0004, #356) resolves the IANA identifier
+		// Facilities reports for a court into a *time.Location, so a price
+		// band is matched against the facility's own wall clock rather than
+		// the UTC instant protobuf hands the handler. Required, not
+		// defaulted: see ServiceOptions.Zones.
+		Zones: tz.Loader{},
+		IDs:   idgen.UUID{},
 	})
 	bookingHandler := bookinggrpc.NewHandler(bookingSvc)
 

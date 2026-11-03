@@ -29,6 +29,7 @@ import (
 	bookingdomain "github.com/nhuthuynh/white-label/internal/booking/domain"
 	identityapp "github.com/nhuthuynh/white-label/internal/identity/app"
 	identitydomain "github.com/nhuthuynh/white-label/internal/identity/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 const (
@@ -47,6 +48,12 @@ func (fakeFacilityLookup) FacilityIDForCourt(_ context.Context, _ string) (strin
 }
 func (fakeFacilityLookup) CourtIDsForFacility(_ context.Context, _ string) ([]string, error) {
 	return []string{fixtureCourtID}, nil
+}
+
+// TimezoneForCourt (T68.1) is UTC here: no path this file exercises quotes a
+// price, so the zone only has to be a real one the loader accepts.
+func (fakeFacilityLookup) TimezoneForCourt(_ context.Context, _ string) (string, error) {
+	return "UTC", nil
 }
 func (fakeFacilityLookup) FacilityIDsForCourts(_ context.Context, courtIDs []string) (map[string]string, error) {
 	out := make(map[string]string, len(courtIDs))
@@ -121,6 +128,7 @@ func newServiceWithRealIdentity(t *testing.T, seed identitydomain.User) (*bookin
 		Facilities:     fakeFacilityLookup{},
 		Identity:       lookup,
 		IDs:            stubBookingIDs{},
+		Zones:          tz.Loader{},
 	})
 	return svc, recurringRepo
 }

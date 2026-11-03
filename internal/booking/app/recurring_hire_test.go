@@ -215,6 +215,7 @@ func newRecurringSvc() *recurringFixture {
 		RecurringHires: templates,
 		Facilities:     facilities,
 		Identity:       identity,
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	return &recurringFixture{

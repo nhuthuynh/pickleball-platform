@@ -33,6 +33,7 @@ func quoteSvc(rules ...domain.DiscountRule) *app.Service {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     lookup,
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 }
@@ -141,12 +142,30 @@ func TestGetQuote_AppliesDiscount(t *testing.T) {
 	}
 }
 
-// TestGetQuote_CourtWithNoFacilityStillQuotes is the case the table above
-// could not express cleanly: a Court that exists, has pricing, but belongs to
-// no Facility (courts.facility_id is nullable for the pre-Facilities seeded
-// courts). The quote must still resolve — at the undiscounted band price —
-// rather than failing because the discount lookup found nothing.
-func TestGetQuote_CourtWithNoFacilityStillQuotes(t *testing.T) {
+// TestGetQuote_CourtWithNoDiscountRulesIsNotDiscounted is the case the table
+// above could not express cleanly: a Court that exists and has pricing, whose
+// Facility has no DiscountRule of its own, must quote at the undiscounted band
+// price rather than picking up another Facility's discount or failing because
+// the discount lookup found nothing.
+//
+// # What this test used to be, and why it changed (T68.1, ADR-0004, #356)
+//
+// It was TestGetQuote_CourtWithNoFacilityStillQuotes, and its fixture was a
+// Court attached to NO Facility at all (facilityByCourt empty) — the shape of
+// the seeded courts of 0002_seed.sql at the time. That court can no longer be
+// quoted: the zone a price band resolves in comes from the Facility, and with
+// no Facility there is no zone and no band, which is now an explicit error
+// (TestGetQuote_CourtWithNoZoneIsAnExplicitError in quote_timezone_test.go
+// pins it, and 0034 attaches the seeded courts to a zoned demo Facility so the
+// demo quote path keeps working).
+//
+// Keeping the old fixture would have left this test passing for a reason that
+// no longer exists in production — the app-test fake defaults a court with no
+// explicit zone entry to UTC, so the quote would have succeeded here while
+// failing against a real database. The *discount* claim it was really making —
+// no rules means no discount, not an error — is the half worth keeping, so the
+// fixture now gives the court a Facility and gives that Facility no rules.
+func TestGetQuote_CourtWithNoDiscountRulesIsNotDiscounted(t *testing.T) {
 	t.Parallel()
 
 	pricing := &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
@@ -157,9 +176,11 @@ func TestGetQuote_CourtWithNoFacilityStillQuotes(t *testing.T) {
 	discounts.rulesByFacility[facilityID(1)] = []domain.DiscountRule{
 		discountRule(t, domain.DiscountAmount{Percent: 50}, domain.DiscountTypePercent, []domain.Source{domain.SourceIndividual}),
 	}
+	// courtID(2) belongs to facilityID(2), which has no DiscountRules;
+	// facilityID(1)'s 50%-off rule above must not reach it.
 	lookup := &fakeFacilityLookup{
-		ownerByFacility: map[string]string{facilityID(1): userID(1)},
-		facilityByCourt: map[string]string{},
+		ownerByFacility: map[string]string{facilityID(1): userID(1), facilityID(2): userID(2)},
+		facilityByCourt: map[string]string{courtID(2): facilityID(2)},
 	}
 	svc := app.NewService(app.ServiceOptions{
 		Bookings:       newInMemoryRepo(),
@@ -168,6 +189,7 @@ func TestGetQuote_CourtWithNoFacilityStillQuotes(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     lookup,
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 
@@ -183,7 +205,7 @@ func TestGetQuote_CourtWithNoFacilityStillQuotes(t *testing.T) {
 		t.Errorf("PriceCents = %d, want the undiscounted 2000", quote.PriceCents)
 	}
 	if quote.Discount.Applies() {
-		t.Error("a court belonging to no facility picked up another facility's discount")
+		t.Error("a court whose own facility has no discount rules picked up another facility's discount")
 	}
 }
 

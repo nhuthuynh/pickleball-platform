@@ -23,6 +23,7 @@ func TestListCourtBookings_ReturnsIntersectingBookings(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -78,6 +79,7 @@ func TestListCourtBookings_ExcludesCancelled(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()

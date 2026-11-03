@@ -201,7 +201,9 @@ func TestListBookingsForActor_IncludesCancelled(t *testing.T) {
 // facility field: resolved where there is a Facility, and an honest empty
 // where the Court belongs to none. In this package's fixture courtID(1)
 // belongs to facilityID(1) and every other court belongs to no Facility —
-// which is also the real shape of both Courts seeded by 0002_seed.sql.
+// which was also the real shape of both Courts seeded by 0002_seed.sql until
+// 0034 attached them to the demo Facility (T68.1, #356). The fixture is this
+// package's own, so that migration does not change what this test proves.
 func TestListBookingsForActor_CarriesFacilityID(t *testing.T) {
 	h := newRecurringHandler()
 

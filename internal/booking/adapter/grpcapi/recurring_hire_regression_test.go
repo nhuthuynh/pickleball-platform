@@ -43,6 +43,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/booking/app"
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 const (
@@ -306,6 +307,7 @@ func newRecurringHandler() *recurringHarness {
 		Facilities:     fakeFacilityLookup{},
 		Identity:       identity,
 		IDs:            &fakeIDs{},
+		Zones:          tz.Loader{},
 	})
 	return &recurringHarness{
 		handler: grpcapi.NewHandler(svc), templates: templates,

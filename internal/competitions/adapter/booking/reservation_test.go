@@ -35,6 +35,7 @@ import (
 	competitionsbooking "github.com/nhuthuynh/white-label/internal/competitions/adapter/booking"
 	"github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/competitions/port"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 // Compile-time proof that *competitionsbooking.Reservation satisfies
@@ -233,6 +234,15 @@ func (stubFacilities) FacilityIDsForCourts(context.Context, []string) (map[strin
 	return map[string]string{}, nil
 }
 
+// TimezoneForCourt (T68.1) mirrors FacilityIDForCourt above: this stub
+// resolves no court to a Facility, so there is no zone to report either.
+// Nothing on this path quotes a price — these tests are about court
+// reservation — and a stub that invented "UTC" would be claiming a facility
+// it has already said does not exist.
+func (stubFacilities) TimezoneForCourt(context.Context, string) (string, error) {
+	return "", bookingdomain.ErrFacilityTimezoneUnset
+}
+
 type stubIdentity struct{}
 
 func (stubIdentity) EnsureClubRole(context.Context, string) error { return nil }
@@ -266,6 +276,7 @@ func newReservation(t *testing.T) (*competitionsbooking.Reservation, *inMemoryRe
 		Facilities:     stubFacilities{},
 		Identity:       stubIdentity{},
 		IDs:            fixedIDs{},
+		Zones:          tz.Loader{},
 	})
 	return competitionsbooking.NewReservation(svc), repo
 }

@@ -49,6 +49,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/booking/app"
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 // --- fixtures ---------------------------------------------------------
@@ -140,6 +141,18 @@ func (fakeFacilityLookup) FacilityIDForCourt(_ context.Context, cID string) (str
 	return facilityID(1), nil
 }
 
+// TimezoneForCourt (T68.1) answers for the one court this fake knows, and
+// answers domain.ErrFacilityTimezoneUnset for every other — the same
+// collapse the real adapter makes for an unknown court, a court with no
+// Facility and a Facility with no zone. UTC keeps every pre-T68.1 fixture in
+// this package (UTC instants, UTC band expectations) saying what it said.
+func (fakeFacilityLookup) TimezoneForCourt(_ context.Context, cID string) (string, error) {
+	if cID != courtID(1) {
+		return "", domain.ErrFacilityTimezoneUnset
+	}
+	return "UTC", nil
+}
+
 // CourtIDsForFacility (T11.5) is the inverse of FacilityIDForCourt above:
 // facilityID(1) owns exactly courtID(1).
 func (fakeFacilityLookup) CourtIDsForFacility(_ context.Context, fID string) ([]string, error) {
@@ -198,6 +211,7 @@ func newTestHandler(t *testing.T) (*grpcapi.Handler, *fakeDiscountRepo) {
 		Facilities:     fakeFacilityLookup{},
 		Identity:       newFakeIdentityLookup(),
 		IDs:            &fakeIDs{},
+		Zones:          tz.Loader{},
 	})
 	return grpcapi.NewHandler(svc), discounts
 }

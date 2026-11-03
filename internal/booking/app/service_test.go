@@ -180,6 +180,7 @@ func TestCreateBooking_RejectsCrossSourceOverlap(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -212,6 +213,7 @@ func TestCreateBooking_AllowsDifferentCourts(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -242,6 +244,7 @@ func TestCreateBooking_AllowsBackToBack(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -273,6 +276,7 @@ func TestCreateBooking_InvalidSourceRejectedBeforeTouchingRepo(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()

@@ -40,12 +40,43 @@ type FacilityLookup interface {
 	// Two distinct situations are deliberately collapsed into
 	// domain.ErrFacilityNotFound: courtID naming no Court at all, and a
 	// Court that exists but belongs to no Facility (courts.facility_id is
-	// nullable — the seeded, pre-Facilities courts of 0001_init.sql still
-	// have NULL there, per 0010_facilities.sql's own note). From Booking's
+	// nullable, per 0010_facilities.sql's own note — the seeded courts of
+	// 0002_seed.sql were the standing example of that until 0034 attached
+	// them to the demo Facility, which T68.1 had to do because a court with
+	// no Facility now has no timezone either). From Booking's
 	// side both mean the same actionable thing — there is no Facility to
 	// scope a discount to — and splitting them would create a second
 	// sentinel no caller could act on differently.
 	FacilityIDForCourt(ctx context.Context, courtID string) (string, error)
+
+	// TimezoneForCourt returns the IANA timezone identifier (e.g.
+	// "Asia/Ho_Chi_Minh") of the Facility that owns courtID — the zone a
+	// PricingRule's ClockTime windows are written in, and therefore the zone
+	// GetQuote must resolve a band against (T68.1, ADR-0004, closes #356).
+	//
+	// **Why it is court-keyed and not facility-keyed.** It mirrors
+	// FacilityIDForCourt above because it answers the question Booking
+	// actually has: the quote path holds a CourtID and nothing else. A
+	// facility-keyed method would make every quote two round trips to learn
+	// one fact, and would put the knowledge that the zone lives on the
+	// *facility* rather than the court on the Booking side of this boundary,
+	// where it is nobody's business — ADR-0004 explicitly leaves that choice
+	// to Facilities ("the column lives on facilities and courts inherit it").
+	//
+	// Implementations return an error satisfying
+	// errors.Is(err, domain.ErrFacilityTimezoneUnset) when there is no zone
+	// to return: courtID naming no Court, a Court belonging to no Facility
+	// (courts.facility_id is nullable), or a Facility with no zone recorded.
+	// The three are collapsed exactly as FacilityIDForCourt collapses its
+	// two, and for the same reason — a caller can do nothing different about
+	// them, and the fix in every case is to record the facility/zone the
+	// court belongs to.
+	//
+	// **Implementations must never substitute a default zone.** Returning
+	// "UTC" for a facility that has not recorded one would turn a visible
+	// failure into a wrong price, which is the defect #356 reported; the
+	// decision for this ticket was an explicit error instead.
+	TimezoneForCourt(ctx context.Context, courtID string) (string, error)
 
 	// CourtIDsForFacility returns the IDs of every Court belonging to
 	// facilityID, or domain.ErrFacilityNotFound when facilityID does not

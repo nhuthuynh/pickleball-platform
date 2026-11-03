@@ -522,7 +522,33 @@ func toStatus(err error) error {
 		// takes the same code as its pricing twin for the same ADR-0002
 		// reason — same class of data misconfiguration, so the existing
 		// mapping is reused rather than a new one invented.
-		errors.Is(err, domain.ErrAmbiguousDiscountRule):
+		errors.Is(err, domain.ErrAmbiguousDiscountRule),
+		// T68.1's two zone answers (ADR-0004, closes #356), joining this arm
+		// for the identical reason: a Court whose Facility has no usable IANA
+		// zone is pricing data that is incomplete or wrong, so the request is
+		// fine and the world isn't.
+		//
+		// **Distinct from every other code this function returns**, which is
+		// the point — the alternatives were all worse:
+		//   * NotFound would fold the zone into ErrNoPricingRule's arm, and a
+		//     caller reading "no pricing rule" would look for the band rows,
+		//     which are there. The actionable fix is on the facility.
+		//   * InvalidArgument would blame the request. Nothing is wrong with
+		//     it; the same request succeeds untouched once the facility
+		//     records a zone (gRPC reserves INVALID_ARGUMENT for arguments
+		//     bad regardless of system state — the distinction T14.7 drew for
+		//     ErrIllegalStatusTransition above).
+		//   * Internal would hide an operator-fixable data gap in the bucket
+		//     reserved for server bugs, and would page the wrong person.
+		// ErrInvalidFacilityTimezone shares the code rather than taking a
+		// fourth one: both mean "this court cannot be priced until its
+		// facility's zone is right", the error message carries which of the
+		// two it is, and no client can act differently on the difference.
+		//
+		// Client impact over REST: grpc-gateway maps FailedPrecondition to
+		// HTTP 400.
+		errors.Is(err, domain.ErrFacilityTimezoneUnset),
+		errors.Is(err, domain.ErrInvalidFacilityTimezone):
 		// FailedPrecondition (-> HTTP 400 via grpc-gateway), not Internal:
 		// this is a pricing-data misconfiguration (ADR-0002), distinguishable
 		// from an actual server bug so ops/clients can tell them apart.

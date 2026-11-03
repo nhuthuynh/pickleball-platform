@@ -32,6 +32,7 @@ import (
 
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	bookingdomain "github.com/nhuthuynh/white-label/internal/booking/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
 	"github.com/nhuthuynh/white-label/internal/socialplay/domain"
 	"github.com/nhuthuynh/white-label/internal/socialplay/port"
@@ -219,6 +220,15 @@ func (stubFacilities) FacilityIDsForCourts(context.Context, []string) (map[strin
 	return map[string]string{}, nil
 }
 
+// TimezoneForCourt (T68.1) mirrors FacilityIDForCourt above: this stub
+// resolves no court to a Facility, so there is no zone to report either.
+// Nothing on this path quotes a price — these tests are about court
+// reservation — and a stub that invented "UTC" would be claiming a facility
+// it has already said does not exist.
+func (stubFacilities) TimezoneForCourt(context.Context, string) (string, error) {
+	return "", bookingdomain.ErrFacilityTimezoneUnset
+}
+
 type stubIdentity struct{}
 
 func (stubIdentity) EnsureClubRole(context.Context, string) error { return nil }
@@ -252,6 +262,7 @@ func newReservation(t *testing.T) (*socialplaybooking.Reservation, *inMemoryRepo
 		Facilities:     stubFacilities{},
 		Identity:       stubIdentity{},
 		IDs:            fixedIDs{},
+		Zones:          tz.Loader{},
 	})
 	return socialplaybooking.NewReservation(svc), repo
 }
