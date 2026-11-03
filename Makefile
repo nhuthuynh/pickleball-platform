@@ -668,9 +668,28 @@ tools-install:
 	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-grpc-gateway@$(GRPC_GATEWAY_VERSION)
 	go install github.com/grpc-ecosystem/grpc-gateway/v2/protoc-gen-openapiv2@$(GRPC_GATEWAY_VERSION)
 	@echo
-	@echo "Installed to $$(go env GOPATH)/bin — make sure that is on your PATH:"
-	@echo "    export PATH=\"$$PATH:$$(go env GOPATH)/bin\""
-	@echo "Then: make tools-check"
+	@# FIRST, not appended. An appended entry loses to any package-manager copy
+	@# already earlier on PATH, which is the exact failure tools-check describes
+	@# below ("put that directory FIRST on PATH, or this copy keeps winning") —
+	@# so this target used to close by advising the opposite of its own checker.
+	@# A shadowing golangci-lint then fails at CONFIG LOAD, before reading any
+	@# source, so it reads as a broken toolchain rather than a PATH problem. That
+	@# cost CI two cycles on 2026-10-18 and has misled several sessions since
+	@# (#364).
+	@echo "Installed to $$(go env GOPATH)/bin — put that directory FIRST on your PATH,"
+	@echo "so these pinned copies beat any package-manager copy already on it:"
+	@echo "    export PATH=\"$$(go env GOPATH)/bin:$$PATH\""
+	@echo
+	@# And END by running the checker, rather than only telling you to: a
+	@# shadowing or unreachable copy is then reported HERE, at install time,
+	@# instead of three stages into the next gate. This CANNOT redden a
+	@# pipeline that calls `make tools-install` before `make ci-checks`:
+	@# tools-check reports and never fails — every one of its branches ends in
+	@# an `echo`, so it exits 0 even with MISSING and WRONG lines in its output.
+	@# (Both the Jenkinsfile and .github/actions/toolchain already ran
+	@# `make tools-check` immediately after this target, for that same reason.)
+	@echo "What PATH actually resolves right now (make tools-check):"
+	@$(MAKE) --no-print-directory tools-check
 
 # Reports which of the required tools are present, so a new machine finds
 # out up front rather than three stages into a build.
