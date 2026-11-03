@@ -17,8 +17,15 @@
 //     "Profile" tabs must link to a "Coming soon" placeholder route too,
 //     not be omitted) — added here so the nav has somewhere real to link.
 //     /profile gained a real screen in T10.5 once Identity/Users existed
-//     to back it (see that route entry below); /bookings remains a
-//     placeholder — no Bookings-history ticket has landed yet.
+//     to back it, and /bookings gained one in T68.3 once T67's two
+//     actor-scoped reads existed to back it (see both route entries below).
+//
+// NOTE (T68.3): with /bookings wired to a real screen, NO route in this
+// table uses `ComingSoonView` any more, so its import is gone from here.
+// The component itself is deliberately left in place rather than deleted —
+// it is the shared shape a future placeholder route would reuse, and
+// src/__tests__/App.spec.ts still asserts against it that no route
+// regresses BACK to a placeholder.
 import { createRouter, createWebHistory, type Router, type RouteRecordRaw } from 'vue-router'
 import DiscoverFacilities from '../components/discover/DiscoverFacilities.vue'
 import DiscoverGames from '../components/discover-games/DiscoverGames.vue'
@@ -37,7 +44,7 @@ import DevSignIn from '../views/DevSignIn.vue'
 import CompleteProfile from '../views/CompleteProfile.vue'
 import CompetitionLanding from '../views/CompetitionLanding.vue'
 import Profile from '../views/Profile.vue'
-import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
+import MyBookings from '../views/MyBookings.vue'
 
 export const routes: RouteRecordRaw[] = [
   { path: '/', redirect: '/facilities' },
@@ -210,8 +217,12 @@ export const routes: RouteRecordRaw[] = [
     props: (route) => ({ shareToken: String(route.params.shareToken) }),
     meta: { title: 'Competition invitation' },
   },
-  // No ticket owns Bookings-history yet — see file header comment.
-  { path: '/bookings', name: 'bookings', component: ComingSoonView, meta: { title: 'Bookings' } },
+  // T68.3 (part of #353): the real Bookings tab — what you booked and what
+  // you joined — replacing the `ComingSoonView` placeholder T8.1 wired here.
+  // It reads `GET /v1/bookings` (T67.1) and `GET /v1/registrations` (T67.2),
+  // both of which shipped with no consumer at all. `meta.title` stays: the
+  // title guard below is what satisfies WCAG 2.4.2 on every route.
+  { path: '/bookings', name: 'bookings', component: MyBookings, meta: { title: 'Bookings' } },
   // T10.5 (docs/process/t10-sprint-plan.md): real Profile screen (display
   // name read-only, self-reported starting level editable via
   // `UpdateSelfReportedLevel`), replacing the `ComingSoonView` placeholder

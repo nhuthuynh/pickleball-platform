@@ -30,11 +30,14 @@
 //
 // Reuses the exact fixtures/fake-client shape CourtBookingFlow.spec.ts and
 // GameJoinPanel.spec.ts already use, rather than inventing a second set.
-import { describe, it, expect, vi } from 'vitest'
-import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { mount, flushPromises, RouterLinkStub, type VueWrapper } from '@vue/test-utils'
 import CourtBookingFlow from '../components/booking/CourtBookingFlow.vue'
 import GameJoinPanel from '../components/discover-games/GameJoinPanel.vue'
+import MyBookings from '../views/MyBookings.vue'
+import { signIn, signOut } from '../state/authSession'
 import type { BookingClient } from '../api/bookingClient'
+import type { FacilitiesClient } from '../api/facilitiesClient'
 import type { GameSummary } from '../models/game'
 import type { SocialPlayClient } from '../api/socialplayClient'
 import { expectNoA11yViolations, COMPONENT_MOUNT_OPTIONS } from '../test-support/axe'
@@ -243,6 +246,175 @@ describe('Flagship flow spot check — joining/paying for a Social Game (GameJoi
     await wrapper.find('.game-join__conflict .game-join__primary').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('waitlist at position 4')
+    await runAxeOn(wrapper)
+  })
+})
+
+// ── T68.3: the Bookings tab's POPULATED and INTERACTIVE states ──────────────
+//
+// `/bookings` is in accessibility.spec.ts's route sweep, but that sweep stops
+// at each route's empty/error state by construction (`fetch` is stubbed to
+// reject, and nobody is signed in), so for this screen it only ever audits
+// the signed-out notice. The states a real user reaches — two populated
+// lists, a cancelled booking beside a host-cancelled game, a per-section
+// failure with its retry button, and the empty state's two calls to action —
+// are audited here, which is the split this file's header describes.
+//
+// Worth stating why this screen earns a place beside the two flagship flows:
+// it is the only screen in the product that can tell a player their Game was
+// cancelled by the host. `ListGames` filters cancelled Games out and
+// socialplay exposes no `GetGame`, so an a11y defect that hid or unlabelled
+// that row would make the fact unreachable, not merely awkward.
+
+const MB_FACILITY = 'f1111111-1111-4111-8111-111111111111'
+const MB_COURT_A = 'caa9daca-7efd-4d5c-a9e3-705e34e3f874'
+const MB_COURT_B = '89195969-6bb3-433a-9cd5-77381a8fa053'
+
+function mbFacilitiesClient(): FacilitiesClient {
+  const GET = vi.fn(async () => ({
+    data: {
+      facility: { id: MB_FACILITY, name: 'Riverside Courts' },
+      courts: [
+        { id: MB_COURT_A, name: 'Court 1' },
+        { id: MB_COURT_B, name: 'Court 2' },
+      ],
+    },
+    error: undefined,
+  }))
+  return { GET, POST: vi.fn() } as unknown as FacilitiesClient
+}
+
+function mbBookingClient(result: unknown): BookingClient {
+  return { GET: vi.fn(async () => result), POST: vi.fn() } as unknown as BookingClient
+}
+
+function mbSocialPlayClient(result: unknown): SocialPlayClient {
+  return { GET: vi.fn(async () => result), POST: vi.fn() } as unknown as SocialPlayClient
+}
+
+const MB_BOOKING = {
+  booking: {
+    id: 'bk-1',
+    courtId: MB_COURT_A,
+    source: 'SOURCE_INDIVIDUAL',
+    status: 'STATUS_CONFIRMED',
+    startsAt: '2026-11-10T09:00:00Z',
+    endsAt: '2026-11-10T10:00:00Z',
+    referenceId: '',
+  },
+  facilityId: MB_FACILITY,
+}
+
+const MB_REGISTRATION = {
+  registration: {
+    id: 'reg-1',
+    gameId: 'g-1',
+    playerId: 'p-1',
+    status: 'REGISTRATION_STATUS_REGISTERED',
+    paymentStatus: 'PAYMENT_STATUS_UNPAID',
+    guestCount: 1,
+    amountOwed: { amountCents: '2000', currencyCode: 'USD' },
+  },
+  gameStartsAt: '2026-11-12T18:00:00Z',
+  gameEndsAt: '2026-11-12T19:00:00Z',
+  gameVenueFacilityId: MB_FACILITY,
+  gameCourtIds: [MB_COURT_A, MB_COURT_B],
+  gameStatus: 'GAME_STATUS_SCHEDULED',
+}
+
+function mbOk(data: unknown) {
+  return { data, error: undefined, response: { status: 200 } }
+}
+
+async function mountMyBookings(bookings: unknown, registrations: unknown): Promise<VueWrapper> {
+  const wrapper = mount(MyBookings, {
+    props: {
+      client: mbBookingClient(bookings),
+      socialplayClient: mbSocialPlayClient(registrations),
+      facilitiesClient: mbFacilitiesClient(),
+    },
+    global: { stubs: { RouterLink: RouterLinkStub } },
+  })
+  await flushPromises()
+  // The venue/court child components start their own lookups once a row
+  // exists, so a second flush is what settles the resolved names.
+  await flushPromises()
+  return wrapper
+}
+
+describe('Flagship flow spot check — the Bookings tab (MyBookings)', () => {
+  afterEach(() => {
+    signOut()
+  })
+
+  it('the signed-out explanation (no list implying "you have nothing")', async () => {
+    signOut()
+    const wrapper = await mountMyBookings(mbOk({ bookings: [] }), mbOk({ registrations: [] }))
+    expect(wrapper.find('[data-testid="signed-out-notice"]').exists()).toBe(true)
+    await runAxeOn(wrapper)
+  })
+
+  it('both sections populated, with resolved venue and court names', async () => {
+    signIn('dev-token', 'user-1')
+    const wrapper = await mountMyBookings(
+      mbOk({ bookings: [MB_BOOKING] }),
+      mbOk({ registrations: [MB_REGISTRATION] }),
+    )
+
+    // The state is real before it is audited: resolved names, both sections.
+    expect(wrapper.text()).toContain('Riverside Courts')
+    expect(wrapper.text()).toContain('Court 1')
+    expect(wrapper.text()).toContain('Court 2')
+    expect(wrapper.text()).toContain('$20.00')
+    await runAxeOn(wrapper)
+  })
+
+  it('a cancelled booking beside a host-cancelled game (WCAG 1.4.1 — text, not colour)', async () => {
+    signIn('dev-token', 'user-1')
+    const wrapper = await mountMyBookings(
+      mbOk({
+        bookings: [
+          { ...MB_BOOKING, booking: { ...MB_BOOKING.booking, status: 'STATUS_CANCELLED' } },
+        ],
+      }),
+      mbOk({ registrations: [{ ...MB_REGISTRATION, gameStatus: 'GAME_STATUS_CANCELLED' }] }),
+    )
+
+    // Both cancellations are stated in words, and both rows are still here.
+    expect(wrapper.find('[data-testid="booking-status-bk-1"]').text()).toBe('Cancelled')
+    expect(wrapper.find('[data-testid="game-status-reg-1"]').text()).toBe('Cancelled by the host')
+    await runAxeOn(wrapper)
+  })
+
+  it('the empty state, whose calls to action are real links (WCAG 2.4.4)', async () => {
+    signIn('dev-token', 'user-1')
+    const wrapper = await mountMyBookings(mbOk({ bookings: [] }), mbOk({ registrations: [] }))
+
+    const targets = wrapper.findAllComponents(RouterLinkStub).map((l) => l.props('to'))
+    expect(targets).toContain('/facilities')
+    expect(targets).toContain('/games')
+    await runAxeOn(wrapper)
+  })
+
+  it('one section failed, its retry keyboard-operable, the other still populated', async () => {
+    signIn('dev-token', 'user-1')
+    const wrapper = await mountMyBookings(
+      { data: undefined, error: { message: 'boom' }, response: { status: 500 } },
+      mbOk({ registrations: [MB_REGISTRATION] }),
+    )
+
+    // The failure is announced, the healthy half still rendered.
+    expect(wrapper.find('[role="alert"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="registration-row-reg-1"]').exists()).toBe(true)
+
+    // A native <button>: `.trigger('click')` only reaches a real interactive
+    // element, and a native button is in the tab order without a polyfilled
+    // role+tabindex (WCAG 2.1.1).
+    const retry = wrapper.find('[data-testid="retry-bookings"]')
+    expect(retry.element.tagName).toBe('BUTTON')
+    await retry.trigger('click')
+    await flushPromises()
+
     await runAxeOn(wrapper)
   })
 })

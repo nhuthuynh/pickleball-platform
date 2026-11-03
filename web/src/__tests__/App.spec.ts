@@ -10,6 +10,7 @@ import GameCreation from '../views/GameCreation.vue'
 import GameCheckout from '../views/GameCheckout.vue'
 import HostPayments from '../views/HostPayments.vue'
 import Profile from '../views/Profile.vue'
+import MyBookings from '../views/MyBookings.vue'
 import ComingSoonView from '../views/placeholders/ComingSoonView.vue'
 
 // jsdom doesn't implement matchMedia — same minimal always-"no match" stub
@@ -76,19 +77,42 @@ describe('App routing', () => {
     expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
   })
 
-  it.each([['/bookings', 'Bookings']])(
-    'renders the "Coming soon" placeholder at %s',
-    async (path, expectedTitle) => {
-      const wrapper = await mountAppAt(path)
+  // T68.3 (part of #353) replaces the /bookings "Coming soon" placeholder
+  // with the real Bookings screen, now that T67's two actor-scoped reads
+  // (`ListBookingsForActor`, `ListRegistrationsForActor`) exist to back it —
+  // same "only the matched route's screen renders" regression check /profile
+  // and /games each got when their own placeholders were replaced.
+  //
+  // This test used to assert the OPPOSITE (that the placeholder rendered,
+  // with the literal text "Coming soon."), which is the assertion that had
+  // to be inverted for this ticket. With it inverted, NO route renders
+  // ComingSoonView any more — every remaining `ComingSoonView` assertion in
+  // this file is a negative one, guarding against a route regressing BACK
+  // to a placeholder.
+  it('renders only MyBookings at /bookings', async () => {
+    const wrapper = await mountAppAt('/bookings')
 
-      expect(wrapper.findComponent(ComingSoonView).exists()).toBe(true)
-      expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
-      expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
-      expect(wrapper.findComponent(GameCreation).exists()).toBe(false)
-      expect(wrapper.text()).toContain(expectedTitle)
-      expect(wrapper.text()).toContain('Coming soon.')
-    },
-  )
+    expect(wrapper.findComponent(MyBookings).exists()).toBe(true)
+    expect(wrapper.findComponent(ComingSoonView).exists()).toBe(false)
+    expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
+    expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
+    expect(wrapper.findComponent(GameCreation).exists()).toBe(false)
+
+    // This used to read `expect(wrapper.text()).toContain('Bookings')` under
+    // a comment claiming it checked WCAG 2.4.2's `meta.title` (PR #369
+    // review). It checked neither thing. `wrapper.text()` cannot see
+    // `document.title` at all, and `mountAppAt` above — unlike
+    // accessibility.spec.ts's — installs no title guard, so nothing sets it
+    // here. Worse, AppNav renders the literal tab label "Bookings" on EVERY
+    // route, so the assertion held no matter what this screen rendered:
+    // renaming MyBookings' own <h1> left this file fully green.
+    //
+    // The screen's own heading is the thing this test can actually observe,
+    // so that is what it asserts now. `meta.title`/`document.title` is the
+    // title guard's job and is exercised where the guard is installed.
+    expect(wrapper.find('h1').text()).toBe('Bookings')
+    expect(wrapper.text()).not.toContain('Coming soon.')
+  })
 
   // T10.5 (docs/process/t10-sprint-plan.md) replaces the /profile
   // "Coming soon" placeholder with the real Profile screen, now that
