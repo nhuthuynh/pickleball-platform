@@ -26,6 +26,7 @@ func TestCancelBooking_FreesTheSlotForRebooking(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -71,6 +72,7 @@ func TestCancelBooking_UnknownBookingReturnsNotFound(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -92,6 +94,7 @@ func TestCancelBooking_AlreadyCancelledIsRejected(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()

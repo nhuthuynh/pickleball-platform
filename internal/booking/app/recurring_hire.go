@@ -113,8 +113,9 @@ type ApproveRecurringHireResult struct {
 // A Court that resolves to no Facility is rejected rather than accepted. That
 // is deliberate: approval requires a Facility Owner (see
 // ApproveRecurringHire), so a template on an ownerless Court — an unknown
-// Court, or one of 0001_init.sql's pre-Facilities seeded Courts whose
-// courts.facility_id is still NULL — could never be approved by anyone.
+// Court, or any Court whose courts.facility_id is NULL, which 0010_facilities
+// .sql still permits even though 0034 attached the seeded ones — could never
+// be approved by anyone.
 // Accepting it would be recording a request that is guaranteed to sit
 // unanswered forever.
 func (s *Service) RequestRecurringHire(ctx context.Context, in RequestRecurringHireInput) (domain.RecurringHireTemplate, error) {

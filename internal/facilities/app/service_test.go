@@ -46,12 +46,24 @@ type inMemoryRepo struct {
 	// which is visible in the return value.
 	getCourtsByIDsCalls   atomic.Int64
 	lastGetCourtsByIDsArg []string
+
+	// timezones is facility id -> IANA zone, and courtTimezoneCalls the
+	// same counter again for T68.1's CourtTimezone: its malformed-id guard
+	// is likewise invisible in the return value, since an unknown court and
+	// a malformed one both answer ErrCourtNotFound.
+	//
+	// A facility ABSENT from this map is one whose timezone column is '' —
+	// 0034's default — which CourtTimezone must report as an empty string
+	// and not as a miss. That distinction is the fake's whole job here.
+	timezones          map[string]string
+	courtTimezoneCalls atomic.Int64
 }
 
 func newInMemoryRepo() *inMemoryRepo {
 	return &inMemoryRepo{
 		facilities: make(map[string]domain.Facility),
 		courts:     make(map[string]domain.Court),
+		timezones:  make(map[string]string),
 	}
 }
 
@@ -116,6 +128,24 @@ func (r *inMemoryRepo) GetCourtsByIDs(_ context.Context, courtIDs []string) ([]d
 		}
 	}
 	return out, nil
+}
+
+// CourtTimezone is T68.1's read fake, mirroring
+// internal/facilities/adapter/postgres.Repository.CourtTimezone — whose query
+// is an INNER JOIN from courts to facilities, so a Court that does not exist
+// and a Court with facility_id NULL both produce no row and therefore the
+// same ErrCourtNotFound. A Facility that exists with no zone recorded is an
+// empty string and no error, which is a different answer and must stay one.
+func (r *inMemoryRepo) CourtTimezone(_ context.Context, courtID string) (string, error) {
+	r.courtTimezoneCalls.Add(1)
+	c, ok := r.courts[courtID]
+	if !ok || c.FacilityID == "" {
+		return "", domain.ErrCourtNotFound
+	}
+	if _, ok := r.facilities[c.FacilityID]; !ok {
+		return "", domain.ErrCourtNotFound
+	}
+	return r.timezones[c.FacilityID], nil
 }
 
 // ListCourtsForFacility is T8.2's read path fake, mirroring

@@ -69,6 +69,7 @@ func TestGetQuote_ResolvesPriceForSlot(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()

@@ -151,10 +151,12 @@ func (s *Service) GetFacility(ctx context.Context, id string) (domain.Facility, 
 // port.FacilityLookup.FacilityIDForCourt, which GetQuote needs to resolve a
 // facility-scoped DiscountRule from the CourtID it already has.
 //
-// A Court whose facility_id is NULL (the seeded, pre-Facilities courts of
-// 0001_init.sql/0010_facilities.sql) is returned normally with an empty
+// A Court whose facility_id is NULL is returned normally with an empty
 // FacilityID — "this Court belongs to no Facility" is a real, expected answer
-// in this schema, not an error.
+// in this schema (0010_facilities.sql), not an error. The seeded courts of
+// 0002_seed.sql were that example until 0034 attached them to the demo
+// Facility (T68.1: a Court with no Facility has no timezone, so it cannot be
+// quoted at all).
 func (s *Service) GetCourt(ctx context.Context, id string) (domain.Court, error) {
 	// Same T10.7 guard GetFacility/AddCourt apply to their own
 	// caller-supplied IDs: a malformed ID is answered exactly like an unknown
@@ -164,6 +166,40 @@ func (s *Service) GetCourt(ctx context.Context, id string) (domain.Court, error)
 		return domain.Court{}, domain.ErrCourtNotFound
 	}
 	return s.repo.GetCourtByID(ctx, id)
+}
+
+// CourtTimezone returns the IANA timezone identifier of the Facility that
+// owns the Court named by id (T68.1, ADR-0004, closes #356), or
+// domain.ErrCourtNotFound when there is no such Court or it belongs to no
+// Facility.
+//
+// Like GetCourt, it exists so another bounded context can learn a fact this
+// one owns without reading its tables: internal/booking/adapter/facilities
+// calls it to satisfy Booking's port.FacilityLookup.TimezoneForCourt, which
+// GetQuote needs because a PricingRule's windows are clock times local to the
+// court's facility (the defect #356 reported: an 18:00 Ho Chi Minh City slot
+// quoted against the weekday band because the handler's UTC instant read
+// 11:00).
+//
+// A Facility with no zone recorded yields an empty string and no error —
+// 0034's column defaults to ” and no creation path sets it yet, so "unset"
+// is a real state. Booking translates that empty string into its own
+// ErrFacilityTimezoneUnset at the boundary; this context reports the data as
+// it is.
+//
+// It returns a bare string rather than a domain.Facility or a *time.Location:
+// a Location would mean this layer doing a tz-database read on another
+// context's behalf, and the Facility aggregate must not cross the boundary
+// (the same rule GetCourt's doc comment and Booking's port both state).
+func (s *Service) CourtTimezone(ctx context.Context, id string) (string, error) {
+	// The same T10.7 guard every other id-taking method here applies: a
+	// malformed id is answered exactly like an unknown one, so it never
+	// reaches the adapter's mustUUID (which panics on anything
+	// pgtype.UUID.Scan rejects).
+	if !uuidShape.MatchString(id) {
+		return "", domain.ErrCourtNotFound
+	}
+	return s.repo.CourtTimezone(ctx, id)
 }
 
 // GetCourtsByIDs returns the Courts named by ids, in one repository call

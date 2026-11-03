@@ -11,6 +11,13 @@ import (
 // Fixture calendar: 2024-01-01 is a Monday, 2024-01-06 a Saturday, 2024-01-07
 // a Sunday — used so weekday-matching in the table tests below is obvious
 // from the rule definitions without recomputing Weekday() by hand.
+//
+// Every fixture in this file is UTC, and every ResolvePrice call here passes
+// time.UTC as the facility's zone (T68.1 gave it that parameter — ADR-0004,
+// #356). That keeps these cases about what they were always about: band
+// boundaries, ambiguity, and the single-calendar-day guard, with the zone held
+// constant so it cannot quietly become the thing under test. The cases where
+// the zone IS the thing under test live in pricing_timezone_test.go.
 func dt(t *testing.T, y int, m time.Month, d, hour, min int) time.Time {
 	t.Helper()
 	return time.Date(y, m, d, hour, min, 0, 0, time.UTC)
@@ -112,7 +119,7 @@ func TestResolvePrice_BandsAndBoundaries(t *testing.T) {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := domain.ResolvePrice(rules, tt.courtID, tt.slot)
+			got, err := domain.ResolvePrice(rules, tt.courtID, tt.slot, time.UTC)
 			if tt.wantErr != nil {
 				if !errors.Is(err, tt.wantErr) {
 					t.Fatalf("got err %v, want %v", err, tt.wantErr)
@@ -152,7 +159,7 @@ func TestResolvePrice_RejectsCrossMidnightSlot(t *testing.T) {
 	// Monday 23:00 -> Tuesday 01:00: genuinely crosses midnight.
 	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 23, 0), dt(t, 2024, 1, 2, 1, 0))
 
-	_, err := domain.ResolvePrice(rules, "court-1", slot)
+	_, err := domain.ResolvePrice(rules, "court-1", slot, time.UTC)
 	if !errors.Is(err, domain.ErrPricingSlotSpansMultipleDays) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPricingSlotSpansMultipleDays)
 	}
@@ -165,7 +172,7 @@ func TestResolvePrice_RejectsMultiDaySlot(t *testing.T) {
 	// Monday 09:00 -> Wednesday 09:00: spans multiple full days.
 	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 9, 0), dt(t, 2024, 1, 3, 9, 0))
 
-	_, err := domain.ResolvePrice(rules, "court-1", slot)
+	_, err := domain.ResolvePrice(rules, "court-1", slot, time.UTC)
 	if !errors.Is(err, domain.ErrPricingSlotSpansMultipleDays) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrPricingSlotSpansMultipleDays)
 	}
@@ -187,7 +194,7 @@ func TestResolvePrice_SlotEndingExactlyAtMidnightStillResolves(t *testing.T) {
 	// Monday 22:00 -> Tuesday 00:00 (exactly midnight): still a same-day slot.
 	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 22, 0), dt(t, 2024, 1, 2, 0, 0))
 
-	got, err := domain.ResolvePrice(rules, "court-1", slot)
+	got, err := domain.ResolvePrice(rules, "court-1", slot, time.UTC)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}
@@ -209,7 +216,7 @@ func TestResolvePrice_AmbiguousRulesRejected(t *testing.T) {
 	}
 
 	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 9, 0), dt(t, 2024, 1, 1, 10, 0))
-	_, err := domain.ResolvePrice(overlapping, "court-1", slot)
+	_, err := domain.ResolvePrice(overlapping, "court-1", slot, time.UTC)
 	if !errors.Is(err, domain.ErrAmbiguousPricingRule) {
 		t.Fatalf("got err %v, want %v", err, domain.ErrAmbiguousPricingRule)
 	}

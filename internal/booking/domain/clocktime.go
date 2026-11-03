@@ -19,7 +19,19 @@ func NewClockTime(hour, minute int) (ClockTime, error) {
 	return ClockTime(hour*60 + minute), nil
 }
 
-// ClockTimeOf extracts the ClockTime of the given instant.
+// ClockTimeOf extracts the ClockTime that t reads **in t's own Location**.
+//
+// It cannot do anything else: a time.Time carries one wall clock, the one its
+// Location gives it, and this function has no way to know which zone the
+// caller meant. That is the trap ADR-0004 named and T68.1 (#356) closed — the
+// type comment above has said "local to the court's facility" since T0 while
+// adapter/grpcapi fed this the UTC-normalised instant off a protobuf
+// Timestamp, quoting an 18:00 Ho Chi Minh City slot as 11:00.
+//
+// So **convert first**: TimeRange.In(loc) re-expresses a slot in the
+// facility's zone, and ResolvePrice — the only caller in this package — does
+// that before any clock-time comparison. Treat this as a reader of an
+// already-local value, never as the place a zone is applied.
 func ClockTimeOf(t time.Time) ClockTime {
 	return ClockTime(t.Hour()*60 + t.Minute())
 }

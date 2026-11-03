@@ -45,6 +45,7 @@ import (
 	competitionsbooking "github.com/nhuthuynh/white-label/internal/competitions/adapter/booking"
 	competitionsdomain "github.com/nhuthuynh/white-label/internal/competitions/domain"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 	socialplaybooking "github.com/nhuthuynh/white-label/internal/socialplay/adapter/booking"
 	socialplaydomain "github.com/nhuthuynh/white-label/internal/socialplay/domain"
 
@@ -106,6 +107,7 @@ func newBookingService(pool *pgxpool.Pool) *bookingapp.Service {
 		Facilities:     unusedFacilityLookup{},
 		Identity:       unusedIdentityLookup{},
 		IDs:            idgen.UUID{},
+		Zones:          tz.Loader{},
 	})
 }
 
@@ -185,6 +187,7 @@ func TestCreateBookingRPC_UnknownCourtIsNotFoundAgainstRealPostgres(t *testing.T
 		RecurringHires: unusedRecurringHireRepository{},
 		Facilities:     unusedFacilityLookup{},
 		Identity:       fixedIdentityLookup{userID: owner},
+		Zones:          tz.Loader{},
 		IDs:            idgen.UUID{},
 	}))
 	rng := mustRange(t, "2026-09-02T09:00:00Z", "2026-09-02T10:00:00Z")

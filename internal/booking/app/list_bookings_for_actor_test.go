@@ -68,6 +68,7 @@ func actorBookingFixture(t *testing.T) (*app.Service, *inMemoryRepo, *fakeFacili
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     lookup,
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	return svc, repo, lookup

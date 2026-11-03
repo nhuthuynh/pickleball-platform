@@ -34,3 +34,23 @@ func (r TimeRange) Contains(other TimeRange) bool {
 func (r TimeRange) Duration() time.Duration {
 	return r.End.Sub(r.Start)
 }
+
+// In re-expresses both ends of the range in loc. The instants are unchanged —
+// this is time.Time.In, twice — so Overlaps, Contains and Duration all answer
+// exactly the same before and after. What changes is the *wall clock* the
+// range reads as: Date(), Weekday() and Hour() all become the facility's
+// local ones.
+//
+// That distinction is the whole of ADR-0004 (T68.1, closes #356). A
+// PricingRule's window is a ClockTime, local to the court's facility, while
+// a TimeRange built from a protobuf Timestamp is normalised to UTC — so the
+// band of an 18:00 Ho Chi Minh City slot can only be resolved after a
+// conversion, and ResolvePrice is where it happens.
+//
+// A nil loc is deliberately not handled here: time.Time.In panics on nil, and
+// every caller in this package rejects a nil Location with
+// ErrFacilityTimezoneUnset before getting this far. Silently treating nil as
+// UTC is the exact bug this method exists to fix.
+func (r TimeRange) In(loc *time.Location) TimeRange {
+	return TimeRange{Start: r.Start.In(loc), End: r.End.In(loc)}
+}

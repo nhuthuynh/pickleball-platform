@@ -72,13 +72,18 @@ var errRepoUnavailable = errors.New("facilities postgres: connection refused")
 type inMemoryRepo struct {
 	facilities map[string]facilitiesdomain.Facility
 	courts     map[string]facilitiesdomain.Court
-	failWith   error
+	// timezones is facility id -> IANA zone (T68.1). An absent entry is a
+	// facilities row whose timezone column is '' — 0034's default — which is
+	// a real state of the data, not a miss.
+	timezones map[string]string
+	failWith  error
 }
 
 func newInMemoryRepo() *inMemoryRepo {
 	return &inMemoryRepo{
 		facilities: make(map[string]facilitiesdomain.Facility),
 		courts:     make(map[string]facilitiesdomain.Court),
+		timezones:  make(map[string]string),
 	}
 }
 
@@ -122,6 +127,25 @@ func (r *inMemoryRepo) GetCourtByID(_ context.Context, courtID string) (faciliti
 		return facilitiesdomain.Court{}, facilitiesdomain.ErrCourtNotFound
 	}
 	return c, nil
+}
+
+// CourtTimezone is T68.1's read fake, mirroring
+// internal/facilities/adapter/postgres.Repository.CourtTimezone: its query
+// INNER JOINs courts to facilities, so an unknown Court and a Court with no
+// Facility both answer ErrCourtNotFound, while a Facility with no zone
+// recorded answers an empty string and no error. The adapter under test has
+// to turn all three into one Booking-side sentinel, so the fake has to be
+// able to produce all three. failWith is honoured for the same reason the
+// Court reads honour it.
+func (r *inMemoryRepo) CourtTimezone(_ context.Context, courtID string) (string, error) {
+	if r.failWith != nil {
+		return "", r.failWith
+	}
+	c, ok := r.courts[courtID]
+	if !ok || c.FacilityID == "" {
+		return "", facilitiesdomain.ErrCourtNotFound
+	}
+	return r.timezones[c.FacilityID], nil
 }
 
 // GetCourtsByIDs is T67.1's batch read fake, mirroring
@@ -207,9 +231,11 @@ func mustCourt(t *testing.T, id, facilityID string) facilitiesdomain.Court {
 
 	if facilityID == "" {
 		// domain.NewCourt rejects an empty FacilityID, but a Court with a NULL
-		// facility_id is a real row in this schema (0010_facilities.sql's
-		// pre-Facilities seeded courts), and it is precisely the case
-		// FacilityIDForCourt must answer ErrFacilityNotFound for.
+		// facility_id is a real row in this schema (0010_facilities.sql keeps
+		// the column nullable; 0034 attached the seeded courts, so they are no
+		// longer the standing example), and it is precisely the case
+		// FacilityIDForCourt must answer ErrFacilityNotFound for — and, since
+		// T68.1, TimezoneForCourt ErrFacilityTimezoneUnset for.
 		return facilitiesdomain.Court{ID: id, Name: "Unattached Court"}
 	}
 	c, err := facilitiesdomain.NewCourt(id, facilityID, "Court 1")

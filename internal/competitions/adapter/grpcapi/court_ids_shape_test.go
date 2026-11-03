@@ -22,6 +22,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/competitions/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/competitions/app"
 	competitionsv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/competitions/v1"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -147,6 +148,14 @@ func (shapeBookingStubs) FacilityIDsForCourts(context.Context, []string) (map[st
 	return map[string]string{}, nil
 }
 
+// TimezoneForCourt (T68.1) matches FacilityIDForCourt's "no Facility" answer
+// above: no Facility, so no zone. Reserving a court resolves no price band,
+// and a stub answering "UTC" would be asserting a facility it has just
+// denied.
+func (shapeBookingStubs) TimezoneForCourt(context.Context, string) (string, error) {
+	return "", bookingdomain.ErrFacilityTimezoneUnset
+}
+
 func (shapeBookingStubs) EnsureClubRole(context.Context, string) error { return nil }
 
 func (shapeBookingStubs) UserIDBySubject(context.Context, string) (string, error) {
@@ -198,6 +207,7 @@ func newBookingBackedHandler() (*grpcapi.Handler, *fakeRepo, *shapeBookingRepo) 
 		Facilities:     shapeBookingStubs{},
 		Identity:       shapeBookingStubs{},
 		IDs:            &shapeBookingIDs{},
+		Zones:          tz.Loader{},
 	})
 
 	repo := newFakeRepo()

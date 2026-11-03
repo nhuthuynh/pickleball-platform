@@ -34,6 +34,7 @@ type Service struct {
 	recurringRepo port.RecurringHireRepository
 	facilities    port.FacilityLookup
 	identity      port.IdentityLookup
+	zones         port.LocationLoader
 	ids           port.IDGenerator
 }
 
@@ -71,6 +72,17 @@ type ServiceOptions struct {
 	// Identity resolves a verified IdP subject to a User.ID and answers club
 	// role questions — ADR-0014's seam (T13.2).
 	Identity port.IdentityLookup
+	// Zones resolves the IANA identifier Facilities reports for a court into
+	// a *time.Location, so GetQuote can resolve a price band against the
+	// facility's own wall clock (T68.1, ADR-0004, closes #356).
+	//
+	// **Required, like every other field here, and deliberately not an
+	// option that defaults to UTC.** A default would make the one
+	// misconfiguration this ticket exists to eliminate — resolving a band in
+	// the wrong zone — the behaviour of a Service nobody finished wiring,
+	// and it would be invisible: wrong prices, no error. Left unset it is
+	// nil, which Validate reports at construction.
+	Zones port.LocationLoader
 	// IDs mints every Booking and RecurringHireTemplate ID.
 	IDs port.IDGenerator
 }
@@ -104,9 +116,11 @@ var ErrMissingDependency = errors.New("booking/app: ServiceOptions is missing a 
 //
 // # Why it reports all of them
 //
-// Returning the first missing field would turn a seven-field mis-wiring into
-// seven edit-build-run cycles. The set is cheap to compute and the whole set
-// is what the caller needs.
+// Returning the first missing field would turn a mis-wiring of n fields into
+// n edit-build-run cycles. The set is cheap to compute and the whole set is
+// what the caller needs. (Stated without a figure on purpose: this bundle has
+// grown once already — T68.1 added Zones — and a count here would have been
+// wrong the moment it did.)
 func (o ServiceOptions) Validate() error {
 	var missing []string
 	for _, dep := range []struct {
@@ -119,6 +133,7 @@ func (o ServiceOptions) Validate() error {
 		{"RecurringHires", o.RecurringHires},
 		{"Facilities", o.Facilities},
 		{"Identity", o.Identity},
+		{"Zones", o.Zones},
 		{"IDs", o.IDs},
 	} {
 		if isUnusable(dep.value) {
@@ -178,6 +193,7 @@ func NewService(opts ServiceOptions) *Service {
 		recurringRepo: opts.RecurringHires,
 		facilities:    opts.Facilities,
 		identity:      opts.Identity,
+		zones:         opts.Zones,
 		ids:           opts.IDs,
 	}
 }
@@ -494,6 +510,21 @@ type Quote struct {
 // pre-T11.2 GetQuote behaviour is preserved exactly: an unknown or malformed
 // Court, or a slot outside every band, still fails the same way it always did
 // and never reaches the discount step.
+//
+// # The facility's zone (T68.1, ADR-0004, closes #356)
+//
+// A band window is a ClockTime, local to the court's facility, so resolving
+// one needs the facility's zone — which this method fetches through
+// port.FacilityLookup and hands to domain.ResolvePrice. Before T68.1 it
+// passed in.Range untouched, and adapter/grpcapi builds that range from
+// protobuf Timestamps normalised to UTC: an 18:00 Ho Chi Minh City slot was
+// quoted the weekday band (11:00) instead of peak.
+//
+// A Court with no resolvable zone is an error, never a UTC fallback — see
+// domain.ErrFacilityTimezoneUnset. The one exception is the Court nothing
+// prices at all, which still answers ErrNoPricingRule exactly as it always
+// has; the ordering comment below says why that case is answered without a
+// zone rather than in spite of one.
 func (s *Service) GetQuote(ctx context.Context, in GetQuoteInput) (Quote, error) {
 	// A malformed courtID is answered exactly like a well-formed one with no
 	// rules configured (ErrNoPricingRule) — this get-shaped read already
@@ -510,7 +541,26 @@ func (s *Service) GetQuote(ctx context.Context, in GetQuoteInput) (Quote, error)
 	if err != nil {
 		return Quote{}, err
 	}
-	band, err := domain.ResolvePrice(rules, in.CourtID, in.Range)
+
+	loc, err := s.courtLocation(ctx, in.CourtID)
+	if err != nil {
+		// A Court nobody has priced keeps answering ErrNoPricingRule, which
+		// is what this endpoint has answered for an unknown, malformed or
+		// unpriced Court since T1 and what this method's doc comment above
+		// promises. The zone is only *needed* to decide which of several
+		// windows a slot falls in; with no windows at all there is nothing
+		// for a zone to change, and demanding one would turn every unknown
+		// court id into a message about facilities and timezones.
+		//
+		// Note what this does NOT do: it does not treat a missing zone as
+		// UTC for a court that IS priced. That court gets the error.
+		if len(rules) == 0 {
+			return Quote{}, domain.ErrNoPricingRule
+		}
+		return Quote{}, err
+	}
+
+	band, err := domain.ResolvePrice(rules, in.CourtID, in.Range, loc)
 	if err != nil {
 		return Quote{}, err
 	}
@@ -526,6 +576,48 @@ func (s *Service) GetQuote(ctx context.Context, in GetQuoteInput) (Quote, error)
 	return quote, nil
 }
 
+// courtLocation resolves the Court's facility-local timezone to a
+// *time.Location, in two steps that are deliberately separate ports: which
+// zone this Court is in (port.FacilityLookup — the fact belongs to
+// Facilities, and Booking never reads the courts or facilities tables), and
+// what that zone name means (port.LocationLoader — a tz-database read, which
+// neither this layer nor the domain may do directly).
+//
+// Every failure is an error. There is no default zone anywhere on this path,
+// which is the decision T68.1 was given rather than one it made: a quote that
+// fails is a visible bug report, while a quote resolved in the wrong zone is a
+// wrong price that looks exactly like a right one.
+//
+// The empty-name check is not redundant with the port's documented contract
+// (implementations return ErrFacilityTimezoneUnset rather than ""), and it is
+// not redundant with tz.Loader's own guard either. It is here because
+// time.LoadLocation("") returns **UTC, with no error** — so an implementation
+// that leaked an empty name, today or after a refactor, would reintroduce
+// #356 silently rather than loudly. Two cheap guards on the one mistake whose
+// failure mode is invisible.
+func (s *Service) courtLocation(ctx context.Context, courtID string) (*time.Location, error) {
+	name, err := s.facilities.TimezoneForCourt(ctx, courtID)
+	if err != nil {
+		return nil, err
+	}
+	if name == "" {
+		return nil, domain.ErrFacilityTimezoneUnset
+	}
+	loc, err := s.zones.LoadLocation(name)
+	if err != nil {
+		// %s, not %w, on the loader's own error: a caller's errors.Is must
+		// see this sentinel and nothing from internal/platform, mirroring how
+		// adapter/facilities.translate strips facilitiesdomain error types at
+		// its own boundary (CLAUDE.md rule 5). The name is included because
+		// the actionable fix is to correct that stored value.
+		return nil, fmt.Errorf("%w: %q: %s", domain.ErrInvalidFacilityTimezone, name, err)
+	}
+	if loc == nil {
+		return nil, fmt.Errorf("%w: %q: loader returned no location", domain.ErrInvalidFacilityTimezone, name)
+	}
+	return loc, nil
+}
+
 // resolveDiscount finds the DiscountRule (if any) that applies to this quote.
 // DiscountRules are facility-scoped (A9's narrowing) while the quote path
 // keys off CourtID, so this is where Booking resolves a Court to its Facility
@@ -533,10 +625,15 @@ func (s *Service) GetQuote(ctx context.Context, in GetQuoteInput) (Quote, error)
 // against, never a second mechanism.
 //
 // A Court that resolves to no Facility (unknown Court, or the nullable
-// courts.facility_id case) yields no discount and no error: the quote is
-// still a real, correct band price, and refusing to quote a Court that
-// predates the Facilities context would break a read that has worked since
-// T1. Every other error — including domain.ErrAmbiguousDiscountRule, which
+// courts.facility_id case) yields no discount and no error. **T68.1 made that
+// branch defensive rather than load-bearing, and the reason it used to give is
+// now obsolete**: it existed so a Court predating the Facilities context would
+// still get a correct band price, but since this ticket such a Court has no
+// timezone either, so GetQuote refuses it before reaching here (ADR-0004,
+// #356). What remains reachable is the narrow race — a Facility deleted
+// between the zone lookup and this one — and for that, answering "no
+// discount" rather than failing is still right: the band price above is real.
+// Every other error — including domain.ErrAmbiguousDiscountRule, which
 // ADR-0002 requires be surfaced rather than silently resolved — propagates.
 func (s *Service) resolveDiscount(ctx context.Context, in GetQuoteInput) (domain.DiscountRule, error) {
 	facilityID, err := s.facilities.FacilityIDForCourt(ctx, in.CourtID)

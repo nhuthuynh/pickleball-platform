@@ -12,16 +12,27 @@
 //     ListBookingsForOwner deliberately does not. A fake repository "proves"
 //     whichever behaviour its own loop was written with, so it cannot witness
 //     a filter being added to the query.
+//
 //  2. **The rows come back ordered by starts_at.** `ORDER BY` is the
 //     database's, and a fake that sorts in Go proves only that the fake
 //     sorts. Without a real query, a dropped ORDER BY would surface as rows
 //     in heap order — which, on a small table, often looks sorted anyway.
+//
 //  3. **A Court with facility_id NULL resolves to no Facility rather than
-//     failing.** The two Courts 0002_seed.sql creates are inserted as
-//     (id, name) only, and 0010_facilities.sql adds facility_id as nullable
-//     with no backfill — so on any freshly migrated database both seeded
-//     courts have NULL there. That is the common case for this read, and the
-//     in-memory fake cannot reproduce a NULL column.
+//     failing.** courts.facility_id is nullable (0010_facilities.sql) and the
+//     in-memory fake cannot reproduce a NULL column, so this read's
+//     empty-facility path needs a real row with one.
+//
+//     T68.1 moved where that row comes from. Until then it was free: the two
+//     Courts 0002_seed.sql creates were inserted as (id, name) only and
+//     nothing backfilled them, so both seeded courts had NULL and this test
+//     read the claim straight off the seeds. 0034 attaches both to the demo
+//     Facility — it has to, because they are the only courts with
+//     pricing_rules rows and a court with no Facility now has no timezone and
+//     cannot be quoted at all (ADR-0004, #356). So this test inserts its own
+//     detached court instead, which is what the previous version of this
+//     comment predicted would be needed ("If a future migration backfills
+//     these, ... needs a different fixture to stay covered").
 //
 // CLAUDE.md's own lesson for this shape: "A DB-level guard with no DB-level
 // test is a comment", and "an in-memory fake is more permissive than
@@ -157,11 +168,17 @@ func TestListForOwner_AgainstRealPostgres(t *testing.T) {
 // T67.1 added to the Facilities context, run against the real `courts` table
 // including its NULL facility_id rows.
 //
-// It also pins the schema fact the whole "honest empty facility id" design
-// rests on, rather than trusting the migration headers: **both courts seeded
-// by 0002_seed.sql have facility_id NULL.** If a future migration backfilled
-// them, this assertion is where that becomes visible, instead of in a
-// surprised reading of ListBookingsForActor's output.
+// It also pins two schema facts the "honest empty facility id" design rests
+// on, rather than trusting the migration headers:
+//
+//   - **both courts seeded by 0002_seed.sql now belong to 0034's demo
+//     Facility** (T68.1 — they must, or the one demo court with pricing rules
+//     could not be quoted; see ADR-0004 and #356), and
+//   - **a court with facility_id NULL still reads back with an empty
+//     FacilityID**, which is the path ListBookingsForActor's empty-facility
+//     behaviour depends on. That row is inserted here rather than inherited
+//     from the seeds, so it stays covered no matter what a later migration
+//     does to them.
 func TestGetCourtsByIDs_AgainstRealPostgres(t *testing.T) {
 	ctx := context.Background()
 	pool := startPostgres(t, ctx)
@@ -175,13 +192,29 @@ func TestGetCourtsByIDs_AgainstRealPostgres(t *testing.T) {
 		t.Fatalf("got %d courts, want the 2 seeded by 0002_seed.sql: %+v", len(courts), courts)
 	}
 	for _, c := range courts {
-		if c.FacilityID != "" {
-			t.Errorf("seeded court %q has FacilityID %q, want empty — 0002_seed.sql inserts "+
-				"(id, name) only and 0010_facilities.sql adds facility_id as nullable with no "+
-				"backfill, so this read's empty-facility path is the common case on a fresh "+
-				"database. If a migration now backfills these, ListBookingsForActor's "+
-				"empty-facility behaviour needs a different fixture to stay covered.", c.ID, c.FacilityID)
+		if c.FacilityID != seededDemoFacilityID {
+			t.Errorf("seeded court %q has FacilityID %q, want %q — 0034 attaches both seeded courts to the "+
+				"demo Facility so the one court with pricing_rules rows has a timezone to resolve a band in "+
+				"(T68.1, #356). If that seed changes, the demo quote path breaks with it.",
+				c.ID, c.FacilityID, seededDemoFacilityID)
 		}
+	}
+
+	// The empty-facility path, on a real NULL column.
+	detached := uuid.NewString()
+	if _, err := pool.Exec(ctx, `INSERT INTO courts (id, name) VALUES ($1, 'Detached Court')`, detached); err != nil {
+		t.Fatalf("seeding a facility-less court: %v", err)
+	}
+	loose, err := repo.GetCourtsByIDs(ctx, []string{detached})
+	if err != nil {
+		t.Fatalf("GetCourtsByIDs(detached): %v", err)
+	}
+	if len(loose) != 1 {
+		t.Fatalf("got %+v, want the one detached court", loose)
+	}
+	if loose[0].FacilityID != "" {
+		t.Errorf("detached court's FacilityID = %q, want empty — a NULL facility_id must read back as "+
+			"an empty id, not as an error and not as a zero uuid", loose[0].FacilityID)
 	}
 
 	// A miss contributes no row rather than failing the call — the property

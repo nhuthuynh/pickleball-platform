@@ -40,6 +40,7 @@ import (
 	bookingapp "github.com/nhuthuynh/white-label/internal/booking/app"
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
 	"github.com/nhuthuynh/white-label/internal/platform/idgen"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 // concurrentCreateAttempts is deliberately > a handful: the EXCLUDE
@@ -99,6 +100,7 @@ func TestCreateBooking_ExactlyOneWinsUnderConcurrency(t *testing.T) {
 		Facilities:     unusedFacilityLookup{},
 		Identity:       unusedIdentityLookup{},
 		IDs:            idgen.UUID{},
+		Zones:          tz.Loader{},
 	})
 
 	rng := mustRange(t, "2026-09-01T09:00:00Z", "2026-09-01T10:00:00Z")
@@ -242,6 +244,14 @@ func (unusedFacilityLookup) CourtIDsForFacility(_ context.Context, _ string) ([]
 // and an empty map is a successful answer.
 func (unusedFacilityLookup) FacilityIDsForCourts(_ context.Context, _ []string) (map[string]string, error) {
 	return nil, domain.ErrFacilityNotFound
+}
+
+// TimezoneForCourt (T68.1) fails closed like the rest. It is reached only by
+// GetQuote, which this test does not exercise; answering a plausible "UTC"
+// would let a future change route a price band through a stub that knows
+// nothing about any facility's zone and still pass.
+func (unusedFacilityLookup) TimezoneForCourt(_ context.Context, _ string) (string, error) {
+	return "", domain.ErrFacilityTimezoneUnset
 }
 
 // unusedRecurringHireRepository and unusedIdentityLookup are this test's

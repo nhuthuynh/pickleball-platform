@@ -51,9 +51,10 @@ type Repository interface {
 	// ListCourtsForFacility: given a Court, which Facility owns it —
 	// the read internal/booking/port.FacilityLookup needs so a
 	// facility-scoped DiscountRule can be resolved from the CourtID
-	// GetQuote already has. A Court whose facility_id is NULL (the
-	// pre-Facilities seeded courts, 0010_facilities.sql) is found, with
-	// an empty FacilityID; that is not an error here.
+	// GetQuote already has. A Court whose facility_id is NULL
+	// (0010_facilities.sql keeps that column nullable; since 0034 the seeded
+	// courts are no longer an example of it) is found, with an empty
+	// FacilityID; that is not an error here.
 	GetCourtByID(ctx context.Context, courtID string) (domain.Court, error)
 
 	// GetCourtsByIDs is the batch form of GetCourtByID (T67.1, part of
@@ -72,6 +73,24 @@ type Repository interface {
 	// As with GetCourtByID, a Court whose facility_id is NULL is found, with
 	// an empty FacilityID; that is not an error here either.
 	GetCourtsByIDs(ctx context.Context, courtIDs []string) ([]domain.Court, error)
+
+	// CourtTimezone returns the IANA timezone identifier of the Facility that
+	// owns courtID (T68.1, ADR-0004, closes #356) — the zone a court's local
+	// opening hours and price bands are expressed in.
+	//
+	// Returns domain.ErrCourtNotFound when courtID names no Court **and when
+	// the Court belongs to no Facility**: there is no zone either way, and
+	// unlike GetCourtByID — whose caller wants the court->facility fact and
+	// can act on "none" — this method's answer is a zone or nothing. A
+	// Facility that exists with no zone recorded (facilities.timezone = '',
+	// its 0034 default) is NOT an error here: it comes back as an empty
+	// string, because "this facility has not set one" is a real state of the
+	// data that the caller must be able to distinguish from a lookup failure.
+	//
+	// Implementations must read the zone from the facilities row joined
+	// through courts.facility_id, never from a copy denormalised onto
+	// pricing_rules or courts: one fact, one place (CLAUDE.md rule 7).
+	CourtTimezone(ctx context.Context, courtID string) (string, error)
 
 	// ListCourtsForFacility returns every Court belonging to facilityID, in
 	// creation order (T8.2 — the read path AddCourt (T7.3) never had). An

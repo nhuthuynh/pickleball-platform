@@ -48,6 +48,7 @@ import (
 	bookingv1 "github.com/nhuthuynh/white-label/internal/gen/pickleball/booking/v1"
 	identityapp "github.com/nhuthuynh/white-label/internal/identity/app"
 	identitydomain "github.com/nhuthuynh/white-label/internal/identity/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 // subjectOf is the verified IdP subject for fixture user n — deliberately NOT
@@ -157,6 +158,7 @@ func newHandlerWithRealIdentity(t *testing.T) *realIdentityHarness {
 		Facilities:     fakeFacilityLookup{},
 		Identity:       lookup,
 		IDs:            &fakeIDs{},
+		Zones:          tz.Loader{},
 	})
 	return &realIdentityHarness{handler: grpcapi.NewHandler(svc), templates: templates, users: users}
 }
@@ -281,6 +283,7 @@ func TestActorSeam_RawSubjectNeverReachesTheAppLayer(t *testing.T) {
 		Facilities:     fakeFacilityLookup{},
 		Identity:       bookingidentity.NewLookup(identityapp.NewService(h.users, identityStubIDs{})),
 		IDs:            &fakeIDs{},
+		Zones:          tz.Loader{},
 	})
 
 	// The seam, called directly: subject in, User.ID out.

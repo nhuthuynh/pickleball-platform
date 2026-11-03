@@ -198,9 +198,10 @@ func (r *Repository) AttestCameraConsent(ctx context.Context, facilityID string)
 }
 
 // GetCourtByID is T11.2's Court-shaped read: given a Court, which Facility
-// owns it. A NULL facility_id (a seeded, pre-Facilities court) comes back as
-// an empty FacilityID via uuidOrEmpty — found, but belonging to no Facility,
-// which is a real answer in this schema and not an error.
+// owns it. A NULL facility_id comes back as an empty FacilityID via
+// uuidOrEmpty — found, but belonging to no Facility, which is a real answer in
+// this schema and not an error. (The seeded courts stopped being the standing
+// example of it at 0034.)
 func (r *Repository) GetCourtByID(ctx context.Context, courtID string) (domain.Court, error) {
 	row, err := r.q.GetCourtByID(ctx, mustUUID(courtID))
 	if err != nil {
@@ -211,6 +212,29 @@ func (r *Repository) GetCourtByID(ctx context.Context, courtID string) (domain.C
 		FacilityID: uuidOrEmpty(row.FacilityID),
 		Name:       row.Name,
 	}, nil
+}
+
+// CourtTimezone is T68.1's read (ADR-0004, closes #356): the IANA zone of the
+// Facility that owns a Court, resolved in one query from the CourtID a quote
+// already has.
+//
+// GetCourtTimezone's JOIN is an inner one, so a Court with facility_id NULL
+// produces no row — pgx.ErrNoRows, which translateCourtErr maps to
+// domain.ErrCourtNotFound, the same answer an id naming no Court at all gets.
+// That collapse is the port's documented contract and the difference from
+// GetCourtByID above, which reports a Facility-less Court as found with an
+// empty FacilityID: there, "none" is an answer the caller acts on; here there
+// is simply no zone.
+//
+// An existing Facility with timezone = ” (0034's default) returns that empty
+// string and no error — the data saying "nobody has set one", which Booking
+// turns into its own ErrFacilityTimezoneUnset rather than into UTC.
+func (r *Repository) CourtTimezone(ctx context.Context, courtID string) (string, error) {
+	zone, err := r.q.GetCourtTimezone(ctx, mustUUID(courtID))
+	if err != nil {
+		return "", translateCourtErr(err)
+	}
+	return zone, nil
 }
 
 // GetCourtsByIDs is the batch form of GetCourtByID (T67.1): one query over an

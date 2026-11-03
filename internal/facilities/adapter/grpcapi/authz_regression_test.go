@@ -89,12 +89,18 @@ type fakeRepo struct {
 	// internal/facilities/app/service_test.go's inMemoryRepo.courtOrder for
 	// why (Go map iteration order is unspecified).
 	courtOrder []string
+	// timezones is facility id -> IANA zone (T68.1). Nothing in this
+	// handler package reads it; it exists so CourtTimezone below can answer
+	// from stored data rather than from a constant, which keeps the fake
+	// honest about the one thing that read is for.
+	timezones map[string]string
 }
 
 func newFakeRepo() *fakeRepo {
 	return &fakeRepo{
 		facilities: make(map[string]domain.Facility),
 		courts:     make(map[string]domain.Court),
+		timezones:  make(map[string]string),
 	}
 }
 
@@ -166,6 +172,18 @@ func (r *fakeRepo) GetCourtsByIDs(_ context.Context, courtIDs []string) ([]domai
 		}
 	}
 	return out, nil
+}
+
+// CourtTimezone is T68.1's court->facility-zone read; like the two Court
+// reads above, this handler package never calls it, but port.Repository
+// requires it. A Court this fake does not know, or one belonging to no
+// Facility, is ErrCourtNotFound per that port's contract.
+func (r *fakeRepo) CourtTimezone(_ context.Context, courtID string) (string, error) {
+	c, ok := r.courts[courtID]
+	if !ok || c.FacilityID == "" {
+		return "", domain.ErrCourtNotFound
+	}
+	return r.timezones[c.FacilityID], nil
 }
 
 func (r *fakeRepo) ListCourtsForFacility(_ context.Context, facilityID string) ([]domain.Court, error) {

@@ -9,6 +9,7 @@ import (
 	"github.com/nhuthuynh/white-label/internal/booking/adapter/grpcapi"
 	"github.com/nhuthuynh/white-label/internal/booking/app"
 	"github.com/nhuthuynh/white-label/internal/booking/domain"
+	"github.com/nhuthuynh/white-label/internal/platform/tz"
 )
 
 // unknownCourt is uuid-shaped and named by no courts row — the exact input
@@ -31,6 +32,7 @@ func newFKHandler() (*grpcapi.Handler, *storingBookingRepo) {
 		Facilities:     fakeFacilityLookup{},
 		Identity:       newFakeIdentityLookup(),
 		IDs:            &fakeIDs{},
+		Zones:          tz.Loader{},
 	})
 	return grpcapi.NewHandler(svc), bookings
 }

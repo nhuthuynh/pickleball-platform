@@ -65,6 +65,7 @@ func TestListCourtBookings_MalformedCourtIDIsEmptyNotAPanic(t *testing.T) {
 				RecurringHires: newFakeRecurringHireRepo(),
 				Facilities:     &fakeFacilityLookup{},
 				Identity:       &fakeIdentityLookup{},
+				Zones:          &fakeZones{},
 				IDs:            &sequentialIDs{},
 			})
 
@@ -117,6 +118,7 @@ func TestListCourtBookings_MalformedCourtIDNeverReachesRepository(t *testing.T) 
 				RecurringHires: newFakeRecurringHireRepo(),
 				Facilities:     &fakeFacilityLookup{},
 				Identity:       &fakeIdentityLookup{},
+				Zones:          &fakeZones{},
 				IDs:            &sequentialIDs{},
 			})
 
@@ -140,6 +142,7 @@ func TestListCourtBookings_MalformedCourtIDNeverReachesRepository(t *testing.T) 
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	if _, err := svc.ListCourtBookings(context.Background(), courtID(99), rng); err != nil {
@@ -163,6 +166,7 @@ func TestListCourtBookings_WellFormedCourtIDStillReads(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	ctx := context.Background()
@@ -225,6 +229,7 @@ func TestGetQuote_MalformedCourtIDIsNoPricingRuleNotAPanic(t *testing.T) {
 				RecurringHires: newFakeRecurringHireRepo(),
 				Facilities:     &fakeFacilityLookup{},
 				Identity:       &fakeIdentityLookup{},
+				Zones:          &fakeZones{},
 				IDs:            &sequentialIDs{},
 			})
 
@@ -271,6 +276,7 @@ func TestGetQuote_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 				RecurringHires: newFakeRecurringHireRepo(),
 				Facilities:     &fakeFacilityLookup{},
 				Identity:       &fakeIdentityLookup{},
+				Zones:          &fakeZones{},
 				IDs:            &sequentialIDs{},
 			})
 
@@ -293,6 +299,7 @@ func TestGetQuote_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	if _, err := svc.GetQuote(context.Background(), app.GetQuoteInput{CourtID: courtID(99), Source: domain.SourceIndividual, Range: rng}); !errors.Is(err, domain.ErrNoPricingRule) {
@@ -320,6 +327,7 @@ func TestGetQuote_WellFormedCourtIDStillReads(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 
@@ -375,6 +383,7 @@ func TestCancelBooking_MalformedBookingIDIsNotFoundAndNeverReachesRepository(t *
 				RecurringHires: newFakeRecurringHireRepo(),
 				Facilities:     &fakeFacilityLookup{},
 				Identity:       &fakeIdentityLookup{},
+				Zones:          &fakeZones{},
 				IDs:            &sequentialIDs{},
 			})
 
@@ -404,6 +413,7 @@ func TestCancelBooking_WellFormedUnknownBookingIDStillReachesRepository(t *testi
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 
@@ -468,6 +478,7 @@ func TestCreateBooking_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 				RecurringHires: newFakeRecurringHireRepo(),
 				Facilities:     &fakeFacilityLookup{},
 				Identity:       &fakeIdentityLookup{},
+				Zones:          &fakeZones{},
 				IDs:            &sequentialIDs{},
 			})
 
@@ -494,6 +505,7 @@ func TestCreateBooking_MalformedCourtIDNeverReachesRepository(t *testing.T) {
 			RecurringHires: newFakeRecurringHireRepo(),
 			Facilities:     &fakeFacilityLookup{},
 			Identity:       &fakeIdentityLookup{},
+			Zones:          &fakeZones{},
 			IDs:            &sequentialIDs{},
 		})
 
@@ -525,6 +537,7 @@ func TestCreateBooking_WellFormedCourtIDStillReachesRepository(t *testing.T) {
 		RecurringHires: newFakeRecurringHireRepo(),
 		Facilities:     &fakeFacilityLookup{},
 		Identity:       &fakeIdentityLookup{},
+		Zones:          &fakeZones{},
 		IDs:            &sequentialIDs{},
 	})
 	rng := mustTimeRange(t, "2026-08-03T09:00:00Z", "2026-08-03T10:00:00Z")
