@@ -241,6 +241,14 @@ describe('formatBookingWindow', () => {
 
   // 23:00 -> 01:00 read as a backwards window: the end looked like it came
   // ten hours BEFORE the start, on the same stated day.
+  //
+  // SCOPE OF THIS ROW, since its name overpromises outside UTC (review
+  // round 2): "midnight" here is UTC's, because that is the zone this suite
+  // runs in. In a far-eastern zone both ends of 23:00Z->01:00Z fall on ONE
+  // local day, so both `toContain`s below are satisfied by the short form
+  // and this row would pass even against a UTC-day comparison. It pins the
+  // end date being carried; it does NOT pin WHICH day boundary decides that.
+  // See formatBookingWindow's doc comment for the uncovered case and why.
   it('carries the end date across midnight', () => {
     const label = formatBookingWindow('2026-11-10T23:00:00Z', '2026-11-11T01:00:00Z')
 

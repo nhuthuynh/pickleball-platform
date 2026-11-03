@@ -266,6 +266,31 @@ export function amountOwedLabel(paymentStatus: string, amountOwedCents: number):
  * comparison would, for most of the world, sometimes claim "same day" about
  * two dates it then prints differently. Comparing the very strings that are
  * about to be printed cannot disagree with the output.
+ *
+ * **That last paragraph is argued, NOT covered by a test — stated here
+ * because an unrecorded blind spot is the more expensive kind** (PR #369
+ * review round 2; `t67-retro.md` §5's "a mechanism whose necessity you can
+ * argue is not the same as a mechanism whose removal something notices").
+ * Substituting the UTC comparison leaves the whole suite green, because the
+ * suite runs in **UTC**, where the two comparisons agree by construction:
+ *
+ *   TZ=UTC                09:00Z->13:00Z   local == utc   (identical output)
+ *   TZ=UTC                23:00Z->01:00Z   local == utc   (identical output)
+ *
+ * The case that WOULD catch it is `09:00Z -> 13:00Z` in a zone far enough
+ * east, e.g. `TZ=Pacific/Auckland` (UTC+13 in November) — same UTC day, two
+ * different LOCAL days:
+ *
+ *   shipped (local):  "Nov 10, 2026, 10:00 PM – Nov 11, 2026, 2:00 AM"
+ *   mutant  (utc)  :  "Nov 10, 2026, 10:00 PM–2:00 AM"      <- loses Nov 11
+ *
+ * i.e. precisely the dropped-end-date defect this function was fixed for.
+ * Note the existing `carries the end date across midnight` spec row does NOT
+ * cover it: at `23:00Z->01:00Z` Auckland formats both ends to the same date
+ * string, so its two `toContain` assertions are both satisfied by the short
+ * form and it passes against the mutant. Pinning this needs a non-UTC test
+ * run, which this suite has no mechanism for; a second vitest project for
+ * one assertion was judged to cost more than the risk.
  */
 export function formatBookingWindow(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt)
