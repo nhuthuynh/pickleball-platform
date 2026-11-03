@@ -114,7 +114,13 @@ const ROUTES_UNDER_TEST: { path: string; label: string }[] = [
   { path: '/competitions', label: 'competitions' },
   { path: '/competitions/comp-1', label: 'competition-detail' },
   { path: '/c/share-token-1', label: 'competition-share-link' },
-  { path: '/bookings', label: 'bookings (placeholder)' },
+  // T68.3 — a real screen since this ticket, not a placeholder. The sweep
+  // reaches its SIGNED-OUT state (no token in localStorage, and `fetch` is
+  // stubbed to reject anyway), which is the honest empty/error state this
+  // file's header says every route resolves to here. Its populated and
+  // interactive states — two lists, cancelled rows, a per-section retry —
+  // are audited in flagshipFlows.spec.ts, where a per-state check belongs.
+  { path: '/bookings', label: 'bookings' },
   { path: '/profile', label: 'profile' },
 ]
 
