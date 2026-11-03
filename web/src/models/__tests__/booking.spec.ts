@@ -12,11 +12,15 @@ describe('mapToQuote', () => {
   it('parses the int64-as-string priceCents AND bandPriceCents into numbers', () => {
     // T11.2 added bandPriceCents (the pre-discount band price) and discount
     // to GetQuoteResponse — both int64-as-string / message respectively.
-    const quote = mapToQuote({ priceCents: '1530', band: 'peak', bandPriceCents: '1800' }, 1000)
+    const quote = mapToQuote(
+      { priceCents: '1530', band: 'peak', bandPriceCents: '1800', currency: 'VND' },
+      1000,
+    )
     expect(quote).toEqual({
       priceCents: 1530,
       bandPriceCents: 1800,
       band: 'peak',
+      currency: 'VND',
       discount: null,
       fetchedAt: 1000,
     })
@@ -24,7 +28,26 @@ describe('mapToQuote', () => {
 
   it('defaults missing fields', () => {
     const quote = mapToQuote({}, 500)
-    expect(quote).toEqual({ priceCents: 0, bandPriceCents: 0, band: '', discount: null, fetchedAt: 500 })
+    expect(quote).toEqual({
+      priceCents: 0,
+      bandPriceCents: 0,
+      band: '',
+      currency: '',
+      discount: null,
+      fetchedAt: 500,
+    })
+  })
+
+  it("carries GetQuoteResponse.currency through, and defaults it to '' rather than a guess", () => {
+    // T68.2 (ADR-0005, #357). The server now says what its two amounts are
+    // denominated in, so this mapper must not drop it. The default is ''
+    // and deliberately NOT 'USD': a response with no currency is one that
+    // predates the field, and labelling it dollars is the implicit-currency
+    // assumption #357 was filed about — now with a field present to make it
+    // look deliberate.
+    expect(mapToQuote({ priceCents: '2000', currency: 'VND' }, 1).currency).toBe('VND')
+    expect(mapToQuote({ priceCents: '2000', currency: 'USD' }, 1).currency).toBe('USD')
+    expect(mapToQuote({ priceCents: '2000' }, 1).currency).toBe('')
   })
 
   it('falls back bandPriceCents to priceCents when the server did not send one', () => {

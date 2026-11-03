@@ -71,8 +71,8 @@ func quoteFixtureInZone(t *testing.T, zone string) (*app.Service, *fakeZones) {
 
 	pricingRepo := &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
 		courtID(1): {
-			{ID: "weekday-rule", CourtID: courtID(1), Band: domain.BandWeekday, Weekdays: weekdays, Start: open, End: peakStart, PriceCents: 2000},
-			{ID: "peak-rule", CourtID: courtID(1), Band: domain.BandPeak, Weekdays: weekdays, Start: peakStart, End: closeAt, PriceCents: 3500},
+			{ID: "weekday-rule", CourtID: courtID(1), Band: domain.BandWeekday, Weekdays: weekdays, Start: open, End: peakStart, PriceCents: 2000, Currency: "USD"},
+			{ID: "peak-rule", CourtID: courtID(1), Band: domain.BandPeak, Weekdays: weekdays, Start: peakStart, End: closeAt, PriceCents: 3500, Currency: "USD"},
 		},
 	}}
 	zones := &fakeZones{}
@@ -385,7 +385,7 @@ func TestGetQuote_AnEmptyZoneFromTheLookupIsRefused(t *testing.T) {
 		PricingRules: &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
 			courtID(1): {{
 				ID: "weekday-rule", CourtID: courtID(1), Band: domain.BandWeekday,
-				Weekdays: []time.Weekday{time.Monday}, Start: open, End: peakStart, PriceCents: 2000,
+				Weekdays: []time.Weekday{time.Monday}, Start: open, End: peakStart, PriceCents: 2000, Currency: "USD",
 			}},
 		}},
 		DiscountRules:  newFakeDiscountRepo(),

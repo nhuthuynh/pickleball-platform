@@ -33,6 +33,19 @@ export interface Quote {
    * rather than a fabricated 0. */
   bandPriceCents: number
   band: string
+  /** The ISO 4217 code `priceCents` and `bandPriceCents` are both in
+   * (T68.2, ADR-0005, #357). One field for both amounts because the server
+   * sends one: they are the same resolved band's price.
+   *
+   * Always non-empty on a real `GetQuote` response — the server refuses to
+   * quote a court whose pricing rules name no usable code or disagree about
+   * one (FAILED_PRECONDITION, `domain.ErrInvalidPricingCurrency` /
+   * `ErrMixedPricingCurrency`). `''` here therefore means a response that
+   * predates the field or a hand-built fixture, not a real currency.
+   *
+   * NOT YET USED FOR DISPLAY, deliberately: see `formatPriceCents` below for
+   * what is still owed and why it is a separate decision. */
+  currency: string
   /** `null` — not a zero-valued rule — when no discount applied. */
   discount: DiscountRule | null
   fetchedAt: number
@@ -47,6 +60,7 @@ export function mapToQuote(raw: RawQuote, fetchedAt: number = Date.now()): Quote
     // fall back to that rather than letting the UI strike through a zero.
     bandPriceCents: raw.bandPriceCents === undefined ? priceCents : Number(raw.bandPriceCents),
     band: raw.band ?? '',
+    currency: raw.currency ?? '',
     discount: raw.discount ? mapToDiscountRule(raw.discount) : null,
     fetchedAt,
   }
@@ -86,9 +100,27 @@ export function mapToBooking(raw: RawBooking): ConfirmedBooking {
   }
 }
 
-/** Formats a price the server already returned as US-cents into a display
- * string (e.g. `1800` -> `"$18.00"`). This is display formatting only, not
- * a price computation — see this file's header comment. */
+/** Formats a price the server returned in minor units into a display string
+ * (e.g. `1800` -> `"$18.00"`). Display formatting only, not a price
+ * computation — see this file's header comment.
+ *
+ * KNOWN GAP (T68.2, ADR-0005, #357): this hardcodes a dollar sign and a
+ * two-decimal divisor, and `Quote.currency` is now on the response and is
+ * **not** consulted here. #357 was a complaint about the API contract and
+ * that is the half T68.2 closed; making this function currency-aware is a
+ * separate decision nobody has made, and it is not a one-liner:
+ *   * the symbol is per-currency (`Intl.NumberFormat` already knows one, so
+ *     the fix is to use it rather than to grow a symbol table), and
+ *   * the DIVISOR is per-currency too. ISO 4217 exponents are not all 2 —
+ *     VND, the currency `0035_pricing_rules_currency.sql` seeds the demo
+ *     facility in, has an exponent of 0, so `/ 100` renders 2000 dong as
+ *     "20.00". ADR-0005 assumes integer minor units throughout and says
+ *     nothing about zero-decimal currencies, so settling that is an
+ *     ADR-level change touching every context holding a `*_cents` column,
+ *     not a tweak to this function.
+ * Until then this renders correctly for two-decimal currencies only, which
+ * is what it has always done — what changed is that it is written down
+ * rather than asserted to be true by construction. */
 export function formatPriceCents(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
 }

@@ -28,6 +28,20 @@ type PricingRule struct {
 	Start      ClockTime
 	End        ClockTime
 	PriceCents int64
+	// Currency is the ISO 4217 alphabetic code PriceCents is denominated in
+	// (ADR-0005, T68.2, closes #357). Two fields rather than a Money: this
+	// is booking's own convention, set by DiscountRule's
+	// fixed_amount_cents/currency pair in booking.proto and by every
+	// `*_cents` + `*_currency` column pair in db/migrations. See money.go
+	// for why PricingRule does not use this context's Money type.
+	//
+	// It is not optional and it has no default. ResolvePrice refuses a rule
+	// whose code is missing or malformed (ErrInvalidPricingCurrency) and
+	// refuses a court whose rules disagree (ErrMixedPricingCurrency) —
+	// ADR-0009's market scope was answered on 2026-10-07 as *both* Vietnam
+	// and global, so there is no single value a missing code could honestly
+	// mean.
+	Currency string
 }
 
 func (r PricingRule) appliesToWeekday(w time.Weekday) bool {
@@ -140,6 +154,17 @@ func fitsSingleCalendarDay(slot TimeRange) bool {
 //
 // A nil loc is ErrFacilityTimezoneUnset, never UTC. The domain will not price
 // a slot it cannot place on a local clock; see that sentinel's doc comment.
+//
+// # The currency the resolved price is in (T68.2, ADR-0005, #357)
+//
+// The returned rule carries its own Currency, and two further refusals exist
+// to make that field trustworthy rather than decorative:
+// ErrInvalidPricingCurrency when any of the court's rules names no usable ISO
+// 4217 code, and ErrMixedPricingCurrency when they do not agree on one. Both
+// are decided before matching, by ensureOneUsableCurrency — see its doc
+// comment for why the check spans the court's whole rule set, why a court with
+// no rules is unaffected, and why this is a read-time refusal rather than a
+// schema constraint.
 func ResolvePrice(rules []PricingRule, courtID string, slot TimeRange, loc *time.Location) (PricingRule, error) {
 	if loc == nil {
 		return PricingRule{}, ErrFacilityTimezoneUnset
@@ -150,11 +175,19 @@ func ResolvePrice(rules []PricingRule, courtID string, slot TimeRange, loc *time
 		return PricingRule{}, ErrPricingSlotSpansMultipleDays
 	}
 
-	var matches []PricingRule
+	forCourt := make([]PricingRule, 0, len(rules))
 	for _, r := range rules {
-		if r.CourtID != courtID {
-			continue
+		if r.CourtID == courtID {
+			forCourt = append(forCourt, r)
 		}
+	}
+
+	if err := ensureOneUsableCurrency(forCourt); err != nil {
+		return PricingRule{}, err
+	}
+
+	var matches []PricingRule
+	for _, r := range forCourt {
 		if r.covers(local) {
 			matches = append(matches, r)
 		}
@@ -168,4 +201,106 @@ func ResolvePrice(rules []PricingRule, courtID string, slot TimeRange, loc *time
 	default:
 		return PricingRule{}, ErrAmbiguousPricingRule
 	}
+}
+
+// ensureOneUsableCurrency is T68.2's answer to "what happens when one court's
+// pricing rules disagree about currency?" (ADR-0005, closes #357). The answer
+// is that the quote is refused, and this is where that is decided.
+//
+// # Why the whole court's rule set, and not just the rule that matched
+//
+// A mixed-currency rule set is a property of the SET, not of any one row, and
+// every individual quote against it can look perfectly fine: a court priced
+// 200000 VND on weekdays and 35 USD at weekends answers both slots without
+// hesitating, and the two numbers a client puts side by side are not
+// comparable. Checking only the match would make the misconfiguration visible
+// on exactly none of the requests anyone makes — the shape of #356 (a band
+// that resolved cleanly in the wrong zone) and of 0031 (a CHECK that was
+// never widened and that no unit test could fail on).
+//
+// The scope is per-court because pricing_rules is per-court. Two facilities
+// in two markets pricing their courts in two currencies is the world ADR-0009
+// described on 2026-10-07 ("both markets"), so a platform-wide single
+// currency is not the invariant — a single currency *per court* is.
+//
+// # Why this is a read-time refusal and not a schema constraint
+//
+// Asked and answered rather than assumed, because the ticket named it as a
+// real question:
+//
+//   - "all rows for one court name the same currency" is a cross-row
+//     predicate. A Postgres CHECK sees one row, so it cannot express it. The
+//     mechanisms that could are a trigger or a denormalised court-level copy
+//     of the code.
+//   - A trigger is this repository's most-broken mechanism:
+//     CREATE OR REPLACE FUNCTION silently dropped prior logic from
+//     enforce_game_capacity() twice (0012 over 0007, 0023 over 0012, union
+//     restored by 0030), and CLAUDE.md records that "a DB-level guard with no
+//     DB-level test is a comment" after 0007's reservation went seventeen
+//     migrations unnoticed.
+//   - Decisively: pricing_rules has NO write path. It is migration-seeded
+//     only; there is no CreatePricingRule use case, no Pricing CRUD, and no
+//     sqlc INSERT. HANDOFF.md's T1 "known gap, deliberately deferred" already
+//     made exactly this call for exactly this table, for the overlapping-
+//     window invariant — read-time detection in the domain
+//     (ErrAmbiguousPricingRule), write-time guard deferred to the ticket that
+//     builds the write path — and 0017 restates it as ADR-0002's standing
+//     decision for discount_rules. A write-time guard on a table nothing
+//     writes to would be a guard nothing can fire.
+//
+// The per-ROW half of the invariant is a different question and it IS in the
+// schema: 0035's NOT NULL and pricing_rules_currency_shape CHECK refuse a
+// missing or non-ISO-4217-shaped code on any single row, and
+// ErrInvalidPricingCurrency below is that constraint's domain counterpart
+// (CLAUDE.md rule 4). Both halves of rule 4 hold for what one row can say;
+// only the cross-row half waits for a writer.
+//
+// # Ordering
+//
+// A malformed code is reported before a disagreement: it is the more basic
+// fault, it may be the whole cause of the disagreement, and "mixed" would
+// name a symptom. Both are reported before matching, so a priced court with
+// broken currency data does not answer ErrNoPricingRule and send an operator
+// hunting for band rows that are already there. An empty rule set has nothing
+// to check, so an unpriced court keeps answering ErrNoPricingRule exactly as
+// it has since T1 — pinned by a row in pricing_currency_test.go's precedence
+// table.
+func ensureOneUsableCurrency(forCourt []PricingRule) error {
+	for _, r := range forCourt {
+		if !isValidCurrencyCode(r.Currency) {
+			return ErrInvalidPricingCurrency
+		}
+	}
+	for _, r := range forCourt {
+		if r.Currency != forCourt[0].Currency {
+			return ErrMixedPricingCurrency
+		}
+	}
+	return nil
+}
+
+// isValidCurrencyCode is a cheap ISO 4217 *format* check — exactly three
+// uppercase letters — not a lookup against the real currency registry. It is
+// a deliberate copy of internal/payments/domain's function of the same name,
+// for the same reason this package keeps its own Money type rather than
+// importing payments' (see money.go): a bounded context owns its own copy of
+// this shape (T9's ruling against a shared-kernel Money, restated by T11.1).
+//
+// It is the Go half of 0035's pricing_rules_currency_shape CHECK, and the two
+// are deliberately the same predicate stated twice — CLAUDE.md rule 4. The
+// regexp the CHECK uses, '^[A-Z]{3}$', is this loop.
+//
+// Validating against the real ISO 4217 list is out of scope and stays out:
+// ADR-0005 accepted a format check explicitly, and a registry would be a
+// table this project would then have to keep current.
+func isValidCurrencyCode(code string) bool {
+	if len(code) != 3 {
+		return false
+	}
+	for _, r := range code {
+		if r < 'A' || r > 'Z' {
+			return false
+		}
+	}
+	return true
 }

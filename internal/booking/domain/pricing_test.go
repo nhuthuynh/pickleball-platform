@@ -44,15 +44,15 @@ func weekdayRules(t *testing.T) []domain.PricingRule {
 	return []domain.PricingRule{
 		{
 			ID: "weekday-rule", CourtID: "court-1", Band: domain.BandWeekday,
-			Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2000,
+			Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2000, Currency: "USD",
 		},
 		{
 			ID: "peak-rule", CourtID: "court-1", Band: domain.BandPeak,
-			Weekdays: weekdays, Start: weekdayEnd, End: peakEnd, PriceCents: 3500,
+			Weekdays: weekdays, Start: weekdayEnd, End: peakEnd, PriceCents: 3500, Currency: "USD",
 		},
 		{
 			ID: "weekend-rule", CourtID: "court-1", Band: domain.BandWeekend,
-			Weekdays: weekend, Start: weekdayStart, End: peakEnd, PriceCents: 3000,
+			Weekdays: weekend, Start: weekdayStart, End: peakEnd, PriceCents: 3000, Currency: "USD",
 		},
 	}
 }
@@ -153,7 +153,7 @@ func TestResolvePrice_RejectsCrossMidnightSlot(t *testing.T) {
 	nightStart, _ := domain.NewClockTime(23, 0)
 	nightEnd := domain.ClockTime(1440) // 24:00 — only reachable via a DB-sourced rule, see clockTimeOfEnd.
 	rules := []domain.PricingRule{
-		{ID: "night-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: []time.Weekday{time.Monday}, Start: nightStart, End: nightEnd, PriceCents: 5000},
+		{ID: "night-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: []time.Weekday{time.Monday}, Start: nightStart, End: nightEnd, PriceCents: 5000, Currency: "USD"},
 	}
 
 	// Monday 23:00 -> Tuesday 01:00: genuinely crosses midnight.
@@ -188,7 +188,7 @@ func TestResolvePrice_SlotEndingExactlyAtMidnightStillResolves(t *testing.T) {
 	lateStart, _ := domain.NewClockTime(22, 0)
 	lateEnd := domain.ClockTime(1440)
 	rules := []domain.PricingRule{
-		{ID: "late-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: []time.Weekday{time.Monday}, Start: lateStart, End: lateEnd, PriceCents: 4000},
+		{ID: "late-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: []time.Weekday{time.Monday}, Start: lateStart, End: lateEnd, PriceCents: 4000, Currency: "USD"},
 	}
 
 	// Monday 22:00 -> Tuesday 00:00 (exactly midnight): still a same-day slot.
@@ -211,8 +211,8 @@ func TestResolvePrice_AmbiguousRulesRejected(t *testing.T) {
 	weekdays := []time.Weekday{time.Monday}
 
 	overlapping := []domain.PricingRule{
-		{ID: "rule-a", CourtID: "court-1", Band: domain.BandWeekday, Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2000},
-		{ID: "rule-b", CourtID: "court-1", Band: domain.BandWeekday, Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2500},
+		{ID: "rule-a", CourtID: "court-1", Band: domain.BandWeekday, Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2000, Currency: "USD"},
+		{ID: "rule-b", CourtID: "court-1", Band: domain.BandWeekday, Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2500, Currency: "USD"},
 	}
 
 	slot := mustRangeAt(t, dt(t, 2024, 1, 1, 9, 0), dt(t, 2024, 1, 1, 10, 0))

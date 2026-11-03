@@ -7,8 +7,17 @@ package domain
 // Field names/shape mirror internal/payments/domain.Money (ADR-0005:
 // integer minor units paired with an ISO 4217 currency code) so the concept
 // reads the same across contexts even though the types are independent.
-// PricingRule (T1) predates this convention and still uses a plain
-// PriceCents int64; left as-is, changing it is out of this ticket's scope.
+// PricingRule (T1) predates this TYPE and deliberately still does not use it:
+// it carries PriceCents int64 plus its own Currency string (T68.2, ADR-0005,
+// #357). So it follows ADR-0005's convention — integer minor units paired
+// with an ISO 4217 code — without using this struct, which is also what
+// DiscountRule does on the wire (booking.proto's fixed_amount_cents +
+// currency) and what every *_cents/*_currency column pair in db/migrations
+// does. Collapsing PricingRule onto Money was explicitly out of T68.2's
+// scope, so the half of the old sentence here that still holds is kept: this
+// type is not retrofitted onto PricingRule. The half that stopped holding was
+// "PricingRule predates this convention" — it no longer does, because the
+// convention is the amount/code pairing and PricingRule now has one.
 //
 // Like payments.Money, this type has no constructor of its own — validity
 // (a positive amount) is enforced where Money is used, e.g.

@@ -200,7 +200,7 @@ func newTestHandler(t *testing.T) (*grpcapi.Handler, *fakeDiscountRepo) {
 
 	pricing := &fakePricingRepo{rules: []domain.PricingRule{{
 		ID: "band", CourtID: courtID(1), Band: domain.BandWeekday,
-		Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000,
+		Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000, Currency: "USD",
 	}}}
 	discounts := &fakeDiscountRepo{byFacility: make(map[string][]domain.DiscountRule)}
 	svc := app.NewService(app.ServiceOptions{

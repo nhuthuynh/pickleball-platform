@@ -57,12 +57,12 @@ func hcmRules(t *testing.T) []domain.PricingRule {
 	weekend := []time.Weekday{time.Saturday, time.Sunday}
 
 	return []domain.PricingRule{
-		{ID: "weekday-rule", CourtID: "court-1", Band: domain.BandWeekday, Weekdays: weekdays, Start: open, End: peakStart, PriceCents: 2000},
-		{ID: "peak-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: weekdays, Start: peakStart, End: closeAt, PriceCents: 3500},
-		{ID: "weekend-rule", CourtID: "court-1", Band: domain.BandWeekend, Weekdays: weekend, Start: open, End: closeAt, PriceCents: 3000},
+		{ID: "weekday-rule", CourtID: "court-1", Band: domain.BandWeekday, Weekdays: weekdays, Start: open, End: peakStart, PriceCents: 2000, Currency: "USD"},
+		{ID: "peak-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: weekdays, Start: peakStart, End: closeAt, PriceCents: 3500, Currency: "USD"},
+		{ID: "weekend-rule", CourtID: "court-1", Band: domain.BandWeekend, Weekdays: weekend, Start: open, End: closeAt, PriceCents: 3000, Currency: "USD"},
 		// End 1440 is 24:00 — a value NewClockTime cannot build and only a
 		// DB-sourced rule carries; see clockTimeOfEnd.
-		{ID: "late-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: weekdays, Start: closeAt, End: domain.ClockTime(1440), PriceCents: 1200},
+		{ID: "late-rule", CourtID: "court-1", Band: domain.BandPeak, Weekdays: weekdays, Start: closeAt, End: domain.ClockTime(1440), PriceCents: 1200, Currency: "USD"},
 	}
 }
 
@@ -280,7 +280,7 @@ func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 		until6, _ := domain.NewClockTime(6, 0)
 		rules := []domain.PricingRule{{
 			ID: "night-rule", CourtID: "court-1", Band: domain.BandWeekend,
-			Weekdays: sunday, Start: nightOpen, End: until6, PriceCents: 1500,
+			Weekdays: sunday, Start: nightOpen, End: until6, PriceCents: 1500, Currency: "USD",
 		}}
 		got, err := domain.ResolvePrice(rules, "court-1", slot, la)
 		if err != nil {
@@ -296,7 +296,7 @@ func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 		until3, _ := domain.NewClockTime(3, 0)
 		rules := []domain.PricingRule{{
 			ID: "early-rule", CourtID: "court-1", Band: domain.BandWeekend,
-			Weekdays: sunday, Start: nightOpen, End: until3, PriceCents: 1500,
+			Weekdays: sunday, Start: nightOpen, End: until3, PriceCents: 1500, Currency: "USD",
 		}}
 		_, err := domain.ResolvePrice(rules, "court-1", slot, la)
 		if !errors.Is(err, domain.ErrNoPricingRule) {
@@ -343,7 +343,7 @@ func TestResolvePrice_NextLocalMidnightBoundary(t *testing.T) {
 	lateStart, _ := domain.NewClockTime(22, 0)
 	rules := []domain.PricingRule{{
 		ID: "late-rule", CourtID: "court-1", Band: domain.BandWeekend,
-		Weekdays: []time.Weekday{time.Sunday}, Start: lateStart, End: domain.ClockTime(1440), PriceCents: 4000,
+		Weekdays: []time.Weekday{time.Sunday}, Start: lateStart, End: domain.ClockTime(1440), PriceCents: 4000, Currency: "USD",
 	}}
 
 	tests := []struct {

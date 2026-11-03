@@ -140,6 +140,11 @@ func (h *Handler) GetQuote(ctx context.Context, req *bookingv1.GetQuoteRequest) 
 		PriceCents:     quote.PriceCents,
 		Band:           string(quote.Band),
 		BandPriceCents: quote.BandPriceCents,
+		// T68.2 (ADR-0005, closes #357): the unit both amounts above are in.
+		// Copied, never defaulted — app.Service.GetQuote only returns a Quote
+		// when exactly one usable currency resolved, so there is no empty case
+		// for this handler to paper over.
+		Currency: quote.Currency,
 	}
 	// Absence, not a zero-valued rule, is what "no discount" looks like on
 	// the wire — a 0%-off discount and no discount are different statements,
@@ -548,7 +553,27 @@ func toStatus(err error) error {
 		// Client impact over REST: grpc-gateway maps FailedPrecondition to
 		// HTTP 400.
 		errors.Is(err, domain.ErrFacilityTimezoneUnset),
-		errors.Is(err, domain.ErrInvalidFacilityTimezone):
+		errors.Is(err, domain.ErrInvalidFacilityTimezone),
+		// T68.2's three currency answers (ADR-0005, closes #357) join the
+		// same arm for the same reason, and the alternatives are the same
+		// ones T68.1 rejected just above:
+		//   * NotFound would fold them into ErrNoPricingRule's arm, sending
+		//     an operator to look for band rows that are present and
+		//     correctly priced — only unlabelled, disagreeing, or discounted
+		//     in the wrong currency.
+		//   * InvalidArgument would blame the request. Nothing is wrong with
+		//     it; the identical request succeeds untouched once the
+		//     pricing_rules or discount_rules row is corrected, which is
+		//     exactly the line gRPC draws between the two codes.
+		//   * Internal would hide an operator-fixable data gap among server
+		//     bugs and page the wrong person.
+		// All three share one code rather than taking three: the message
+		// carries which fault it is, and no client can act differently on the
+		// difference — the same argument ErrInvalidFacilityTimezone's own
+		// line above makes for sharing with ErrFacilityTimezoneUnset.
+		errors.Is(err, domain.ErrInvalidPricingCurrency),
+		errors.Is(err, domain.ErrMixedPricingCurrency),
+		errors.Is(err, domain.ErrDiscountCurrencyMismatch):
 		// FailedPrecondition (-> HTTP 400 via grpc-gateway), not Internal:
 		// this is a pricing-data misconfiguration (ADR-0002), distinguishable
 		// from an actual server bug so ops/clients can tell them apart.

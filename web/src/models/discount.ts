@@ -67,9 +67,15 @@ export function mapToDiscountRule(raw: RawDiscountRule): DiscountRule {
  * "Discount applied" rather than a confidently-rendered 0.
  *
  * A non-USD currency is never printed with a "$": `formatPriceCents` in
- * models/booking.ts hardcodes a dollar sign (correct for the quote path,
- * which is USD-cents by construction), but a DiscountRule carries its own
- * ISO 4217 code (ADR-0005) and may not be USD.
+ * models/booking.ts hardcodes a dollar sign, but a DiscountRule carries its
+ * own ISO 4217 code (ADR-0005) and may not be USD.
+ *
+ * The parenthesis that used to stand here — "correct for the quote path,
+ * which is USD-cents by construction" — was true when T11.2 wrote it and is
+ * false since T68.2 (ADR-0005, #357): the quote path now carries its own
+ * currency too, and the demo facility's is VND. `formatPriceCents`'s own doc
+ * comment records what is still owed there; this function was already right,
+ * because it read the code off the rule instead of assuming one.
  */
 export function formatDiscountAmount(rule: DiscountRule): string {
   if (rule.discountType === 'DISCOUNT_TYPE_PERCENT') {

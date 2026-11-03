@@ -306,7 +306,7 @@ If both hold, the vertical slice is live end to end.
 # List court-1's bookings for the day — expect both bookings above.
 curl -s "localhost:8080/v1/courts/11111111-1111-1111-1111-111111111111/bookings?from=2026-08-10T00:00:00Z&to=2026-08-11T00:00:00Z"
 
-# Get a quote for the same slot — expect 200 with a priceCents/band body.
+# Get a quote for the same slot — expect 200 with a priceCents/band/currency body.
 curl -i -X POST localhost:8080/v1/quotes \
   -H 'Content-Type: application/json' \
   -d '{
@@ -327,6 +327,18 @@ lands in the weekday band; move it to `11:00Z` — 18:00 local — and the same
 court answers the **peak** band instead. A court belonging to no facility, or
 to one with no timezone recorded, is refused with 400 rather than quoted in
 UTC.
+
+The quote also says **what currency it is in** (T68.2, ADR-0005, closes #357).
+`currency` is an ISO 4217 code covering both `priceCents` and
+`bandPriceCents`, and the demo facility's rules are seeded in `VND` — the
+market its `Asia/Ho_Chi_Minh` zone implies. Until T68.2 the response carried
+two amounts with no unit while nesting a `discount` that did declare one.
+There is no default: a court whose pricing rules name no usable code, or whose
+rules disagree about one, is refused with 400 rather than quoted in an assumed
+currency. (`VND` has an ISO 4217 exponent of 0, so the seeded `2000` is 2000
+dong, not 20.00 — the web client's price formatter still divides by 100 and
+prints a `$`, which is a known, documented gap rather than part of this
+change; see `formatPriceCents` in `web/src/models/booking.ts`.)
 
 All of the above was verified live against a real Postgres 16 instance
 during development (not just unit-tested) — see
