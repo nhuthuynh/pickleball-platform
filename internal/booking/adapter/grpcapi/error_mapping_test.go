@@ -188,7 +188,7 @@ func newZoneHandler(t *testing.T, zone string) *grpcapi.Handler {
 		Bookings: fakeBookingRepo{},
 		PricingRules: &fakePricingRepo{rules: []domain.PricingRule{{
 			ID: "band", CourtID: courtID(1), Band: domain.BandWeekday,
-			Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000,
+			Weekdays: []time.Weekday{time.Monday}, Start: start, End: end, PriceCents: 2000, Currency: "USD",
 		}}},
 		DiscountRules:  &fakeDiscountRepo{byFacility: make(map[string][]domain.DiscountRule)},
 		RecurringHires: newFakeRecurringRepo(),
@@ -472,6 +472,52 @@ func errorMappingCases() []errorMappingCase {
 					StartsAt: timestamppb.New(start),
 					EndsAt:   timestamppb.New(end),
 				})
+				return err
+			},
+		},
+
+		{
+			name:     "a pricing rule that names no usable currency code",
+			sentinel: "ErrInvalidPricingCurrency",
+			err:      domain.ErrInvalidPricingCurrency,
+			wantCode: codes.FailedPrecondition,
+			why: "T68.2 (ADR-0005, closes #357). Same class as every row above it — pricing data an operator " +
+				"fixes — and the same three alternatives are refused for the same reasons: NotFound would send " +
+				"them hunting for band rows that are present and correctly priced, InvalidArgument would blame a " +
+				"request that will succeed unchanged once the row is labelled, Internal would page the wrong person",
+			invoke: func(t *testing.T) error {
+				// A priced court whose only rule has no currency: the shape
+				// of any pricing_rules row a repository hands back
+				// unlabelled. 0035's NOT NULL + CHECK makes that impossible
+				// in Postgres, which is exactly why the domain half is
+				// tested through a fake (CLAUDE.md: an in-memory fake is
+				// more permissive than Postgres).
+				h := newCurrencyQuoteHandler(t, "")
+				_, err := h.GetQuote(anonymous(), currencyQuoteRequest())
+				return err
+			},
+		},
+		{
+			name:     "one court's pricing rules disagree about currency",
+			sentinel: "ErrMixedPricingCurrency",
+			err:      domain.ErrMixedPricingCurrency,
+			wantCode: codes.FailedPrecondition,
+			why: "shares its siblings' code rather than taking another: the message carries which of the three " +
+				"currency faults it is, and no client can act differently on the difference — the argument " +
+				"ErrInvalidFacilityTimezone's own row above makes for sharing with ErrFacilityTimezoneUnset",
+		},
+		{
+			name:     "a fixed-amount discount in a currency that is not the band's",
+			sentinel: "ErrDiscountCurrencyMismatch",
+			err:      domain.ErrDiscountCurrencyMismatch,
+			wantCode: codes.FailedPrecondition,
+			why: "the request is fine and the world isn't: the Facility Owner's promotion is denominated in " +
+				"something the band is not, so the same request succeeds untouched once they correct it. " +
+				"A separate sentinel from the two above because it is a separate table and a separate person — " +
+				"folding it into ErrMixedPricingCurrency would send an operator to pricing rules that are correct",
+			invoke: func(t *testing.T) error {
+				h := newCurrencyQuoteHandler(t, "VND", fixedAmountRule(t, "USD", 500))
+				_, err := h.GetQuote(anonymous(), currencyQuoteRequest())
 				return err
 			},
 		},

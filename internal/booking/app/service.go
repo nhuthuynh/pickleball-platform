@@ -493,9 +493,24 @@ type Quote struct {
 	// resolved discount applied. Equal to BandPriceCents when no discount
 	// applies.
 	PriceCents int64
+	// Currency is the ISO 4217 code BOTH amounts above are denominated in
+	// (T68.2, ADR-0005, closes #357). One field, not one per amount: they
+	// both come from the same resolved PricingRule, so two fields could
+	// disagree and nothing would make them agree.
+	//
+	// Always populated on a successful quote. domain.ResolvePrice refuses a
+	// court whose rules name no usable code or do not agree on one, so there
+	// is no "unknown currency" outcome for a caller to handle — see
+	// domain.ErrInvalidPricingCurrency and domain.ErrMixedPricingCurrency.
+	Currency string
 	// Discount is the rule that was applied, or the zero value when none
 	// was. Use Discount.Applies() to tell them apart — a zero-value rule is
 	// "no discount", not a 0%-off discount.
+	//
+	// A fixed-amount rule here is always in Currency above
+	// (domain.DiscountRule.EnsureCurrency, checked before the arithmetic); a
+	// percent rule declares no currency, which 0017 records as the correct
+	// stored value for one.
 	Discount domain.DiscountRule
 }
 
@@ -525,6 +540,20 @@ type Quote struct {
 // prices at all, which still answers ErrNoPricingRule exactly as it always
 // has; the ordering comment below says why that case is answered without a
 // zone rather than in spite of one.
+//
+// # The currency (T68.2, ADR-0005, closes #357)
+//
+// The resolved band carries its own ISO 4217 code and this method copies it
+// onto Quote.Currency, so a client reading price_cents knows what it is
+// denominated in — which it did not, although the DiscountRule nested in the
+// same response has declared its own currency since T11.2.
+//
+// Nothing here chooses or defaults a currency. domain.ResolvePrice has
+// already refused a court whose rules name no usable code or disagree about
+// one, so by the time this method has a band it has exactly one answer. The
+// one currency decision made at this layer is the ORDER below: the discount's
+// currency is checked against the band's before the discount arithmetic runs,
+// never after.
 func (s *Service) GetQuote(ctx context.Context, in GetQuoteInput) (Quote, error) {
 	// A malformed courtID is answered exactly like a well-formed one with no
 	// rules configured (ErrNoPricingRule) — this get-shaped read already
@@ -565,10 +594,28 @@ func (s *Service) GetQuote(ctx context.Context, in GetQuoteInput) (Quote, error)
 		return Quote{}, err
 	}
 
-	quote := Quote{Band: band.Band, BandPriceCents: band.PriceCents, PriceCents: band.PriceCents}
+	quote := Quote{
+		Band:           band.Band,
+		BandPriceCents: band.PriceCents,
+		PriceCents:     band.PriceCents,
+		Currency:       band.Currency,
+	}
 
 	discount, err := s.resolveDiscount(ctx, in)
 	if err != nil {
+		return Quote{}, err
+	}
+	// T68.2 (ADR-0005, #357): refuse a fixed-amount discount denominated in
+	// anything other than the band's currency, BEFORE any arithmetic. Without
+	// this, ApplyToCents subtracts one currency's minor units from another's
+	// — a 500-cent USD rule takes 500 dong off a dong price — and the
+	// response then carries two currencies that disagree, which is #357's
+	// sharpest complaint. Returning the sentinel rather than quietly skipping
+	// the discount is deliberate: a quote at the undiscounted price while the
+	// response still advertises a discount would be the same lie with better
+	// arithmetic. See domain.DiscountRule.EnsureCurrency for what it
+	// deliberately does not check (percent rules, the no-match zero value).
+	if err := discount.EnsureCurrency(band.Currency); err != nil {
 		return Quote{}, err
 	}
 	quote.Discount = discount

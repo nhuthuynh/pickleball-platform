@@ -17,6 +17,57 @@ var (
 	ErrAmbiguousPricingRule         = errors.New("booking: more than one pricing rule matches the requested slot")
 	ErrPricingSlotSpansMultipleDays = errors.New("booking: pricing slot must fall within a single calendar day")
 
+	// ErrInvalidPricingCurrency, ErrMixedPricingCurrency and
+	// ErrDiscountCurrencyMismatch are T68.2's three answers to "this price
+	// cannot be stated in a currency" (ADR-0005, closes #357).
+	//
+	// ADR-0005 is Accepted and decided that an ISO 4217 code sits beside
+	// every price_cents-style column, "starting with pricing_rules". The
+	// column reached payments (0005), games (0013), competitions (0014) and
+	// DiscountRule (0017) and never reached the table the ADR named first —
+	// so GetQuoteResponse carried a bare price_cents AND a nested
+	// DiscountRule that does declare its currency: one message, two
+	// conventions. ADR-0009's market-scope question was answered on
+	// 2026-10-07 as *both* Vietnam and global, which is what makes a single
+	// implicit currency indefensible rather than a reasonable prototype
+	// shortcut.
+	//
+	// Three sentinels because they are three different faults with three
+	// different fixes:
+	//
+	//   - ErrInvalidPricingCurrency — a pricing_rules row names no usable
+	//     code (missing, or not three uppercase letters). The domain half of
+	//     0035's NOT NULL + pricing_rules_currency_shape CHECK, per rule 4.
+	//     Unset and malformed share this one sentinel deliberately: unlike
+	//     T68.1's ErrFacilityTimezoneUnset/ErrInvalidFacilityTimezone pair —
+	//     which split because one is fixed by an operator recording data and
+	//     the other by a runtime missing its tz database — both of these are
+	//     the same fix by the same person in the same row. The precedent is
+	//     this file's own, twice: ErrFacilityNotFound and
+	//     ErrRecurringHireTemplateNotFound each already collapse "unknown or
+	//     malformed" into one name (CLAUDE.md rule 7).
+	//   - ErrMixedPricingCurrency — one court's rules disagree about which
+	//     currency they are in. Fixed in the pricing data. See
+	//     domain.ensureOneUsableCurrency for why this is refused rather than
+	//     resolved by picking the matching rule's code, why the check spans
+	//     the court's whole rule set, and why it is a read-time refusal
+	//     rather than a schema constraint.
+	//   - ErrDiscountCurrencyMismatch — a fixed-amount DiscountRule's
+	//     currency is not the band's. Fixed in the discount data, by the
+	//     Facility Owner who configured the promotion. It is a separate
+	//     sentinel from the two above because it is a separate table, a
+	//     separate screen and a separate person; folding it into
+	//     ErrMixedPricingCurrency would tell them to go and look at the
+	//     pricing rules, which are fine.
+	//
+	// All three map to FailedPrecondition, joining ErrAmbiguousPricingRule's
+	// arm in adapter/grpcapi's toStatus for the reason that arm already
+	// states: the request is fine and the world isn't, and the same request
+	// succeeds untouched once the data is corrected.
+	ErrInvalidPricingCurrency   = errors.New("booking: pricing rule does not name a usable ISO 4217 currency code")
+	ErrMixedPricingCurrency     = errors.New("booking: this court's pricing rules do not agree on a single currency")
+	ErrDiscountCurrencyMismatch = errors.New("booking: the discount's currency is not the price band's currency")
+
 	// ErrFacilityTimezoneUnset and ErrInvalidFacilityTimezone are T68.1's two
 	// answers to "this slot cannot be resolved to a court-local wall clock"
 	// (ADR-0004, closes #356). A PricingRule's window is a ClockTime —

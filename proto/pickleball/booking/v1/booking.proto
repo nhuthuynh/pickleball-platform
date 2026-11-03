@@ -169,6 +169,38 @@ message GetQuoteResponse {
   // not a zero-valued rule, is what "no discount" looks like on the wire —
   // a 0%-off discount and no discount are different statements.
   DiscountRule discount = 4;
+  // currency is the ISO 4217 alphabetic code BOTH price_cents and
+  // band_price_cents are denominated in (T68.2, ADR-0005, closes #357).
+  // Always set on a successful response.
+  //
+  // Added in T68.2. Until then this message carried two amounts with no unit
+  // while NESTING a DiscountRule that does declare `string currency` — one
+  // message, two conventions, and a client reading price_cents had no in-band
+  // way to know what it was. ADR-0009's market scope was answered on
+  // 2026-10-07 as both Vietnam and global, so there is no out-of-band
+  // constant a client could safely assume either.
+  //
+  // WHY A FLAT `int64 …_cents` + `string currency` AND NOT A `Money`
+  // MESSAGE. Three other contexts define one (payments, socialplay,
+  // competitions) and Booking deliberately does not: DiscountRule above has
+  // settled Booking's convention since T11.2, as `fixed_amount_cents` +
+  // `currency`. Beyond consistency, two concrete reasons:
+  //   * `string currency = 5` is a purely additive field. Changing
+  //     `int64 price_cents = 1` into a `Money` would be a breaking field-type
+  //     change on the oldest field of an endpoint that has shipped clients
+  //     since T1 (web/src/models/booking.ts parses it, and the generated
+  //     int64-as-string JSON shape would become an object).
+  //   * #357's complaint is that ONE message carries TWO conventions. A lone
+  //     Money here, beside DiscountRule's flat pair, would recreate exactly
+  //     that in mirror image.
+  //
+  // ONE field for both amounts, not one each: they are both the resolved
+  // band's price, so two fields could disagree and nothing would make them
+  // agree. The same reasoning applies to the nested discount — a fixed-amount
+  // discount is guaranteed to be in this currency (the server refuses the
+  // quote otherwise, FAILED_PRECONDITION), and a percent discount declares no
+  // currency because a percentage has none.
+  string currency = 5;
 }
 
 // DiscountType mirrors internal/booking/domain.DiscountType (T11.1): a

@@ -12,11 +12,15 @@ describe('mapToQuote', () => {
   it('parses the int64-as-string priceCents AND bandPriceCents into numbers', () => {
     // T11.2 added bandPriceCents (the pre-discount band price) and discount
     // to GetQuoteResponse — both int64-as-string / message respectively.
-    const quote = mapToQuote({ priceCents: '1530', band: 'peak', bandPriceCents: '1800' }, 1000)
+    const quote = mapToQuote(
+      { priceCents: '1530', band: 'peak', bandPriceCents: '1800', currency: 'VND' },
+      1000,
+    )
     expect(quote).toEqual({
       priceCents: 1530,
       bandPriceCents: 1800,
       band: 'peak',
+      currency: 'VND',
       discount: null,
       fetchedAt: 1000,
     })
@@ -24,7 +28,26 @@ describe('mapToQuote', () => {
 
   it('defaults missing fields', () => {
     const quote = mapToQuote({}, 500)
-    expect(quote).toEqual({ priceCents: 0, bandPriceCents: 0, band: '', discount: null, fetchedAt: 500 })
+    expect(quote).toEqual({
+      priceCents: 0,
+      bandPriceCents: 0,
+      band: '',
+      currency: '',
+      discount: null,
+      fetchedAt: 500,
+    })
+  })
+
+  it("carries GetQuoteResponse.currency through, and defaults it to '' rather than a guess", () => {
+    // T68.2 (ADR-0005, #357). The server now says what its two amounts are
+    // denominated in, so this mapper must not drop it. The default is ''
+    // and deliberately NOT 'USD': a response with no currency is one that
+    // predates the field, and labelling it dollars is the implicit-currency
+    // assumption #357 was filed about — now with a field present to make it
+    // look deliberate.
+    expect(mapToQuote({ priceCents: '2000', currency: 'VND' }, 1).currency).toBe('VND')
+    expect(mapToQuote({ priceCents: '2000', currency: 'USD' }, 1).currency).toBe('USD')
+    expect(mapToQuote({ priceCents: '2000' }, 1).currency).toBe('')
   })
 
   it('falls back bandPriceCents to priceCents when the server did not send one', () => {
@@ -121,6 +144,24 @@ describe('mapToBooking', () => {
   })
 })
 
+// KNOWN GAP, stated here because the claim otherwise lives only in these
+// identifiers (t67-retro.md §4: "a claim living in an identifier" is the
+// stale-fact shape a prose sweep walks straight past — this block's three
+// `$` assertions and the words "dollars"/"cents" in their names are an
+// assertion that the quote path is USD, and no sentence anywhere says so).
+//
+// Since T68.2 (ADR-0005, #357) the server states the quote's currency and
+// the demo facility's is VND, while `formatPriceCents` still hardcodes `$`
+// and `/ 100`. These three expectations are therefore CORRECT ABOUT THE
+// FUNCTION and incomplete about the product: they pin two-decimal,
+// dollar-symbol formatting, which is all the function claims to do.
+//
+// They are deliberately NOT rewritten to expect a currency-aware result.
+// Doing that would assert a display decision nobody has made, and it is not
+// a one-liner — VND has an ISO 4217 exponent of 0, so `/ 100` is wrong for
+// it in a way `Intl.NumberFormat` fixes and a symbol table does not. See
+// `formatPriceCents`'s own doc comment in ../booking.ts; the renderer half
+// is tracked separately.
 describe('formatPriceCents', () => {
   it('formats whole dollars', () => {
     expect(formatPriceCents(1800)).toBe('$18.00')

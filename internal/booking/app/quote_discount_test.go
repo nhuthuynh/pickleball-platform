@@ -170,7 +170,7 @@ func TestGetQuote_CourtWithNoDiscountRulesIsNotDiscounted(t *testing.T) {
 
 	pricing := &fakePricingRepo{rulesByCourt: map[string][]domain.PricingRule{
 		courtID(2): {{ID: "r", CourtID: courtID(2), Band: domain.BandWeekday,
-			Weekdays: []time.Weekday{time.Monday}, Start: mustClock(t, 6, 0), End: mustClock(t, 17, 0), PriceCents: 2000}},
+			Weekdays: []time.Weekday{time.Monday}, Start: mustClock(t, 6, 0), End: mustClock(t, 17, 0), PriceCents: 2000, Currency: "USD"}},
 	}}
 	discounts := newFakeDiscountRepo()
 	discounts.rulesByFacility[facilityID(1)] = []domain.DiscountRule{

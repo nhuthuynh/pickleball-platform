@@ -33,6 +33,20 @@ func (r *fakePricingRepo) ListForCourt(_ context.Context, courtID string) ([]dom
 	return r.rulesByCourt[courtID], nil
 }
 
+// weekdayPricingRules's Currency is "USD" (T68.2, ADR-0005, #357 — the field
+// is new, every rule must name one, and ResolvePrice refuses a rule set that
+// does not). USD rather than the seeded VND on purpose: it is what every other
+// money fixture in this context already uses (discount_test.go,
+// discount_apply_test.go, the postgres translate tests), and the one thing a
+// fixture here must not do is disagree with the discount fixtures applied to
+// it — a band in one currency and a fixed-amount discount in another is now a
+// refused quote, which would fail these tests for a reason that has nothing
+// to do with what they assert.
+//
+// The real seeded value is VND (0035, matching 0034's Asia/Ho_Chi_Minh demo
+// facility) and it is asserted where it is real: the Postgres integration
+// test. Tests that are ABOUT the currency parameterise it rather than
+// inheriting a default — see quote_currency_test.go.
 func weekdayPricingRules() []domain.PricingRule {
 	weekdayStart, _ := domain.NewClockTime(6, 0)
 	weekdayEnd, _ := domain.NewClockTime(17, 0)
@@ -40,8 +54,8 @@ func weekdayPricingRules() []domain.PricingRule {
 	weekdays := []time.Weekday{time.Monday, time.Tuesday, time.Wednesday, time.Thursday, time.Friday}
 
 	return []domain.PricingRule{
-		{ID: "weekday-rule", CourtID: courtID(1), Band: domain.BandWeekday, Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2000},
-		{ID: "peak-rule", CourtID: courtID(1), Band: domain.BandPeak, Weekdays: weekdays, Start: weekdayEnd, End: peakEnd, PriceCents: 3500},
+		{ID: "weekday-rule", CourtID: courtID(1), Band: domain.BandWeekday, Weekdays: weekdays, Start: weekdayStart, End: weekdayEnd, PriceCents: 2000, Currency: "USD"},
+		{ID: "peak-rule", CourtID: courtID(1), Band: domain.BandPeak, Weekdays: weekdays, Start: weekdayEnd, End: peakEnd, PriceCents: 3500, Currency: "USD"},
 	}
 }
 

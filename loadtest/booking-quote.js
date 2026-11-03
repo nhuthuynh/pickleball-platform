@@ -99,6 +99,28 @@ export default function () {
           return false
         }
       },
+      // Since T68.2 (ADR-0005, #357) a quote also states the currency its
+      // two amounts are in, and the server REFUSES to quote a court whose
+      // pricing rules name no usable code or disagree about one. So this is
+      // not decoration: if 0035's seeded currency were ever dropped or
+      // mangled, the quote path would start answering 400 and the assertion
+      // above would already fail — but if the field itself regressed to
+      // empty while the amounts stayed right (the adapter mutation that
+      // `go build` and every unit test miss, see
+      // pricing_currency_integration_test.go), only a check on the FIELD
+      // notices. Asserted as "non-empty", not as "VND": which currency the
+      // demo facility is priced in is 0035's business, and pinning the
+      // literal here would make this script fail on a legitimate reseed.
+      'quote body names its currency': (r) => {
+        if (r.status !== 200) return false
+        try {
+          const body = r.json()
+          const currency = body.currency ?? body.currency_code
+          return typeof currency === 'string' && currency.length > 0
+        } catch {
+          return false
+        }
+      },
     })
     quoteSuccess.add(ok)
   })

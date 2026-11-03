@@ -153,8 +153,14 @@ func TestQuoteResolvesInTheFacilityTimezoneAgainstRealPostgres(t *testing.T) {
 			t.Fatalf("seeding a facility-less court: %v", err)
 		}
 		if _, err := pool.Exec(ctx,
-			`INSERT INTO pricing_rules (court_id, band, weekdays, start_min, end_min, price_cents)
-			 VALUES ($1, 'weekday', ARRAY[1,2,3,4,5]::smallint[], 360, 1020, 2000)`, detached); err != nil {
+			// currency is listed because 0035 made the column NOT NULL with
+			// no default (T68.2, #357) — an INSERT omitting it is refused.
+			// VND matches what 0035 seeds for the demo court, so this
+			// detached court is priced the same way the real one is; the
+			// value is irrelevant to the zone claim under test, but a row
+			// that could not exist would be.
+			`INSERT INTO pricing_rules (court_id, band, weekdays, start_min, end_min, price_cents, currency)
+			 VALUES ($1, 'weekday', ARRAY[1,2,3,4,5]::smallint[], 360, 1020, 2000, 'VND')`, detached); err != nil {
 			t.Fatalf("seeding pricing for the facility-less court: %v", err)
 		}
 

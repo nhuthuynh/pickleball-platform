@@ -38,6 +38,15 @@ func (r *PricingRuleRepository) ListForCourt(ctx context.Context, courtID string
 			Start:      domain.ClockTime(row.StartMin),
 			End:        domain.ClockTime(row.EndMin),
 			PriceCents: row.PriceCents,
+			// T68.2 (ADR-0005, #357). Passed through unvalidated on purpose:
+			// 0035's NOT NULL + pricing_rules_currency_shape CHECK is the
+			// write-side half of rule 4 and domain.ResolvePrice is the
+			// read-side half, so an adapter check here would be a third copy
+			// of one predicate with nothing to add. What this adapter must
+			// NOT do is substitute a default for a surprising value — that
+			// would be the silent-wrong-currency failure 0035's header
+			// refuses.
+			Currency: row.Currency,
 		})
 	}
 	return out, nil
