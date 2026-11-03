@@ -16,7 +16,10 @@
 // real screen in T10.5 (docs/process/t10-sprint-plan.md) once Identity/
 // Users existed to back it — this component needed no change, since it
 // only ever linked to the route, not the placeholder component directly.
-// "Bookings" still has no Bookings-history ticket.
+// "Bookings" gained its real screen the same way in T68.3 (MyBookings, the
+// read half of #353), once T67's two actor-scoped reads existed to back it
+// — again with no change needed here, for the same reason. So BOTH tabs now
+// point at real screens, and no route in the table is a placeholder.
 //
 // T8.10 addition: a fifth "Payments" tab (-> /host/payments, the Host
 // pending-cash-payments dashboard) with a count badge, per that ticket's

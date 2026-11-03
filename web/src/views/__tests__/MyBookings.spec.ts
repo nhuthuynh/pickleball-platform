@@ -34,8 +34,32 @@ const COURT_4 = '0b3a6c19-9d0e-4b60-8a1f-2d7c5e8f1a44'
 const FACILITY_1 = 'f1111111-1111-4111-8111-111111111111'
 const FACILITY_2 = 'f2222222-2222-4222-8222-222222222222'
 
-function bookingRow(overrides: Record<string, unknown> = {}) {
+// ORDER MATTERS, and getting it wrong cost this file two unfalsifiable
+// assertions (PR #369 review). The first version spread `...overrides` LAST,
+// *after* building a merged `booking`/`registration` — so a nested override
+// replaced the whole nested object instead of merging into it:
+//
+//   registrationRow({ registration: { paymentStatus: PAID } }).registration
+//     -> { "paymentStatus": "PAYMENT_STATUS_PAID" }     // amountOwed GONE
+//
+// which made `expect(text).not.toContain('$20.00')` pass for the wrong
+// reason: there was no amount on the fixture at all, so the assertion could
+// not fail however `amountOwedLabel` behaved. Mutation-proven: cutting
+// `amountOwedLabel`'s unpaid guard left this file fully green; with the
+// fixture fixed, the same mutation fails it.
+//
+// So `...rest` goes FIRST and the merged nested key LAST — top-level keys are
+// still overridable, and a nested override now merges rather than replaces.
+// `booking`/`registration` are destructured out by name so they cannot reach
+// the top-level spread at all, which is what makes this structural rather
+// than a convention to remember.
+function bookingRow(
+  overrides: { booking?: Record<string, unknown> } & Record<string, unknown> = {},
+) {
+  const { booking, ...rest } = overrides
   return {
+    facilityId: FACILITY_1,
+    ...rest,
     booking: {
       id: 'bk-1',
       courtId: COURT_1,
@@ -44,15 +68,22 @@ function bookingRow(overrides: Record<string, unknown> = {}) {
       startsAt: '2026-11-10T09:00:00Z',
       endsAt: '2026-11-10T10:00:00Z',
       referenceId: '',
-      ...((overrides.booking as Record<string, unknown>) ?? {}),
+      ...(booking ?? {}),
     },
-    facilityId: FACILITY_1,
-    ...overrides,
   }
 }
 
-function registrationRow(overrides: Record<string, unknown> = {}) {
+function registrationRow(
+  overrides: { registration?: Record<string, unknown> } & Record<string, unknown> = {},
+) {
+  const { registration, ...rest } = overrides
   return {
+    gameStartsAt: '2026-11-12T18:00:00Z',
+    gameEndsAt: '2026-11-12T19:00:00Z',
+    gameVenueFacilityId: FACILITY_2,
+    gameCourtIds: [COURT_3],
+    gameStatus: 'GAME_STATUS_SCHEDULED',
+    ...rest,
     registration: {
       id: 'reg-1',
       gameId: 'g-1',
@@ -61,14 +92,8 @@ function registrationRow(overrides: Record<string, unknown> = {}) {
       paymentStatus: 'PAYMENT_STATUS_UNPAID',
       guestCount: 0,
       amountOwed: { amountCents: '2000', currencyCode: 'USD' },
-      ...((overrides.registration as Record<string, unknown>) ?? {}),
+      ...(registration ?? {}),
     },
-    gameStartsAt: '2026-11-12T18:00:00Z',
-    gameEndsAt: '2026-11-12T19:00:00Z',
-    gameVenueFacilityId: FACILITY_2,
-    gameCourtIds: [COURT_3],
-    gameStatus: 'GAME_STATUS_SCHEDULED',
-    ...overrides,
   }
 }
 
@@ -134,6 +159,38 @@ beforeEach(() => {
 
 afterEach(() => {
   signOut()
+})
+
+// The fixtures above are test INPUT, and nothing checked them — which is
+// exactly how the clobbering bug above survived review and made two
+// assertions unfalsifiable. These three pin the merge semantics the rest of
+// the file depends on, so a future edit to the helpers fails here loudly
+// rather than silently hollowing out the assertions downstream.
+describe('the row fixtures themselves', () => {
+  it('merges a nested override instead of replacing the nested object', () => {
+    const row = registrationRow({ registration: { paymentStatus: 'PAYMENT_STATUS_PAID' } })
+
+    expect(row.registration.paymentStatus).toBe('PAYMENT_STATUS_PAID')
+    // The fields the override did NOT name survive. This is the assertion
+    // that was false before the fix.
+    expect(row.registration.amountOwed).toEqual({ amountCents: '2000', currencyCode: 'USD' })
+    expect(row.registration.id).toBe('reg-1')
+  })
+
+  it('still allows a top-level override', () => {
+    expect(bookingRow({ facilityId: '' }).facilityId).toBe('')
+    expect(registrationRow({ gameStatus: 'GAME_STATUS_CANCELLED' }).gameStatus).toBe(
+      'GAME_STATUS_CANCELLED',
+    )
+  })
+
+  it('merges a nested booking override the same way', () => {
+    const row = bookingRow({ booking: { status: 'STATUS_CANCELLED' } })
+
+    expect(row.booking.status).toBe('STATUS_CANCELLED')
+    expect(row.booking.id).toBe('bk-1')
+    expect(row.booking.courtId).toBe(COURT_1)
+  })
 })
 
 describe('MyBookings — the signed-in, populated screen', () => {

@@ -214,6 +214,50 @@ describe('amountOwedLabel', () => {
 })
 
 describe('formatBookingWindow', () => {
+  // The END DATE must survive (PR #369 review, promoted to required). The
+  // first version formatted the start's date and then only the two CLOCK
+  // times, so:
+  //
+  //   09:00 Nov 10 -> 10:00 Nov 12  rendered  "Nov 10, 2026, 9:00 AM–10:00 AM"
+  //
+  // A two-day hold displayed as a one-hour booking — byte-identical to the
+  // genuine one-hour booking on the row above it. That is precisely the
+  // "fabricating a state the read did not supply" this file's header forbids,
+  // on the screen whose whole job is telling a person what they booked.
+  //
+  // Both halves are asserted against `Intl`-formatted expectations computed
+  // the same way the function does, rather than against frozen strings:
+  // pinning "Nov 12, 2026" would pin the runner's ICU data and locale, not
+  // this function's behaviour.
+  const mediumDate = (iso: string) =>
+    new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(iso))
+
+  it('carries the end date when the window spans more than one day', () => {
+    const label = formatBookingWindow('2026-11-10T09:00:00Z', '2026-11-12T10:00:00Z')
+
+    expect(label).toContain(mediumDate('2026-11-10T09:00:00Z'))
+    expect(label).toContain(mediumDate('2026-11-12T10:00:00Z'))
+  })
+
+  // 23:00 -> 01:00 read as a backwards window: the end looked like it came
+  // ten hours BEFORE the start, on the same stated day.
+  it('carries the end date across midnight', () => {
+    const label = formatBookingWindow('2026-11-10T23:00:00Z', '2026-11-11T01:00:00Z')
+
+    expect(label).toContain(mediumDate('2026-11-10T23:00:00Z'))
+    expect(label).toContain(mediumDate('2026-11-11T01:00:00Z'))
+  })
+
+  // The common case stays short — repeating the same date twice on every
+  // ordinary one-hour booking would be noise, and this is what keeps the fix
+  // from being "print both dates always".
+  it('states the date once for a window inside a single day', () => {
+    const date = mediumDate('2026-11-10T09:00:00Z')
+    const label = formatBookingWindow('2026-11-10T09:00:00Z', '2026-11-10T10:00:00Z')
+
+    expect(label.split(date)).toHaveLength(2) // i.e. the date occurs exactly once
+  })
+
   it('renders a date and a time range', () => {
     // Asserted as a property rather than against a frozen locale string: the
     // formatter is Intl-backed, so pinning exact output would pin the test

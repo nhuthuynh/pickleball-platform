@@ -97,8 +97,20 @@ describe('App routing', () => {
     expect(wrapper.findComponent(DiscoverFacilities).exists()).toBe(false)
     expect(wrapper.findComponent(FacilityOnboarding).exists()).toBe(false)
     expect(wrapper.findComponent(GameCreation).exists()).toBe(false)
-    // WCAG 2.4.2 — the route's own `meta.title`, still set by the real guard.
-    expect(wrapper.text()).toContain('Bookings')
+
+    // This used to read `expect(wrapper.text()).toContain('Bookings')` under
+    // a comment claiming it checked WCAG 2.4.2's `meta.title` (PR #369
+    // review). It checked neither thing. `wrapper.text()` cannot see
+    // `document.title` at all, and `mountAppAt` above — unlike
+    // accessibility.spec.ts's — installs no title guard, so nothing sets it
+    // here. Worse, AppNav renders the literal tab label "Bookings" on EVERY
+    // route, so the assertion held no matter what this screen rendered:
+    // renaming MyBookings' own <h1> left this file fully green.
+    //
+    // The screen's own heading is the thing this test can actually observe,
+    // so that is what it asserts now. `meta.title`/`document.title` is the
+    // title guard's job and is exercised where the guard is installed.
+    expect(wrapper.find('h1').text()).toBe('Bookings')
     expect(wrapper.text()).not.toContain('Coming soon.')
   })
 

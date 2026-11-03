@@ -246,6 +246,26 @@ export function amountOwedLabel(paymentStatus: string, amountOwedCents: number):
  * the same line (`''` rather than today's date as a stand-in); this returns
  * a sentence instead of `''` because it is rendered as a row's primary
  * heading, where an empty string would look like a layout bug.
+ *
+ * ── THE END DATE IS NOT OPTIONAL (PR #369 review) ──────────────────────────
+ *
+ * The first version printed the START's date and then both clock times, so a
+ * window that ended on another day silently lost that fact:
+ *
+ *   09:00 Nov 10 -> 10:00 Nov 12   "Nov 10, 2026, 9:00 AM–10:00 AM"
+ *   23:00 Nov 10 -> 01:00 Nov 11   "Nov 10, 2026, 11:00 PM–1:00 AM"
+ *
+ * The first is a two-day hold rendered byte-identically to a genuine
+ * one-hour booking; the second reads as a window that ends ten hours before
+ * it starts. Both are this file's own no-fabrication rule broken, on the one
+ * screen whose job is telling a person what they booked.
+ *
+ * **Same-day is decided by comparing the FORMATTED dates**, not by comparing
+ * ISO date substrings or UTC day numbers. The boundary that matters is the
+ * one the reader sees, and `Intl` renders in local time — so a UTC-based
+ * comparison would, for most of the world, sometimes claim "same day" about
+ * two dates it then prints differently. Comparing the very strings that are
+ * about to be printed cannot disagree with the output.
  */
 export function formatBookingWindow(startsAt: string, endsAt: string): string {
   const start = new Date(startsAt)
@@ -255,7 +275,19 @@ export function formatBookingWindow(startsAt: string, endsAt: string): string {
   }
   const dateFmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' })
   const timeFmt = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
-  return `${dateFmt.format(start)}, ${timeFmt.format(start)}–${timeFmt.format(end)}`
+
+  const startDate = dateFmt.format(start)
+  const endDate = dateFmt.format(end)
+
+  // The common case stays short: repeating the same date on every ordinary
+  // one-hour booking would be noise, which is why this is a branch and not
+  // an unconditional "print both".
+  if (startDate === endDate) {
+    return `${startDate}, ${timeFmt.format(start)}–${timeFmt.format(end)}`
+  }
+  // Spaced dash for the two-date form — `…, 11:00 PM–Nov 11, 2026, 1:00 AM`
+  // runs the time into the date and is hard to parse at a glance.
+  return `${startDate}, ${timeFmt.format(start)} – ${endDate}, ${timeFmt.format(end)}`
 }
 
 /** How many guests this registration brought, or `null` for none — so the
