@@ -388,7 +388,17 @@ its filename alone and nothing collides or goes stale silently:
   install` these four once (`protoc-gen-go`, `protoc-gen-go-grpc` from
   `google.golang.org/grpc/cmd/...`, `protoc-gen-grpc-gateway` and
   `protoc-gen-openapiv2` from `github.com/grpc-ecosystem/grpc-gateway/v2/...`)
-  and make sure `$(go env GOPATH)/bin` is on `PATH`. `google/api/*.proto` are
+  and put `$(go env GOPATH)/bin` **FIRST** on `PATH` — not appended. An
+  appended entry loses to any package-manager copy already earlier on PATH,
+  and the one that bites is `golangci-lint`: a shadowing build fails at
+  **config load**, before reading a line of source, so it reads as a broken
+  toolchain rather than a PATH problem. `make tools-install` echoed the
+  appending form until T68.4 while `make tools-check` thirty lines below said
+  "FIRST"; it now echoes the prepending form and **ends by running
+  `tools-check`**, so a shadowed or unreachable copy is reported at install
+  time rather than at the next confusing gate failure (#364).
+
+  `google/api/*.proto` are
   vendored under `proto/google/api/` for the same reason — don't replace them
   with a `buf.build/googleapis/googleapis` dependency without confirming BSR
   access first.

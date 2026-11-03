@@ -53,9 +53,13 @@ Everything else one command installs.
 ```bash
 # 1. Tools — buf, sqlc, gotestsum AND the four protoc plugins buf shells out to
 make tools-install
-export PATH="$PATH:$(go env GOPATH)/bin"     # add this to your shell profile
+export PATH="$(go env GOPATH)/bin:$PATH"     # FIRST, not appended: an older
+                                             # package-manager copy earlier on
+                                             # PATH would otherwise keep winning
 
 make tools-check                             # every line should read "ok"
+                                             # (tools-install now ends by
+                                             #  running this for you)
 
 # 2. Fast, dependency-free gate — should be green before anything else
 make test-domain
