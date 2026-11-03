@@ -288,7 +288,7 @@ func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 	})
 }
 
-// TestResolvePrice_MidnightBoundaryOnADSTDay is the regression guard for the
+// TestResolvePrice_NextLocalMidnightBoundary is the regression guard for the
 // arithmetic fitsSingleCalendarDay used to use: local midnight PLUS 24 HOURS.
 // A 22:00-24:00 local slot — the exact case clockTimeOfEnd exists to price —
 // ends on the next local midnight, and that comparison was wrong at BOTH
@@ -303,7 +303,7 @@ func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 // version of this test pinning only the spring-forward half while the
 // production comment claimed a general DST fix. An ordinary day is included
 // too, so a "fix" that simply stopped checking the boundary fails here.
-func TestResolvePrice_MidnightBoundaryOnADSTDay(t *testing.T) {
+func TestResolvePrice_NextLocalMidnightBoundary(t *testing.T) {
 	t.Parallel()
 
 	la := mustLoadLocation(t, "America/Los_Angeles")
