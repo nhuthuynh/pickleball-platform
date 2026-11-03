@@ -209,19 +209,41 @@ func ResolvePrice(rules []PricingRule, courtID string, slot TimeRange, loc *time
 //
 // # Why the whole court's rule set, and not just the rule that matched
 //
-// A mixed-currency rule set is a property of the SET, not of any one row, and
-// every individual quote against it can look perfectly fine: a court priced
-// 200000 VND on weekdays and 35 USD at weekends answers both slots without
-// hesitating, and the two numbers a client puts side by side are not
-// comparable. Checking only the match would make the misconfiguration visible
-// on exactly none of the requests anyone makes — the shape of #356 (a band
-// that resolved cleanly in the wrong zone) and of 0031 (a CHECK that was
-// never widened and that no unit test could fail on).
+// The decisive reason is what the CONTRACT CAN EXPRESS, not who notices.
+// GetQuoteResponse carries ONE currency field covering both price_cents and
+// band_price_cents, so the wire format has no way to say "this court is
+// priced in two currencies" — and the client renders exactly that way:
+// CourtBookingFlow.vue puts the band price, the discounted price and a
+// client-computed saving side by side, all through one formatter
+// (web/src/models/booking.ts's formatPriceCents). A matched-rule check would
+// let one court answer 200000 VND for a Tuesday slot and 35 USD for a
+// Saturday one, both well-formed, both rendered identically, with nothing
+// in-band to tell a user or a client that the unit changed between two views
+// of the same court. Agreement is therefore a property of the COURT, because
+// that is the granularity at which a client can represent it at all.
+//
+// Operator visibility is the second reason and the weaker one: every
+// individual quote against a mixed set looks fine, so checking only the match
+// would make the misconfiguration visible on none of the requests anyone
+// makes — the shape of #356 (a band that resolved cleanly in the wrong zone)
+// and of 0031 (a CHECK never widened, that no unit test could fail on).
 //
 // The scope is per-court because pricing_rules is per-court. Two facilities
 // in two markets pricing their courts in two currencies is the world ADR-0009
 // described on 2026-10-07 ("both markets"), so a platform-wide single
 // currency is not the invariant — a single currency *per court* is.
+//
+// # What it costs, stated plainly
+//
+// The blast radius is the real price of this choice: ONE bad row makes a
+// whole court unquotable, including every slot whose own band is perfectly
+// well-formed. That is deliberate — a quote that fails is a bug report, a
+// quote in an unknown currency is a wrong price that looks right — but it is
+// not free, and it is the reason this should be read as an INTERIM
+// READ-TIME CHECK rather than the final design. When #352 builds a write path
+// for pricing_rules, the right place for this invariant is at the write, so a
+// bad row cannot be stored and no reader has to refuse a court over it; the
+// read-time check then becomes a backstop rather than the only line.
 //
 // # Why this is a read-time refusal and not a schema constraint
 //
@@ -248,12 +270,23 @@ func ResolvePrice(rules []PricingRule, courtID string, slot TimeRange, loc *time
 //     decision for discount_rules. A write-time guard on a table nothing
 //     writes to would be a guard nothing can fire.
 //
-// The per-ROW half of the invariant is a different question and it IS in the
-// schema: 0035's NOT NULL and pricing_rules_currency_shape CHECK refuse a
-// missing or non-ISO-4217-shaped code on any single row, and
-// ErrInvalidPricingCurrency below is that constraint's domain counterpart
-// (CLAUDE.md rule 4). Both halves of rule 4 hold for what one row can say;
-// only the cross-row half waits for a writer.
+// Where that leaves CLAUDE.md rule 4, stated as what is true rather than as
+// the rule restated in a form this satisfies:
+//
+//   - The PER-ROW half is in both places, as rule 4 requires. 0035's NOT NULL
+//     and pricing_rules_currency_shape CHECK refuse a missing or
+//     non-ISO-4217-shaped code; isValidCurrencyCode below is the same
+//     predicate in Go. Its test drives pool.Exec directly rather than
+//     app.Service, which is what CLAUDE.md demands of a Postgres-side
+//     invariant — "to test the Postgres half of rule 4, the test must bypass
+//     the Go half" — so a weakened CHECK fails a test even though the Go
+//     guard would still refuse the value.
+//   - The CROSS-ROW half is a DOCUMENTED EXCEPTION to rule 4, not a
+//     satisfaction of it. It exists only in the domain. It inherits the
+//     precedent HANDOFF.md's T1 entry set for this same table and the same
+//     kind of invariant (overlapping rule windows, lines 391-398): accepted
+//     as domain-only "because there is no write path yet", with the DB half
+//     owed to the ticket that builds one. #352 is that ticket.
 //
 // # Ordering
 //

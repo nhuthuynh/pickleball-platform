@@ -222,19 +222,30 @@ func (r DiscountRule) ApplyToCents(priceCents int64) int64 {
 //
 // **The mutation matrix found that guard was dead**, and it is worth
 // recording why rather than quietly deleting it. Cutting it changed no test's
-// result, and no test could have: Applies() is DiscountType.IsValid(), so
-// !Applies() is true exactly when DiscountType is neither percent nor
-// fixed_amount — and every one of those values already takes the
-// `!= DiscountTypeFixedAmount` branch below. The two guards agree on every
-// possible input. A guard nothing can distinguish is one a later reader will
-// take to be load-bearing when it is not, so it is gone and this paragraph is
-// what remains of it.
+// result, and — this is the part that decided the outcome — no test COULD
+// have. Applies() is DiscountType.IsValid(), so !Applies() is true exactly
+// when DiscountType is neither percent nor fixed_amount, and every one of
+// those values already takes the `!= DiscountTypeFixedAmount` branch below.
+// The two guards agree on the entire input domain.
 //
-// The BEHAVIOUR is still pinned: discount_currency_test.go's "the
-// no-discount zero value is exempt" row asserts it, and cutting the type
-// check below fails that row. CLAUDE.md's standing lesson, which this is one
-// more instance of — a mechanism whose necessity you can argue is not the
-// same as a mechanism whose removal something notices.
+// That makes this guard UNPINNABLE, which is a different finding from
+// UNPINNED and leads to the opposite action. T67.5's cmd.WaitDelay was
+// unpinned — no test noticed its removal — but pinnable: a test using setsid
+// to escape the process group reaches it, so the answer there was to write
+// that test. Nothing can reach this one. A guard no test can distinguish is a
+// guard a later reader will take to be load-bearing when it is not, so it is
+// gone and this paragraph is what remains of it.
+//
+// The BEHAVIOUR is still pinned, and not thinly. Isolating just this half —
+// making EnsureCurrency return ErrDiscountCurrencyMismatch when !Applies()
+// while leaving the percent exemption intact — fails **ten top-level tests
+// across three packages** (booking/domain, booking/app,
+// booking/adapter/grpcapi), because every quote that resolves no discount
+// goes through here. Measured with that mutation rather than estimated; a
+// coarser cut of the whole type check fails thirteen, but conflates this with
+// the percent exemption. CLAUDE.md's standing lesson, which this is one more
+// instance of: a mechanism whose necessity you can argue is not the same as a
+// mechanism whose removal something notices.
 func (r DiscountRule) EnsureCurrency(currency string) error {
 	if r.DiscountType != DiscountTypeFixedAmount {
 		return nil

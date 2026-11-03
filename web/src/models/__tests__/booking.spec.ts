@@ -144,6 +144,24 @@ describe('mapToBooking', () => {
   })
 })
 
+// KNOWN GAP, stated here because the claim otherwise lives only in these
+// identifiers (t67-retro.md §4: "a claim living in an identifier" is the
+// stale-fact shape a prose sweep walks straight past — this block's three
+// `$` assertions and the words "dollars"/"cents" in their names are an
+// assertion that the quote path is USD, and no sentence anywhere says so).
+//
+// Since T68.2 (ADR-0005, #357) the server states the quote's currency and
+// the demo facility's is VND, while `formatPriceCents` still hardcodes `$`
+// and `/ 100`. These three expectations are therefore CORRECT ABOUT THE
+// FUNCTION and incomplete about the product: they pin two-decimal,
+// dollar-symbol formatting, which is all the function claims to do.
+//
+// They are deliberately NOT rewritten to expect a currency-aware result.
+// Doing that would assert a display decision nobody has made, and it is not
+// a one-liner — VND has an ISO 4217 exponent of 0, so `/ 100` is wrong for
+// it in a way `Intl.NumberFormat` fixes and a symbol table does not. See
+// `formatPriceCents`'s own doc comment in ../booking.ts; the renderer half
+// is tracked separately.
 describe('formatPriceCents', () => {
   it('formats whole dollars', () => {
     expect(formatPriceCents(1800)).toBe('$18.00')

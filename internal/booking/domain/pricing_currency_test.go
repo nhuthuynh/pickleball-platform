@@ -242,14 +242,35 @@ func TestResolvePrice_RefusesAnUnusableCurrency(t *testing.T) {
 	}
 }
 
-// TestResolvePrice_CurrencyChecksPrecedence pins the ORDER of the three
-// refusals a currency can cause against the three that already existed, so
-// the message a misconfigured facility gets is the one naming the fault it
-// should fix first. Each row states which answer wins and why.
+// TestResolvePrice_CurrencyChecksPrecedence pins the ORDER of the refusals a
+// currency can cause against the three that already existed, so the message a
+// misconfigured facility gets is the one naming the fault it should fix first.
+// Each row states which answer wins and why.
 //
 // This exists because the checks are not commutative and the choice was a
 // real one: putting the currency check before the match is what makes case
 // "unpriced court" below a question at all.
+//
+// # Every row here is deliberate, and that took a second pass
+//
+// The review of PR #374 reproduced two mutations this table did not catch,
+// and both are recorded here because the shape repeats:
+//
+//  1. Running the MIXED check only when a rule actually matched left all six
+//     booking packages green. Every mixed-currency case in this file happened
+//     to have a match, so the sub-case the set-wide design argument rests on
+//     hardest — a disagreeing court whose slot matches nothing — was the one
+//     with no row. The sibling row for ErrInvalidPricingCurrency had existed
+//     from the start; its ErrMixedPricingCurrency twin had not.
+//  2. Currency-over-AMBIGUOUS precedence was caught only incidentally, by a
+//     row named for invalid-versus-mixed whose two fixtures happened to share
+//     a clock window. Tidying those fixtures to be non-overlapping — a change
+//     that reads as an improvement and touches no assertion — removed that
+//     coverage. So the tidy is done here, and the ambiguity precedence has
+//     rows of its own that say in their names and their `why` that the
+//     OVERLAP is the fixture's whole point. A reviewer measured that the
+//     precedence survived on one surviving row rather than going fully green;
+//     either way the coverage was accidental, which is the defect.
 func TestResolvePrice_CurrencyChecksPrecedence(t *testing.T) {
 	t.Parallel()
 
@@ -284,12 +305,70 @@ func TestResolvePrice_CurrencyChecksPrecedence(t *testing.T) {
 			name: "a malformed currency beats a mixed rule set",
 			rules: []domain.PricingRule{
 				currencyRule(t, "weekday-rule", "", 2000),
-				currencyRule(t, "second-rule", "USD", 2000),
+				// NON-overlapping with the rule above (Saturday/Sunday, not
+				// Monday-Friday), so exactly one rule matches and this row
+				// tests only the thing it is named for. Until the review of
+				// PR #374 both fixtures shared the weekday window, which made
+				// the set AMBIGUOUS as well as mixed — and that accident was
+				// the only coverage the currency-beats-ambiguous precedence
+				// had. It now has rows of its own, two below.
+				saturdayRuleInUSD(t),
 			},
 			slot:    slot,
 			wantErr: domain.ErrInvalidPricingCurrency,
 			why: "a row with no usable code is a more basic fault than two rows disagreeing, and fixing it may " +
 				"resolve the disagreement too — reporting 'mixed' first would name a symptom",
+		},
+		{
+			name: "a mixed rule set beats the no-match answer",
+			rules: []domain.PricingRule{
+				currencyRule(t, "weekday-rule", "VND", 2000),
+				saturdayRuleInUSD(t),
+			},
+			// Friday. Both rules are well-formed and neither covers 03:00, so
+			// the ONLY thing wrong with this request is the court's rule set.
+			slot:    mustRangeAt(t, dt(t, 2024, time.January, 5, 3, 0), dt(t, 2024, time.January, 5, 4, 0)),
+			wantErr: domain.ErrMixedPricingCurrency,
+			why: "THE ROW THE SET-WIDE DESIGN ARGUMENT RESTS ON. ensureOneUsableCurrency checks the court's whole " +
+				"rule set rather than the matches precisely so a disagreement is reported on requests that would " +
+				"not otherwise surface it; if this answered ErrNoPricingRule, the check could be moved onto the " +
+				"matched-rule path with nothing noticing — which is exactly the mutation the review of PR #374 " +
+				"ran, and it left all six booking packages green before this row existed",
+		},
+		{
+			name: "a malformed currency beats an AMBIGUOUS rule set",
+			rules: []domain.PricingRule{
+				// Two rules sharing one window, so this set is genuinely
+				// ambiguous (ErrAmbiguousPricingRule's own condition) AND one
+				// row's currency is unusable. The OVERLAP IS THE POINT of this
+				// fixture: make these two windows disjoint and the row stops
+				// testing precedence at all. Do not "tidy" it.
+				currencyRule(t, "rule-a", "", 2000),
+				currencyRule(t, "rule-b", "", 2500),
+			},
+			slot:    slot,
+			wantErr: domain.ErrInvalidPricingCurrency,
+			why: "both faults are data misconfigurations an operator fixes, and both already answer the same gRPC " +
+				"code, so the only thing at stake is WHICH MESSAGE they read first — and an unlabelled price is " +
+				"the more basic fault, since a set whose rows carry no currency cannot be reasoned about as " +
+				"money at all. Deliberately asserted rather than inherited: the currency checks run before " +
+				"matching, so this ordering is a consequence of that placement and would silently invert if the " +
+				"checks moved into the switch below it",
+		},
+		{
+			name: "a mixed rule set beats an AMBIGUOUS one",
+			rules: []domain.PricingRule{
+				// Same overlapping-window point as the row above, with both
+				// currencies well-formed so the fault is purely disagreement.
+				currencyRule(t, "rule-a", "VND", 2000),
+				currencyRule(t, "rule-b", "USD", 2500),
+			},
+			slot:    slot,
+			wantErr: domain.ErrMixedPricingCurrency,
+			why: "the mixed twin of the row above, and the pair is what makes the ambiguity precedence pinned by " +
+				"intent instead of by a fixture coincidence. Note what this row is NOT asserting: that ambiguity " +
+				"stops being reported. TestResolvePrice_AmbiguousRulesRejected in pricing_test.go drives two overlapping " +
+				"rules that AGREE on currency and still gets ErrAmbiguousPricingRule",
 		},
 		{
 			name: "the single-calendar-day guard still runs before any currency check",
