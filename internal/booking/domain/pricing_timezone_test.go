@@ -231,10 +231,27 @@ func TestResolvePrice_ResolvesInFacilityZone(t *testing.T) {
 //	fixed -07:00: local 02:00-04:00 | A covers: true | B covers: false  -> both PASS
 //
 // A single wrong-but-constant offset of -07:00 therefore survives these two
-// cases. What rules it out is elsewhere in this file: the Ho Chi Minh table
-// (+07:00, same code path) and the fixture assertions below, which pin that
-// the real zone reports -0800 at the start and -0700 at the end. Coverage is
-// not weaker than it needs to be — the claim was just broader than the cases.
+// cases. **What rules it out is the fixture assertions below, and only
+// those**: they require the zone to report -0800 at the slot's start and
+// -0700 at its end, so a fixed -07:00 fails the first of them
+// (`startOffset=-0700`) before any band is resolved.
+//
+// The Ho Chi Minh table above rules out NOTHING here, and the previous
+// version of this paragraph credited it with half the work (round-2 review of
+// PR #370 — twice now this comment has claimed more than it can show, which
+// is why the measurement is pasted rather than described). Asia/Ho_Chi_Minh
+// has no DST, so a time.FixedZone(+7h) stand-in is INDISTINGUISHABLE from it;
+// measured against every row of that table, the real zone and the fixed one
+// produce identical local wall clocks and weekdays:
+//
+//	18:00 local is peak      real 08-03 18:00-19:00 Mon | fixed+07 identical
+//	local midnight start     real 08-03 00:00-01:00 Mon | fixed+07 identical
+//	two UTC days             real 08-04 06:30-07:30 Tue | fixed+07 identical
+//	ends at local midnight   real 08-03 22:00-00:00 Mon | fixed+07 identical
+//
+// Coverage is not weaker than it needs to be — the DST-detecting work is done
+// by the offset assertions, which is where it belongs, because that is the
+// one property a fixed offset cannot have.
 func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 	t.Parallel()
 
@@ -301,8 +318,24 @@ func TestResolvePrice_DSTTransitionUsesLocalWallClock(t *testing.T) {
 //
 // Both rows are cases, not prose: the review of PR #370 found the first
 // version of this test pinning only the spring-forward half while the
-// production comment claimed a general DST fix. An ordinary day is included
-// too, so a "fix" that simply stopped checking the boundary fails here.
+// production comment claimed a general DST fix.
+//
+// # What the ordinary-Sunday row is for
+//
+// Not for catching a "fix" that stops checking the boundary — it cannot, and
+// the first version of this comment said it could (round-2 review of PR
+// #370). Measured, both ways:
+//
+//	fitsSingleCalendarDay -> return true:  all three rows PASS
+//	    (only TestResolvePrice_RejectsCrossMidnightSlot and
+//	     TestResolvePrice_RejectsMultiDaySlot, elsewhere in this package, fail)
+//	fitsSingleCalendarDay -> return false: all three rows FAIL, control included
+//
+// What it does buy, which is worth a row: it proves the two transition rows
+// fail for the **DST reason** and not because a 22:00-24:00 fixture is broken
+// for every such slot. Restoring the old `midnight + 24h` arithmetic fails
+// both transitions and leaves this row green — that contrast is the control's
+// whole job, and it is the one mutation where the row discriminates.
 func TestResolvePrice_NextLocalMidnightBoundary(t *testing.T) {
 	t.Parallel()
 
@@ -340,6 +373,8 @@ func TestResolvePrice_NextLocalMidnightBoundary(t *testing.T) {
 		},
 		{
 			// 2026-06-07 22:00 PDT -> 2026-06-08 00:00 PDT = 05:00Z -> 07:00Z.
+			// The control: see this test's doc comment for what it does and
+			// does not discriminate.
 			name:         "an ordinary Sunday night, where the old arithmetic was right",
 			from:         time.Date(2026, 6, 8, 5, 0, 0, 0, time.UTC),
 			to:           time.Date(2026, 6, 8, 7, 0, 0, 0, time.UTC),

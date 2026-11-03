@@ -366,9 +366,13 @@ func mustUUID(s string) pgtype.UUID {
 }
 
 // uuidOrEmpty converts a possibly-NULL pgtype.UUID (e.g. courts.facility_id
-// for a pre-Facilities seeded court, or facility_camera_links.court_id for
-// a facility-wide link) into an empty string, matching domain.Court/
+// for a court outside any Facility, or facility_camera_links.court_id for a
+// facility-wide link) into an empty string, matching domain.Court/
 // domain.CameraLink's plain-string-id convention.
+//
+// The seeded courts of 0002_seed.sql were the standing example of the first
+// case until 0034 attached them to the demo Facility (T68.1, #356); the column
+// is still nullable, so the conversion is still needed.
 func uuidOrEmpty(u pgtype.UUID) string {
 	if !u.Valid {
 		return ""
