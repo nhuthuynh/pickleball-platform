@@ -39,9 +39,9 @@
 //     is the ONLY place a player is ever told their game is off.
 //   - a booking with an EMPTY facility renders — `ActorBooking.facility_id`'s
 //     doc comment: "Empty is a real, expected answer... A client must render
-//     such a booking, not hide it — the booking is real." Both Courts seeded
-//     by `0002_seed.sql` have no Facility, so this is the common case on a
-//     freshly migrated database, not an edge case.
+//     such a booking, not hide it — the booking is real." Whether any given
+//     Court has a Facility is a property of the migrations, not of this view;
+//     the view must render either answer.
 //
 // ── NO RAW UUIDS (#342, closed, and kept closed) ────────────────────────────
 //

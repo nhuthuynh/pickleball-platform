@@ -61,8 +61,8 @@ describe('mapToActorBooking', () => {
 
   // ActorBooking.facility_id's own doc comment: "**Empty is a real, expected
   // answer**... A client must render such a booking, not hide it — the
-  // booking is real." Both courts seeded by 0002_seed.sql have no Facility,
-  // so on a freshly migrated database this is the COMMON case, not an edge.
+  // booking is real." Whether any given court has a Facility is a property of
+  // the migrations, not of this mapper; the mapper must map either answer.
   it('maps an absent facility to an empty string, not to a dropped row', () => {
     const mapped = mapToActorBooking({ booking: { id: 'bk-2', courtId: 'court-9' } })
 
