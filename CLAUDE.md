@@ -85,6 +85,49 @@ follow the same pattern. Web client = Vue, mobile = Swift (iOS) + Kotlin
     reaches this backend (SAQ A scope). Review every proto change touching
     payment flows against `docs/checklists/proto-review.md` before merging.
     (Added T6.4, `docs/process/t6-sprint-plan.md` kickoff note P1 #13.)
+12. **A correction may delete a claim, or replace it with a test name or a
+    runnable command. It may not restate it in new prose.** A correction
+    round injects false claims at close to the rate of the round it
+    corrects — measured in `docs/process/t67-retro.md` §3, *"A fix is where
+    the next false claim appears"*. Deletion cannot be wrong; a `console
+    doctest` block is checked by `make docs-doctest`; new prose is checked
+    by nothing. (Added T68.)
+13. **Every ticket records what blocks it and what relates to it, as issue
+    links, before it is dispatched** — `Blocked by: #N` for work that must
+    merge first, `Related: #N` for context a reader needs. A ticket is not
+    started while an issue it names as blocking is still open, and
+    dependencies merge in that order. This is the *recording* half of
+    `docs/process/sprint-process.md`'s dependency-completeness check: that
+    section decides whether a dependency exists, this rule puts the answer
+    on the ticket, where the next session actually looks. (Added T68.)
+14. **Start every ticket from a fresh fetch of the shared integration
+    branch — which is NOT `main`.** `git fetch origin && git switch -c
+    <branch> origin/claude/go-backend-pickleball-7up34j`. On this
+    repository `origin/main` is hundreds of commits behind the integration
+    branch — 402, measured at T68 with `git rev-list --count
+    origin/main..origin/claude/go-backend-pickleball-7up34j`; a figure that
+    only grows, so it is dated rather than maintained — and the
+    integration branch is the one `.github/workflows/ci.yml` builds on
+    push. Branching from `main` gets a tree no gate here has ever run
+    against. (Added T68.)
+15. **CI must be GREEN before merge — not merely triggered.** Read the
+    check runs on the PR's head commit and confirm every one concluded
+    `success`; a merge with a red, pending, or absent check is a rule-9
+    violation. "It passed locally" is not the check: `make ci-checks` is
+    Docker-free and cannot run `ci-integration`, `security` or the image
+    build, and `govulncheck` cannot reach `vuln.go.dev` from this
+    environment at all (see the `make security` gotcha). A failure that is
+    genuinely not the PR's own still blocks it — port the fix and say so
+    in the PR, per the drive-to-green rules. (Added T68.)
+16. **CI/CD is the Principal Engineer role's standing responsibility** — to
+    watch, diagnose, and get fixed on every ticket, not only when asked,
+    and to confirm rule 15 before recommending a merge. **This does not
+    loosen rule 9.** A reviewing PE session reports the diagnosis and the
+    patch; it commits only inside rule 9's five-condition exception. A CI
+    failure satisfies condition 2 (compiler- or test-caught) automatically
+    and conditions 1 and 3 (mechanical, single-file) never automatically: a
+    pinned-version bump is mechanical, a rewritten workflow job is not.
+    (Added T68.)
 
 ## Commands
 - `make test-domain` — run the dependency-free domain + app tests (no DB/codegen).
