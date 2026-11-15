@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -48,11 +49,18 @@ const (
 )
 
 // createBookingMaxAttempts bounds the deadlock/serialization retry loop.
-// Chosen empirically: a 20-way concurrent burst against a cold connection
-// pool reproduced deadlocks that cleared within 2 attempts every time this
-// was tested locally; 3 leaves one more attempt of margin without turning a
-// genuine, persistent failure into a long stall.
-const createBookingMaxAttempts = 3
+//
+// Was 3 until T68, with the note "cleared within 2 attempts every time this
+// was tested locally". That was true and it was the wrong measurement: local
+// runs on a quiet machine do not synchronise, and CI runs do. Issue #375 is
+// the failure — on a loaded runner all 19 losers of a 20-way burst returned
+// 40P01 and the test saw conflicts = 0, want 19. Not one of them reached a
+// clean 23P01.
+//
+// 6 attempts with the jittered backoff below spans roughly 90ms of retry
+// against the old 15ms. A genuine, persistent failure still ends in bounded
+// time; a burst now has room to drain.
+const createBookingMaxAttempts = 6
 
 type Repository struct {
 	q *bookingdb.Queries
@@ -111,8 +119,29 @@ func isRetryableConflict(err error) bool {
 	return pgErr.Code == pgDeadlockDetected || pgErr.Code == pgSerializationFailure
 }
 
+// retryBackoff returns a JITTERED delay. The jitter is the fix for #375, not
+// a refinement of it.
+//
+// The previous version returned attempt*5ms — the same value, to the
+// nanosecond, for every caller. In a concurrent burst that is the worst
+// possible choice: all 19 losers deadlock at the same instant, all sleep
+// exactly 5ms, all wake and retry at the same instant, and re-create the
+// deadlock they just backed off from. Three attempts of that burn 15ms and
+// return 40P01 to every caller, which is precisely the signature #375
+// reports: conflicts = 0, unexpected = 19, every error 40P01. A desynchronised
+// herd would show a MIX, some callers reaching a clean 23P01 once the winner
+// commits. The all-or-nothing shape is the fingerprint of lockstep retry.
+//
+// Equal jitter (half fixed, half random) rather than full jitter: it keeps a
+// floor under the delay, so a retry still waits long enough for the winning
+// transaction to commit, while spreading the herd across a 2x window.
+//
+// math/rand/v2's top-level functions are safe for concurrent use and need no
+// seeding, which matters here because every caller is a separate goroutine.
 func retryBackoff(attempt int) time.Duration {
-	return time.Duration(attempt) * 5 * time.Millisecond
+	base := time.Duration(attempt) * 5 * time.Millisecond
+	half := base / 2
+	return half + time.Duration(rand.Int64N(int64(half)+1))
 }
 
 func (r *Repository) ListActiveForCourt(ctx context.Context, courtID string, rng domain.TimeRange) ([]domain.Booking, error) {
