@@ -163,6 +163,32 @@ docs-index-check:
 docs-doctest:
 	go run ./cmd/docsdoctest
 
+# The standing answer to "which guards does this change ADD that no test
+# would miss?" A guard whose deletion nothing notices is not a guard; it is a
+# comment that happens to compile. 0007's waitlist reservation is the
+# incident -- dropped by 0012, unnoticed for seventeen migrations.
+#
+# DELIBERATELY NOT IN ci-checks. Every mutant costs a package test run, so
+# the cost scales with the change, not with the tree. Putting it in the gate
+# would add minutes to every CI run for an advisory report. Run it on a
+# branch before opening a PR, or wire it as its own CI job if that is wanted
+# later.
+#
+# ADVISORY: reports and exits 0. A surviving mutant is evidence that nothing
+# pins the guard -- not proof of a bug. Defensive checks the type system
+# already prevents, and error branches no test can provoke, survive
+# legitimately.
+#
+# IT MUTATES THE WORKING TREE, one file at a time, restoring each before the
+# next. Run it on a clean tree. The restore is deferred and tested, but a
+# killed process cannot run a defer, so `git status` is worth a glance after
+# an interrupted run.
+#
+# Tool in tools/mutationpin (covered by `make test-tools`), entry point
+# cmd/mutationpin (covered by `make test-cmd`). Added T68.
+mutation-pin:
+	go run ./cmd/mutationpin
+
 # Mints a local-development bearer token against the committed dev key
 # fixture in dev/auth/ (T14.9, issue #160), so an authenticated endpoint can
 # actually be called locally:
