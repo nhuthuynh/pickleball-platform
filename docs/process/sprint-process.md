@@ -674,6 +674,14 @@ Payments reading Social Play/Competitions state (T15.5, and again in T16) is
 the recurring shape this generalizes from; it is not expected to be the
 last one.
 
+**Where the answer is written down.** This check decides *whether* a
+dependency exists; `CLAUDE.md` rule 13 says where the answer goes — as
+`Blocked by: #N` / `Related: #N` links on the ticket itself, before
+dispatch, so the ordering survives the sprint plan that derived it. Added
+T68; before it, this check's output lived only in a sprint plan, which is
+the same "stated only in a sprint plan is not a taxonomy" gap the opening
+of this section names.
+
 ## Ceremony 2 — Sprint planning (start of sprint)
 
 The full six-role team (loading their briefs + dossiers) discusses the
