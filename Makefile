@@ -163,6 +163,28 @@ docs-index-check:
 docs-doctest:
 	go run ./cmd/docsdoctest
 
+# The standing answer to "which hand-written lines cite a migration whose
+# seeded data a later migration has since changed?"
+#
+# ADVISORY: it prints findings and ALWAYS EXITS 0. A failing gate here would
+# assert a policy nobody decided -- that citing an older migration is wrong --
+# and docs/process/t7-sprint-plan.md is the standing counter-example: it says
+# the seeded courts "have no facility until backfilled", which is accurate AND
+# anticipates 0034. Same citation shape as the two real defects, opposite truth
+# value, and no static tool can tell them apart. Follows the report-never-fail
+# decision recorded in tools/gatecoverage's Untested doc comment (#328 (b)).
+#
+# Narrow by construction: it flags a citation only when the cited migration
+# SEEDED rows (INSERT) that a higher-numbered migration later MUTATED
+# (UPDATE/DELETE). Schema drift -- a later ALTER -- is out of scope. Measured
+# at T68, that narrowing took the report from 363 findings across 141 files to
+# 45 across 34, while still catching both defects it was built from.
+#
+# Tool in tools/stalecitations (covered by `make test-tools`), entry point
+# cmd/stalecitations (covered by `make test-cmd`). Added T68.
+stale-citations:
+	go run ./cmd/stalecitations
+
 # Mints a local-development bearer token against the committed dev key
 # fixture in dev/auth/ (T14.9, issue #160), so an authenticated endpoint can
 # actually be called locally:
@@ -603,7 +625,7 @@ loadtest:
 # meta-check on the gate's own shape, not a test — running it last means its
 # report describes the set of targets that just ran, and a genuine test
 # failure surfaces before the structural complaint about coverage does.
-ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check docs-doctest lock-check binary-check dockerfile-go-version generate-client lint-web test-web build-web
+ci-checks: generate tidy fmt-check lint test-domain test-platform vet-integration test-tools test-adapters test-cmd gate-coverage docs-index-check docs-doctest stale-citations lock-check binary-check dockerfile-go-version generate-client lint-web test-web build-web
 	go build ./...
 
 # The full local gate: every check CI runs, plus the vulnerability scan.
