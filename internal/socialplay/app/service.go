@@ -1290,7 +1290,8 @@ func (s *Service) AssignGameAdmin(ctx context.Context, in AssignGameAdminInput) 
 //
 // A blank in.AdminUserID answers domain.ErrGameAdminNotFound directly, without
 // reaching the repository (T29.2). Before this ticket game_admins.user_id was
-// `text NOT NULL CHECK (user_id <> ”)`, so a blank value could never match a
+// a text column whose CHECK rejected the empty string
+// (db/migrations/0020_socialplay_game_admins.sql), so a blank could never match a
 // stored row and Revoke's own pgx.ErrNoRows -> ErrGameAdminNotFound mapping
 // answered it correctly by construction. Now that the column is
 // `uuid NOT NULL REFERENCES identity_users (id)`

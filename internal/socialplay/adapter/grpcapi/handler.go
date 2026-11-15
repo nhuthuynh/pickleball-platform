@@ -532,7 +532,8 @@ func (h *Handler) AssignGameAdmin(ctx context.Context, req *socialplayv1.AssignG
 // constructor does, so app.Service.RevokeGameAdmin itself gained a blank
 // guard (returning domain.ErrGameAdminNotFound directly, matching what a
 // blank user_id already answered pre-migration — the old text column's own
-// CHECK (user_id <> ”) meant no row could ever match one) rather than
+// CHECK rejected the empty string, so no row could ever match one; see
+// db/migrations/0020_socialplay_game_admins.sql) rather than
 // leaving this handler to invent that fallback on its own.
 func (h *Handler) RevokeGameAdmin(ctx context.Context, req *socialplayv1.RevokeGameAdminRequest) (*socialplayv1.RevokeGameAdminResponse, error) {
 	actorUserID, err := h.actor(ctx)
